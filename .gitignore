@@ -1,0 +1,15 @@
+.env
+credentials.json
+firebase-creds.json
+sheets-creds.json
+token.pickle
+.DS_Store
+*.pyc
+__pycache__/
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+connect-grow-hire/secrets/firebase-secrets.json
+secrets/
+*.json
