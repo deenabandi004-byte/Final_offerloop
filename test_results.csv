@@ -1,0 +1,7 @@
+FirstName,LastName,LinkedIn,Email,Title,Company,City,State,College
+Sarah,Johnson,https://www.linkedin.com/in/sarah-johnson,sarah.johnson@google.com,Software Engineer,Google,San Francisco,CA,University 1
+Michael,Chen,https://www.linkedin.com/in/michael-chen,michael.chen@microsoft.com,Senior Software Engineer,Microsoft,San Francisco,CA,University 2
+Jessica,Williams,https://www.linkedin.com/in/jessica-williams,jessica.williams@apple.com,Software Developer,Apple,San Francisco,CA,University 3
+David,Brown,https://www.linkedin.com/in/david-brown,david.brown@meta.com,Full Stack Engineer,Meta,San Francisco,CA,University 4
+Emily,Davis,https://www.linkedin.com/in/emily-davis,emily.davis@amazon.com,Backend Engineer,Amazon,San Francisco,CA,University 5
+James,Miller,https://www.linkedin.com/in/james-miller,james.miller@netflix.com,Frontend Engineer,Netflix,San Francisco,CA,University 6
