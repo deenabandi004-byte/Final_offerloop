@@ -6,3 +6,5 @@ google-auth
 google-auth-oauthlib
 google-auth-httplib2
 openai>=1.54.0,<2.0.0
+stripe>=6.7.0
+PyPDF2==3.0.1
