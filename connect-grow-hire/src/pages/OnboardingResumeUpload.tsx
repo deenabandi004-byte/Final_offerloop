@@ -43,7 +43,11 @@ const OnboardingResumeUpload = () => {
       const formData = new FormData();
       formData.append('resume', selectedFile);
 
-      const response = await fetch('http://localhost:5001/api/parse-resume', {
+      const API_URL = window.location.hostname === 'localhost' 
+        ? 'http://localhost:5001' 
+        : 'https://www.offerloop.ai';
+
+      const response = await fetch(`${API_URL}/api/parse-resume`, {
         method: 'POST',
         body: formData,
       });
@@ -80,12 +84,23 @@ const OnboardingResumeUpload = () => {
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
-      setError(errorMessage);
-      toast({
-        title: "Upload Failed",
-        description: errorMessage,
-        variant: "destructive",
-      });
+      
+      // Check if it's a network/connection error
+      if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')) {
+        setError('Resume parsing service is temporarily unavailable. You can skip this step and fill in the forms manually.');
+        toast({
+          title: "Service Unavailable",
+          description: "Resume parsing is currently offline. Please skip and continue manually.",
+          variant: "destructive",
+        });
+      } else {
+        setError(errorMessage);
+        toast({
+          title: "Upload Failed",
+          description: errorMessage,
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsUploading(false);
     }
