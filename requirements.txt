@@ -1,3 +1,4 @@
+cat > requirements.txt << 'EOF'
 Flask
 Flask-CORS==4.0.0
 requests
@@ -10,4 +11,5 @@ openai>=1.54.0,<2.0.0
 stripe>=6.7.0
 PyPDF2==3.0.1
 python-dotenv==1.0.0
-gunicorn==21.2.0# Updated dependencies
+gunicorn==21.2.0
+EOF
