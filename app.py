@@ -3802,22 +3802,29 @@ def stripe_webhook():
         
     return jsonify({'status': 'success'})
 
-# Frontend routes
-@app.route('/')
-def serve_frontend():
-    """Serve the React frontend homepage"""
-    try:
-        return send_from_directory('connect-grow-hire/dist', 'index.html')
-    except:
-        return "RecruitEdge API Server Running with Interesting Emails - Frontend not found"
 
+# Frontend routes - IMPROVED VERSION
+@app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
-def serve_static_files(path):
-    """Serve static frontend files"""
-    try:
-        return send_from_directory('connect-grow-hire/dist', path)
-    except FileNotFoundError:
-        return send_from_directory('connect-grow-hire/dist', 'index.html')
+def serve(path):
+    """Serve React app - handles client-side routing"""
+    # Skip API routes
+    if path.startswith('api/'):
+        return jsonify({'error': 'API endpoint not found'}), 404
+    
+    static_folder = 'connect-grow-hire/dist'
+    
+    # First, try to serve the exact file if it exists
+    full_path = os.path.join(static_folder, path)
+    if path and os.path.exists(full_path) and os.path.isfile(full_path):
+        return send_from_directory(static_folder, path)
+    
+    # For all other routes, serve index.html and let React Router handle it
+    index_path = os.path.join(static_folder, 'index.html')
+    if os.path.exists(index_path):
+        return send_from_directory(static_folder, 'index.html')
+    else:
+        return "Frontend not found - Please build your React app", 404
 
 # Error handlers
 @app.errorhandler(404)
