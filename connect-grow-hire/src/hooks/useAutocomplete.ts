@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import useDebounce from './use-debounce';
 
-const BACKEND_URL = 'http://localhost:5001';
+const BACKEND_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:5001' 
+  : 'https://www.offerloop.ai';
 
 export const useAutocomplete = (dataType: string, query: string, enabled = true) => {
   const [suggestions, setSuggestions] = useState<string[]>([]);

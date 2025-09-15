@@ -34,7 +34,10 @@ const Pricing = () => {
 
       const token = await firebaseUser.getIdToken();
       
-      const response = await fetch('http://localhost:5001/api/create-checkout-session', {
+      const API_URL = window.location.hostname === 'localhost' 
+       ? 'http://localhost:5001' 
+       : 'https://www.offerloop.ai';
+       const response = await fetch(`${API_URL}/api/create-checkout-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
