@@ -11,7 +11,7 @@ import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 
 export default function AccountSettings() {
   const navigate = useNavigate();
-const { user } = useFirebaseAuth();
+  const { user } = useFirebaseAuth();
   
   // State for form data populated from onboarding
   const [personalInfo, setPersonalInfo] = useState({
@@ -84,7 +84,12 @@ const { user } = useFirebaseAuth();
       const formData = new FormData();
       formData.append('resume', file);
 
-      const response = await fetch('http://localhost:5001/api/parse-resume', {
+      const API_URL = window.location.hostname === 'localhost' 
+        ? 'http://localhost:5001' 
+        : 'https://www.offerloop.ai';
+
+      // ✅ FIX: close options object and actually send formData
+      const response = await fetch(`${API_URL}/api/parse-resume`, {
         method: 'POST',
         body: formData,
       });

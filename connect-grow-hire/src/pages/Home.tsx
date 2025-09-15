@@ -19,7 +19,9 @@ import { firebaseApi } from '../services/firebaseApi';
 import { useFirebaseMigration } from '../hooks/useFirebaseMigration';
 import { apiService } from "@/services/api";
 
-const BACKEND_URL = 'http://localhost:5001';
+const BACKEND_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:5001' 
+  : 'https://www.offerloop.ai';
 
 // UPDATED: Two tiers only - Free and Pro
 const TIER_CONFIGS = {

@@ -1,8 +1,9 @@
 // src/services/api.ts
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
-  `${window.location.protocol}//${window.location.hostname}:5001/api`;
-
+  (window.location.hostname === 'localhost' 
+    ? 'http://localhost:5001/api'
+    : 'https://www.offerloop.ai/api');
 export interface UserProfile {
   name?: string;
   university?: string;
