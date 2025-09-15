@@ -574,52 +574,76 @@ def determine_location_strategy(location_input):
 # ========================================
 
 def search_contacts_with_smart_location_strategy(job_title, company, location, max_contacts=8):
-    """Enhanced search that filters for valid emails"""
+    """Enhanced search that intelligently chooses metro vs locality based on location input"""
     try:
         print(f"Starting smart location search for {job_title} at {company} in {location}")
         
-        # Your existing enrichment and search code...
+        # Step 1: Enrich job title
+        job_title_enrichment = enrich_job_title_with_pdl(job_title)
+        primary_title = job_title_enrichment['cleaned_name']
+        similar_titles = job_title_enrichment['similar_titles'][:3]
         
-        # Step 4: Execute search (get extra contacts to account for filtering)
-        raw_contacts = []
-        search_multiplier = 3  # Get 3x contacts to filter
+        # Step 2: Clean company
+        cleaned_company = clean_company_name(company) if company else ''
+        
+        # Step 3: Clean and analyze location
+        cleaned_location = clean_location_name(location)
+        location_strategy = determine_location_strategy(cleaned_location)
+        
+        print(f"Location strategy: {location_strategy['strategy']}")
+        if location_strategy['matched_metro']:
+            print(f"Matched metro: {location_strategy['matched_metro']} -> {location_strategy['metro_location']}")
+        
+        # Step 4: Execute search based on determined strategy
+        contacts = []
         
         if location_strategy['strategy'] == 'metro_primary':
-            raw_contacts = try_metro_search_optimized(
+            # Use metro search for major metro areas
+            contacts = try_metro_search_optimized(
                 primary_title, similar_titles, cleaned_company,
-                location_strategy, max_contacts * search_multiplier
+                location_strategy, max_contacts
             )
-        else:
-            raw_contacts = try_locality_search_optimized(
-                primary_title, similar_titles, cleaned_company,
-                location_strategy, max_contacts * search_multiplier
-            )
-        
-        # FILTER FOR VALID EMAILS
-        contacts_with_emails = []
-        for contact in raw_contacts:
-            # Check for valid email
-            has_valid_email = False
-            for email_field in ['Email', 'PersonalEmail', 'WorkEmail']:
-                email = contact.get(email_field, '')
-                if email and '@' in email and '.' in email.split('@')[1]:
-                    # Skip obvious placeholders
-                    if not any(placeholder in email.lower() for placeholder in ['@domain.com', '@example.com', 'noreply@']):
-                        has_valid_email = True
-                        break
             
-            if has_valid_email:
-                contacts_with_emails.append(contact)
-                if len(contacts_with_emails) >= max_contacts:
-                    break
+            # If metro results are insufficient, add locality results
+            if len(contacts) < max_contacts // 2:
+                print(f"Metro results insufficient ({len(contacts)}), adding locality results")
+                locality_contacts = try_locality_search_optimized(
+                    primary_title, similar_titles, cleaned_company,
+                    location_strategy, max_contacts - len(contacts)
+                )
+                contacts.extend([c for c in locality_contacts if c not in contacts])
         
-        print(f"Filtered {len(raw_contacts)} contacts to {len(contacts_with_emails)} with valid emails")
-        return contacts_with_emails[:max_contacts]
+        else:
+            # Use locality search for non-metro areas
+            contacts = try_locality_search_optimized(
+                primary_title, similar_titles, cleaned_company,
+                location_strategy, max_contacts
+            )
+            
+            # If locality results are insufficient, try broader search
+            if len(contacts) < max_contacts // 2:
+                print(f"Locality results insufficient ({len(contacts)}), trying broader search")
+                broader_contacts = try_job_title_levels_search_enhanced(
+                    job_title_enrichment, cleaned_company,
+                    location_strategy['city'], location_strategy['state'],
+                    max_contacts - len(contacts)
+                )
+                contacts.extend([c for c in broader_contacts if c not in contacts])
+        
+        # LOG FINAL RESULTS
+        if len(contacts) == 0:
+            print(f"WARNING: No contacts found with valid emails for {job_title} in {location}")
+            print(f"Search parameters: title='{primary_title}', company='{cleaned_company}', location='{cleaned_location}'")
+        else:
+            print(f"Smart location search completed: {len(contacts)} contacts found with valid emails")
+        
+        return contacts[:max_contacts]
         
     except Exception as e:
         print(f"Smart location search failed: {e}")
+        import traceback
+        traceback.print_exc()
         return []
-
 def try_metro_search_optimized(primary_title, similar_titles, company, location_strategy, max_contacts):
     """Fixed metro search - removes invalid minimum_should_match"""
     try:
