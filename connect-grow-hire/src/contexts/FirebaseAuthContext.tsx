@@ -38,6 +38,8 @@ interface AuthContextType {
   signIn: () => Promise<void>;
   signOut: () => void;
   updateUser: (updates: Partial<User>) => Promise<void>;
+  updateCredits: (newCredits: number) => Promise<void>;  // Add this
+  checkCredits: () => Promise<number>;  // Add this
   completeOnboarding: (onboardingData: any) => Promise<void>;
   isLoading: boolean;
 }
@@ -75,12 +77,10 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
 
   const loadUserData = async (firebaseUser: FirebaseUser) => {
     try {
-      // Check if user exists in Firestore
       const userDocRef = doc(db, 'users', firebaseUser.uid);
       const userDoc = await getDoc(userDocRef);
       
       if (userDoc.exists()) {
-        // User exists - load their data
         const userData = userDoc.data();
         const user: User = {
           uid: firebaseUser.uid,
@@ -92,12 +92,11 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
           maxCredits: userData.maxCredits || initialCreditsByTier(userData.tier || 'free'),
           emailsMonthKey: userData.emailsMonthKey || getMonthKey(),
           emailsUsedThisMonth: userData.emailsUsedThisMonth || 0,
-          needsOnboarding: false, // Existing user doesn't need onboarding
+          needsOnboarding: false,
         };
         setUser(user);
         console.log('Existing user loaded:', user);
       } else {
-        // New user - needs onboarding
         console.log('New user detected, needs onboarding');
         const newUser: User = {
           uid: firebaseUser.uid,
@@ -109,7 +108,7 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
           maxCredits: 0,
           emailsMonthKey: getMonthKey(),
           emailsUsedThisMonth: 0,
-          needsOnboarding: true, // New user needs onboarding
+          needsOnboarding: true,
         };
         setUser(newUser);
       }
@@ -123,10 +122,6 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
     try {
       setIsLoading(true);
       const provider = new GoogleAuthProvider();
-      // Remove Gmail scopes - no longer needed
-      // provider.addScope('https://www.googleapis.com/auth/gmail.compose');
-      // provider.addScope('https://www.googleapis.com/auth/gmail.modify');
-      
       const result = await signInWithPopup(auth, provider);
       console.log('Authentication successful:', result.user.email);
     } catch (error) {
@@ -162,6 +157,45 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
     }
   };
 
+  const updateCredits = async (newCredits: number) => {
+    if (user) {
+      try {
+        const userDocRef = doc(db, 'users', user.uid);
+        await updateDoc(userDocRef, { credits: newCredits });
+        setUser({ ...user, credits: newCredits });
+        console.log(`Credits updated to ${newCredits}`);
+      } catch (error) {
+        console.error('Error updating credits:', error);
+        throw error;
+      }
+    }
+  };
+
+  const checkCredits = async (): Promise<number> => {
+    if (!user) return 0;
+    
+    try {
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userDocRef);
+      
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        const credits = data.credits || 0;
+        
+        // Update local state if different
+        if (credits !== user.credits) {
+          setUser({ ...user, credits });
+        }
+        
+        return credits;
+      }
+      return 0;
+    } catch (error) {
+      console.error('Error checking credits:', error);
+      return user.credits || 0;
+    }
+  };
+
   const completeOnboarding = async (onboardingData: any) => {
     if (user) {
       try {
@@ -183,7 +217,6 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
         
         await setDoc(userDocRef, userData);
         
-        // Update local user state
         setUser({
           ...user,
           ...userData,
@@ -202,7 +235,9 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
       user, 
       signIn, 
       signOut, 
-      updateUser, 
+      updateUser,
+      updateCredits,  // Add this
+      checkCredits,   // Add this
       completeOnboarding, 
       isLoading 
     }}>

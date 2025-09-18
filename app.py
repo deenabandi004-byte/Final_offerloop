@@ -2702,11 +2702,84 @@ def run_free_tier_enhanced_final(job_title, company, location, user_email=None, 
     print(f"  user_email: {user_email}")
     
     try:
-        contacts = search_contacts_with_smart_location_strategy(job_title, company, location, max_contacts=8)
+        # GET USER ID FROM REQUEST CONTEXT
+        user_id = None
+        if hasattr(request, 'firebase_user'):
+            user_id = request.firebase_user.get('uid')
+            print(f"Using Firebase user ID: {user_id}")
+        
+        # CHECK USER CREDITS BEFORE SEARCHING
+        credits_available = 120  # Default for free tier
+        if db and user_id:
+            try:
+                # Use user ID for document reference
+                user_ref = db.collection('users').document(user_id)
+                user_doc = user_ref.get()
+                
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+                    credits_available = user_data.get('credits', 120)
+                    
+                    # Check if user has enough credits (minimum 15 for 1 contact)
+                    if credits_available < 15:
+                        print(f"Insufficient credits: {credits_available} < 15 minimum")
+                        return {
+                            'error': 'Insufficient credits. You need at least 15 credits to search.',
+                            'credits_needed': 15,
+                            'current_credits': credits_available,
+                            'contacts': []
+                        }
+                    
+                    print(f"User has {credits_available} credits available")
+                else:
+                    # Create new user document with default credits using user ID
+                    user_ref.set({
+                        'uid': user_id,
+                        'email': user_email,
+                        'credits': 120,
+                        'maxCredits': 120,
+                        'tier': 'free',
+                        'created_at': datetime.datetime.now()
+                    })
+                    print(f"Created new user document with ID {user_id} and 120 credits")
+            except Exception as credit_check_error:
+                print(f"Credit check error: {credit_check_error}")
+                # Continue without credit checking if Firebase fails
+        
+        # Calculate max contacts based on available credits
+        max_contacts_by_credits = min(8, credits_available // 15)
+        print(f"Max contacts by credits: {max_contacts_by_credits} (based on {credits_available} credits)")
+        
+        # SEARCH FOR CONTACTS
+        contacts = search_contacts_with_smart_location_strategy(
+            job_title, company, location,
+            max_contacts=max_contacts_by_credits
+        )
         
         if not contacts:
             print("No contacts found for Free tier")
             return {'error': 'No contacts found', 'contacts': []}
+        
+        # DEDUCT CREDITS BASED ON ACTUAL CONTACTS FOUND
+        credits_to_deduct = len(contacts) * 15
+        new_credits_balance = credits_available - credits_to_deduct
+        
+        # UPDATE CREDITS IN FIREBASE USING USER ID
+        if db and user_id:
+            try:
+                user_ref = db.collection('users').document(user_id)
+                user_ref.update({
+                    'credits': new_credits_balance,
+                    'last_search': datetime.datetime.now(),
+                    'last_search_job_title': job_title,
+                    'last_search_company': company,
+                    'last_search_location': location,
+                    'last_search_contacts': len(contacts),
+                    'last_search_credits_used': credits_to_deduct
+                })
+                print(f"Deducted {credits_to_deduct} credits for {len(contacts)} contacts. New balance: {new_credits_balance}")
+            except Exception as credit_update_error:
+                print(f"Failed to update credits for user ID {user_id}: {credit_update_error}")
         
         # Add hometown extraction for Free tier
         for contact in contacts:
@@ -2716,23 +2789,15 @@ def run_free_tier_enhanced_final(job_title, company, location, user_email=None, 
         # Generate identical quality emails using unified system
         successful_drafts = 0
         for contact in contacts:
-            # ADD DEBUG HERE TOO:
             print(f"DEBUG - Generating email for {contact.get('FirstName', 'Unknown')}")
-            print(f"DEBUG - User profile being passed: {user_profile}")
-            print(f"DEBUG - Career interests being passed: {career_interests}")
             
-            # FIXED: Remove tier parameter and add career_interests
+            # Generate personalized email
             email_subject, email_body = generate_email_for_both_tiers(
                 contact,
                 resume_text=resume_text,
                 user_profile=user_profile,
                 career_interests=career_interests
             )
-            
-            # ADD DEBUG FOR GENERATED EMAIL:
-            print(f"DEBUG - Generated email:")
-            print(f"  Subject: {email_subject}")
-            print(f"  Body preview: {email_body[:100]}...")
             
             contact['email_subject'] = email_subject
             contact['email_body'] = email_body
@@ -2743,7 +2808,7 @@ def run_free_tier_enhanced_final(job_title, company, location, user_email=None, 
             if not str(draft_id).startswith('mock_'):
                 successful_drafts += 1
         
-        # Filter to Free fields only (including Hometown)
+        # Filter to Free fields only (including email data)
         free_contacts = []
         for c in contacts:
             free_contact = {k: v for k, v in c.items() if k in TIER_CONFIGS['free']['fields']}
@@ -2751,30 +2816,23 @@ def run_free_tier_enhanced_final(job_title, company, location, user_email=None, 
             free_contact['email_body'] = c.get('email_body','')
             free_contacts.append(free_contact)
         
-        # CSV generation
-        csv_file = StringIO()
-        fieldnames = TIER_CONFIGS['free']['fields'] + ['email_subject','email_body']
-        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in free_contacts:
-            writer.writerow(row)
-        
-        csv_filename = f"RecruitEdge_Free_Final_{(user_email or 'user').split('@')[0]}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        with open(csv_filename, 'w', encoding='utf-8', newline='') as f:
-            f.write(csv_file.getvalue())
-        
         print(f"Free tier completed for {user_email}: {len(free_contacts)} contacts, {successful_drafts} Gmail drafts")
+        
+        # RETURN WITH CREDIT INFO (NO CSV FILE)
         return {
-            'contacts': free_contacts, 
-            'csv_file': csv_filename, 
-            'successful_drafts': successful_drafts, 
-            'tier': 'free', 
-            'user_email': user_email
+            'contacts': free_contacts,
+            'successful_drafts': successful_drafts,
+            'tier': 'free',
+            'user_email': user_email,
+            'user_id': user_id,
+            'credits_used': credits_to_deduct,
+            'credits_remaining': new_credits_balance,
+            'total_contacts': len(contacts)
         }
         
     except Exception as e:
         print(f"Free tier failed for {user_email}: {e}")
-        traceback.print_exc()  # Add this for full error details
+        traceback.print_exc()
         return {'error': str(e), 'contacts': []}
 
 # ========================================
@@ -2944,6 +3002,48 @@ def run_pro_tier_enhanced_final(job_title, company, location, resume_file, user_
     print(f"Running PRO tier workflow with new email system for {user_email}")
     
     try:
+        # GET USER ID FROM REQUEST CONTEXT
+        user_id = None
+        if hasattr(request, 'firebase_user'):
+            user_id = request.firebase_user.get('uid')
+            print(f"Using Firebase user ID: {user_id}")
+        
+        # CHECK USER CREDITS BEFORE SEARCHING
+        credits_available = 840  # Default for pro tier
+        if db and user_id:
+            try:
+                user_ref = db.collection('users').document(user_id)
+                user_doc = user_ref.get()
+                
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+                    credits_available = user_data.get('credits', 840)
+                    tier = user_data.get('tier', 'free')
+                    
+                    # Verify user is Pro tier
+                    if tier != 'pro':
+                        return {'error': 'Pro tier subscription required', 'contacts': []}
+                    
+                    # Check credits (minimum 15 for 1 contact)
+                    if credits_available < 15:
+                        return {
+                            'error': 'Insufficient credits. Please contact support for additional credits.',
+                            'credits_needed': 15,
+                            'current_credits': credits_available,
+                            'contacts': []
+                        }
+                    
+                    print(f"Pro user has {credits_available} credits available")
+                else:
+                    return {'error': 'User not found. Pro subscription required.', 'contacts': []}
+            except Exception as credit_check_error:
+                print(f"Credit check error: {credit_check_error}")
+                return {'error': 'Unable to verify Pro subscription', 'contacts': []}
+        
+        # Calculate max contacts based on credits
+        max_contacts_by_credits = min(56, credits_available // 15)
+        print(f"Max contacts by credits: {max_contacts_by_credits} (based on {credits_available} credits)")
+        
         # Step 1: Extract and parse resume
         resume_text = extract_text_from_pdf(resume_file)
         if not resume_text:
@@ -2952,15 +3052,41 @@ def run_pro_tier_enhanced_final(job_title, company, location, resume_file, user_
         print(f"DEBUG - PRO tier input data:")
         print(f"  resume_text length: {len(resume_text)}")
         print(f"  user_profile: {user_profile}")
-        print(f"  career_interests: {career_interests}")  # Add this debug line
+        print(f"  career_interests: {career_interests}")
         print(f"  user_email: {user_email}")
         
-        # Step 2: PDL Search for up to 56 contacts (includes all enrichment)
-        contacts = search_contacts_with_smart_location_strategy(job_title, company, location, max_contacts=56)
+        # Step 2: PDL Search for contacts (limited by credits)
+        contacts = search_contacts_with_smart_location_strategy(
+            job_title, company, location,
+            max_contacts=max_contacts_by_credits
+        )
         
         if not contacts:
             print("No contacts found for Pro tier")
             return {'error': 'No contacts found', 'contacts': []}
+        
+        # DEDUCT CREDITS BASED ON ACTUAL CONTACTS FOUND
+        credits_to_deduct = len(contacts) * 15
+        new_credits_balance = credits_available - credits_to_deduct
+        
+        # UPDATE CREDITS IN FIREBASE
+        if db and user_id:
+            try:
+                user_ref = db.collection('users').document(user_id)
+                user_ref.update({
+                    'credits': new_credits_balance,
+                    'last_search': datetime.datetime.now(),
+                    'last_search_job_title': job_title,
+                    'last_search_company': company,
+                    'last_search_location': location,
+                    'last_search_contacts': len(contacts),
+                    'last_search_credits_used': credits_to_deduct,
+                    'tier': 'pro'  # Ensure tier stays pro
+                })
+                print(f"Pro tier: Deducted {credits_to_deduct} credits for {len(contacts)} contacts. New balance: {new_credits_balance}")
+            except Exception as credit_update_error:
+                print(f"Failed to update credits for user ID {user_id}: {credit_update_error}")
+                # Continue even if credit update fails
         
         # Step 3: Generate similarities and hometowns for each contact
         for contact in contacts:
@@ -2983,20 +3109,14 @@ def run_pro_tier_enhanced_final(job_title, company, location, resume_file, user_
         successful_drafts = 0
         for contact in contacts:
             print(f"DEBUG - Generating PRO email for {contact.get('FirstName', 'Unknown')}")
-            print(f"DEBUG - User profile being passed: {user_profile}")
-            print(f"DEBUG - Career interests being passed: {career_interests}")  # Add this debug line
             
-            # FIXED: Use the correct function call with career_interests
+            # Generate personalized email
             email_subject, email_body = generate_email_for_both_tiers(
                 contact,
                 resume_text=resume_text,
                 user_profile=user_profile,
-                career_interests=career_interests  # Add this parameter
+                career_interests=career_interests
             )
-            
-            print(f"DEBUG - Generated PRO email:")
-            print(f"  Subject: {email_subject}")
-            print(f"  Body preview: {email_body[:100]}...")
             
             contact['email_subject'] = email_subject
             contact['email_body'] = email_body
@@ -3015,26 +3135,18 @@ def run_pro_tier_enhanced_final(job_title, company, location, resume_file, user_
             pro_contact['email_body'] = c.get('email_body','')
             pro_contacts.append(pro_contact)
         
-        # Step 6: Generate CSV
-        csv_file = StringIO()
-        fieldnames = TIER_CONFIGS['pro']['fields'] + ['email_subject','email_body']
-        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in pro_contacts:
-            writer.writerow(row)
-        
-        csv_filename = f"RecruitEdge_Pro_Final_{(user_email or 'user').split('@')[0]}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        with open(csv_filename, 'w', encoding='utf-8', newline='') as f:
-            f.write(csv_file.getvalue())
-        
         print(f"Pro tier completed for {user_email}: {len(pro_contacts)} contacts, {successful_drafts} Gmail drafts")
         
+        # RETURN WITH CREDIT INFO (NO CSV FILE)
         return {
-            'contacts': pro_contacts, 
-            'csv_file': csv_filename, 
-            'successful_drafts': successful_drafts, 
-            'tier': 'pro', 
-            'user_email': user_email
+            'contacts': pro_contacts,
+            'successful_drafts': successful_drafts,
+            'tier': 'pro',
+            'user_email': user_email,
+            'user_id': user_id,
+            'credits_used': credits_to_deduct,
+            'credits_remaining': new_credits_balance,
+            'total_contacts': len(contacts)
         }
         
     except Exception as e:
@@ -3079,6 +3191,62 @@ def get_tier_info():
             }
         }
     })
+@app.route('/api/check-credits', methods=['GET'])
+@require_firebase_auth
+def check_credits():
+    """Check user's current credits"""
+    try:
+        user_email = request.firebase_user.get('email')
+        user_id = request.firebase_user.get('uid')
+        
+        if db and user_id:
+            # Try using user ID first (more reliable)
+            user_ref = db.collection('users').document(user_id)
+            user_doc = user_ref.get()
+            
+            if not user_doc.exists and user_email:
+                # Fallback to email-based lookup
+                user_ref = db.collection('users').document(user_email.replace('@', '_at_'))
+                user_doc = user_ref.get()
+            
+            if user_doc.exists:
+                user_data = user_doc.to_dict()
+                credits = user_data.get('credits', 0)
+                max_credits = user_data.get('maxCredits', 120)
+                tier = user_data.get('tier', 'free')
+                
+                # Calculate searches remaining
+                searches_remaining = credits // 15
+                
+                return jsonify({
+                    'credits': credits,
+                    'max_credits': max_credits,
+                    'searches_remaining': searches_remaining,
+                    'tier': tier,
+                    'user_email': user_email
+                })
+            else:
+                # User doesn't exist yet - return default free tier credits
+                return jsonify({
+                    'credits': 120,
+                    'max_credits': 120,
+                    'searches_remaining': 8,
+                    'tier': 'free',
+                    'user_email': user_email
+                })
+        
+        # If no Firebase, return defaults
+        return jsonify({
+            'credits': 0,
+            'max_credits': 120,
+            'searches_remaining': 0,
+            'tier': 'free',
+            'user_email': user_email
+        })
+        
+    except Exception as e:
+        print(f"Check credits error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/directory/contacts', methods=['GET'])
 @require_firebase_auth

@@ -17,7 +17,7 @@ import LockedFeatureOverlay from "@/components/LockedFeatureOverlay";
 import { useFirebaseAuth } from '../contexts/FirebaseAuthContext';
 import { firebaseApi } from '../services/firebaseApi';
 import { useFirebaseMigration } from '../hooks/useFirebaseMigration';
-import { apiService } from "@/services/api";
+import { apiService, isErrorResponse } from "@/services/api";
 
 const BACKEND_URL = window.location.hostname === 'localhost' 
   ? 'http://localhost:5001' 
@@ -48,7 +48,8 @@ const TIER_CONFIGS = {
 };
 
 const Home = () => {
-  const { user: firebaseUser, updateUser } = useFirebaseAuth();
+  // Move the hook calls INSIDE the component
+  const { user: firebaseUser, updateUser, updateCredits, checkCredits } = useFirebaseAuth();
   const { migrationComplete } = useFirebaseMigration();
   
   const currentUser = firebaseUser;
@@ -78,7 +79,7 @@ const Home = () => {
     maxCredits: 0,
     name: 'User',
     email: 'user@example.com',
-    tier: 'free'
+    tier: 'free' as const
   };
   
   // UPDATED: Default to 'free' tier
@@ -104,6 +105,13 @@ const Home = () => {
   const hasResults = lastResults.length > 0;
 
   const currentTierConfig = TIER_CONFIGS[userTier];
+
+  // Add credit refresh on mount
+  useEffect(() => {
+    if (firebaseUser && checkCredits) {
+      checkCredits();
+    }
+  }, [firebaseUser]);
 
   // NEW: Function to retrieve user profile data from onboarding
   const getUserProfileData = async () => {
@@ -206,7 +214,7 @@ const Home = () => {
           variant: "destructive"
         });
       });
-  }, []);
+  }, [toast]);
 
   const handleSearch = async () => {
     if (!jobTitle.trim() || !location.trim()) {
@@ -226,6 +234,18 @@ const Home = () => {
         variant: "destructive"
       });
       navigate('/signin');
+      return;
+    }
+
+    // Check credits before searching
+    const currentCredits = await checkCredits();
+    
+    if (currentCredits < 15) {
+      toast({
+        title: "Insufficient Credits",
+        description: `You have ${currentCredits} credits. You need at least 15 credits to search.`,
+        variant: "destructive"
+      });
       return;
     }
 
@@ -269,14 +289,40 @@ const Home = () => {
         // Get JSON response with emails included
         const result = await apiService.runFreeSearch(searchRequest);
         
+        // Check if it's an error response
+        if (isErrorResponse(result)) {
+          if (result.error.includes('Insufficient credits')) {
+            toast({
+              title: "Insufficient Credits",
+              description: result.error,
+              variant: "destructive"
+            });
+            await checkCredits(); // Refresh credit display
+            return;
+          }
+          // Handle other errors
+          toast({
+            title: "Search Failed",
+            description: result.error,
+            variant: "destructive"
+          });
+          return;
+        }
+        
+        // Now TypeScript knows result is SearchResponse
+        // Update credits based on contacts found
+        const creditsUsed = result.contacts.length * 15;
+        const newCredits = Math.max(0, currentCredits - creditsUsed);
+        await updateCredits(newCredits);
+        
         // Set results with email data included
         setLastResults(result.contacts);
         console.log('=== SEARCH RESULTS EMAIL DEBUG ===');
         result.contacts.forEach((contact, index) => {
-        console.log(`Result ${index + 1}: ${contact.FirstName} ${contact.LastName}`);
-        console.log('  email_subject:', contact.email_subject);
-        console.log('  email_body:', contact.email_body ? contact.email_body.substring(0, 100) + '...' : 'null');
-        console.log('---');
+          console.log(`Result ${index + 1}: ${contact.FirstName} ${contact.LastName}`);
+          console.log('  email_subject:', contact.email_subject);
+          console.log('  email_body:', contact.email_body ? contact.email_body.substring(0, 100) + '...' : 'null');
+          console.log('---');
         });
         console.log('=== END SEARCH DEBUG ===');
         setLastResultsTier('free');
@@ -290,13 +336,13 @@ const Home = () => {
           const saveResult = await autoSaveToDirectory(result.contacts);
           toast({
             title: "Search Complete!",
-            description: `Found ${result.contacts.length} contacts with personalized emails. Generated ${result.successful_drafts} Gmail drafts. Saved ${saveResult.created} to Contact Library (${saveResult.skipped} duplicates skipped).`
+            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.`
           });
         } catch (saveError) {
           // Show success but warn about save failure
           toast({
             title: "Search Complete!",
-            description: `Found ${result.contacts.length} contacts with personalized emails. Generated ${result.successful_drafts} Gmail drafts. (Warning: Failed to save to Contact Library)`,
+            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. (Warning: Failed to save to Contact Library)`,
             variant: "destructive"
           });
         }
@@ -317,6 +363,31 @@ const Home = () => {
         // Get JSON response with emails included
         const result = await apiService.runProSearch(proRequest);
         
+        // Check if it's an error response
+        if (isErrorResponse(result)) {
+          if (result.error.includes('Insufficient credits')) {
+            toast({
+              title: "Insufficient Credits",
+              description: result.error,
+              variant: "destructive"
+            });
+            await checkCredits(); // Refresh credit display
+            return;
+          }
+          // Handle other errors
+          toast({
+            title: "Search Failed",
+            description: result.error,
+            variant: "destructive"
+          });
+          return;
+        }
+        
+        // Update credits based on contacts found
+        const creditsUsed = result.contacts.length * 15;
+        const newCredits = Math.max(0, currentCredits - creditsUsed);
+        await updateCredits(newCredits);
+        
         // Set results with email data included
         setLastResults(result.contacts);
         setLastResultsTier('pro');
@@ -330,21 +401,17 @@ const Home = () => {
           const saveResult = await autoSaveToDirectory(result.contacts);
           toast({
             title: "Search Complete!",
-            description: `Found ${result.contacts.length} contacts with personalized emails. Generated ${result.successful_drafts} Gmail drafts. Saved ${saveResult.created} to Contact Library (${saveResult.skipped} duplicates skipped).`
+            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.`
           });
         } catch (saveError) {
           // Show success but warn about save failure
           toast({
             title: "Search Complete!",
-            description: `Found ${result.contacts.length} contacts with personalized emails. Generated ${result.successful_drafts} Gmail drafts. (Warning: Failed to save to Contact Library)`,
+            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. (Warning: Failed to save to Contact Library)`,
             variant: "destructive"
           });
         }
       }
-      
-      // Deduct credits using Firebase updateUser
-      const newCredits = Math.max(0, effectiveUser.credits - currentTierConfig.credits);
-      await updateUser({ credits: newCredits });
       
     } catch (error) {
       console.error('Search failed:', error);
@@ -358,7 +425,6 @@ const Home = () => {
       setProgressValue(0);
     }
   };
-
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && file.type === 'application/pdf') {
@@ -422,6 +488,13 @@ const Home = () => {
       title: "Job Title Updated",
       description: `Set job title to "${suggestedTitle}"`,
     });
+  };
+
+  const searchButtonText = () => {
+    if (isSearching) return 'Searching...';
+    if (effectiveUser.credits < 15) return `Need ${15 - effectiveUser.credits} more credits`;
+    const maxContacts = Math.min(currentTierConfig.maxContacts, Math.floor(effectiveUser.credits / 15));
+    return `Search ${currentTierConfig.name} (Uses ~${maxContacts * 15} credits)`;
   };
 
   return (
@@ -629,15 +702,15 @@ const Home = () => {
                         </div>
                       )}
 
-                      {/* Search Button - UPDATED: Removed CSV download prompt and Save to Directory button */}
+                      {/* Search Button - Updated with credit checking */}
                       <div className="flex items-center justify-between">
                         <Button 
                           onClick={handleSearch}
-                          disabled={!jobTitle.trim() || !location.trim() || isSearching || (userTier === 'pro' && !uploadedFile)}
+                          disabled={!jobTitle.trim() || !location.trim() || isSearching || (userTier === 'pro' && !uploadedFile) || effectiveUser.credits < 15}
                           size="lg"
                           className="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white font-medium px-8 transition-all hover:scale-105"
                         >
-                          {isSearching ? 'Searching...' : `Search ${currentTierConfig.name} Tier (${currentTierConfig.credits} credits)`}
+                          {searchButtonText()}
                         </Button>
                         
                         <div className="flex items-center gap-4">
@@ -662,7 +735,6 @@ const Home = () => {
                           </div>
                         </div>
                       )}
-
 
                     </CardContent>
                   </Card>
