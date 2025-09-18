@@ -491,13 +491,6 @@ const Home = () => {
     });
   };
 
-  const searchButtonText = () => {
-    if (isSearching) return 'Searching...';
-    if (effectiveUser.credits < 15) return `Need ${15 - effectiveUser.credits} more credits`;
-    const maxContacts = Math.min(currentTierConfig.maxContacts, Math.floor(effectiveUser.credits / 15));
-    return `Search ${currentTierConfig.name} (Uses ~${maxContacts * 15} credits)`;
-  };
-
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full bg-gray-900 text-white">
@@ -575,9 +568,11 @@ const Home = () => {
                     {userTier === 'pro' && <Crown className="h-5 w-5 text-yellow-400" />}
                     <h2 className="text-2xl font-bold text-white">{currentTierConfig.name}</h2>
                   </div>
-                  <Badge className="bg-gradient-to-r from-pink-500 to-purple-500 text-white border-0">
-                    {currentTierConfig.credits} credits
-                  </Badge>
+                  <CreditPill
+                    credits={effectiveUser.credits ?? 0}
+                    max={effectiveUser.maxCredits ?? 120}
+                  />
+
                 </div>
                 
                 <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
@@ -699,24 +694,48 @@ const Home = () => {
                         </div>
                       )}
 
-                      {/* Search Button - Updated with credit checking */}
                       <div className="flex items-center justify-between">
-                        <Button 
+                      <div>
+                        <Button
                           onClick={handleSearch}
-                          disabled={!jobTitle.trim() || !location.trim() || isSearching || (userTier === 'pro' && !uploadedFile) || effectiveUser.credits < 15}
+                          disabled={
+                            !jobTitle.trim() ||
+                            !location.trim() ||
+                            isSearching ||
+                            (userTier === 'pro' && !uploadedFile) ||
+                            (effectiveUser.credits ?? 0) < 15
+                          }
                           size="lg"
                           className="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white font-medium px-8 transition-all hover:scale-105"
                         >
-                          {searchButtonText()}
+                          {isSearching ? "Searching..." : "Search Free Tier"}
                         </Button>
-                        
-                        <div className="flex items-center gap-4">
-                          <div className="text-sm text-gray-400">
-                            <Download className="h-4 w-4 inline mr-2" />
-                            Up to {currentTierConfig.maxContacts} contacts + emails (auto-saved to Contact Library)
-                          </div>
+
+                        <p className="mt-2 text-xs text-white/60">
+                          Uses up to{" "}
+                          <span className="tabular-nums">
+                            {Math.min(8, Math.floor((effectiveUser.credits ?? 0) / 15))}
+                          </span>{" "}
+                          contacts (
+                          <span className="tabular-nums">
+                            {Math.min(8, Math.floor((effectiveUser.credits ?? 0) / 15)) * 15}
+                          </span>{" "}
+                          credits) •{" "}
+                          <span className="tabular-nums">
+                            {Math.floor((effectiveUser.credits ?? 0) / 15)}
+                          </span>{" "}
+                          searches remaining
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-4">
+                        <div className="text-sm text-gray-400">
+                          <Download className="h-4 w-4 inline mr-2" />
+                          Up to {currentTierConfig.maxContacts} contacts + emails (auto-saved to Contact Library)
                         </div>
                       </div>
+                    </div>
+
 
                       {/* Results Summary */}
                       {hasResults && lastSearchStats && (
