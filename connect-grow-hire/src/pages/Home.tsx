@@ -18,6 +18,7 @@ import { useFirebaseAuth } from '../contexts/FirebaseAuthContext';
 import { firebaseApi } from '../services/firebaseApi';
 import { useFirebaseMigration } from '../hooks/useFirebaseMigration';
 import { apiService, isErrorResponse } from "@/services/api";
+import { CreditPill } from "@/components/credits";
 
 const BACKEND_URL = window.location.hostname === 'localhost' 
   ? 'http://localhost:5001' 
@@ -511,17 +512,13 @@ const Home = () => {
             </div>
             
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 text-sm">
-                <Zap className="h-4 w-4 text-blue-400" />
-                <span className="text-gray-300">{effectiveUser.credits.toLocaleString()} credits</span>
-              </div>
-              
-              <Button 
-                size="sm" 
-                onClick={() => navigate('/pricing')}
-                className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
+              <CreditPill credits={effectiveUser.credits ?? 0} max={effectiveUser.maxCredits ?? 120} />
+              <Button
+              size="sm"
+              onClick={() => navigate('/pricing')}
+              className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
               >
-                Upgrade
+               Upgrade
               </Button>
             </div>
           </header>
