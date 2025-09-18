@@ -29,9 +29,9 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { CreditMeter } from "@/components/credits";
 
 const navigationItems = [
   { title: "Home", url: "/home", icon: Home },
@@ -70,36 +70,14 @@ export function AppSidebar() {
       ? "bg-primary text-primary-foreground font-medium" 
       : "hover:bg-muted/50 text-muted-foreground hover:text-foreground";
 
-  // Calculate credit percentage and determine status
-  const creditPercentage = user && user.maxCredits ? 
-    Math.max(0, Math.min(100, ((user.credits ?? 0) / user.maxCredits) * 100)) : 0;
-  
+  // Determine status text/color for collapsed tooltip & CTA label
   const getCreditStatus = () => {
-    if (!user) return { color: 'bg-gray-500', message: '' };
+    if (!user) return { color: 'text-blue-500', message: '', showWarning: false };
     const credits = user.credits ?? 0;
-    
-    if (credits === 0) {
-      return { 
-        color: 'bg-red-500', 
-        message: 'No credits remaining!',
-        showWarning: true 
-      };
-    } else if (credits < 30) {
-      return { 
-        color: 'bg-orange-500', 
-        message: `Only ${Math.floor(credits / 15)} searches left`,
-        showWarning: true 
-      };
-    } else if (credits < 60) {
-      return { 
-        color: 'bg-yellow-500', 
-        message: `${Math.floor(credits / 15)} searches available` 
-      };
-    }
-    return { 
-      color: 'bg-blue-500', 
-      message: `${Math.floor(credits / 15)} searches available` 
-    };
+    if (credits === 0) return { color: 'text-red-500', message: 'No credits remaining!', showWarning: true };
+    if (credits < 30) return { color: 'text-amber-500', message: `Only ${Math.floor(credits / 15)} searches left`, showWarning: true };
+    if (credits < 60) return { color: 'text-yellow-500', message: `${Math.floor(credits / 15)} searches available`, showWarning: false };
+    return { color: 'text-emerald-500', message: `${Math.floor(credits / 15)} searches available`, showWarning: false };
   };
 
   const creditStatus = getCreditStatus();
@@ -108,14 +86,13 @@ export function AppSidebar() {
     <TooltipProvider>
       <Sidebar className={state === "collapsed" ? "w-14" : "w-60"} collapsible="icon">
         <SidebarContent className="bg-background border-r">
-          {/* Brand Text Only - Logo Removed */}
+          {/* Brand */}
           <div className="p-3 border-b">
-            {state !== "collapsed" && (
+            {state !== "collapsed" ? (
               <div className="flex items-center justify-center">
                 <span className="font-bold text-xl text-foreground">Offerloop.ai</span>
               </div>
-            )}
-            {state === "collapsed" && (
+            ) : (
               <div className="flex items-center justify-center">
                 <span className="font-bold text-lg text-foreground">O</span>
               </div>
@@ -188,56 +165,19 @@ export function AppSidebar() {
         </SidebarContent>
 
         <SidebarFooter className="border-t bg-background">
-          {/* Credit Section with Enhanced Display */}
+          {/* Credits */}
           <div className="p-4">
-            <div className="bg-background border rounded-lg p-4 mb-4">
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-4">
               {state !== "collapsed" ? (
                 <>
-                  <div className="mb-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium">Credits</p>
-                        {creditStatus.showWarning && (
-                          <Tooltip>
-                            <TooltipTrigger>
-                              <AlertCircle className="h-3 w-3 text-orange-500" />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p className="text-xs">{creditStatus.message}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {user ? `${user.credits ?? 0} / ${user.maxCredits ?? 0}` : "— / —"}
-                      </p>
-                    </div>
-                    
-                    {/* Progress Bar */}
-                    <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted/30">
-                      <div 
-                        className={`h-full transition-all duration-300 rounded-full ${creditStatus.color}`}
-                        style={{ width: `${creditPercentage}%` }}
-                      />
-                    </div>
-                    
-                    {/* Credit Status Message */}
-                    {creditStatus.message && (
-                      <p className={`text-xs mt-1 ${
-                        creditStatus.showWarning ? 'text-orange-500 font-medium' : 'text-muted-foreground'
-                      }`}>
-                        {creditStatus.message}
-                      </p>
-                    )}
-                  </div>
-                  
+                  <p className="text-sm font-medium mb-2">Credits</p>
+                  <CreditMeter
+                    credits={user?.credits ?? 0}
+                    max={user?.maxCredits ?? 120}
+                  />
                   <Button 
                     size="sm" 
-                    className={`w-full ${
-                      user?.credits === 0 
-                        ? 'bg-red-500 hover:bg-red-600 animate-pulse' 
-                        : ''
-                    }`}
+                    className={`w-full mt-3 ${user?.credits === 0 ? 'animate-pulse' : ''}`}
                     onClick={() => navigate('/pricing')}
                   >
                     <Zap className="w-4 h-4 mr-2" />
@@ -245,7 +185,7 @@ export function AppSidebar() {
                   </Button>
                 </>
               ) : (
-                // Collapsed view - show icon with tooltip
+                // Collapsed view - icon with tooltip
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button 
@@ -255,11 +195,7 @@ export function AppSidebar() {
                       onClick={() => navigate('/pricing')}
                     >
                       <div className="relative">
-                        <Zap className={`w-4 h-4 ${
-                          user?.credits === 0 ? 'text-red-500' : 
-                          user?.credits && user.credits < 30 ? 'text-orange-500' : 
-                          'text-blue-500'
-                        }`} />
+                        <Zap className={`w-4 h-4 ${creditStatus.color}`} />
                         {user?.credits === 0 && (
                           <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
                         )}
@@ -269,9 +205,7 @@ export function AppSidebar() {
                   <TooltipContent side="right">
                     <div className="text-xs">
                       <p className="font-medium">Credits: {user?.credits ?? 0} / {user?.maxCredits ?? 0}</p>
-                      {creditStatus.message && (
-                        <p className="mt-1">{creditStatus.message}</p>
-                      )}
+                      {creditStatus.message && <p className="mt-1">{creditStatus.message}</p>}
                       <p className="mt-1 text-muted-foreground">Click to upgrade</p>
                     </div>
                   </TooltipContent>
