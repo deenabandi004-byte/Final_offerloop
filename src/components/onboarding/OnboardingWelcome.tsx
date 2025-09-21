@@ -13,7 +13,7 @@ export const OnboardingWelcome = ({ onNext, userName = "there" }: OnboardingWelc
       <Card className="w-full max-w-2xl p-8 lg:p-12 text-center space-y-8 shadow-lg border-0 bg-card/80 backdrop-blur-sm">
         <div className="space-y-4">
           <h1 className="text-4xl lg:text-5xl font-bold text-foreground">
-            Welcome {userName}!
+            Welcome
           </h1>
           
           <p className="text-lg lg:text-xl text-muted-foreground max-w-md mx-auto leading-relaxed">
@@ -34,16 +34,16 @@ export const OnboardingWelcome = ({ onNext, userName = "there" }: OnboardingWelc
             <div className="w-12 h-12 rounded-full bg-secondary/10 flex items-center justify-center text-secondary font-bold text-lg">
               2
             </div>
-            <h3 className="font-semibold text-foreground">Preferences</h3>
-            <p className="text-sm text-muted-foreground text-center">Set your location and preferences</p>
+            <h3 className="font-semibold text-foreground">Academics</h3>
+            <p className="text-sm text-muted-foreground text-center">Add your educational background</p>
           </div>
           
           <div className="flex flex-col items-center space-y-3 p-4">
             <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center text-accent-foreground font-bold text-lg">
               3
             </div>
-            <h3 className="font-semibold text-foreground">Ready!</h3>
-            <p className="text-sm text-muted-foreground text-center">Start using your personalized app</p>
+            <h3 className="font-semibold text-foreground">Career</h3>
+            <p className="text-sm text-muted-foreground text-center">Set your location and preferences</p>
           </div>
         </div>
 
