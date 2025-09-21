@@ -2,14 +2,16 @@ import { useState } from "react";
 import { OnboardingWelcome } from "./OnboardingWelcome";
 import { OnboardingLocationPreferences } from "./OnboardingLocationPreferences";
 import { OnboardingProfile } from "./OnboardingProfile";
+import { OnboardingAcademics } from "./OnboardingAcademics";
 import { OnboardingComplete } from "./OnboardingComplete";
 import { Progress } from "@/components/ui/progress";
 
-type OnboardingStep = 'welcome' | 'profile' | 'location' | 'complete';
+type OnboardingStep = 'welcome' | 'profile' | 'academics' | 'location' | 'complete';
 
 interface OnboardingData {
   location?: any;
   profile?: any;
+  academics?: any;
 }
 
 interface OnboardingFlowProps {
@@ -24,14 +26,15 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
     const steps: Record<OnboardingStep, number> = {
       welcome: 0,
       profile: 1,
-      location: 2,
-      complete: 3,
+      academics: 2,
+      location: 3,
+      complete: 4,
     };
     return steps[step];
   };
 
   const getProgress = (): number => {
-    return (getStepNumber(currentStep) / 3) * 100;
+    return (getStepNumber(currentStep) / 4) * 100;
   };
 
   const handleNext = () => {
@@ -40,6 +43,9 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
         setCurrentStep('profile');
         break;
       case 'profile':
+        setCurrentStep('academics');
+        break;
+      case 'academics':
         setCurrentStep('location');
         break;
       case 'location':
@@ -53,14 +59,22 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
       case 'profile':
         setCurrentStep('welcome');
         break;
-      case 'location':
+      case 'academics':
         setCurrentStep('profile');
+        break;
+      case 'location':
+        setCurrentStep('academics');
         break;
     }
   };
 
   const handleProfileData = (profileData: any) => {
     setOnboardingData(prev => ({ ...prev, profile: profileData }));
+    handleNext();
+  };
+
+  const handleAcademicsData = (academicsData: any) => {
+    setOnboardingData(prev => ({ ...prev, academics: academicsData }));
     handleNext();
   };
 
@@ -80,7 +94,7 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
           <div className="container mx-auto px-4 py-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium text-muted-foreground">
-                Step {getStepNumber(currentStep)} of 3
+                Step {getStepNumber(currentStep)} of 4
               </h3>
               <div className="flex-1 max-w-md mx-4">
                 <Progress value={getProgress()} className="h-2" />
@@ -102,6 +116,14 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
           onNext={handleProfileData} 
           onBack={handleBack}
           initialData={onboardingData.profile}
+        />
+      )}
+
+      {currentStep === 'academics' && (
+        <OnboardingAcademics 
+          onNext={handleAcademicsData} 
+          onBack={handleBack}
+          initialData={onboardingData.academics}
         />
       )}
 
