@@ -58,17 +58,8 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-primary/10 via-secondary/5 to-accent/10">
       <Card className="w-full max-w-2xl p-8 space-y-8 shadow-lg border-0 bg-card/80 backdrop-blur-sm">
-        <div className="text-center space-y-4">
-          <div className="flex justify-center">
-            <div className="p-4 rounded-full bg-gradient-to-r from-primary to-secondary/50 shadow-glow">
-              <User className="h-8 w-8 text-primary-foreground" />
-            </div>
-          </div>
-          
-          <h2 className="text-3xl font-bold text-foreground">Create Your Profile</h2>
-          <p className="text-muted-foreground max-w-md mx-auto">
-            Tell us a bit about yourself to complete your personalized experience.
-          </p>
+        <div className="text-center space-y-6">
+          <h2 className="text-4xl font-bold text-foreground">Create Your Profile</h2>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
