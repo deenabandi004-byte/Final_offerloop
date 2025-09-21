@@ -11,6 +11,8 @@ interface LocationPreferences {
   country: string;
   state: string;
   city: string;
+  jobTitle: string;
+  company: string;
   interests: string[];
   notifications: {
     email: boolean;
@@ -31,6 +33,8 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
     country: initialData?.country || "",
     state: initialData?.state || "",
     city: initialData?.city || "",
+    jobTitle: initialData?.jobTitle || "",
+    company: initialData?.company || "",
     interests: initialData?.interests || [],
     notifications: initialData?.notifications || {
       email: true,
@@ -109,6 +113,28 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
                 value={preferences.city}
                 onChange={(e) => setPreferences(prev => ({ ...prev, city: e.target.value }))}
                 placeholder="Enter your city"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <Label htmlFor="jobTitle" className="text-foreground font-medium">Job Title</Label>
+              <Input
+                id="jobTitle"
+                value={preferences.jobTitle}
+                onChange={(e) => setPreferences(prev => ({ ...prev, jobTitle: e.target.value }))}
+                placeholder="Enter your job title"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="company" className="text-foreground font-medium">Company</Label>
+              <Input
+                id="company"
+                value={preferences.company}
+                onChange={(e) => setPreferences(prev => ({ ...prev, company: e.target.value }))}
+                placeholder="Enter your company name"
               />
             </div>
           </div>

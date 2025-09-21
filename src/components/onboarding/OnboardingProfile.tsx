@@ -13,8 +13,6 @@ interface ProfileData {
   lastName: string;
   email: string;
   phone: string;
-  jobTitle: string;
-  company: string;
   avatar?: string;
   resume?: File;
 }
@@ -31,8 +29,6 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
     lastName: initialData?.lastName || "",
     email: initialData?.email || "",
     phone: initialData?.phone || "",
-    jobTitle: initialData?.jobTitle || "",
-    company: initialData?.company || "",
     avatar: initialData?.avatar,
     resume: initialData?.resume,
   });
@@ -176,28 +172,6 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
                 value={profile.phone}
                 onChange={(e) => setProfile(prev => ({ ...prev, phone: e.target.value }))}
                 placeholder="Enter your phone number"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <Label htmlFor="jobTitle" className="text-foreground font-medium">Job Title</Label>
-              <Input
-                id="jobTitle"
-                value={profile.jobTitle}
-                onChange={(e) => setProfile(prev => ({ ...prev, jobTitle: e.target.value }))}
-                placeholder="Enter your job title"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="company" className="text-foreground font-medium">Company</Label>
-              <Input
-                id="company"
-                value={profile.company}
-                onChange={(e) => setProfile(prev => ({ ...prev, company: e.target.value }))}
-                placeholder="Enter your company name"
               />
             </div>
           </div>
