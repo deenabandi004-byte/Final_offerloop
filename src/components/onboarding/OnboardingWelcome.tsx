@@ -32,16 +32,16 @@ export const OnboardingWelcome = ({ onNext, userName = "there" }: OnboardingWelc
             <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg">
               1
             </div>
-            <h3 className="font-semibold text-foreground">Preferences</h3>
-            <p className="text-sm text-muted-foreground text-center">Set your location and preferences</p>
+            <h3 className="font-semibold text-foreground">Profile</h3>
+            <p className="text-sm text-muted-foreground text-center">Complete your profile and upload resume</p>
           </div>
           
           <div className="flex flex-col items-center space-y-3 p-4">
             <div className="w-12 h-12 rounded-full bg-secondary/10 flex items-center justify-center text-secondary font-bold text-lg">
               2
             </div>
-            <h3 className="font-semibold text-foreground">Profile</h3>
-            <p className="text-sm text-muted-foreground text-center">Complete your profile information</p>
+            <h3 className="font-semibold text-foreground">Preferences</h3>
+            <p className="text-sm text-muted-foreground text-center">Set your location and preferences</p>
           </div>
           
           <div className="flex flex-col items-center space-y-3 p-4">

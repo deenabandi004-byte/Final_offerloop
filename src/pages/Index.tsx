@@ -46,6 +46,9 @@ const Index = () => {
                 <p><strong>Email:</strong> {userData.profile.email}</p>
                 <p><strong>Role:</strong> {userData.profile.role}</p>
                 <p><strong>Experience:</strong> {userData.profile.experience}</p>
+                {userData.profile.resume && (
+                  <p><strong>Resume:</strong> {userData.profile.resume.name}</p>
+                )}
               </div>
             )}
           </Card>

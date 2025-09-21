@@ -5,7 +5,7 @@ import { OnboardingProfile } from "./OnboardingProfile";
 import { OnboardingComplete } from "./OnboardingComplete";
 import { Progress } from "@/components/ui/progress";
 
-type OnboardingStep = 'welcome' | 'location' | 'profile' | 'complete';
+type OnboardingStep = 'welcome' | 'profile' | 'location' | 'complete';
 
 interface OnboardingData {
   location?: any;
@@ -23,8 +23,8 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
   const getStepNumber = (step: OnboardingStep): number => {
     const steps: Record<OnboardingStep, number> = {
       welcome: 0,
-      location: 1,
-      profile: 2,
+      profile: 1,
+      location: 2,
       complete: 3,
     };
     return steps[step];
@@ -37,12 +37,12 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
   const handleNext = () => {
     switch (currentStep) {
       case 'welcome':
-        setCurrentStep('location');
-        break;
-      case 'location':
         setCurrentStep('profile');
         break;
       case 'profile':
+        setCurrentStep('location');
+        break;
+      case 'location':
         setCurrentStep('complete');
         break;
     }
@@ -50,22 +50,22 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
 
   const handleBack = () => {
     switch (currentStep) {
-      case 'location':
+      case 'profile':
         setCurrentStep('welcome');
         break;
-      case 'profile':
-        setCurrentStep('location');
+      case 'location':
+        setCurrentStep('profile');
         break;
     }
   };
 
-  const handleLocationData = (locationData: any) => {
-    setOnboardingData(prev => ({ ...prev, location: locationData }));
+  const handleProfileData = (profileData: any) => {
+    setOnboardingData(prev => ({ ...prev, profile: profileData }));
     handleNext();
   };
 
-  const handleProfileData = (profileData: any) => {
-    setOnboardingData(prev => ({ ...prev, profile: profileData }));
+  const handleLocationData = (locationData: any) => {
+    setOnboardingData(prev => ({ ...prev, location: locationData }));
     handleNext();
   };
 
@@ -97,16 +97,16 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
         <OnboardingWelcome onNext={handleNext} />
       )}
 
-      {currentStep === 'location' && (
-        <OnboardingLocationPreferences 
-          onNext={handleLocationData} 
+      {currentStep === 'profile' && (
+        <OnboardingProfile 
+          onNext={handleProfileData} 
           onBack={handleBack} 
         />
       )}
 
-      {currentStep === 'profile' && (
-        <OnboardingProfile 
-          onNext={handleProfileData} 
+      {currentStep === 'location' && (
+        <OnboardingLocationPreferences 
+          onNext={handleLocationData} 
           onBack={handleBack} 
         />
       )}

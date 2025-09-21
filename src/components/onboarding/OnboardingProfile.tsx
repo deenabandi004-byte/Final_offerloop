@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ArrowRight, ArrowLeft, User, Upload } from "lucide-react";
+import { ArrowRight, ArrowLeft, User, Upload, FileText } from "lucide-react";
 
 interface ProfileData {
   firstName: string;
@@ -16,6 +16,7 @@ interface ProfileData {
   role: string;
   experience: string;
   avatar?: string;
+  resume?: File;
 }
 
 interface OnboardingProfileProps {
@@ -32,6 +33,8 @@ export const OnboardingProfile = ({ onNext, onBack }: OnboardingProfileProps) =>
     role: "",
     experience: "",
   });
+  
+  const resumeInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,6 +43,17 @@ export const OnboardingProfile = ({ onNext, onBack }: OnboardingProfileProps) =>
 
   const getInitials = () => {
     return `${profile.firstName.charAt(0)}${profile.lastName.charAt(0)}`.toUpperCase();
+  };
+
+  const handleResumeUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setProfile(prev => ({ ...prev, resume: file }));
+    }
+  };
+
+  const triggerResumeUpload = () => {
+    resumeInputRef.current?.click();
   };
 
   return (
@@ -76,6 +90,39 @@ export const OnboardingProfile = ({ onNext, onBack }: OnboardingProfileProps) =>
                 <Upload className="h-4 w-4" />
               </Button>
             </div>
+          </div>
+
+          <div className="space-y-4 mb-6">
+            <Label className="text-foreground font-medium flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Resume Upload
+            </Label>
+            <div className="flex items-center space-x-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={triggerResumeUpload}
+                className="flex items-center space-x-2"
+              >
+                <Upload className="h-4 w-4" />
+                <span>Choose Resume File</span>
+              </Button>
+              {profile.resume && (
+                <span className="text-sm text-muted-foreground">
+                  {profile.resume.name}
+                </span>
+              )}
+            </div>
+            <input
+              ref={resumeInputRef}
+              type="file"
+              accept=".pdf,.doc,.docx"
+              onChange={handleResumeUpload}
+              className="hidden"
+            />
+            <p className="text-xs text-muted-foreground">
+              Accepted formats: PDF, DOC, DOCX (Max 10MB)
+            </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
