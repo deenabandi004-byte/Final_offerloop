@@ -9,13 +9,19 @@ import { ArrowRight, ArrowLeft, MapPin, Globe } from "lucide-react";
 
 interface LocationPreferences {
   country: string;
+  state: string;
   city: string;
   timezone: string;
   language: string;
+  currency: string;
+  workingHours: string;
+  availability: string;
+  interests: string[];
   notifications: {
     email: boolean;
     push: boolean;
     sms: boolean;
+    newsletter: boolean;
   };
 }
 
@@ -27,13 +33,19 @@ interface OnboardingLocationPreferencesProps {
 export const OnboardingLocationPreferences = ({ onNext, onBack }: OnboardingLocationPreferencesProps) => {
   const [preferences, setPreferences] = useState<LocationPreferences>({
     country: "",
+    state: "",
     city: "",
     timezone: "",
     language: "en",
+    currency: "usd",
+    workingHours: "",
+    availability: "",
+    interests: [],
     notifications: {
       email: true,
       push: true,
       sms: false,
+      newsletter: false,
     }
   });
 
@@ -69,7 +81,7 @@ export const OnboardingLocationPreferences = ({ onNext, onBack }: OnboardingLoca
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-2">
               <Label htmlFor="country" className="text-foreground font-medium">Country</Label>
               <Select value={preferences.country} onValueChange={(value) => setPreferences(prev => ({ ...prev, country: value }))}>
@@ -87,6 +99,16 @@ export const OnboardingLocationPreferences = ({ onNext, onBack }: OnboardingLoca
                   <SelectItem value="other">Other</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="state" className="text-foreground font-medium">State/Province</Label>
+              <Input
+                id="state"
+                value={preferences.state}
+                onChange={(e) => setPreferences(prev => ({ ...prev, state: e.target.value }))}
+                placeholder="Enter your state/province"
+              />
             </div>
 
             <div className="space-y-2">
@@ -137,6 +159,85 @@ export const OnboardingLocationPreferences = ({ onNext, onBack }: OnboardingLoca
             </div>
           </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <Label htmlFor="currency" className="text-foreground font-medium">Preferred Currency</Label>
+              <Select value={preferences.currency} onValueChange={(value) => setPreferences(prev => ({ ...prev, currency: value }))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select currency" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="usd">USD - US Dollar</SelectItem>
+                  <SelectItem value="eur">EUR - Euro</SelectItem>
+                  <SelectItem value="gbp">GBP - British Pound</SelectItem>
+                  <SelectItem value="cad">CAD - Canadian Dollar</SelectItem>
+                  <SelectItem value="aud">AUD - Australian Dollar</SelectItem>
+                  <SelectItem value="jpy">JPY - Japanese Yen</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="workingHours" className="text-foreground font-medium">Working Hours</Label>
+              <Select value={preferences.workingHours} onValueChange={(value) => setPreferences(prev => ({ ...prev, workingHours: value }))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select working hours" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="9-5">9 AM - 5 PM</SelectItem>
+                  <SelectItem value="8-4">8 AM - 4 PM</SelectItem>
+                  <SelectItem value="10-6">10 AM - 6 PM</SelectItem>
+                  <SelectItem value="flexible">Flexible</SelectItem>
+                  <SelectItem value="remote">Remote/Various</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="availability" className="text-foreground font-medium">Availability</Label>
+            <Select value={preferences.availability} onValueChange={(value) => setPreferences(prev => ({ ...prev, availability: value }))}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select your availability" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="full-time">Full-time</SelectItem>
+                <SelectItem value="part-time">Part-time</SelectItem>
+                <SelectItem value="contract">Contract</SelectItem>
+                <SelectItem value="freelance">Freelance</SelectItem>
+                <SelectItem value="not-available">Not currently available</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-4">
+            <Label className="text-foreground font-medium">Interests (Select all that apply)</Label>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {['Technology', 'Design', 'Business', 'Marketing', 'Finance', 'Education', 'Healthcare', 'Entertainment', 'Sports', 'Travel', 'Food', 'Music'].map((interest) => (
+                <div key={interest} className="flex items-center space-x-2">
+                  <Checkbox
+                    id={interest}
+                    checked={preferences.interests.includes(interest)}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setPreferences(prev => ({
+                          ...prev,
+                          interests: [...prev.interests, interest]
+                        }));
+                      } else {
+                        setPreferences(prev => ({
+                          ...prev,
+                          interests: prev.interests.filter(i => i !== interest)
+                        }));
+                      }
+                    }}
+                  />
+                  <Label htmlFor={interest} className="text-sm font-normal">{interest}</Label>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="space-y-4">
             <Label className="text-foreground font-medium flex items-center gap-2">
               <Globe className="h-4 w-4" />
@@ -166,6 +267,14 @@ export const OnboardingLocationPreferences = ({ onNext, onBack }: OnboardingLoca
                   onCheckedChange={(checked) => updateNotification('sms', checked as boolean)}
                 />
                 <Label htmlFor="sms" className="text-sm font-normal">SMS notifications</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="newsletter"
+                  checked={preferences.notifications.newsletter}
+                  onCheckedChange={(checked) => updateNotification('newsletter', checked as boolean)}
+                />
+                <Label htmlFor="newsletter" className="text-sm font-normal">Newsletter subscription</Label>
               </div>
             </div>
           </div>

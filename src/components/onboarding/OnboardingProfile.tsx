@@ -12,9 +12,14 @@ interface ProfileData {
   firstName: string;
   lastName: string;
   email: string;
-  bio: string;
-  role: string;
+  phone: string;
+  dateOfBirth: string;
+  gender: string;
+  jobTitle: string;
+  company: string;
   experience: string;
+  skills: string;
+  bio: string;
   avatar?: string;
   resume?: File;
 }
@@ -29,9 +34,14 @@ export const OnboardingProfile = ({ onNext, onBack }: OnboardingProfileProps) =>
     firstName: "",
     lastName: "",
     email: "",
-    bio: "",
-    role: "",
+    phone: "",
+    dateOfBirth: "",
+    gender: "",
+    jobTitle: "",
+    company: "",
     experience: "",
+    skills: "",
+    bio: "",
   });
   
   const resumeInputRef = useRef<HTMLInputElement>(null);
@@ -149,51 +159,105 @@ export const OnboardingProfile = ({ onNext, onBack }: OnboardingProfileProps) =>
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="email" className="text-foreground font-medium">Email Address</Label>
-            <Input
-              id="email"
-              type="email"
-              value={profile.email}
-              onChange={(e) => setProfile(prev => ({ ...prev, email: e.target.value }))}
-              placeholder="Enter your email address"
-              required
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <Label htmlFor="email" className="text-foreground font-medium">Email Address</Label>
+              <Input
+                id="email"
+                type="email"
+                value={profile.email}
+                onChange={(e) => setProfile(prev => ({ ...prev, email: e.target.value }))}
+                placeholder="Enter your email address"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="phone" className="text-foreground font-medium">Phone Number</Label>
+              <Input
+                id="phone"
+                type="tel"
+                value={profile.phone}
+                onChange={(e) => setProfile(prev => ({ ...prev, phone: e.target.value }))}
+                placeholder="Enter your phone number"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <Label htmlFor="role" className="text-foreground font-medium">Role</Label>
-              <Select value={profile.role} onValueChange={(value) => setProfile(prev => ({ ...prev, role: value }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select your role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="developer">Developer</SelectItem>
-                  <SelectItem value="designer">Designer</SelectItem>
-                  <SelectItem value="manager">Manager</SelectItem>
-                  <SelectItem value="analyst">Analyst</SelectItem>
-                  <SelectItem value="consultant">Consultant</SelectItem>
-                  <SelectItem value="student">Student</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label htmlFor="dateOfBirth" className="text-foreground font-medium">Date of Birth</Label>
+              <Input
+                id="dateOfBirth"
+                type="date"
+                value={profile.dateOfBirth}
+                onChange={(e) => setProfile(prev => ({ ...prev, dateOfBirth: e.target.value }))}
+              />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="experience" className="text-foreground font-medium">Experience Level</Label>
-              <Select value={profile.experience} onValueChange={(value) => setProfile(prev => ({ ...prev, experience: value }))}>
+              <Label htmlFor="gender" className="text-foreground font-medium">Gender</Label>
+              <Select value={profile.gender} onValueChange={(value) => setProfile(prev => ({ ...prev, gender: value }))}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select experience level" />
+                  <SelectValue placeholder="Select gender" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="beginner">Beginner (0-1 years)</SelectItem>
-                  <SelectItem value="intermediate">Intermediate (2-5 years)</SelectItem>
-                  <SelectItem value="advanced">Advanced (5-10 years)</SelectItem>
-                  <SelectItem value="expert">Expert (10+ years)</SelectItem>
+                  <SelectItem value="male">Male</SelectItem>
+                  <SelectItem value="female">Female</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                  <SelectItem value="prefer-not-to-say">Prefer not to say</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <Label htmlFor="jobTitle" className="text-foreground font-medium">Job Title</Label>
+              <Input
+                id="jobTitle"
+                value={profile.jobTitle}
+                onChange={(e) => setProfile(prev => ({ ...prev, jobTitle: e.target.value }))}
+                placeholder="Enter your job title"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="company" className="text-foreground font-medium">Company</Label>
+              <Input
+                id="company"
+                value={profile.company}
+                onChange={(e) => setProfile(prev => ({ ...prev, company: e.target.value }))}
+                placeholder="Enter your company name"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="experience" className="text-foreground font-medium">Years of Experience</Label>
+            <Select value={profile.experience} onValueChange={(value) => setProfile(prev => ({ ...prev, experience: value }))}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select years of experience" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0-1">0-1 years</SelectItem>
+                <SelectItem value="2-5">2-5 years</SelectItem>
+                <SelectItem value="6-10">6-10 years</SelectItem>
+                <SelectItem value="11-15">11-15 years</SelectItem>
+                <SelectItem value="16+">16+ years</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="skills" className="text-foreground font-medium">Skills</Label>
+            <Textarea
+              id="skills"
+              value={profile.skills}
+              onChange={(e) => setProfile(prev => ({ ...prev, skills: e.target.value }))}
+              placeholder="List your key skills (e.g., JavaScript, React, Project Management)"
+              rows={2}
+            />
           </div>
 
           <div className="space-y-2">
