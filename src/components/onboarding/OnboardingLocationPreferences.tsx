@@ -18,6 +18,7 @@ interface LocationPreferences {
   jobTitle: string;
   company: string;
   interests: string[];
+  preferredLocation: string;
   notifications: {
     email: boolean;
     push: boolean;
@@ -67,6 +68,34 @@ const interests = [
   "Wholesale & Distribution", "Wine, Beer & Spirits"
 ];
 
+const locations = [
+  "Akron, OH", "Albany, NY", "Albuquerque, NM", "Alexandria, VA", "Allentown, PA", "Anaheim, CA",
+  "Ann Arbor, MI", "Arlington, TX", "Arlington, VA", "Atlanta, GA", "Austin, TX", "Bakersfield, CA",
+  "Baltimore, MD", "Baton Rouge, LA", "Birmingham, AL", "Boise, ID", "Boston, MA", "Boulder, CO",
+  "Buffalo, NY", "Burlington, VT", "Chapel Hill, NC", "Charleston, SC", "Charleston, WV", "Charlotte, NC",
+  "Chattanooga, TN", "Chicago, IL", "Cincinnati, OH", "Cleveland, OH", "College Station, TX", "Colorado Springs, CO",
+  "Columbia, MO", "Columbia, SC", "Columbus, OH", "Dallas, TX", "Dayton, OH", "Denver, CO",
+  "Des Moines, IA", "Detroit, MI", "Durham, NC", "El Paso, TX", "Evansville, IN", "Evanston, IL",
+  "Fayetteville, AR", "Fort Collins, CO", "Fort Lauderdale, FL", "Fort Worth, TX", "Fresno, CA", "Gainesville, FL",
+  "Grand Rapids, MI", "Greensboro, NC", "Greenville, SC", "Harrisburg, PA", "Hartford, CT", "Houston, TX",
+  "Huntsville, AL", "Indianapolis, IN", "Irvine, CA", "Ithaca, NY", "Jacksonville, FL", "Jersey City, NJ",
+  "Kansas City, MO", "Knoxville, TN", "Lafayette, IN", "Lancaster, PA", "Lansing, MI", "Las Vegas, NV",
+  "Lexington, KY", "Lincoln, NE", "Little Rock, AR", "Long Beach, CA", "Los Angeles, CA", "Louisville, KY",
+  "Madison, WI", "Manchester, NH", "Memphis, TN", "Mesa, AZ", "Miami, FL", "Milwaukee, WI",
+  "Minneapolis, MN", "Mobile, AL", "Morgantown, WV", "Nashville, TN", "Naples, FL", "Naperville, IL",
+  "New Haven, CT", "New Orleans, LA", "New York, NY", "Newark, NJ", "Norfolk, VA", "Oakland, CA",
+  "Oklahoma City, OK", "Omaha, NE", "Orlando, FL", "Pasadena, CA", "Peoria, IL", "Philadelphia, PA",
+  "Phoenix, AZ", "Pittsburgh, PA", "Plano, TX", "Portland, OR", "Providence, RI", "Provo, UT",
+  "Raleigh, NC", "Reno, NV", "Richmond, VA", "Riverside, CA", "Rochester, NY", "Sacramento, CA",
+  "Salt Lake City, UT", "San Antonio, TX", "San Diego, CA", "San Francisco, CA", "San Jose, CA", "San Luis Obispo, CA",
+  "Santa Ana, CA", "Santa Barbara, CA", "Santa Clara, CA", "Sarasota, FL", "Savannah, GA", "Scottsdale, AZ",
+  "Seattle, WA", "Shreveport, LA", "Springfield, IL", "Springfield, MA", "Springfield, MO", "Stamford, CT",
+  "State College, PA", "St. Louis, MO", "St. Paul, MN", "St. Petersburg, FL", "Syracuse, NY", "Tallahassee, FL",
+  "Tampa, FL", "Tempe, AZ", "Toledo, OH", "Topeka, KS", "Tucson, AZ", "Tulsa, OK",
+  "Virginia Beach, VA", "Washington, DC", "West Palm Beach, FL", "White Plains, NY", "Wichita, KS", "Wilmington, DE",
+  "Winston-Salem, NC", "Worcester, MA", "Ypsilanti, MI", "San Bernardino, CA", "Glendale, AZ", "Alexandria, LA"
+];
+
 export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: OnboardingLocationPreferencesProps) => {
   const [preferences, setPreferences] = useState<LocationPreferences>({
     country: initialData?.country || "",
@@ -75,6 +104,7 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
     jobTitle: initialData?.jobTitle || "",
     company: initialData?.company || "",
     interests: initialData?.interests || [],
+    preferredLocation: initialData?.preferredLocation || "",
     notifications: initialData?.notifications || {
       email: true,
       push: true,
@@ -84,6 +114,7 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
   });
   
   const [open, setOpen] = useState(false);
+  const [locationOpen, setLocationOpen] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -220,6 +251,79 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
                 >
                   Clear all
                 </Button>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4">
+            <Label className="text-foreground font-medium flex items-center gap-2">
+              <MapPin className="h-4 w-4" />
+              Preferred Location
+            </Label>
+            <Popover open={locationOpen} onOpenChange={setLocationOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={locationOpen}
+                  className="w-full justify-between h-auto min-h-10 px-3 py-2"
+                >
+                  <span className="text-left">
+                    {preferences.preferredLocation || "Start typing to find preferred location"}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-full p-0" align="start">
+                <Command>
+                  <CommandInput placeholder="Start typing to find preferred location" className="h-9" />
+                  <CommandList className="max-h-[200px]">
+                    <CommandEmpty>No locations found.</CommandEmpty>
+                    <CommandGroup>
+                      {locations.map((location) => (
+                        <CommandItem
+                          key={location}
+                          value={location}
+                          onSelect={(currentValue) => {
+                            setPreferences(prev => ({
+                              ...prev,
+                              preferredLocation: currentValue === preferences.preferredLocation ? "" : currentValue
+                            }));
+                            setLocationOpen(false);
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              preferences.preferredLocation === location ? "opacity-100" : "opacity-0"
+                            )}
+                          />
+                          {location}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            
+            {preferences.preferredLocation && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                <Badge variant="secondary" className="text-xs px-2 py-1">
+                  {preferences.preferredLocation}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreferences(prev => ({
+                        ...prev,
+                        preferredLocation: ""
+                      }));
+                    }}
+                    className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
               </div>
             )}
           </div>
