@@ -19,12 +19,6 @@ interface LocationPreferences {
   company: string;
   interests: string[];
   preferredLocation: string[];
-  notifications: {
-    email: boolean;
-    push: boolean;
-    sms: boolean;
-    newsletter: boolean;
-  };
 }
 
 interface OnboardingLocationPreferencesProps {
@@ -105,12 +99,6 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
     company: initialData?.company || "",
     interests: initialData?.interests || [],
     preferredLocation: initialData?.preferredLocation || [],
-    notifications: initialData?.notifications || {
-      email: true,
-      push: true,
-      sms: false,
-      newsletter: false,
-    }
   });
   
   const [open, setOpen] = useState(false);
@@ -119,16 +107,6 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onNext(preferences);
-  };
-
-  const updateNotification = (key: keyof LocationPreferences['notifications'], value: boolean) => {
-    setPreferences(prev => ({
-      ...prev,
-      notifications: {
-        ...prev.notifications,
-        [key]: value
-      }
-    }));
   };
 
   return (
@@ -347,47 +325,6 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
                 </Button>
               </div>
             )}
-          </div>
-
-          <div className="space-y-4">
-            <Label className="text-foreground font-medium flex items-center gap-2">
-              <Globe className="h-4 w-4" />
-              Notification Preferences
-            </Label>
-            <div className="space-y-3 pl-6">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="email"
-                  checked={preferences.notifications.email}
-                  onCheckedChange={(checked) => updateNotification('email', checked as boolean)}
-                />
-                <Label htmlFor="email" className="text-sm font-normal">Email notifications</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="push"
-                  checked={preferences.notifications.push}
-                  onCheckedChange={(checked) => updateNotification('push', checked as boolean)}
-                />
-                <Label htmlFor="push" className="text-sm font-normal">Push notifications</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="sms"
-                  checked={preferences.notifications.sms}
-                  onCheckedChange={(checked) => updateNotification('sms', checked as boolean)}
-                />
-                <Label htmlFor="sms" className="text-sm font-normal">SMS notifications</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="newsletter"
-                  checked={preferences.notifications.newsletter}
-                  onCheckedChange={(checked) => updateNotification('newsletter', checked as boolean)}
-                />
-                <Label htmlFor="newsletter" className="text-sm font-normal">Newsletter subscription</Label>
-              </div>
-            </div>
           </div>
 
           <div className="flex justify-between pt-6">
