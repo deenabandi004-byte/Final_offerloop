@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 interface OnboardingWelcomeProps {
   onNext: () => void;
@@ -9,7 +9,7 @@ interface OnboardingWelcomeProps {
 
 export const OnboardingWelcome = ({ onNext, userName = "there" }: OnboardingWelcomeProps) => {
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-primary/10 via-secondary/5 to-accent/10">
+    <div className="min-h-screen flex items-start justify-center p-4 pt-12 bg-gradient-to-br from-primary/10 via-secondary/5 to-accent/10">
       <Card className="w-full max-w-2xl p-8 lg:p-12 text-center space-y-8 shadow-lg border-0 bg-card/80 backdrop-blur-sm">
         <div className="space-y-4">
           <h1 className="text-4xl lg:text-5xl font-bold text-foreground">
