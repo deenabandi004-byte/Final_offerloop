@@ -74,9 +74,9 @@ export const OnboardingLocationPreferences = ({ onNext, onBack }: OnboardingLoca
             </div>
           </div>
           
-          <h2 className="text-3xl font-bold text-foreground">Location & Preferences</h2>
+          <h2 className="text-3xl font-bold text-foreground">Career Preferences</h2>
           <p className="text-muted-foreground max-w-md mx-auto">
-            Help us personalize your experience by setting your location and preferences.
+            Share your goals and interests to help us match you with the right opportunities.
           </p>
         </div>
 
