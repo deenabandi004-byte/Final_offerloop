@@ -123,6 +123,9 @@ export const OnboardingProfile = ({ onNext, onBack }: OnboardingProfileProps) =>
             <p className="text-xs text-muted-foreground">
               Accepted formats: PDF, DOC, DOCX (Max 10MB)
             </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Your resume allows us to create more personalized and effective outreach emails.
+            </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
