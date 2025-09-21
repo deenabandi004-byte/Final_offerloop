@@ -17,26 +17,50 @@ All colors MUST be HSL.
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 251 91% 95%;
+    --primary-foreground: 251 91% 17%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 251 91% 95%;
+    --secondary-foreground: 251 91% 17%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 251 28% 97%;
+    --muted-foreground: 251 9% 55%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 251 91% 95%;
+    --accent-foreground: 251 91% 17%;
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --border: 251 28% 90%;
+    --input: 251 28% 90%;
+    --ring: 251 91% 65%;
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
+    
+    /* Onboarding specific colors */
+    --onboarding-primary: 251 91% 65%;
+    --onboarding-secondary: 295 85% 75%;
+    --onboarding-accent: 196 75% 88%;
+    --onboarding-background: 251 28% 98%;
+    --onboarding-card: 0 0% 100%;
+    --onboarding-text: 251 91% 17%;
+    --onboarding-muted: 251 9% 55%;
+    
+    /* Beautiful gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(251, 91%, 65%), hsl(295, 85%, 75%));
+    --gradient-secondary: linear-gradient(135deg, hsl(196, 75%, 88%), hsl(251, 91%, 95%));
+    --gradient-hero: linear-gradient(135deg, hsl(251, 91%, 65%) 0%, hsl(295, 85%, 75%) 50%, hsl(196, 75%, 88%) 100%);
+    
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 hsl(var(--onboarding-primary) / 0.05);
+    --shadow-md: 0 4px 6px -1px hsl(var(--onboarding-primary) / 0.1), 0 2px 4px -1px hsl(var(--onboarding-primary) / 0.06);
+    --shadow-lg: 0 10px 15px -3px hsl(var(--onboarding-primary) / 0.1), 0 4px 6px -2px hsl(var(--onboarding-primary) / 0.05);
+    --shadow-glow: 0 0 40px hsl(var(--onboarding-primary) / 0.3);
+    
+    /* Transitions */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
 
     --sidebar-background: 0 0% 98%;
 
@@ -56,33 +80,42 @@ All colors MUST be HSL.
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --background: 251 91% 7%;
+    --foreground: 251 28% 95%;
 
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
+    --card: 251 91% 7%;
+    --card-foreground: 251 28% 95%;
 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 251 91% 7%;
+    --popover-foreground: 251 28% 95%;
 
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 251 91% 65%;
+    --primary-foreground: 251 91% 7%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 251 28% 12%;
+    --secondary-foreground: 251 28% 95%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --muted: 251 28% 12%;
+    --muted-foreground: 251 9% 65%;
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 251 28% 12%;
+    --accent-foreground: 251 28% 95%;
 
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --border: 251 28% 15%;
+    --input: 251 28% 15%;
+    --ring: 251 91% 65%;
+    
+    /* Dark mode onboarding colors */
+    --onboarding-primary: 251 91% 65%;
+    --onboarding-secondary: 295 85% 75%;
+    --onboarding-accent: 196 75% 88%;
+    --onboarding-background: 251 91% 7%;
+    --onboarding-card: 251 28% 10%;
+    --onboarding-text: 251 28% 95%;
+    --onboarding-muted: 251 9% 65%;
     --sidebar-background: 240 5.9% 10%;
     --sidebar-foreground: 240 4.8% 95.9%;
     --sidebar-primary: 224.3 76.3% 48%;
