@@ -18,7 +18,7 @@ interface LocationPreferences {
   jobTitle: string;
   company: string;
   interests: string[];
-  preferredLocation: string;
+  preferredLocation: string[];
   notifications: {
     email: boolean;
     push: boolean;
@@ -104,7 +104,7 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
     jobTitle: initialData?.jobTitle || "",
     company: initialData?.company || "",
     interests: initialData?.interests || [],
-    preferredLocation: initialData?.preferredLocation || "",
+    preferredLocation: initialData?.preferredLocation || [],
     notifications: initialData?.notifications || {
       email: true,
       push: true,
@@ -269,7 +269,10 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
                   className="w-full justify-between h-auto min-h-10 px-3 py-2"
                 >
                   <span className="text-left">
-                    {preferences.preferredLocation || "Start typing to find preferred location"}
+                    {preferences.preferredLocation.length > 0 
+                      ? `${preferences.preferredLocation.length} location${preferences.preferredLocation.length === 1 ? '' : 's'} selected`
+                      : "Start typing to find preferred location"
+                    }
                   </span>
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
@@ -285,17 +288,24 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
                           key={location}
                           value={location}
                           onSelect={(currentValue) => {
-                            setPreferences(prev => ({
-                              ...prev,
-                              preferredLocation: currentValue === preferences.preferredLocation ? "" : currentValue
-                            }));
-                            setLocationOpen(false);
+                            const isSelected = preferences.preferredLocation.includes(currentValue);
+                            if (isSelected) {
+                              setPreferences(prev => ({
+                                ...prev,
+                                preferredLocation: prev.preferredLocation.filter(l => l !== currentValue)
+                              }));
+                            } else {
+                              setPreferences(prev => ({
+                                ...prev,
+                                preferredLocation: [...prev.preferredLocation, currentValue]
+                              }));
+                            }
                           }}
                         >
                           <Check
                             className={cn(
                               "mr-2 h-4 w-4",
-                              preferences.preferredLocation === location ? "opacity-100" : "opacity-0"
+                              preferences.preferredLocation.includes(location) ? "opacity-100" : "opacity-0"
                             )}
                           />
                           {location}
@@ -307,23 +317,34 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
               </PopoverContent>
             </Popover>
             
-            {preferences.preferredLocation && (
+            {preferences.preferredLocation.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
-                <Badge variant="secondary" className="text-xs px-2 py-1">
-                  {preferences.preferredLocation}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPreferences(prev => ({
-                        ...prev,
-                        preferredLocation: ""
-                      }));
-                    }}
-                    className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </Badge>
+                {preferences.preferredLocation.map((location) => (
+                  <Badge key={location} variant="secondary" className="text-xs px-2 py-1">
+                    {location}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPreferences(prev => ({
+                          ...prev,
+                          preferredLocation: prev.preferredLocation.filter(l => l !== location)
+                        }));
+                      }}
+                      className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setPreferences(prev => ({ ...prev, preferredLocation: [] }))}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Clear all
+                </Button>
               </div>
             )}
           </div>
