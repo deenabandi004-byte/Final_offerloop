@@ -3,10 +3,10 @@ import { OnboardingWelcome } from "./OnboardingWelcome";
 import { OnboardingLocationPreferences } from "./OnboardingLocationPreferences";
 import { OnboardingProfile } from "./OnboardingProfile";
 import { OnboardingAcademics } from "./OnboardingAcademics";
-import { OnboardingComplete } from "./OnboardingComplete";
+
 import { Progress } from "@/components/ui/progress";
 
-type OnboardingStep = 'welcome' | 'profile' | 'academics' | 'location' | 'complete';
+type OnboardingStep = 'welcome' | 'profile' | 'academics' | 'location';
 
 interface OnboardingData {
   location?: any;
@@ -28,13 +28,12 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
       profile: 1,
       academics: 2,
       location: 3,
-      complete: 4,
     };
     return steps[step];
   };
 
   const getProgress = (): number => {
-    return (getStepNumber(currentStep) / 4) * 100;
+    return (getStepNumber(currentStep) / 3) * 100;
   };
 
   const handleNext = () => {
@@ -47,9 +46,6 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
         break;
       case 'academics':
         setCurrentStep('location');
-        break;
-      case 'location':
-        setCurrentStep('complete');
         break;
     }
   };
@@ -79,8 +75,8 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
   };
 
   const handleLocationData = (locationData: any) => {
-    setOnboardingData(prev => ({ ...prev, location: locationData }));
-    handleNext();
+    const finalData = { ...onboardingData, location: locationData };
+    onComplete(finalData);
   };
 
   const handleComplete = () => {
@@ -89,12 +85,12 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
 
   return (
     <div className="relative">
-      {currentStep !== 'welcome' && currentStep !== 'complete' && (
+      {currentStep !== 'welcome' && (
         <div className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-sm border-b">
           <div className="container mx-auto px-4 py-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium text-muted-foreground">
-                Step {getStepNumber(currentStep)} of 4
+                Step {getStepNumber(currentStep)} of 3
               </h3>
               <div className="flex-1 max-w-md mx-4">
                 <Progress value={getProgress()} className="h-2" />
@@ -135,9 +131,6 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
         />
       )}
 
-      {currentStep === 'complete' && (
-        <OnboardingComplete onFinish={handleComplete} />
-      )}
     </div>
   );
 };
