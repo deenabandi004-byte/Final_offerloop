@@ -15,8 +15,7 @@ interface LocationPreferences {
   country: string;
   state: string;
   city: string;
-  jobTitle: string;
-  company: string;
+  jobTypes: string[];
   interests: string[];
   preferredLocation: string[];
 }
@@ -95,8 +94,7 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
     country: initialData?.country || "",
     state: initialData?.state || "",
     city: initialData?.city || "",
-    jobTitle: initialData?.jobTitle || "",
-    company: initialData?.company || "",
+    jobTypes: initialData?.jobTypes || [],
     interests: initialData?.interests || [],
     preferredLocation: initialData?.preferredLocation || [],
   });
@@ -120,25 +118,32 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <Label htmlFor="jobTitle" className="text-foreground font-medium">Job Title</Label>
-              <Input
-                id="jobTitle"
-                value={preferences.jobTitle}
-                onChange={(e) => setPreferences(prev => ({ ...prev, jobTitle: e.target.value }))}
-                placeholder="Enter your job title"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="company" className="text-foreground font-medium">Company</Label>
-              <Input
-                id="company"
-                value={preferences.company}
-                onChange={(e) => setPreferences(prev => ({ ...prev, company: e.target.value }))}
-                placeholder="Enter your company name"
-              />
+          <div className="space-y-4">
+            <Label className="text-foreground font-medium">Job Type(s) Interested In</Label>
+            <p className="text-sm text-muted-foreground">Select all job types you're interested in</p>
+            <div className="space-y-3">
+              {['Internship', 'Part-Time', 'Full-Time'].map((jobType) => (
+                <div key={jobType} className="flex items-center space-x-2">
+                  <Checkbox
+                    id={jobType.toLowerCase().replace('-', '')}
+                    checked={preferences.jobTypes.includes(jobType)}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setPreferences(prev => ({
+                          ...prev,
+                          jobTypes: [...prev.jobTypes, jobType]
+                        }));
+                      } else {
+                        setPreferences(prev => ({
+                          ...prev,
+                          jobTypes: prev.jobTypes.filter(type => type !== jobType)
+                        }));
+                      }
+                    }}
+                  />
+                  <Label htmlFor={jobType.toLowerCase().replace('-', '')} className="text-sm font-normal">{jobType}</Label>
+                </div>
+              ))}
             </div>
           </div>
 
