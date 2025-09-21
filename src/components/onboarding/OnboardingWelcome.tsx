@@ -24,7 +24,7 @@ export const OnboardingWelcome = ({ onNext, userName = "there" }: OnboardingWelc
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 my-8">
           <div className="flex flex-col items-center space-y-3 p-4">
             <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-              <User className="w-6 h-6 text-primary" />
+              <User className="w-6 h-6 text-foreground" />
             </div>
             <h3 className="font-semibold text-foreground">Profile</h3>
             <p className="text-sm text-muted-foreground text-center">Complete your profile and upload resume</p>
@@ -32,7 +32,7 @@ export const OnboardingWelcome = ({ onNext, userName = "there" }: OnboardingWelc
           
           <div className="flex flex-col items-center space-y-3 p-4">
             <div className="w-12 h-12 rounded-full bg-secondary/10 flex items-center justify-center">
-              <GraduationCap className="w-6 h-6 text-secondary" />
+              <GraduationCap className="w-6 h-6 text-foreground" />
             </div>
             <h3 className="font-semibold text-foreground">Academics</h3>
             <p className="text-sm text-muted-foreground text-center">Add your educational background</p>
