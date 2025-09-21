@@ -63,12 +63,6 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-primary/10 via-secondary/5 to-accent/10">
       <Card className="w-full max-w-2xl p-8 space-y-8 shadow-lg border-0 bg-card/80 backdrop-blur-sm">
         <div className="text-center space-y-4">
-          <div className="flex justify-center">
-            <div className="p-4 rounded-full bg-gradient-to-r from-primary to-secondary/50 shadow-glow">
-              <MapPin className="h-8 w-8 text-primary-foreground" />
-            </div>
-          </div>
-          
           <h2 className="text-3xl font-bold text-foreground">Career Preferences</h2>
           <p className="text-muted-foreground max-w-md mx-auto">
             Share your goals and interests to help us match you with the right opportunities.
