@@ -70,7 +70,7 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
           <div className="space-y-4 mb-6">
             <Label className="text-foreground font-medium flex items-center gap-2">
               <FileText className="h-4 w-4" />
-              Resume Upload
+              Resume Upload (Highly Recommended)
             </Label>
             <div className="flex items-center space-x-4">
               <Button
