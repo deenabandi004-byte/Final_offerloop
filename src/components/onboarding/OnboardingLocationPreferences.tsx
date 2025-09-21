@@ -11,11 +11,6 @@ interface LocationPreferences {
   country: string;
   state: string;
   city: string;
-  timezone: string;
-  language: string;
-  currency: string;
-  workingHours: string;
-  availability: string;
   interests: string[];
   notifications: {
     email: boolean;
@@ -36,11 +31,6 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
     country: initialData?.country || "",
     state: initialData?.state || "",
     city: initialData?.city || "",
-    timezone: initialData?.timezone || "",
-    language: initialData?.language || "en",
-    currency: initialData?.currency || "usd",
-    workingHours: initialData?.workingHours || "",
-    availability: initialData?.availability || "",
     interests: initialData?.interests || [],
     notifications: initialData?.notifications || {
       email: true,
@@ -121,94 +111,6 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
                 placeholder="Enter your city"
               />
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <Label htmlFor="timezone" className="text-foreground font-medium">Timezone</Label>
-              <Select value={preferences.timezone} onValueChange={(value) => setPreferences(prev => ({ ...prev, timezone: value }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select timezone" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="utc-8">Pacific Time (UTC-8)</SelectItem>
-                  <SelectItem value="utc-7">Mountain Time (UTC-7)</SelectItem>
-                  <SelectItem value="utc-6">Central Time (UTC-6)</SelectItem>
-                  <SelectItem value="utc-5">Eastern Time (UTC-5)</SelectItem>
-                  <SelectItem value="utc+0">UTC+0 (GMT)</SelectItem>
-                  <SelectItem value="utc+1">Central European (UTC+1)</SelectItem>
-                  <SelectItem value="utc+9">Japan Standard (UTC+9)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="language" className="text-foreground font-medium">Language</Label>
-              <Select value={preferences.language} onValueChange={(value) => setPreferences(prev => ({ ...prev, language: value }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select language" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="en">English</SelectItem>
-                  <SelectItem value="es">Spanish</SelectItem>
-                  <SelectItem value="fr">French</SelectItem>
-                  <SelectItem value="de">German</SelectItem>
-                  <SelectItem value="ja">Japanese</SelectItem>
-                  <SelectItem value="zh">Chinese</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <Label htmlFor="currency" className="text-foreground font-medium">Preferred Currency</Label>
-              <Select value={preferences.currency} onValueChange={(value) => setPreferences(prev => ({ ...prev, currency: value }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select currency" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="usd">USD - US Dollar</SelectItem>
-                  <SelectItem value="eur">EUR - Euro</SelectItem>
-                  <SelectItem value="gbp">GBP - British Pound</SelectItem>
-                  <SelectItem value="cad">CAD - Canadian Dollar</SelectItem>
-                  <SelectItem value="aud">AUD - Australian Dollar</SelectItem>
-                  <SelectItem value="jpy">JPY - Japanese Yen</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="workingHours" className="text-foreground font-medium">Working Hours</Label>
-              <Select value={preferences.workingHours} onValueChange={(value) => setPreferences(prev => ({ ...prev, workingHours: value }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select working hours" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="9-5">9 AM - 5 PM</SelectItem>
-                  <SelectItem value="8-4">8 AM - 4 PM</SelectItem>
-                  <SelectItem value="10-6">10 AM - 6 PM</SelectItem>
-                  <SelectItem value="flexible">Flexible</SelectItem>
-                  <SelectItem value="remote">Remote/Various</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="availability" className="text-foreground font-medium">Availability</Label>
-            <Select value={preferences.availability} onValueChange={(value) => setPreferences(prev => ({ ...prev, availability: value }))}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select your availability" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="full-time">Full-time</SelectItem>
-                <SelectItem value="part-time">Part-time</SelectItem>
-                <SelectItem value="contract">Contract</SelectItem>
-                <SelectItem value="freelance">Freelance</SelectItem>
-                <SelectItem value="not-available">Not currently available</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
 
           <div className="space-y-4">
