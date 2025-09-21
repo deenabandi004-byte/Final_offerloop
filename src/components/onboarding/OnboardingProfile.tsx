@@ -13,13 +13,8 @@ interface ProfileData {
   lastName: string;
   email: string;
   phone: string;
-  dateOfBirth: string;
-  gender: string;
   jobTitle: string;
   company: string;
-  experience: string;
-  skills: string;
-  bio: string;
   avatar?: string;
   resume?: File;
 }
@@ -35,13 +30,8 @@ export const OnboardingProfile = ({ onNext, onBack }: OnboardingProfileProps) =>
     lastName: "",
     email: "",
     phone: "",
-    dateOfBirth: "",
-    gender: "",
     jobTitle: "",
     company: "",
-    experience: "",
-    skills: "",
-    bio: "",
   });
   
   const resumeInputRef = useRef<HTMLInputElement>(null);
@@ -186,33 +176,6 @@ export const OnboardingProfile = ({ onNext, onBack }: OnboardingProfileProps) =>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <Label htmlFor="dateOfBirth" className="text-foreground font-medium">Date of Birth</Label>
-              <Input
-                id="dateOfBirth"
-                type="date"
-                value={profile.dateOfBirth}
-                onChange={(e) => setProfile(prev => ({ ...prev, dateOfBirth: e.target.value }))}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="gender" className="text-foreground font-medium">Gender</Label>
-              <Select value={profile.gender} onValueChange={(value) => setProfile(prev => ({ ...prev, gender: value }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select gender" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="male">Male</SelectItem>
-                  <SelectItem value="female">Female</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                  <SelectItem value="prefer-not-to-say">Prefer not to say</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
               <Label htmlFor="jobTitle" className="text-foreground font-medium">Job Title</Label>
               <Input
                 id="jobTitle"
@@ -231,44 +194,6 @@ export const OnboardingProfile = ({ onNext, onBack }: OnboardingProfileProps) =>
                 placeholder="Enter your company name"
               />
             </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="experience" className="text-foreground font-medium">Years of Experience</Label>
-            <Select value={profile.experience} onValueChange={(value) => setProfile(prev => ({ ...prev, experience: value }))}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select years of experience" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="0-1">0-1 years</SelectItem>
-                <SelectItem value="2-5">2-5 years</SelectItem>
-                <SelectItem value="6-10">6-10 years</SelectItem>
-                <SelectItem value="11-15">11-15 years</SelectItem>
-                <SelectItem value="16+">16+ years</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="skills" className="text-foreground font-medium">Skills</Label>
-            <Textarea
-              id="skills"
-              value={profile.skills}
-              onChange={(e) => setProfile(prev => ({ ...prev, skills: e.target.value }))}
-              placeholder="List your key skills (e.g., JavaScript, React, Project Management)"
-              rows={2}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="bio" className="text-foreground font-medium">Bio (Optional)</Label>
-            <Textarea
-              id="bio"
-              value={profile.bio}
-              onChange={(e) => setProfile(prev => ({ ...prev, bio: e.target.value }))}
-              placeholder="Tell us a bit about yourself..."
-              rows={3}
-            />
           </div>
 
           <div className="flex justify-between pt-6">
