@@ -12,13 +12,7 @@ export const OnboardingWelcome = ({ onNext, userName = "there" }: OnboardingWelc
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-primary/10 via-secondary/5 to-accent/10">
       <Card className="w-full max-w-2xl p-8 lg:p-12 text-center space-y-8 shadow-lg border-0 bg-card/80 backdrop-blur-sm">
         <div className="space-y-4">
-          <div className="flex justify-center">
-            <div className="p-4 rounded-full bg-gradient-to-r from-primary to-secondary/50 shadow-glow">
-              <Sparkles className="h-8 w-8 text-primary-foreground" />
-            </div>
-          </div>
-          
-          <h1 className="text-4xl lg:text-5xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+          <h1 className="text-4xl lg:text-5xl font-bold text-foreground">
             Welcome {userName}!
           </h1>
           
