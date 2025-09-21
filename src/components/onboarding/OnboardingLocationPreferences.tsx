@@ -5,7 +5,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ArrowRight, ArrowLeft, MapPin, Globe } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Badge } from "@/components/ui/badge";
+import { ArrowRight, ArrowLeft, MapPin, Globe, ChevronsUpDown, Check, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface LocationPreferences {
   country: string;
@@ -28,6 +32,41 @@ interface OnboardingLocationPreferencesProps {
   initialData?: LocationPreferences;
 }
 
+const interests = [
+  "Accounting", "Advertising (Traditional Media)", "Advertising Technology (AdTech)", "Aerospace & Aviation",
+  "Agriculture & Agribusiness", "Animation", "Apparel & Footwear Retail", "Architecture",
+  "Artificial Intelligence / Machine Learning", "Auditing", "Automotive Industry", "Banking",
+  "Beauty & Cosmetics", "Biotech Research", "Biotechnology", "Blockchain & Web3",
+  "Childcare & Early Education", "Chemical Engineering", "Civil Engineering", "Cloud Computing",
+  "Commercial Real Estate", "Construction Management", "Consumer Packaged Goods (CPG)", "Corporate Training",
+  "Cyber-Physical Systems (IoT)", "Cybersecurity", "Data Science & Analytics", "Defense Contracting",
+  "Digital Media & Streaming", "E-commerce", "EdTech", "Educational Technology", "Electrical Engineering",
+  "Energy (Oil, Gas, Renewables)", "Entertainment (Film & TV Production)", "Environmental Consulting",
+  "Event Planning", "Fashion & Apparel", "Film & Television Production",
+  "Finance (Wealth Management, Private Equity, Hedge Funds)", "FinTech", "Fitness & Wellness",
+  "Food & Beverage Production", "Food & Restaurants", "Freight & Shipping Services", "Gaming & Esports",
+  "Government Administration", "Graphic Design", "Green Technology", "Health Insurance", "HealthTech",
+  "Hedge Funds", "Higher Education / Universities", "Homeland Security", "Hospitals & Clinical Care",
+  "Hospitality Management", "Human Resources / Recruiting", "Humanitarian Aid & Relief", "Immigration Services",
+  "Industrial Manufacturing", "Influencer Marketing", "Insurance", "Intelligence & National Security",
+  "International Development", "International Relations", "Investment Banking", "Journalism",
+  "K–12 Education", "Law (Corporate, Criminal, Civil)", "Legal Tech", "Logistics & Transportation",
+  "Luxury Goods", "Management Consulting", "Manufacturing Automation", "Marine & Shipping Industry",
+  "Marketing & Advertising", "Mechanical Engineering", "Medical Devices", "Mental Health Services",
+  "Military & Defense", "Mining & Natural Resources", "Music Industry", "Nonprofit Management",
+  "Nursing", "Performing Arts", "Pharmaceuticals", "Philanthropy", "Physical Therapy & Rehabilitation",
+  "Photography", "Political Campaigns", "Policy & Advocacy", "Private Equity", "Property Management",
+  "Public Health", "Public Policy", "Public Transit Systems", "Publishing & Writing",
+  "Real Estate Development", "Real Estate Finance", "Renewable Energy (Solar, Wind, Hydro)",
+  "Residential Real Estate", "Retail & Consumer Services", "Robotics", "Social Media Management",
+  "Social Work", "Software Development", "Space Exploration & Commercial Space", "Sports Management",
+  "Strategy Consulting", "Supply Chain & Logistics", "Sustainability & Climate Tech", "Tax Services",
+  "Telecommunications", "Telemedicine", "Transportation Infrastructure", "Travel & Tourism",
+  "Urban Planning", "UX/UI Design", "Venture Capital", "Veterinary Services",
+  "Virtual & Augmented Reality", "Waste Management & Recycling", "Wealth Management",
+  "Wholesale & Distribution", "Wine, Beer & Spirits"
+];
+
 export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: OnboardingLocationPreferencesProps) => {
   const [preferences, setPreferences] = useState<LocationPreferences>({
     country: initialData?.country || "",
@@ -43,6 +82,8 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
       newsletter: false,
     }
   });
+  
+  const [open, setOpen] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,31 +175,94 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
           </div>
 
           <div className="space-y-4">
-            <Label className="text-foreground font-medium">Interests (Select all that apply)</Label>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {['Technology', 'Design', 'Business', 'Marketing', 'Finance', 'Education', 'Healthcare', 'Entertainment', 'Sports', 'Travel', 'Food', 'Music'].map((interest) => (
-                <div key={interest} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={interest}
-                    checked={preferences.interests.includes(interest)}
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        setPreferences(prev => ({
-                          ...prev,
-                          interests: [...prev.interests, interest]
-                        }));
-                      } else {
+            <Label className="text-foreground font-medium">Interests</Label>
+            <Popover open={open} onOpenChange={setOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={open}
+                  className="w-full justify-between h-auto min-h-10 px-3 py-2"
+                >
+                  <span className="text-left">
+                    {preferences.interests.length > 0 
+                      ? `${preferences.interests.length} interest${preferences.interests.length === 1 ? '' : 's'} selected`
+                      : "Start typing to find interests..."
+                    }
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-full p-0" align="start">
+                <Command>
+                  <CommandInput placeholder="Start typing to find interests..." className="h-9" />
+                  <CommandList className="max-h-[200px]">
+                    <CommandEmpty>No interests found.</CommandEmpty>
+                    <CommandGroup>
+                      {interests.map((interest) => (
+                        <CommandItem
+                          key={interest}
+                          value={interest}
+                          onSelect={(currentValue) => {
+                            const isSelected = preferences.interests.includes(currentValue);
+                            if (isSelected) {
+                              setPreferences(prev => ({
+                                ...prev,
+                                interests: prev.interests.filter(i => i !== currentValue)
+                              }));
+                            } else {
+                              setPreferences(prev => ({
+                                ...prev,
+                                interests: [...prev.interests, currentValue]
+                              }));
+                            }
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              preferences.interests.includes(interest) ? "opacity-100" : "opacity-0"
+                            )}
+                          />
+                          {interest}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            
+            {preferences.interests.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {preferences.interests.map((interest) => (
+                  <Badge key={interest} variant="secondary" className="text-xs px-2 py-1">
+                    {interest}
+                    <button
+                      type="button"
+                      onClick={() => {
                         setPreferences(prev => ({
                           ...prev,
                           interests: prev.interests.filter(i => i !== interest)
                         }));
-                      }
-                    }}
-                  />
-                  <Label htmlFor={interest} className="text-sm font-normal">{interest}</Label>
-                </div>
-              ))}
-            </div>
+                      }}
+                      className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setPreferences(prev => ({ ...prev, interests: [] }))}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Clear all
+                </Button>
+              </div>
+            )}
           </div>
 
           <div className="space-y-4">
