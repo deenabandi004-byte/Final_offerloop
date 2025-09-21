@@ -111,47 +111,6 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="space-y-2">
-              <Label htmlFor="country" className="text-foreground font-medium">Country</Label>
-              <Select value={preferences.country} onValueChange={(value) => setPreferences(prev => ({ ...prev, country: value }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select your country" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="us">United States</SelectItem>
-                  <SelectItem value="uk">United Kingdom</SelectItem>
-                  <SelectItem value="ca">Canada</SelectItem>
-                  <SelectItem value="au">Australia</SelectItem>
-                  <SelectItem value="de">Germany</SelectItem>
-                  <SelectItem value="fr">France</SelectItem>
-                  <SelectItem value="jp">Japan</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="state" className="text-foreground font-medium">State/Province</Label>
-              <Input
-                id="state"
-                value={preferences.state}
-                onChange={(e) => setPreferences(prev => ({ ...prev, state: e.target.value }))}
-                placeholder="Enter your state/province"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="city" className="text-foreground font-medium">City</Label>
-              <Input
-                id="city"
-                value={preferences.city}
-                onChange={(e) => setPreferences(prev => ({ ...prev, city: e.target.value }))}
-                placeholder="Enter your city"
-              />
-            </div>
-          </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <Label htmlFor="jobTitle" className="text-foreground font-medium">Job Title</Label>
@@ -175,7 +134,7 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
           </div>
 
           <div className="space-y-4">
-            <Label className="text-foreground font-medium">Interests</Label>
+            <Label className="text-foreground font-medium">Industry Interests</Label>
             <Popover open={open} onOpenChange={setOpen}>
               <PopoverTrigger asChild>
                 <Button
@@ -186,8 +145,8 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
                 >
                   <span className="text-left">
                     {preferences.interests.length > 0 
-                      ? `${preferences.interests.length} interest${preferences.interests.length === 1 ? '' : 's'} selected`
-                      : "Start typing to find interests..."
+                      ? `${preferences.interests.length} industry interest${preferences.interests.length === 1 ? '' : 's'} selected`
+                      : "Start typing to find industries of interest"
                     }
                   </span>
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -195,9 +154,9 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
               </PopoverTrigger>
               <PopoverContent className="w-full p-0" align="start">
                 <Command>
-                  <CommandInput placeholder="Start typing to find interests..." className="h-9" />
+                  <CommandInput placeholder="Start typing to find industries of interest" className="h-9" />
                   <CommandList className="max-h-[200px]">
-                    <CommandEmpty>No interests found.</CommandEmpty>
+                    <CommandEmpty>No industries found.</CommandEmpty>
                     <CommandGroup>
                       {interests.map((interest) => (
                         <CommandItem
