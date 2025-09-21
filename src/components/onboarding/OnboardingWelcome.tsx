@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, User, GraduationCap, Briefcase } from "lucide-react";
 
 interface OnboardingWelcomeProps {
   onNext: () => void;
@@ -23,27 +23,27 @@ export const OnboardingWelcome = ({ onNext, userName = "there" }: OnboardingWelc
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 my-8">
           <div className="flex flex-col items-center space-y-3 p-4">
-            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg">
-              1
+            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+              <User className="w-6 h-6 text-primary" />
             </div>
             <h3 className="font-semibold text-foreground">Profile</h3>
             <p className="text-sm text-muted-foreground text-center">Complete your profile and upload resume</p>
           </div>
           
           <div className="flex flex-col items-center space-y-3 p-4">
-            <div className="w-12 h-12 rounded-full bg-secondary/10 flex items-center justify-center text-secondary font-bold text-lg">
-              2
+            <div className="w-12 h-12 rounded-full bg-secondary/10 flex items-center justify-center">
+              <GraduationCap className="w-6 h-6 text-secondary" />
             </div>
             <h3 className="font-semibold text-foreground">Academics</h3>
             <p className="text-sm text-muted-foreground text-center">Add your educational background</p>
           </div>
           
           <div className="flex flex-col items-center space-y-3 p-4">
-            <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center text-accent-foreground font-bold text-lg">
-              3
+            <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center">
+              <Briefcase className="w-6 h-6 text-accent-foreground" />
             </div>
             <h3 className="font-semibold text-foreground">Career</h3>
-            <p className="text-sm text-muted-foreground text-center">Set your location and preferences</p>
+            <p className="text-sm text-muted-foreground text-center">Tell us what you're aiming for</p>
           </div>
         </div>
 
