@@ -58,29 +58,14 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-primary/10 via-secondary/5 to-accent/10">
       <Card className="w-full max-w-2xl p-8 space-y-8 shadow-lg border-0 bg-card/80 backdrop-blur-sm">
-        <div className="text-center space-y-6">
+        <div className="text-center space-y-4">
           <h2 className="text-4xl font-bold text-foreground">Create Your Profile</h2>
+          <p className="text-muted-foreground text-sm max-w-md mx-auto">
+            Share your goals and interests to help us match you with the right opportunities.
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="flex justify-center mb-6">
-            <div className="relative">
-              <Avatar className="h-24 w-24 border-4 border-primary/20">
-                <AvatarImage src={profile.avatar} />
-                <AvatarFallback className="text-2xl font-semibold bg-gradient-to-br from-primary/20 to-secondary/20">
-                  {getInitials() || "?"}
-                </AvatarFallback>
-              </Avatar>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="absolute -bottom-2 -right-2 h-8 w-8 rounded-full p-0 bg-background shadow-md"
-              >
-                <Upload className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
 
           <div className="space-y-4 mb-6">
             <Label className="text-foreground font-medium flex items-center gap-2">
