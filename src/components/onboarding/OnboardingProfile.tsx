@@ -103,6 +103,10 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
             </p>
           </div>
 
+          <div className="pt-4">
+            <h3 className="text-lg font-semibold text-foreground mb-4">Personal</h3>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <Label htmlFor="firstName" className="text-foreground font-medium">First Name</Label>
