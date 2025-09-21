@@ -28,20 +28,21 @@ interface LocationPreferences {
 interface OnboardingLocationPreferencesProps {
   onNext: (data: LocationPreferences) => void;
   onBack: () => void;
+  initialData?: LocationPreferences;
 }
 
-export const OnboardingLocationPreferences = ({ onNext, onBack }: OnboardingLocationPreferencesProps) => {
+export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: OnboardingLocationPreferencesProps) => {
   const [preferences, setPreferences] = useState<LocationPreferences>({
-    country: "",
-    state: "",
-    city: "",
-    timezone: "",
-    language: "en",
-    currency: "usd",
-    workingHours: "",
-    availability: "",
-    interests: [],
-    notifications: {
+    country: initialData?.country || "",
+    state: initialData?.state || "",
+    city: initialData?.city || "",
+    timezone: initialData?.timezone || "",
+    language: initialData?.language || "en",
+    currency: initialData?.currency || "usd",
+    workingHours: initialData?.workingHours || "",
+    availability: initialData?.availability || "",
+    interests: initialData?.interests || [],
+    notifications: initialData?.notifications || {
       email: true,
       push: true,
       sms: false,

@@ -22,16 +22,19 @@ interface ProfileData {
 interface OnboardingProfileProps {
   onNext: (data: ProfileData) => void;
   onBack: () => void;
+  initialData?: ProfileData;
 }
 
-export const OnboardingProfile = ({ onNext, onBack }: OnboardingProfileProps) => {
+export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingProfileProps) => {
   const [profile, setProfile] = useState<ProfileData>({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    jobTitle: "",
-    company: "",
+    firstName: initialData?.firstName || "",
+    lastName: initialData?.lastName || "",
+    email: initialData?.email || "",
+    phone: initialData?.phone || "",
+    jobTitle: initialData?.jobTitle || "",
+    company: initialData?.company || "",
+    avatar: initialData?.avatar,
+    resume: initialData?.resume,
   });
   
   const resumeInputRef = useRef<HTMLInputElement>(null);

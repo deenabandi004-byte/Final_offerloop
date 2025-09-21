@@ -100,14 +100,16 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
       {currentStep === 'profile' && (
         <OnboardingProfile 
           onNext={handleProfileData} 
-          onBack={handleBack} 
+          onBack={handleBack}
+          initialData={onboardingData.profile}
         />
       )}
 
       {currentStep === 'location' && (
         <OnboardingLocationPreferences 
           onNext={handleLocationData} 
-          onBack={handleBack} 
+          onBack={handleBack}
+          initialData={onboardingData.location}
         />
       )}
 
