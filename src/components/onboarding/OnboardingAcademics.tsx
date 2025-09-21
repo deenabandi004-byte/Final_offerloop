@@ -11,10 +11,8 @@ interface AcademicData {
   university: string;
   degree: string;
   major: string;
+  graduationMonth: string;
   graduationYear: string;
-  gpa: string;
-  relevantCoursework: string;
-  academicAchievements: string;
 }
 
 interface OnboardingAcademicsProps {
@@ -28,10 +26,8 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
     university: initialData?.university || "",
     degree: initialData?.degree || "",
     major: initialData?.major || "",
+    graduationMonth: initialData?.graduationMonth || "",
     graduationYear: initialData?.graduationYear || "",
-    gpa: initialData?.gpa || "",
-    relevantCoursework: initialData?.relevantCoursework || "",
-    academicAchievements: initialData?.academicAchievements || "",
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -41,6 +37,10 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
 
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 20 }, (_, i) => currentYear - 10 + i);
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-primary/10 via-secondary/5 to-accent/10">
@@ -71,7 +71,7 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
                 <SelectTrigger>
                   <SelectValue placeholder="Select degree level" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="bg-background border z-50">
                   <SelectItem value="associate">Associate's Degree</SelectItem>
                   <SelectItem value="bachelor">Bachelor's Degree</SelectItem>
                   <SelectItem value="master">Master's Degree</SelectItem>
@@ -85,14 +85,19 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <Label htmlFor="major" className="text-foreground font-medium">Major/Field of Study</Label>
-              <Input
-                id="major"
-                value={academics.major}
-                onChange={(e) => setAcademics(prev => ({ ...prev, major: e.target.value }))}
-                placeholder="Enter your major"
-                required
-              />
+              <Label htmlFor="graduationMonth" className="text-foreground font-medium">Graduation Month</Label>
+              <Select value={academics.graduationMonth} onValueChange={(value) => setAcademics(prev => ({ ...prev, graduationMonth: value }))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select graduation month" />
+                </SelectTrigger>
+                <SelectContent className="bg-background border z-50">
+                  {months.map((month) => (
+                    <SelectItem key={month} value={month.toLowerCase()}>
+                      {month}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">
@@ -101,7 +106,7 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
                 <SelectTrigger>
                   <SelectValue placeholder="Select graduation year" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="bg-background border z-50">
                   {years.map((year) => (
                     <SelectItem key={year} value={year.toString()}>
                       {year}
@@ -113,36 +118,16 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="gpa" className="text-foreground font-medium">GPA (Optional)</Label>
+            <Label htmlFor="major" className="text-foreground font-medium">Major/Field of Study</Label>
             <Input
-              id="gpa"
-              value={academics.gpa}
-              onChange={(e) => setAcademics(prev => ({ ...prev, gpa: e.target.value }))}
-              placeholder="Enter your GPA (e.g., 3.8/4.0)"
+              id="major"
+              value={academics.major}
+              onChange={(e) => setAcademics(prev => ({ ...prev, major: e.target.value }))}
+              placeholder="Enter your major"
+              required
             />
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="relevantCoursework" className="text-foreground font-medium">Relevant Coursework (Optional)</Label>
-            <Textarea
-              id="relevantCoursework"
-              value={academics.relevantCoursework}
-              onChange={(e) => setAcademics(prev => ({ ...prev, relevantCoursework: e.target.value }))}
-              placeholder="List relevant courses, projects, or specialized training"
-              className="min-h-[80px]"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="academicAchievements" className="text-foreground font-medium">Academic Achievements (Optional)</Label>
-            <Textarea
-              id="academicAchievements"
-              value={academics.academicAchievements}
-              onChange={(e) => setAcademics(prev => ({ ...prev, academicAchievements: e.target.value }))}
-              placeholder="Academic honors, awards, publications, research, etc."
-              className="min-h-[80px]"
-            />
-          </div>
 
           <div className="flex justify-between pt-6">
             <Button
