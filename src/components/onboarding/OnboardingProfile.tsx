@@ -171,7 +171,7 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
               type="submit"
               className="px-6 py-2 bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 text-primary-foreground shadow-lg hover:shadow-xl transition-all duration-300 group"
             >
-              Complete Setup
+              Next
               <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
             </Button>
           </div>
