@@ -105,34 +105,51 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
     ];
 
     return (
-      <div className="flex items-center justify-center space-x-8 mb-8">
-        {steps.map(({ step, icon: Icon, title, number }, index) => {
-          const isActive = currentStep === step;
-          const isCompleted = getStepNumber(currentStep) > getStepNumber(step as OnboardingStep);
-          
-          return (
-            <div key={step} className="flex flex-col items-center">
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all ${
-                isActive
-                  ? 'bg-primary text-primary-foreground border-primary'
-                  : isCompleted
-                  ? 'bg-primary/10 text-primary border-primary'
-                  : 'bg-muted text-muted-foreground border-muted-foreground/30'
-              }`}>
-                {isCompleted ? (
-                  <div className="w-3 h-3 rounded-full bg-primary" />
-                ) : (
-                  <span className="text-sm font-semibold">{number}</span>
+      <div className="flex items-center justify-center mb-8">
+        <div className="flex items-center space-x-8 relative">
+          {steps.map(({ step, icon: Icon, title, number }, index) => {
+            const isActive = currentStep === step;
+            const isCompleted = getStepNumber(currentStep) > getStepNumber(step as OnboardingStep);
+            const isNext = index > 0;
+            
+            return (
+              <div key={step} className="flex items-center">
+                {/* Connecting line */}
+                {isNext && (
+                  <div className="flex-1 h-0.5 bg-muted mx-4 relative w-16">
+                    <div 
+                      className={`absolute top-0 left-0 h-full bg-primary transition-all duration-500 ${
+                        isCompleted ? 'w-full' : isActive ? 'w-1/2' : 'w-0'
+                      }`}
+                    />
+                  </div>
                 )}
+                
+                {/* Step circle and content */}
+                <div className="flex flex-col items-center">
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
+                    isActive
+                      ? 'bg-primary text-primary-foreground border-primary animate-scale-in'
+                      : isCompleted
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-muted text-muted-foreground border-muted-foreground/30'
+                  }`}>
+                    {isCompleted ? (
+                      <div className="w-3 h-3 rounded-full bg-primary-foreground animate-fade-in" />
+                    ) : (
+                      <span className="text-sm font-semibold">{number}</span>
+                    )}
+                  </div>
+                  <p className={`text-sm font-medium mt-2 transition-colors duration-300 ${
+                    isActive ? 'text-foreground' : 'text-muted-foreground'
+                  }`}>
+                    {title}
+                  </p>
+                </div>
               </div>
-              <p className={`text-sm font-medium mt-2 transition-colors ${
-                isActive ? 'text-foreground' : 'text-muted-foreground'
-              }`}>
-                {title}
-              </p>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     );
   };
