@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ArrowRight, User, GraduationCap, Briefcase } from "lucide-react";
-import careerIllustration from "@/assets/career-illustration.png";
+import welcomeIllustration from "@/assets/welcome-illustration.png";
 
 interface OnboardingWelcomeProps {
   onNext: () => void;
@@ -59,8 +59,8 @@ export const OnboardingWelcome = ({ onNext, userName = "there" }: OnboardingWelc
       <div className="w-1/2 bg-background flex items-start justify-center p-8 pt-16">
         <div className="w-full max-w-md">
           <img 
-            src={careerIllustration} 
-            alt="Career professionals illustration" 
+            src={welcomeIllustration} 
+            alt="Welcome to Offerloop illustration" 
             className="w-full h-auto object-contain"
           />
         </div>
