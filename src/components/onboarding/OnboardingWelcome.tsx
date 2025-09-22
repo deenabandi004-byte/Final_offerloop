@@ -57,7 +57,7 @@ export const OnboardingWelcome = ({ onNext, userName = "there" }: OnboardingWelc
       
       {/* Right side - illustration */}
       <div className="w-1/2 bg-background flex items-start justify-center p-8 pt-16">
-        <div className="w-full max-w-lg">
+        <div className="w-full max-w-md">
           <img 
             src={careerIllustration} 
             alt="Career professionals illustration" 
