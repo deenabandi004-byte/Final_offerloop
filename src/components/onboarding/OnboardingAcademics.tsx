@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ArrowRight, ArrowLeft, GraduationCap, Check, ChevronsUpDown } from "lucide-react";
+import academicIllustration from "@/assets/academic-illustration.png";
 import { cn } from "@/lib/utils";
 
 interface AcademicData {
@@ -800,10 +801,14 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
         </div>
       </div>
       
-      {/* Right side - empty space for illustration */}
+      {/* Right side - academic illustration */}
       <div className="w-1/2 bg-background flex items-center justify-center p-8">
-        <div className="w-full max-w-md flex items-center justify-center text-muted-foreground">
-          <GraduationCap className="w-24 h-24" />
+        <div className="w-full max-w-md">
+          <img 
+            src={academicIllustration} 
+            alt="Academic robot illustration" 
+            className="w-full h-auto object-contain"
+          />
         </div>
       </div>
     </div>
