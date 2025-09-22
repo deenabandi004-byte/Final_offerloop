@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ArrowRight, ArrowLeft, User, Upload, FileText } from "lucide-react";
 import crowdIllustration from "@/assets/crowd-illustration.png";
+import { processImageWithTransparentBackground } from "@/utils/processImage";
 
 interface ProfileData {
   firstName: string;
@@ -33,8 +34,21 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
     avatar: initialData?.avatar,
     resume: initialData?.resume,
   });
+  const [processedImageSrc, setProcessedImageSrc] = useState<string>(crowdIllustration);
   
   const resumeInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const processImage = async () => {
+      try {
+        const processedSrc = await processImageWithTransparentBackground();
+        setProcessedImageSrc(processedSrc);
+      } catch (error) {
+        console.error('Failed to process image:', error);
+      }
+    };
+    processImage();
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,7 +78,7 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
         aria-hidden="true"
       >
         <img 
-          src={crowdIllustration} 
+          src={processedImageSrc} 
           alt=""
           className="w-full h-auto object-contain"
           style={{ filter: 'drop-shadow(0 8px 32px rgba(0, 0, 0, 0.3))' }}
