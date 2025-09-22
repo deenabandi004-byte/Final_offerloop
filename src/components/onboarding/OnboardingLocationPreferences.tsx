@@ -111,7 +111,7 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
     <div className="space-y-8">
       <div className="space-y-6">
         <h2 className="text-4xl lg:text-5xl font-bold text-foreground">
-          Location{" "}
+          Career{" "}
           <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
             Preferences
           </span>

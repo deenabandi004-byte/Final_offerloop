@@ -89,7 +89,7 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
       case 'academics':
         return 'Academic Information';
       case 'location':
-        return 'Location Preferences';
+        return 'Career Preferences';
       default:
         return '';
     }
@@ -101,11 +101,11 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
     const steps = [
       { step: 'profile', icon: User, title: 'Create Your Profile', number: 1 },
       { step: 'academics', icon: GraduationCap, title: 'Academic Information', number: 2 },
-      { step: 'location', icon: MapPin, title: 'Location Preferences', number: 3 },
+      { step: 'location', icon: MapPin, title: 'Career Preferences', number: 3 },
     ];
 
     return (
-      <div className="flex justify-center mb-8 ml-32">
+      <div className="flex justify-center mb-8 px-4 overflow-visible">
         <div className="flex items-center">
           {steps.map(({ step, icon: Icon, title, number }, index) => {
             const isActive = currentStep === step;
