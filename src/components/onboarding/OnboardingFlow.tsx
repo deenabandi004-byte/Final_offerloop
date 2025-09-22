@@ -105,8 +105,8 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
     ];
 
     return (
-      <div className="flex justify-start mb-8 ml-8 mr-16">
-        <div className="flex items-center">
+      <div className="flex justify-start mb-8 w-full relative z-20">
+        <div className="flex items-center w-full">
           {steps.map(({ step, icon: Icon, title, number }, index) => {
             const isActive = currentStep === step;
             const isCompleted = getStepNumber(currentStep) > getStepNumber(step as OnboardingStep);
@@ -154,44 +154,48 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background overflow-x-hidden isolate">
       {currentStep === 'welcome' ? (
         <OnboardingWelcome onNext={handleNext} />
       ) : (
-        <div className="flex min-h-screen">
-          {/* Left side content */}
-          <div className="w-1/2 p-12 flex flex-col">
-            {renderStepIndicator()}
-            
-            <div className="flex-1">
-              {currentStep === 'profile' && (
-                <OnboardingProfile 
-                  onNext={handleProfileData} 
-                  onBack={handleBack}
-                  initialData={onboardingData.profile}
-                />
-              )}
-
-              {currentStep === 'academics' && (
-                <OnboardingAcademics 
-                  onNext={handleAcademicsData} 
-                  onBack={handleBack}
-                  initialData={onboardingData.academics}
-                />
-              )}
-
-              {currentStep === 'location' && (
-                <OnboardingLocationPreferences 
-                  onNext={handleLocationData} 
-                  onBack={handleBack}
-                  initialData={onboardingData.location}
-                />
-              )}
-            </div>
+        <div className="min-h-screen relative">
+          {/* Background overlay - behind content */}
+          <div className="absolute inset-0 z-0 pointer-events-none">
+            <div className="absolute right-0 top-0 w-1/2 h-full bg-gradient-to-l from-slate-900/20 to-transparent"></div>
           </div>
           
-          {/* Right side - empty space */}
-          <div className="w-1/2 bg-background"></div>
+          {/* Main content container */}
+          <div className="mx-auto max-w-screen-xl px-6 md:px-8 w-full relative z-10 pr-[max(env(safe-area-inset-right),24px)]">
+            <div className="flex flex-col min-h-screen py-12">
+              {renderStepIndicator()}
+              
+              <div className="flex-1">
+                {currentStep === 'profile' && (
+                  <OnboardingProfile 
+                    onNext={handleProfileData} 
+                    onBack={handleBack}
+                    initialData={onboardingData.profile}
+                  />
+                )}
+
+                {currentStep === 'academics' && (
+                  <OnboardingAcademics 
+                    onNext={handleAcademicsData} 
+                    onBack={handleBack}
+                    initialData={onboardingData.academics}
+                  />
+                )}
+
+                {currentStep === 'location' && (
+                  <OnboardingLocationPreferences 
+                    onNext={handleLocationData} 
+                    onBack={handleBack}
+                    initialData={onboardingData.location}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
