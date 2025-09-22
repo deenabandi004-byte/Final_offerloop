@@ -647,18 +647,21 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
   ];
 
   return (
-    <div className="space-y-8">
-      <div className="space-y-6">
-        <h2 className="text-4xl lg:text-5xl font-bold text-foreground">
-          Academic{" "}
-          <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-            Information
-          </span>
-        </h2>
-        <p className="text-xl text-muted-foreground leading-relaxed">
-          Tell us about your educational background to help us find the best opportunities for you.
-        </p>
-      </div>
+    <div className="min-h-screen bg-background flex">
+      {/* Left side content */}
+      <div className="w-1/2 p-4 pt-12 flex flex-col">
+        <div className="w-full max-w-2xl p-8 lg:p-12 space-y-8">
+          <div className="space-y-6">
+            <h2 className="text-4xl lg:text-5xl font-bold text-foreground">
+              Academic{" "}
+              <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+                Information
+              </span>
+            </h2>
+            <p className="text-xl text-muted-foreground leading-relaxed">
+              Tell us about your educational background to help us find the best opportunities for you.
+            </p>
+          </div>
 
         <form onSubmit={handleSubmit} className="space-y-6 mt-12">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -797,6 +800,15 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
             </Button>
           </div>
         </form>
+        </div>
+      </div>
+      
+      {/* Right side - empty space for illustration */}
+      <div className="w-1/2 bg-background flex items-center justify-center p-8">
+        <div className="w-full max-w-md flex items-center justify-center text-muted-foreground">
+          <GraduationCap className="w-24 h-24" />
+        </div>
+      </div>
     </div>
   );
 };
