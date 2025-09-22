@@ -367,7 +367,7 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
       {/* Right side - empty space for illustration */}
       <div className="w-1/2 bg-background flex items-center justify-center p-8">
         <div className="w-full max-w-md flex items-center justify-center">
-          <img src={careerIllustration} alt="Career preferences illustration" className="w-64 h-64 object-contain" />
+          <img src={careerIllustration} alt="Career preferences illustration" className="w-80 h-80 object-contain" />
         </div>
       </div>
     </div>
