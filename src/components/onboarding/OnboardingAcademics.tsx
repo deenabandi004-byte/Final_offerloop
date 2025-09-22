@@ -647,14 +647,13 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
   ];
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-primary/10 via-secondary/5 to-accent/10">
-      <Card className="w-full max-w-2xl p-8 space-y-8 shadow-lg border-0 bg-card/80 backdrop-blur-sm">
-        <div className="text-center space-y-4">
-          <h2 className="text-4xl font-bold text-foreground">Academics</h2>
-          <p className="text-muted-foreground text-sm max-w-md mx-auto">
-            Tell us about your educational background to help us understand your qualifications.
-          </p>
-        </div>
+    <div className="space-y-8">
+      <div className="space-y-4">
+        <h2 className="text-3xl font-bold text-foreground">Academic Information</h2>
+        <p className="text-muted-foreground">
+          Tell us about your educational background to help us find the best opportunities for you.
+        </p>
+      </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -792,7 +791,6 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
             </Button>
           </div>
         </form>
-      </Card>
     </div>
   );
 };

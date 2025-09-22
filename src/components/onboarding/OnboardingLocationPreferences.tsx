@@ -108,14 +108,13 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-primary/10 via-secondary/5 to-accent/10">
-      <Card className="w-full max-w-2xl p-8 space-y-8 shadow-lg border-0 bg-card/80 backdrop-blur-sm">
-        <div className="text-center space-y-4">
-          <h2 className="text-3xl font-bold text-foreground">Career Preferences</h2>
-          <p className="text-muted-foreground max-w-md mx-auto">
-            Share your goals and interests to help us match you with the right opportunities.
-          </p>
-        </div>
+    <div className="space-y-8">
+      <div className="space-y-4">
+        <h2 className="text-3xl font-bold text-foreground">Location Preferences</h2>
+        <p className="text-muted-foreground">
+          Help us understand where you'd like to work and what type of positions interest you.
+        </p>
+      </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-4">
@@ -352,7 +351,6 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
             </Button>
           </div>
         </form>
-      </Card>
     </div>
   );
 };

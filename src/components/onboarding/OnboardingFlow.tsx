@@ -3,8 +3,7 @@ import { OnboardingWelcome } from "./OnboardingWelcome";
 import { OnboardingLocationPreferences } from "./OnboardingLocationPreferences";
 import { OnboardingProfile } from "./OnboardingProfile";
 import { OnboardingAcademics } from "./OnboardingAcademics";
-
-import { Progress } from "@/components/ui/progress";
+import { User, GraduationCap, MapPin } from "lucide-react";
 
 type OnboardingStep = 'welcome' | 'profile' | 'academics' | 'location';
 
@@ -83,54 +82,102 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
     onComplete(onboardingData);
   };
 
-  return (
-    <div className="relative">
-      {currentStep !== 'welcome' && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-sm border-b">
-          <div className="container mx-auto px-4 py-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-muted-foreground">
-                Step {getStepNumber(currentStep)} of 3
-              </h3>
-              <div className="flex-1 max-w-md mx-4">
-                <Progress value={getProgress()} className="h-2" />
+  const getStepTitle = (): string => {
+    switch (currentStep) {
+      case 'profile':
+        return 'Create Your Profile';
+      case 'academics':
+        return 'Academic Information';
+      case 'location':
+        return 'Location Preferences';
+      default:
+        return '';
+    }
+  };
+
+  const renderStepIndicator = () => {
+    if (currentStep === 'welcome') return null;
+
+    const steps = [
+      { step: 'profile', icon: User, title: 'Create Your Profile', number: 1 },
+      { step: 'academics', icon: GraduationCap, title: 'Academic Information', number: 2 },
+      { step: 'location', icon: MapPin, title: 'Location Preferences', number: 3 },
+    ];
+
+    return (
+      <div className="flex items-center justify-center space-x-8 mb-8">
+        {steps.map(({ step, icon: Icon, title, number }, index) => {
+          const isActive = currentStep === step;
+          const isCompleted = getStepNumber(currentStep) > getStepNumber(step as OnboardingStep);
+          
+          return (
+            <div key={step} className="flex flex-col items-center">
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all ${
+                isActive
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : isCompleted
+                  ? 'bg-primary/10 text-primary border-primary'
+                  : 'bg-muted text-muted-foreground border-muted-foreground/30'
+              }`}>
+                {isCompleted ? (
+                  <div className="w-3 h-3 rounded-full bg-primary" />
+                ) : (
+                  <span className="text-sm font-semibold">{number}</span>
+                )}
               </div>
-              <span className="text-sm font-medium text-muted-foreground">
-                {Math.round(getProgress())}%
-              </span>
+              <p className={`text-sm font-medium mt-2 transition-colors ${
+                isActive ? 'text-foreground' : 'text-muted-foreground'
+              }`}>
+                {title}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-background">
+      {currentStep === 'welcome' ? (
+        <OnboardingWelcome onNext={handleNext} />
+      ) : (
+        <div className="flex min-h-screen">
+          {/* Left side content */}
+          <div className="w-1/2 p-12 flex flex-col">
+            {renderStepIndicator()}
+            
+            <div className="flex-1">
+              {currentStep === 'profile' && (
+                <OnboardingProfile 
+                  onNext={handleProfileData} 
+                  onBack={handleBack}
+                  initialData={onboardingData.profile}
+                />
+              )}
+
+              {currentStep === 'academics' && (
+                <OnboardingAcademics 
+                  onNext={handleAcademicsData} 
+                  onBack={handleBack}
+                  initialData={onboardingData.academics}
+                />
+              )}
+
+              {currentStep === 'location' && (
+                <OnboardingLocationPreferences 
+                  onNext={handleLocationData} 
+                  onBack={handleBack}
+                  initialData={onboardingData.location}
+                />
+              )}
             </div>
           </div>
+          
+          {/* Right side - empty white space */}
+          <div className="w-1/2 bg-muted/20"></div>
         </div>
       )}
-
-      {currentStep === 'welcome' && (
-        <OnboardingWelcome onNext={handleNext} />
-      )}
-
-      {currentStep === 'profile' && (
-        <OnboardingProfile 
-          onNext={handleProfileData} 
-          onBack={handleBack}
-          initialData={onboardingData.profile}
-        />
-      )}
-
-      {currentStep === 'academics' && (
-        <OnboardingAcademics 
-          onNext={handleAcademicsData} 
-          onBack={handleBack}
-          initialData={onboardingData.academics}
-        />
-      )}
-
-      {currentStep === 'location' && (
-        <OnboardingLocationPreferences 
-          onNext={handleLocationData} 
-          onBack={handleBack}
-          initialData={onboardingData.location}
-        />
-      )}
-
     </div>
   );
 };

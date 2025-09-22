@@ -56,14 +56,13 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-primary/10 via-secondary/5 to-accent/10">
-      <Card className="w-full max-w-2xl p-8 space-y-8 shadow-lg border-0 bg-card/80 backdrop-blur-sm">
-        <div className="text-center space-y-4">
-          <h2 className="text-4xl font-bold text-foreground">Create Your Profile</h2>
-          <p className="text-muted-foreground text-sm max-w-md mx-auto">
-            Share your goals and interests to help us match you with the right opportunities.
-          </p>
-        </div>
+    <div className="space-y-8">
+      <div className="space-y-4">
+        <h2 className="text-3xl font-bold text-foreground">Create Your Profile</h2>
+        <p className="text-muted-foreground">
+          Share your goals and interests to help us match you with the right opportunities.
+        </p>
+      </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
 
@@ -176,7 +175,6 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
             </Button>
           </div>
         </form>
-      </Card>
     </div>
   );
 };
