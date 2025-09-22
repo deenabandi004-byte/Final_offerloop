@@ -7,7 +7,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ArrowRight, ArrowLeft, User, Upload, FileText } from "lucide-react";
-import crowdIllustration from "@/assets/crowd-illustration.png";
 
 interface ProfileData {
   firstName: string;
@@ -57,28 +56,15 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
   };
 
   return (
-    <div className="space-y-8 relative">
-      {/* Hero Illustration */}
-      <figure 
-        className="pointer-events-none select-none absolute z-10 right-[clamp(24px,4vw,56px)] top-[clamp(24px,4vw,56px)] w-[min(560px,36vw)] hidden md:block lg:block"
-        aria-hidden="true"
-      >
-        <img 
-          src={crowdIllustration} 
-          alt=""
-          className="w-full h-auto object-contain"
-          style={{ filter: 'drop-shadow(0 8px 32px rgba(0, 0, 0, 0.3))' }}
-        />
-      </figure>
-
-      <div className="space-y-6 relative z-20">
-        <h2 className="text-4xl lg:text-5xl font-bold text-foreground max-w-[calc(100%-min(560px,36vw)-48px)] lg:max-w-[calc(100%-min(560px,36vw)-48px)]">
+    <div className="space-y-8">
+      <div className="space-y-6">
+        <h2 className="text-4xl lg:text-5xl font-bold text-foreground">
           Create Your{" "}
           <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
             Profile
           </span>
         </h2>
-        <p className="text-xl text-muted-foreground leading-relaxed max-w-[calc(100%-min(560px,36vw)-48px)] lg:max-w-[calc(100%-min(560px,36vw)-48px)]">
+        <p className="text-xl text-muted-foreground leading-relaxed">
           Share your goals and interests to help us match you with the right opportunities.
         </p>
       </div>
