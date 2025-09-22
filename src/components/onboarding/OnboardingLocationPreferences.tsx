@@ -8,7 +8,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, ArrowLeft, MapPin, Globe, ChevronsUpDown, Check, X } from "lucide-react";
+import { ArrowRight, ArrowLeft, MapPin, ChevronsUpDown, Check, X } from "lucide-react";
+import careerIllustration from "@/assets/career-illustration.png";
 import { cn } from "@/lib/utils";
 
 interface LocationPreferences {
@@ -365,8 +366,8 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
       
       {/* Right side - empty space for illustration */}
       <div className="w-1/2 bg-background flex items-center justify-center p-8">
-        <div className="w-full max-w-md flex items-center justify-center text-muted-foreground">
-          <Globe className="w-24 h-24" />
+        <div className="w-full max-w-md flex items-center justify-center">
+          <img src={careerIllustration} alt="Career preferences illustration" className="w-64 h-64 object-contain" />
         </div>
       </div>
     </div>
