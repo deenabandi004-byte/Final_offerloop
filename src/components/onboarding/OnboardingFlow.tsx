@@ -105,7 +105,7 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
     ];
 
     return (
-      <div className="flex justify-center mb-8 px-4 overflow-visible">
+      <div className="flex justify-start mb-8 ml-8 mr-16">
         <div className="flex items-center">
           {steps.map(({ step, icon: Icon, title, number }, index) => {
             const isActive = currentStep === step;
