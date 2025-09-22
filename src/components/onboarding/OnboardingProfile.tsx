@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ArrowRight, ArrowLeft, User, Upload, FileText } from "lucide-react";
+import profileIllustration from "@/assets/profile-setup-illustration.png";
 
 interface ProfileData {
   firstName: string;
@@ -56,18 +57,19 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
   };
 
   return (
-    <div className="space-y-8">
-      <div className="space-y-6">
-        <h2 className="text-4xl lg:text-5xl font-bold text-foreground">
-          Create Your{" "}
-          <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-            Profile
-          </span>
-        </h2>
-        <p className="text-xl text-muted-foreground leading-relaxed">
-          Set up your profile to get started.
-        </p>
-      </div>
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
+      <div className="space-y-8">
+        <div className="space-y-6">
+          <h2 className="text-4xl lg:text-5xl font-bold text-foreground">
+            Create Your{" "}
+            <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+              Profile
+            </span>
+          </h2>
+          <p className="text-xl text-muted-foreground leading-relaxed">
+            Set up your profile to get started.
+          </p>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
 
@@ -181,6 +183,15 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
             </Button>
           </div>
         </form>
+      </div>
+
+      <div className="hidden lg:flex items-center justify-center">
+        <img 
+          src={profileIllustration} 
+          alt="Profile setup illustration" 
+          className="w-full max-w-md h-auto object-contain"
+        />
+      </div>
     </div>
   );
 };
