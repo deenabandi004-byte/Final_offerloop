@@ -105,26 +105,14 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
     ];
 
     return (
-      <div className="flex items-center justify-center mb-8">
-        <div className="flex items-center space-x-8 relative">
+      <div className="flex justify-center mb-8 ml-32">
+        <div className="flex items-center">
           {steps.map(({ step, icon: Icon, title, number }, index) => {
             const isActive = currentStep === step;
             const isCompleted = getStepNumber(currentStep) > getStepNumber(step as OnboardingStep);
-            const isNext = index > 0;
             
             return (
               <div key={step} className="flex items-center">
-                {/* Connecting line */}
-                {isNext && (
-                  <div className="flex-1 h-0.5 bg-muted mx-4 relative w-16">
-                    <div 
-                      className={`absolute top-0 left-0 h-full bg-primary transition-all duration-500 ${
-                        isCompleted ? 'w-full' : isActive ? 'w-1/2' : 'w-0'
-                      }`}
-                    />
-                  </div>
-                )}
-                
                 {/* Step circle and content */}
                 <div className="flex flex-col items-center">
                   <div className={`w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
@@ -140,12 +128,23 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
                       <span className="text-sm font-semibold">{number}</span>
                     )}
                   </div>
-                  <p className={`text-sm font-medium mt-2 transition-colors duration-300 ${
+                  <p className={`text-sm font-medium mt-2 transition-colors duration-300 whitespace-nowrap ${
                     isActive ? 'text-foreground' : 'text-muted-foreground'
                   }`}>
                     {title}
                   </p>
                 </div>
+                
+                {/* Connecting line - only show between circles, not after the last one */}
+                {index < steps.length - 1 && (
+                  <div className="flex-1 h-0.5 bg-muted mx-8 relative w-24">
+                    <div 
+                      className={`absolute top-0 left-0 h-full bg-primary transition-all duration-500 ${
+                        isCompleted || (isActive && index === 0) ? 'w-full' : 'w-0'
+                      }`}
+                    />
+                  </div>
+                )}
               </div>
             );
           })}
