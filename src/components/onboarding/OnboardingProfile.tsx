@@ -60,7 +60,7 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
     <div className="space-y-8 relative">
       {/* Hero Illustration */}
       <figure 
-        className="pointer-events-none select-none absolute z-10 right-[clamp(24px,4vw,56px)] top-[clamp(24px,4vw,56px)] w-[min(560px,36vw)] hidden md:block lg:block"
+        className="pointer-events-none select-none absolute z-10 right-[clamp(24px,4vw,56px)] top-[clamp(12px,2vw,32px)] w-[min(560px,36vw)] hidden md:block lg:block"
         aria-hidden="true"
       >
         <img 
