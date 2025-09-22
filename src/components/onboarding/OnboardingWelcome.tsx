@@ -9,10 +9,10 @@ interface OnboardingWelcomeProps {
 
 export const OnboardingWelcome = ({ onNext, userName = "there" }: OnboardingWelcomeProps) => {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/10 via-secondary/5 to-accent/10 flex">
+    <div className="min-h-screen bg-background flex">
       {/* Left side content */}
       <div className="w-1/2 p-4 pt-12 flex flex-col">
-        <Card className="w-full max-w-2xl p-8 lg:p-12 text-center space-y-8 shadow-lg border-0 bg-card/80 backdrop-blur-sm">
+        <div className="w-full max-w-2xl p-8 lg:p-12 text-center space-y-8">
           <div className="space-y-4">
             <h1 className="text-4xl lg:text-5xl font-bold text-foreground">
               Welcome
@@ -48,7 +48,7 @@ export const OnboardingWelcome = ({ onNext, userName = "there" }: OnboardingWelc
               <p className="text-sm text-muted-foreground text-center">Tell us what you're aiming for</p>
             </div>
           </div>
-        </Card>
+        </div>
       </div>
       
       {/* Right side - white space */}
