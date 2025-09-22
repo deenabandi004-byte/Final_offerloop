@@ -649,7 +649,7 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
   return (
     <div className="min-h-screen bg-background flex">
       {/* Left side content */}
-      <div className="w-1/2 p-4 pt-12 flex flex-col">
+      <div className="w-1/2 p-4 pt-8 flex flex-col">
         <div className="w-full max-w-2xl p-8 lg:p-12 space-y-8">
           <div className="space-y-6">
             <h2 className="text-4xl lg:text-5xl font-bold text-foreground">
