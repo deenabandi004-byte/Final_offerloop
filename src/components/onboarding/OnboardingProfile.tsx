@@ -57,9 +57,14 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
 
   return (
     <div className="space-y-8">
-      <div className="space-y-4">
-        <h2 className="text-3xl font-bold text-foreground">Create Your Profile</h2>
-        <p className="text-muted-foreground">
+      <div className="space-y-6">
+        <h2 className="text-4xl lg:text-5xl font-bold text-foreground">
+          Create Your{" "}
+          <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+            Profile
+          </span>
+        </h2>
+        <p className="text-xl text-muted-foreground leading-relaxed">
           Share your goals and interests to help us match you with the right opportunities.
         </p>
       </div>
@@ -155,12 +160,12 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
             </div>
           </div>
 
-          <div className="flex justify-between pt-6">
+          <div className="flex justify-between pt-8">
             <Button
               type="button"
               variant="outline"
               onClick={onBack}
-              className="px-6 py-2"
+              className="px-8 py-3 rounded-full font-semibold"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back
@@ -168,7 +173,8 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
             
             <Button
               type="submit"
-              className="px-6 py-2 bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 text-primary-foreground shadow-lg hover:shadow-xl transition-all duration-300 group"
+              variant="gradient"
+              className="px-12 py-3 rounded-full font-bold group"
             >
               Next
               <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />

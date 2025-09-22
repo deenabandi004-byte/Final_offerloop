@@ -109,9 +109,14 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
 
   return (
     <div className="space-y-8">
-      <div className="space-y-4">
-        <h2 className="text-3xl font-bold text-foreground">Location Preferences</h2>
-        <p className="text-muted-foreground">
+      <div className="space-y-6">
+        <h2 className="text-4xl lg:text-5xl font-bold text-foreground">
+          Location{" "}
+          <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+            Preferences
+          </span>
+        </h2>
+        <p className="text-xl text-muted-foreground leading-relaxed">
           Help us understand where you'd like to work and what type of positions interest you.
         </p>
       </div>
@@ -331,12 +336,12 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
             )}
           </div>
 
-          <div className="flex justify-between pt-6">
+          <div className="flex justify-between pt-8">
             <Button
               type="button"
               variant="outline"
               onClick={onBack}
-              className="px-6 py-2"
+              className="px-8 py-3 rounded-full font-semibold"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back
@@ -344,7 +349,8 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
             
             <Button
               type="submit"
-              className="px-6 py-2 bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 text-primary-foreground shadow-lg hover:shadow-xl transition-all duration-300 group"
+              variant="gradient"
+              className="px-12 py-3 rounded-full font-bold group"
             >
               Continue
               <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />

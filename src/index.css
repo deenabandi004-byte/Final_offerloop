@@ -8,122 +8,98 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-
-    --primary: 251 91% 95%;
-    --primary-foreground: 251 91% 17%;
-
-    --secondary: 251 91% 95%;
-    --secondary-foreground: 251 91% 17%;
-
-    --muted: 251 28% 97%;
-    --muted-foreground: 251 9% 55%;
-
-    --accent: 251 91% 95%;
-    --accent-foreground: 251 91% 17%;
-
+    /* Offerloop dark theme */
+    --background: 222 84% 5%;
+    --foreground: 0 0% 98%;
+    --card: 224 71% 8%;
+    --card-foreground: 0 0% 98%;
+    --popover: 224 71% 8%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 267 84% 70%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 215 28% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 91% 60%;
+    --accent-foreground: 0 0% 98%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-
-    --border: 251 28% 90%;
-    --input: 251 28% 90%;
-    --ring: 251 91% 65%;
-
+    --border: 215 28% 17%;
+    --input: 215 28% 17%;
+    --ring: 217 91% 60%;
     --radius: 0.75rem;
     
-    /* Onboarding specific colors */
-    --onboarding-primary: 251 91% 65%;
-    --onboarding-secondary: 295 85% 75%;
-    --onboarding-accent: 196 75% 88%;
-    --onboarding-background: 251 28% 98%;
-    --onboarding-card: 0 0% 100%;
-    --onboarding-text: 251 91% 17%;
-    --onboarding-muted: 251 9% 55%;
+    /* Gradients for Offerloop branding */
+    --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%), hsl(267 84% 70%));
+    --gradient-text: linear-gradient(135deg, hsl(217 91% 60%), hsl(267 84% 70%));
+    --gradient-button: linear-gradient(135deg, hsl(217 91% 60%), hsl(267 84% 70%));
     
-    /* Beautiful gradients */
-    --gradient-primary: linear-gradient(135deg, hsl(251, 91%, 65%), hsl(295, 85%, 75%));
-    --gradient-secondary: linear-gradient(135deg, hsl(196, 75%, 88%), hsl(251, 91%, 95%));
-    --gradient-hero: linear-gradient(135deg, hsl(251, 91%, 65%) 0%, hsl(295, 85%, 75%) 50%, hsl(196, 75%, 88%) 100%);
-    
-    /* Shadows */
-    --shadow-sm: 0 1px 2px 0 hsl(var(--onboarding-primary) / 0.05);
-    --shadow-md: 0 4px 6px -1px hsl(var(--onboarding-primary) / 0.1), 0 2px 4px -1px hsl(var(--onboarding-primary) / 0.06);
-    --shadow-lg: 0 10px 15px -3px hsl(var(--onboarding-primary) / 0.1), 0 4px 6px -2px hsl(var(--onboarding-primary) / 0.05);
-    --shadow-glow: 0 0 40px hsl(var(--onboarding-primary) / 0.3);
-    
-    /* Transitions */
-    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    --transition-bounce: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    /* Onboarding theme colors */
+    --onboarding-primary: 217 91% 60%;
+    --onboarding-secondary: 267 84% 70%;
+    --onboarding-accent: 267 84% 70%;
+    --onboarding-background: 222 84% 5%;
+    --onboarding-card: 224 71% 8%;
+    --onboarding-text: 0 0% 98%;
+    --onboarding-muted: 215 20% 65%;
 
-    --sidebar-background: 0 0% 98%;
-
-    --sidebar-foreground: 240 5.3% 26.1%;
-
-    --sidebar-primary: 240 5.9% 10%;
-
+    /* Sidebar */
+    --sidebar-background: 224 71% 8%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 217 91% 60%;
     --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-accent: 215 28% 17%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 215 28% 17%;
+    --sidebar-ring: 217 91% 60%;
   }
 
   .dark {
-    --background: 251 91% 7%;
-    --foreground: 251 28% 95%;
-
-    --card: 251 91% 7%;
-    --card-foreground: 251 28% 95%;
-
-    --popover: 251 91% 7%;
-    --popover-foreground: 251 28% 95%;
-
-    --primary: 251 91% 65%;
-    --primary-foreground: 251 91% 7%;
-
-    --secondary: 251 28% 12%;
-    --secondary-foreground: 251 28% 95%;
-
-    --muted: 251 28% 12%;
-    --muted-foreground: 251 9% 65%;
-
-    --accent: 251 28% 12%;
-    --accent-foreground: 251 28% 95%;
-
-    --destructive: 0 62.8% 30.6%;
+    /* Keep the same dark theme for consistency */
+    --background: 222 84% 5%;
+    --foreground: 0 0% 98%;
+    --card: 224 71% 8%;
+    --card-foreground: 0 0% 98%;
+    --popover: 224 71% 8%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 267 84% 70%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 215 28% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 91% 60%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-
-    --border: 251 28% 15%;
-    --input: 251 28% 15%;
-    --ring: 251 91% 65%;
+    --border: 215 28% 17%;
+    --input: 215 28% 17%;
+    --ring: 217 91% 60%;
     
-    /* Dark mode onboarding colors */
-    --onboarding-primary: 251 91% 65%;
-    --onboarding-secondary: 295 85% 75%;
-    --onboarding-accent: 196 75% 88%;
-    --onboarding-background: 251 91% 7%;
-    --onboarding-card: 251 28% 10%;
-    --onboarding-text: 251 28% 95%;
-    --onboarding-muted: 251 9% 65%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* Gradients for Offerloop branding */
+    --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%), hsl(267 84% 70%));
+    --gradient-text: linear-gradient(135deg, hsl(217 91% 60%), hsl(267 84% 70%));
+    --gradient-button: linear-gradient(135deg, hsl(217 91% 60%), hsl(267 84% 70%));
+    
+    /* Onboarding theme colors */
+    --onboarding-primary: 217 91% 60%;
+    --onboarding-secondary: 267 84% 70%;
+    --onboarding-accent: 267 84% 70%;
+    --onboarding-background: 222 84% 5%;
+    --onboarding-card: 224 71% 8%;
+    --onboarding-text: 0 0% 98%;
+    --onboarding-muted: 215 20% 65%;
+
+    /* Sidebar */
+    --sidebar-background: 224 71% 8%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 215 28% 17%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 215 28% 17%;
+    --sidebar-ring: 217 91% 60%;
   }
 }
 

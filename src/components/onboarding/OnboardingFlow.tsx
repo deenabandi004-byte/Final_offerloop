@@ -115,21 +115,21 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
               <div key={step} className="flex items-center">
                 {/* Step circle and content */}
                 <div className="flex flex-col items-center">
-                  <div className={`w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
+                  <div className={`w-14 h-14 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
                     isActive
-                      ? 'bg-primary text-primary-foreground border-primary animate-scale-in'
+                      ? 'bg-gradient-to-r from-primary to-secondary text-white border-primary shadow-lg'
                       : isCompleted
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-muted text-muted-foreground border-muted-foreground/30'
+                      ? 'bg-gradient-to-r from-primary to-secondary text-white border-primary shadow-md'
+                      : 'bg-card text-muted-foreground border-border'
                   }`}>
                     {isCompleted ? (
-                      <div className="w-3 h-3 rounded-full bg-primary-foreground animate-fade-in" />
+                      <div className="w-4 h-4 rounded-full bg-white animate-fade-in" />
                     ) : (
-                      <span className="text-sm font-semibold">{number}</span>
+                      <span className="text-sm font-bold">{number}</span>
                     )}
                   </div>
-                  <p className={`text-sm font-medium mt-2 transition-colors duration-300 whitespace-nowrap ${
-                    isActive ? 'text-foreground' : 'text-muted-foreground'
+                  <p className={`text-sm font-medium mt-3 transition-colors duration-300 whitespace-nowrap ${
+                    isActive ? 'text-foreground font-semibold' : 'text-muted-foreground'
                   }`}>
                     {title}
                   </p>
@@ -137,9 +137,9 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
                 
                 {/* Connecting line - only show between circles, not after the last one */}
                 {index < steps.length - 1 && (
-                  <div className="flex-1 h-0.5 bg-muted mx-8 relative w-24">
+                  <div className="flex-1 h-0.5 bg-border mx-8 relative w-24">
                     <div 
-                      className={`absolute top-0 left-0 h-full bg-primary transition-all duration-500 ${
+                      className={`absolute top-0 left-0 h-full bg-gradient-to-r from-primary to-secondary transition-all duration-500 ${
                         isCompleted || (isActive && index === 0) ? 'w-full' : 'w-0'
                       }`}
                     />
@@ -190,8 +190,8 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
             </div>
           </div>
           
-          {/* Right side - empty white space */}
-          <div className="w-1/2 bg-muted/20"></div>
+          {/* Right side - empty space */}
+          <div className="w-1/2 bg-background"></div>
         </div>
       )}
     </div>
