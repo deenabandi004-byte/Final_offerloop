@@ -65,7 +65,7 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
           </span>
         </h2>
         <p className="text-xl text-muted-foreground leading-relaxed">
-          Share your goals and interests to help us match you with the right opportunities.
+          Set up your profile to get started.
         </p>
       </div>
 
