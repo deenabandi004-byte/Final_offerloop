@@ -125,10 +125,22 @@ def require_firebase_auth(fn):
     return wrapper
 
 # Initialize Flask app
-app = Flask(__name__)
+app = Flask(__name__, static_folder="connect-grow-hire/dist", static_url_path="/")
 CORS(app, origins=["https://d33d83bb2e38.ngrok-free.app", "*"])
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'contacts.db')
+@app.after_request
+def add_caching(resp):
+    content_type = resp.headers.get("Content-Type", "")
+    # Don’t cache the app shell
+    if content_type.startswith("text/html"):
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+    else:
+        # Let hashed assets cache hard
+        resp.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
+    return resp
 
 @contextmanager
 def get_db():
