@@ -33,6 +33,9 @@ from contextlib import contextmanager
 import os
 from flask import send_from_directory
 
+app = Flask(__name__, static_folder="connect-grow-hire/dist", static_url_path="")
+CORS(app, origins=["https://d33d83bb2e38.ngrok-free.app", "*"])
+
 # Serve the React index.html at root
 @app.route("/")
 def root():
@@ -157,8 +160,7 @@ def require_firebase_auth(fn):
     return wrapper
 
 # Initialize Flask app
-app = Flask(__name__, static_folder="connect-grow-hire/dist", static_url_path="")
-CORS(app, origins=["https://d33d83bb2e38.ngrok-free.app", "*"])
+
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'contacts.db')
 @app.after_request
