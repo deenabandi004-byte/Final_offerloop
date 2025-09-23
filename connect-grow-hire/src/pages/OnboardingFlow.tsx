@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { OnboardingWelcome } from "./OnboardingWelcome";
 import { OnboardingLocationPreferences } from "./OnboardingLocationPreferences";
 import { OnboardingProfile } from "./OnboardingProfile";
@@ -18,6 +19,7 @@ interface OnboardingFlowProps {
 }
 
 export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
+  const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState<OnboardingStep>('welcome');
   const [onboardingData, setOnboardingData] = useState<OnboardingData>({});
 
@@ -75,11 +77,12 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
 
   const handleLocationData = (locationData: any) => {
     const finalData = { ...onboardingData, location: locationData };
+    
+    // Call the onComplete callback from App.tsx
     onComplete(finalData);
-  };
-
-  const handleComplete = () => {
-    onComplete(onboardingData);
+    
+    // Navigate to home after completion
+    navigate('/home');
   };
 
   const getStepTitle = (): string => {

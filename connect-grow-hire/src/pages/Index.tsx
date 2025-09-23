@@ -1,12 +1,17 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronDown, Check, Send, Calendar, Handshake, BarChart, Users, Target, MessageSquare, TrendingUp, Zap } from 'lucide-react';
+import twoBillionImage from '@/assets/twobillion.jpeg';
+import aiPersonalImage from '@/assets/Ai_Personal.jpeg';
+import smartMatchingImage from '@/assets/SmartMatching.jpeg';
+import topTierImage from '@/assets/TopTier.jpeg';
+import analyticsImage from '@/assets/Analytics.jpeg';
 
 const Index = () => {
-  const [openFaq, setOpenFaq] = useState(null);
+  const [openFaq, setOpenFaq] = useState<number | null>(null);
   const navigate = useNavigate();
 
-  const toggleFaq = (index) => {
+  const toggleFaq = (index: number) => {
     setOpenFaq(openFaq === index ? null : index);
   };
 
@@ -19,7 +24,7 @@ const Index = () => {
             <div className="flex items-center gap-2">
               <span 
                 className="text-2xl font-bold text-white cursor-pointer"
-                onClick={() => navigate("/home")}
+                onClick={() => navigate("/")}
               >
                 Offer<span className="bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">loop</span>.ai
               </span>
@@ -49,7 +54,7 @@ const Index = () => {
               Sign In
             </button>
             <button 
-              onClick={() => navigate("/onboarding/resume-upload")}
+              onClick={() => navigate("/signup")}
               className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 px-6 py-2 rounded-lg font-medium transition-colors"
             >
               Sign Up
@@ -148,32 +153,32 @@ const Index = () => {
                 </div>
               </div>
             </div>
-            <div className="relative rounded-2xl overflow-hidden border border-blue-500/30">
+            <div className="relative rounded-2xl overflow-hidden border border-blue-500/30 bg-gradient-to-br from-gray-900 to-gray-800" style={{ height: '500px' }}>
               <img 
-                src="/images/network-globe.jpg" 
+                src={twoBillionImage} 
                 alt="Global professional network visualization" 
-                className="w-full h-80 object-cover"
+                className="w-full h-full object-contain p-4"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-gray-900/80 via-transparent to-transparent flex items-end justify-center pb-8">
+              <div className="absolute inset-0 bg-gradient-to-t from-gray-900/90 via-transparent to-transparent flex items-end justify-center pb-8">
                 <div className="text-center">
-                  <div className="text-4xl font-bold text-white mb-2">2B+</div>
-                  <div className="text-lg text-gray-200">Professional Contacts</div>
+                  <div className="text-5xl font-bold text-white mb-2 drop-shadow-lg">2B+</div>
+                  <div className="text-xl text-gray-200 drop-shadow-lg">Professional Contacts</div>
                 </div>
               </div>
             </div>
           </div>
 
           <div className="grid md:grid-cols-2 gap-16 items-center">
-            <div className="relative rounded-2xl overflow-hidden border border-purple-500/30">
+            <div className="relative rounded-2xl overflow-hidden border border-purple-500/30 bg-gradient-to-br from-gray-900 to-gray-800" style={{ height: '500px' }}>
               <img 
-                src="/images/ai-personalization.png" 
+                src={aiPersonalImage} 
                 alt="AI-powered personalization engine visualization" 
-                className="w-full h-80 object-cover"
+                className="w-full h-full object-contain p-4"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-gray-900/80 via-transparent to-transparent flex items-end justify-center pb-8">
+              <div className="absolute inset-0 bg-gradient-to-t from-gray-900/90 via-transparent to-transparent flex items-end justify-center pb-8">
                 <div className="text-center">
-                  <div className="text-4xl font-bold text-white mb-2">AI Powered</div>
-                  <div className="text-lg text-gray-200">Personalization Engine</div>
+                  <div className="text-5xl font-bold text-white mb-2 drop-shadow-lg">AI Powered</div>
+                  <div className="text-xl text-gray-200 drop-shadow-lg">Personalization Engine</div>
                 </div>
               </div>
             </div>
@@ -209,7 +214,7 @@ const Index = () => {
               Why Choose Offerloop.ai?
             </h2>
             <p className="text-xl text-gray-300">
-              Everything you need to streamline your recruiting process and land the best opportunities – in less time.
+              Everything you need to streamline your recruiting process and land the best opportunities — in less time.
             </p>
           </div>
 
@@ -237,17 +242,21 @@ const Index = () => {
               </div>
             </div>
             <div className="bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-2xl p-8 backdrop-blur-sm border border-gray-700">
-              <div className="w-full h-64 bg-gray-700/50 rounded-xl flex items-center justify-center">
-                <Users className="w-16 h-16 text-gray-400" />
-              </div>
+              <img 
+                src={smartMatchingImage} 
+                alt="Smart Matching visualization" 
+                className="w-full h-64 object-contain rounded-xl"
+              />
             </div>
           </div>
 
           <div className="grid md:grid-cols-2 gap-16 items-center mb-20">
             <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 rounded-2xl p-8 backdrop-blur-sm border border-gray-700 md:order-1">
-              <div className="w-full h-64 bg-gray-700/50 rounded-xl flex items-center justify-center">
-                <MessageSquare className="w-16 h-16 text-gray-400" />
-              </div>
+              <img 
+                src={topTierImage} 
+                alt="Top-tier Mentorship visualization" 
+                className="w-full h-64 object-contain rounded-xl"
+              />
             </div>
             <div className="md:order-2">
               <h3 className="text-3xl font-bold mb-6 text-purple-400">Top-tier Mentorship</h3>
@@ -284,9 +293,11 @@ const Index = () => {
               </div>
             </div>
             <div className="bg-gradient-to-br from-green-500/20 to-blue-500/20 rounded-2xl p-8 backdrop-blur-sm border border-gray-700">
-              <div className="w-full h-64 bg-gray-700/50 rounded-xl flex items-center justify-center">
-                <TrendingUp className="w-16 h-16 text-gray-400" />
-              </div>
+              <img 
+                src={analyticsImage} 
+                alt="Analytics & Insights visualization" 
+                className="w-full h-64 object-contain rounded-xl"
+              />
             </div>
           </div>
         </div>
@@ -440,7 +451,7 @@ const Index = () => {
               Join thousands of aspiring professionals in discovering their dream opportunities through Offerloop.ai
             </p>
             <button 
-              onClick={() => navigate("/onboarding/resume-upload")}
+              onClick={() => navigate("/signup")}
               className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white px-8 py-4 rounded-xl font-semibold text-lg transition-all transform hover:scale-105"
             >
               Get Started Today

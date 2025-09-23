@@ -17,12 +17,7 @@ import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { firebaseApi } from "../services/firebaseApi";
 import { useFirebaseMigration } from "../hooks/useFirebaseMigration";
 import { apiService, isErrorResponse } from "@/services/api";
-
-// ---- CREDITS UI (import the pill) ----
-// If your file is `src/components/credits.tsx` (lowercase):
 import { CreditPill } from "../components/credits";
-// If your file is `src/components/Credits.tsx` (Capital C), use this instead:
-// import { CreditPill } from "@/components/Credits";
 
 const BACKEND_URL =
   window.location.hostname === "localhost"
@@ -103,6 +98,7 @@ const Home = () => {
   // Search state
   const [isSearching, setIsSearching] = useState(false);
   const [progressValue, setProgressValue] = useState(0);
+  const [searchComplete, setSearchComplete] = useState(false); // NEW STATE
   const [lastResults, setLastResults] = useState<any[]>([]);
   const [lastResultsTier, setLastResultsTier] = useState<"free" | "pro" | string>("");
   const [lastSearchStats, setLastSearchStats] = useState<{
@@ -247,10 +243,11 @@ const Home = () => {
 
     setIsSearching(true);
     setProgressValue(0);
+    setSearchComplete(false); // Reset completion state
 
     try {
-      // playful progress
-      [15, 35, 60, 85, 100].forEach((value, index) => {
+      // Progress animation - make it reach 90% then wait
+      [15, 35, 60, 85, 90].forEach((value, index) => {
         setTimeout(() => setProgressValue(value), index * 600);
       });
 
@@ -296,17 +293,23 @@ const Home = () => {
           total_contacts: result.contacts.length,
         });
 
+        // Mark as complete and show success
+        setProgressValue(100);
+        setSearchComplete(true);
+
         try {
           await autoSaveToDirectory(result.contacts);
           toast({
-            title: "Search Complete!",
+            title: "✅ Search Complete!",
             description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.`,
+            duration: 5000,
           });
         } catch {
           toast({
-            title: "Search Complete!",
+            title: "✅ Search Complete!",
             description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. (Warning: Failed to save to Contact Library)`,
             variant: "destructive",
+            duration: 5000,
           });
         }
       } else if (userTier === "pro") {
@@ -350,30 +353,46 @@ const Home = () => {
           total_contacts: result.contacts.length,
         });
 
+        // Mark as complete and show success
+        setProgressValue(100);
+        setSearchComplete(true);
+
         try {
           await autoSaveToDirectory(result.contacts);
           toast({
-            title: "Search Complete!",
+            title: "✅ Search Complete!",
             description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.`,
+            duration: 5000,
           });
         } catch {
           toast({
-            title: "Search Complete!",
+            title: "✅ Search Complete!",
             description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. (Warning: Failed to save to Contact Library)`,
             variant: "destructive",
+            duration: 5000,
           });
         }
       }
     } catch (error) {
       console.error("Search failed:", error);
       toast({
-        title: "Search Failed",
+        title: "❌ Search Failed",
         description: error instanceof Error ? error.message : "Please try again.",
         variant: "destructive",
+        duration: 5000,
       });
+      setSearchComplete(false);
     } finally {
       setIsSearching(false);
-      setProgressValue(0);
+      // Keep showing 100% for 2 seconds if successful
+      if (searchComplete) {
+        setTimeout(() => {
+          setProgressValue(0);
+          setSearchComplete(false);
+        }, 2000);
+      } else {
+        setTimeout(() => setProgressValue(0), 500);
+      }
     }
   };
 
@@ -707,18 +726,32 @@ const Home = () => {
                         </div>
                       </div>
 
-                      {/* Results summary */}
+                      {/* Enhanced Results Summary */}
                       {hasResults && lastSearchStats && (
-                        <div className="mt-4 p-3 bg-green-800/20 border border-green-600/30 rounded-lg">
-                          <div className="text-sm text-green-300">
-                            ✅ Found {lastResults.length} contacts from {lastResultsTier} tier search
+                        <div className="mt-4 p-4 bg-gradient-to-r from-green-800/30 to-blue-800/30 border-2 border-green-500/50 rounded-lg">
+                          <div className="text-base font-semibold text-green-300 mb-2">
+                            ✅ Search Completed Successfully!
                           </div>
-                          <div className="text-xs text-green-400 mt-1">
-                            📧 Generated {lastSearchStats.successful_drafts} personalized Gmail drafts
+                          <div className="grid grid-cols-2 gap-4 mt-3">
+                            <div className="bg-gray-800/50 rounded p-2">
+                              <div className="text-2xl font-bold text-white">{lastResults.length}</div>
+                              <div className="text-xs text-gray-400">Contacts Found</div>
+                            </div>
+                            <div className="bg-gray-800/50 rounded p-2">
+                              <div className="text-2xl font-bold text-white">{lastSearchStats.successful_drafts}</div>
+                              <div className="text-xs text-gray-400">Email Drafts</div>
+                            </div>
                           </div>
-                          <div className="text-xs text-green-400 mt-1">
-                            💾 Contacts automatically saved to your Contact Library
+                          <div className="text-sm text-blue-300 mt-3 flex items-center">
+                            <span className="mr-2">💾</span>
+                            All contacts saved to your Contact Library
                           </div>
+                          <button 
+                            onClick={() => navigate('/contact-directory')}
+                            className="mt-3 text-sm text-blue-400 hover:text-blue-300 underline"
+                          >
+                            View in Contact Library →
+                          </button>
                         </div>
                       )}
                     </CardContent>
@@ -860,18 +893,34 @@ const Home = () => {
                 </TabsContent>
               </Tabs>
 
-              {/* Progress */}
-              {isSearching && (
+              {/* Progress Card - UPDATED */}
+              {(isSearching || searchComplete) && (
                 <Card className="mb-6 bg-gray-800/50 backdrop-blur-sm border-gray-700">
                   <CardContent className="p-6">
                     <div className="space-y-3">
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-gray-300">
-                          Searching with {currentTierConfig.name} tier...
+                          {searchComplete ? (
+                            <span className="text-green-400 font-semibold">
+                              ✅ Search completed successfully!
+                            </span>
+                          ) : (
+                            `Searching with ${currentTierConfig.name} tier...`
+                          )}
                         </span>
-                        <span className="text-blue-400">{progressValue}%</span>
+                        <span className={searchComplete ? "text-green-400 font-bold" : "text-blue-400"}>
+                          {progressValue}%
+                        </span>
                       </div>
-                      <Progress value={progressValue} className="h-2" />
+                      <Progress 
+                        value={progressValue} 
+                        className="h-2"
+                      />
+                      {searchComplete && (
+                        <div className="mt-2 text-sm text-green-300">
+                          Check your Contact Library to view and manage your new contacts.
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
