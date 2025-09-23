@@ -86,9 +86,9 @@ try:
             })
     
     db = firestore.client()
-    print("âœ… Firebase initialized successfully")
+    print(" Firebase initialized successfully")
 except Exception as e:
-    print(f"âŒ Firebase initialization failed: {e}")
+    print(f" Firebase initialization failed: {e}")
     db = None
 
 def require_firebase_auth(fn):
@@ -125,7 +125,7 @@ def require_firebase_auth(fn):
     return wrapper
 
 # Initialize Flask app
-app = Flask(__name__, static_folder="connect-grow-hire/dist", static_url_path="/")
+app = Flask(__name__, static_folder="dist", static_url_path="/")
 CORS(app, origins=["https://d33d83bb2e38.ngrok-free.app", "*"])
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'contacts.db')
