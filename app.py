@@ -30,6 +30,38 @@ from dotenv import load_dotenv
 from openai import OpenAI
 import sqlite3
 from contextlib import contextmanager
+import os
+from flask import send_from_directory
+
+# Serve the React index.html at root
+@app.route("/")
+def root():
+    return send_from_directory(app.static_folder, "index.html")
+
+# Serve /assets/* (JS, CSS, images)
+@app.route("/assets/<path:filename>")
+def assets(filename):
+    return send_from_directory(os.path.join(app.static_folder, "assets"), filename)
+
+# Serve favicon
+@app.route("/favicon.ico")
+def favicon():
+    return send_from_directory(app.static_folder, "favicon.ico")
+
+# Serve robots.txt
+@app.route("/robots.txt")
+def robots():
+    return send_from_directory(app.static_folder, "robots.txt")
+
+# Serve any other actual files if they exist
+@app.route("/<path:path>")
+def catch_all(path):
+    full = os.path.join(app.static_folder, path)
+    if os.path.isfile(full):
+        return send_from_directory(app.static_folder, path)
+    # Otherwise, return index.html for React Router
+    return send_from_directory(app.static_folder, "index.html")
+
 
 # Load environment variables from .env
 load_dotenv()
@@ -125,7 +157,7 @@ def require_firebase_auth(fn):
     return wrapper
 
 # Initialize Flask app
-app = Flask(__name__, static_folder="dist", static_url_path="/")
+app = Flask(__name__, static_folder="connect-grow-hire/dist", static_url_path="")
 CORS(app, origins=["https://d33d83bb2e38.ngrok-free.app", "*"])
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'contacts.db')
