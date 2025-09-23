@@ -66,3 +66,4 @@ public/lovable-uploads/
 # --- Misc ---
 *.pid
 
+connect-grow-hire/package-lock.json
