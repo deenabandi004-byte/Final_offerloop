@@ -276,7 +276,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
             <Button 
               variant="ghost" 
               size="sm"
-              onClick={() => navigate('/')}
+              onClick={() => navigate('/home')}
               className="flex items-center gap-2 text-gray-300 hover:text-white hover:bg-gray-800"
             >
               <ArrowLeft className="h-4 w-4" />

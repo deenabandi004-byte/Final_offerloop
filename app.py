@@ -1652,6 +1652,7 @@ def generate_template_based_email_system(contact, resume_text=None, user_profile
         # SECOND: Apply additional email-specific cleanup
         body = sanitize_email_placeholders(body, contact, user_info)
         
+        body = enforce_networking_prompt_rules(body)
         # Also clean the subject line
         subject = sanitize_placeholders(
             subject,
@@ -4247,6 +4248,51 @@ def sanitize_email_placeholders(body, contact, user_info):
         b = _re.sub(r'(?i)\bhi\s+' + _re.escape(fname.lower()) + r'\b', 'Hi ' + fname, b)
     b = _re.sub(r' +', ' ', b).strip()
     return b
+
+
+
+def enforce_networking_prompt_rules(body, resume_link=None):
+    """Apply A+B+C stricter rules for networking emails.
+    A: Strip all URLs except the given resume_link (if provided). Preserve plain anchor text for markdown links.
+    B: Remove filler phrases: 'very really'; rewrite 'in order to' -> 'to', 'due to the fact that' -> 'because'.
+    C: Remove/soften 'absolutely love your work' -> 'was impressed by your work'.
+    """
+    import re as _re
+    if not body:
+        return body or ""
+
+    text = str(body)
+
+    # A1: Replace markdown links [text](url) with just 'text', unless url == resume_link (keep text + url appended).
+    def _md_repl(m):
+        label = m.group(1)
+        url = m.group(2)
+        if resume_link and url.strip() == resume_link.strip():
+            return f"{label} {url}"
+        return label
+    text = _re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", _md_repl, text)
+
+    # A2: Remove bare URLs unless it's the resume_link
+    def _url_repl(m):
+        url = m.group(0)
+        # Trim trailing punctuation when comparing, but keep original removal logic
+        cmp = url.rstrip(').,;:')
+        if resume_link and cmp == resume_link.strip():
+            return url
+        return ""
+    text = _re.sub(r"https?://\S+", _url_repl, text)
+
+    # B: Filler phrase cleanup
+    text = _re.sub(r"\bvery\s+really\b", "", text, flags=_re.IGNORECASE)
+    text = _re.sub(r"\bin order to\b", "to", text, flags=_re.IGNORECASE)
+    text = _re.sub(r"\bdue to the fact that\b", "because", text, flags=_re.IGNORECASE)
+
+    # C: Ban 'absolutely love your work'
+    text = _re.sub(r"\babsolutely\s+love\s+your\s+work\b", "was impressed by your work", text, flags=_re.IGNORECASE)
+
+    # Normalize extra whitespace created by removals
+    text = _re.sub(r"\s+", " ", text).strip()
+    return text
 
 def generate_enhanced_fallback_email(contact, user_info):
     subject = f"Question about your work at {contact.get('Company','your company')}"
