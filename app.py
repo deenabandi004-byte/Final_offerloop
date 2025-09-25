@@ -47,9 +47,9 @@ def assets(filename):
     return send_from_directory(os.path.join(app.static_folder, "assets"), filename)
 
 # Serve favicon
-@app.route("/favicon.ico")
+@app.route("/favicon.png")
 def favicon():
-    return send_from_directory(app.static_folder, "favicon.ico")
+    return send_from_directory(app.static_folder, "favicon.png")
 
 # Serve robots.txt
 @app.route("/robots.txt")
@@ -57,12 +57,23 @@ def robots():
     return send_from_directory(app.static_folder, "robots.txt")
 
 # Serve any other actual files if they exist
+# Replace the existing catch_all function with this:
+# Replace the existing catch_all function with this:
 @app.route("/<path:path>")
 def catch_all(path):
-    full = os.path.join(app.static_folder, path)
-    if os.path.isfile(full):
+    # Check if it's an API route - don't handle those here
+    if path.startswith('api/'):
+        # Let Flask handle 404 for API routes
+        from flask import abort
+        abort(404)
+    
+    # Check if requesting an actual static file
+    full_path = os.path.join(app.static_folder, path)
+    if os.path.isfile(full_path):
         return send_from_directory(app.static_folder, path)
-    # Otherwise, return index.html for React Router
+    
+    # For everything else (React routes), return index.html
+    # This handles /pricing, /dashboard, /home, etc.
     return send_from_directory(app.static_folder, "index.html")
 
 
@@ -4064,29 +4075,6 @@ def stripe_webhook():
         
     return jsonify({'status': 'success'})
 
-
-# Frontend routes - IMPROVED VERSION
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
-def serve(path):
-    """Serve React app - handles client-side routing"""
-    # Skip API routes
-    if path.startswith('api/'):
-        return jsonify({'error': 'API endpoint not found'}), 404
-    
-    static_folder = 'connect-grow-hire/dist'
-    
-    # First, try to serve the exact file if it exists
-    full_path = os.path.join(static_folder, path)
-    if path and os.path.exists(full_path) and os.path.isfile(full_path):
-        return send_from_directory(static_folder, path)
-    
-    # For all other routes, serve index.html and let React Router handle it
-    index_path = os.path.join(static_folder, 'index.html')
-    if os.path.exists(index_path):
-        return send_from_directory(static_folder, 'index.html')
-    else:
-        return "Frontend not found - Please build your React app", 404
 
 # Error handlers
 @app.errorhandler(404)
