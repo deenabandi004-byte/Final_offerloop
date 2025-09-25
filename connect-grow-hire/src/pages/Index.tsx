@@ -1,11 +1,46 @@
+// src/pages/Index.tsx
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronDown, Check, Send, Calendar, Handshake, BarChart, Users, Target, MessageSquare, TrendingUp, Zap } from 'lucide-react';
+import { ChevronDown, Check, Send, Calendar, Handshake, BarChart, Users, Target, MessageSquare, TrendingUp, Zap, ArrowRight } from 'lucide-react';
 import twoBillionImage from '@/assets/twobillion.jpeg';
 import aiPersonalImage from '@/assets/Ai_Personal.jpeg';
 import smartMatchingImage from '@/assets/SmartMatching.jpeg';
 import topTierImage from '@/assets/TopTier.jpeg';
 import analyticsImage from '@/assets/Analytics.jpeg';
+import PrivacyPolicy from "@/pages/PrivacyPolicy";
+import TermsOfService from "@/pages/TermsOfService";
+
+/** Reusable, professional CTA buttons for header + hero */
+const CtaButtons: React.FC<{ compact?: boolean }> = ({ compact }) => {
+  const navigate = useNavigate();
+  const pad = compact ? "px-4 py-2 text-sm" : "px-6 py-3 text-base";
+  const radius = "rounded-2xl";
+  const base =
+    `inline-flex items-center justify-center ${pad} ${radius} font-semibold ` +
+    `transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ` +
+    `focus-visible:ring-blue-400 focus-visible:ring-offset-gray-900`;
+
+  return (
+    <div className={`flex items-center ${compact ? "gap-3" : "gap-4"}`}>
+      {/* Secondary / Sign in */}
+      <button
+        onClick={() => navigate("/signin?mode=signin")}
+        className={`${base} bg-gray-800/70 text-gray-100 hover:bg-gray-700/80 active:scale-[0.98] border border-gray-700/70 shadow-sm`}
+      >
+        Sign in
+      </button>
+
+      {/* Primary / Sign up */}
+      <button
+        onClick={() => navigate("/signin?mode=signup")}
+        className={`${base} bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white shadow-lg shadow-blue-900/30 active:scale-[0.98]`}
+      >
+        Sign up with Google
+        <ArrowRight className="ml-2 h-4 w-4" />
+      </button>
+    </div>
+  );
+};
 
 const Index = () => {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
@@ -46,19 +81,9 @@ const Index = () => {
               </a>
             </nav>
           </div>
-          <div className="flex items-center gap-6">
-            <button 
-              onClick={() => navigate("/signin")}
-              className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-medium transition-colors"
-            >
-              Sign In
-            </button>
-            <button 
-              onClick={() => navigate("/signup")}
-              className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 px-6 py-2 rounded-lg font-medium transition-colors"
-            >
-              Sign Up
-            </button>
+          {/* Header CTAs (compact) */}
+          <div className="hidden md:flex items-center">
+            <CtaButtons compact />
           </div>
         </div>
       </header>
@@ -70,10 +95,14 @@ const Index = () => {
             <h1 className="text-6xl lg:text-8xl font-bold tracking-tight mb-12">
               Offerloop <span className="bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">Fundamentally</span> changes how you recruit
             </h1>
-            
             <p className="text-xl md:text-2xl text-gray-300 mb-10 leading-relaxed max-w-4xl mx-auto">
               We take the tedious, repetitive work out of recruiting. Spend less time stuck behind a screen and more time connecting with professionals and living your life.
             </p>
+
+            {/* Hero CTAs */}
+            <div className="flex items-center justify-center">
+              <CtaButtons />
+            </div>
           </div>
         </div>
       </section>
@@ -81,8 +110,6 @@ const Index = () => {
       {/* Smart Filter Section */}
       <section className="pt-8 pb-20 px-6">
         <div className="max-w-7xl mx-auto">
-          {/* (Removed the Smart Filter heading + subtext) */}
-
           <div className="grid md:grid-cols-2 gap-16 items-center mb-20">
             <div>
               <h3 className="text-3xl font-bold mb-6 text-blue-400">2 Billion+ Professionals</h3>
@@ -402,10 +429,11 @@ const Index = () => {
               Join thousands of aspiring professionals in discovering their dream opportunities through Offerloop.ai
             </p>
             <button 
-              onClick={() => navigate("/signup")}
-              className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white px-8 py-4 rounded-xl font-semibold text-lg transition-all transform hover:scale-105"
+              onClick={() => navigate("/signin?mode=signup")}
+              className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white px-8 py-4 rounded-2xl font-semibold text-lg transition-all transform hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-400 focus-visible:ring-offset-gray-900 shadow-lg shadow-blue-900/30"
             >
               Get Started Today
+              <ArrowRight className="inline-block ml-2 h-5 w-5" />
             </button>
           </div>
         </div>
@@ -531,7 +559,7 @@ const Index = () => {
           
           <div className="border-t border-gray-800 pt-8 text-center">
             <p className="text-gray-400">
-              © 2024 Offerloop.ai. All rights reserved. Connecting talent with opportunity through intelligent recruiting solutions.
+              © {new Date().getFullYear()} Offerloop.ai. All rights reserved. Connecting talent with opportunity through intelligent recruiting solutions.
             </p>
           </div>
         </div>

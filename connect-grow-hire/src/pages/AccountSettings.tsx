@@ -11,7 +11,7 @@ import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 
 export default function AccountSettings() {
   const navigate = useNavigate();
-  const { user } = useFirebaseAuth();
+  const { user, signOut } = useFirebaseAuth();
   
   // State for form data populated from onboarding
   const [personalInfo, setPersonalInfo] = useState({
@@ -150,8 +150,16 @@ export default function AccountSettings() {
   };
 
   const handleSignOut = async () => {
-    navigate('/');
-  };
+  try {
+    await signOut();                 // <-- actually sign out of Firebase
+    // Optional: local clean-up if you want
+    // localStorage.removeItem('resumeData');
+    // localStorage.removeItem('resumeFile');
+    navigate('/', { replace: true }); // land on marketing; guards will treat you as signed out
+  } catch (e) {
+    console.error('Sign out failed', e);
+  }
+};
 
   const handleManageSubscription = () => {
     navigate('/pricing');

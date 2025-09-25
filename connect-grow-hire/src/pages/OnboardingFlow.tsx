@@ -1,10 +1,11 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { OnboardingWelcome } from "./OnboardingWelcome";
 import { OnboardingLocationPreferences } from "./OnboardingLocationPreferences";
 import { OnboardingProfile } from "./OnboardingProfile";
 import { OnboardingAcademics } from "./OnboardingAcademics";
 import { User, GraduationCap, MapPin } from "lucide-react";
+import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 
 type OnboardingStep = 'welcome' | 'profile' | 'academics' | 'location';
 
@@ -20,187 +21,126 @@ interface OnboardingFlowProps {
 
 export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { completeOnboarding, user } = useFirebaseAuth();
+
+  const sp = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const returnTo = useMemo(() => sp.get("returnTo") || "", [sp]);
+
   const [currentStep, setCurrentStep] = useState<OnboardingStep>('welcome');
-  const [onboardingData, setOnboardingData] = useState<OnboardingData>({});
-
-  const getStepNumber = (step: OnboardingStep): number => {
-    const steps: Record<OnboardingStep, number> = {
-      welcome: 0,
-      profile: 1,
-      academics: 2,
-      location: 3,
-    };
-    return steps[step];
-  };
-
-  const getProgress = (): number => {
-    return (getStepNumber(currentStep) / 3) * 100;
-  };
-
-  const handleNext = () => {
-    switch (currentStep) {
-      case 'welcome':
-        setCurrentStep('profile');
-        break;
-      case 'profile':
-        setCurrentStep('academics');
-        break;
-      case 'academics':
-        setCurrentStep('location');
-        break;
-    }
-  };
-
-  const handleBack = () => {
-    switch (currentStep) {
-      case 'profile':
-        setCurrentStep('welcome');
-        break;
-      case 'academics':
-        setCurrentStep('profile');
-        break;
-      case 'location':
-        setCurrentStep('academics');
-        break;
-    }
-  };
+  const [onboardingData, setOnboardingData] = useState<OnboardingData>({
+    location: {},
+    profile: {},
+    academics: {}
+  });
 
   const handleProfileData = (profileData: any) => {
     setOnboardingData(prev => ({ ...prev, profile: profileData }));
-    handleNext();
+    setCurrentStep('academics');
   };
 
   const handleAcademicsData = (academicsData: any) => {
     setOnboardingData(prev => ({ ...prev, academics: academicsData }));
-    handleNext();
+    setCurrentStep('location');
   };
 
-  const handleLocationData = (locationData: any) => {
+  const handleLocationData = async (locationData: any) => {
     const finalData = { ...onboardingData, location: locationData };
-    
-    // Call the onComplete callback from App.tsx
-    onComplete(finalData);
-    
-    // Navigate to home after completion
-    navigate('/home');
-  };
 
-  const getStepTitle = (): string => {
-    switch (currentStep) {
-      case 'profile':
-        return 'Create Your Profile';
-      case 'academics':
-        return 'Academic Information';
-      case 'location':
-        return 'Career Preferences';
-      default:
-        return '';
+    // Persist onboarding to Firestore via context (authoritative)
+    try {
+      await completeOnboarding(finalData);
+    } catch (e) {
+      // optional: toast error here
     }
+
+    // Optional: analytics callback
+    try { onComplete(finalData); } catch {}
+
+    // Go to where the user intended to go, or /home
+    // Decode and validate the returnTo parameter
+    let destination = "/home";
+    if (returnTo) {
+      try {
+      // Decode the URL (it may be encoded multiple times)
+      let decoded = returnTo;
+      while (decoded !== decodeURIComponent(decoded)) {
+        decoded = decodeURIComponent(decoded);
+      }
+      // Don't redirect back to onboarding or signin pages
+      if (!decoded.includes('/onboarding') && !decoded.includes('/signin')) {
+        destination = decoded;
+      }
+    } catch (e) {
+    // If decoding fails, just go to home
+      console.error('Failed to decode returnTo:', e);
+    }
+  }
+  navigate(destination, { replace: true });
   };
 
-  const renderStepIndicator = () => {
-    if (currentStep === 'welcome') return null;
-
-    const steps = [
-      { step: 'profile', icon: User, title: 'Create Your Profile', number: 1 },
-      { step: 'academics', icon: GraduationCap, title: 'Academic Information', number: 2 },
-      { step: 'location', icon: MapPin, title: 'Career Preferences', number: 3 },
-    ];
-
-    return (
-      <div className="flex justify-start mb-8 w-full relative z-20">
-        <div className="flex items-center w-full">
-          {steps.map(({ step, icon: Icon, title, number }, index) => {
-            const isActive = currentStep === step;
-            const isCompleted = getStepNumber(currentStep) > getStepNumber(step as OnboardingStep);
-            
-            return (
-              <div key={step} className="flex items-center">
-                {/* Step circle and content */}
-                <div className="flex flex-col items-center">
-                  <div className={`w-14 h-14 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
-                    isActive
-                      ? 'bg-gradient-to-r from-primary to-secondary text-white border-primary shadow-lg'
-                      : isCompleted
-                      ? 'bg-gradient-to-r from-primary to-secondary text-white border-primary shadow-md'
-                      : 'bg-card text-muted-foreground border-border'
-                  }`}>
-                    {isCompleted ? (
-                      <div className="w-4 h-4 rounded-full bg-white animate-fade-in" />
-                    ) : (
-                      <span className="text-sm font-bold">{number}</span>
-                    )}
-                  </div>
-                  <p className={`text-sm font-medium mt-3 transition-colors duration-300 whitespace-nowrap ${
-                    isActive ? 'text-foreground font-semibold' : 'text-muted-foreground'
-                  }`}>
-                    {title}
-                  </p>
-                </div>
-                
-                {/* Connecting line - only show between circles, not after the last one */}
-                {index < steps.length - 1 && (
-                  <div className="flex-1 h-0.5 bg-border mx-8 relative w-24">
-                    <div 
-                      className={`absolute top-0 left-0 h-full bg-gradient-to-r from-primary to-secondary transition-all duration-500 ${
-                        isCompleted || (isActive && index === 0) ? 'w-full' : 'w-0'
-                      }`}
-                    />
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
+  const handleBack = () => {
+    if (currentStep === 'academics') setCurrentStep('profile');
+    else if (currentStep === 'location') setCurrentStep('academics');
   };
 
   return (
-    <div className="min-h-screen bg-background overflow-x-hidden isolate">
-      {currentStep === 'welcome' ? (
-        <OnboardingWelcome onNext={handleNext} />
-      ) : (
-        <div className="min-h-screen relative">
-          {/* Background overlay - behind content */}
-          <div className="absolute inset-0 z-0 pointer-events-none">
-            <div className="absolute right-0 top-0 w-1/2 h-full bg-gradient-to-l from-slate-900/20 to-transparent"></div>
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto px-4 py-8">
+        {/* Progress header */}
+        <div className="flex items-center gap-2 mb-8">
+          <span className={`w-8 h-8 rounded-full flex items-center justify-center ${currentStep !== 'welcome' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+            <User className="w-4 h-4" />
+          </span>
+          <div className={`h-[2px] flex-1 ${['academics','location'].includes(currentStep) ? 'bg-primary' : 'bg-muted'}`} />
+          <span className={`w-8 h-8 rounded-full flex items-center justify-center ${['academics','location'].includes(currentStep) ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+            <GraduationCap className="w-4 h-4" />
+          </span>
+          <div className={`h-[2px] flex-1 ${currentStep === 'location' ? 'bg-primary' : 'bg-muted'}`} />
+          <span className={`w-8 h-8 rounded-full flex items-center justify-center ${currentStep === 'location' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+            <MapPin className="w-4 h-4" />
+          </span>
+        </div>
+
+        {/* Steps */}
+        <div className="grid md:grid-cols-2 gap-8">
+          {/* Left: current step form */}
+          <div className="space-y-8">
+            {currentStep === 'welcome' && (
+              <OnboardingWelcome onNext={() => setCurrentStep('profile')} userName={user?.name || "there"} />
+            )}
+
+            {currentStep === 'profile' && (
+              <OnboardingProfile 
+                onNext={handleProfileData} 
+                onBack={() => setCurrentStep('welcome')}
+                initialData={onboardingData.profile}
+              />
+            )}
+
+            {currentStep === 'academics' && (
+              <OnboardingAcademics 
+                onNext={handleAcademicsData} 
+                onBack={handleBack}
+                initialData={onboardingData.academics}
+              />
+            )}
+
+            {currentStep === 'location' && (
+              <OnboardingLocationPreferences 
+                onNext={handleLocationData} 
+                onBack={handleBack}
+                initialData={onboardingData.location}
+              />
+            )}
           </div>
-          
-          {/* Main content container */}
-          <div className="mx-auto max-w-screen-xl px-6 md:px-8 w-full relative z-10 pr-[max(env(safe-area-inset-right),24px)]">
-            <div className="flex flex-col min-h-screen py-12">
-              {renderStepIndicator()}
-              
-              <div className="flex-1">
-                {currentStep === 'profile' && (
-                  <OnboardingProfile 
-                    onNext={handleProfileData} 
-                    onBack={handleBack}
-                    initialData={onboardingData.profile}
-                  />
-                )}
 
-                {currentStep === 'academics' && (
-                  <OnboardingAcademics 
-                    onNext={handleAcademicsData} 
-                    onBack={handleBack}
-                    initialData={onboardingData.academics}
-                  />
-                )}
-
-                {currentStep === 'location' && (
-                  <OnboardingLocationPreferences 
-                    onNext={handleLocationData} 
-                    onBack={handleBack}
-                    initialData={onboardingData.location}
-                  />
-                )}
-              </div>
-            </div>
+          {/* Right: placeholder or helpful info panel */}
+          <div className="hidden md:block">
+            {/* You can put tips, preview, or brand art here */}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 };

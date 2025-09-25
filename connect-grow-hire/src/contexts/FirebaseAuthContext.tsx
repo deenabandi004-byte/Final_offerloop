@@ -4,7 +4,6 @@ import {
   signInWithPopup,
   signOut as firebaseSignOut,
   onAuthStateChanged,
-  getIdToken
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
@@ -30,16 +29,21 @@ interface User {
   subscriptionId?: string;
   emailsUsedThisMonth?: number;
   emailsMonthKey?: string;
-  needsOnboarding?: boolean; 
+  needsOnboarding?: boolean;
 }
+
+type SignInOptions = {
+  /** Optional Google prompt override ('select_account' | 'consent') */
+  prompt?: 'select_account' | 'consent';
+};
 
 interface AuthContextType {
   user: User | null;
-  signIn: () => Promise<void>;
+  signIn: (opts?: SignInOptions) => Promise<void>;
   signOut: () => void;
   updateUser: (updates: Partial<User>) => Promise<void>;
-  updateCredits: (newCredits: number) => Promise<void>;  // Add this
-  checkCredits: () => Promise<number>;  // Add this
+  updateCredits: (newCredits: number) => Promise<void>;
+  checkCredits: () => Promise<number>;
   completeOnboarding: (onboardingData: any) => Promise<void>;
   isLoading: boolean;
 }
@@ -79,10 +83,10 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
     try {
       const userDocRef = doc(db, 'users', firebaseUser.uid);
       const userDoc = await getDoc(userDocRef);
-      
+
       if (userDoc.exists()) {
         const userData = userDoc.data();
-        const user: User = {
+        const loaded: User = {
           uid: firebaseUser.uid,
           email: firebaseUser.email || '',
           name: firebaseUser.displayName || '',
@@ -94,10 +98,16 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
           emailsUsedThisMonth: userData.emailsUsedThisMonth || 0,
           needsOnboarding: false,
         };
-        setUser(user);
-        console.log('Existing user loaded:', user);
+        setUser(loaded);
+        if (process.env.NODE_ENV !== 'production') {
+          // eslint-disable-next-line no-console
+          console.log('Existing user loaded');
+        }
       } else {
-        console.log('New user detected, needs onboarding');
+        if (process.env.NODE_ENV !== 'production') {
+          // eslint-disable-next-line no-console
+          console.log('New user detected, needs onboarding');
+        }
         const newUser: User = {
           uid: firebaseUser.uid,
           email: firebaseUser.email || '',
@@ -118,12 +128,19 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
     }
   };
 
-  const signIn = async (): Promise<void> => {
+  /** Sign in; allow optional chooser/consent prompt override */
+  const signIn = async (opts?: SignInOptions): Promise<void> => {
     try {
       setIsLoading(true);
       const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      console.log('Authentication successful:', result.user.email);
+      if (opts?.prompt) {
+        provider.setCustomParameters({ prompt: opts.prompt });
+      }
+      await signInWithPopup(auth, provider);
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.log('Authentication successful');
+      }
     } catch (error) {
       console.error('Authentication failed:', error);
       throw error;
@@ -136,7 +153,10 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
     try {
       await firebaseSignOut(auth);
       setUser(null);
-      console.log('User signed out');
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.log('User signed out');
+      }
     } catch (error) {
       console.error('Sign out failed:', error);
     }
@@ -147,9 +167,7 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
       try {
         const userDocRef = doc(db, 'users', user.uid);
         await updateDoc(userDocRef, updates);
-        
-        const updatedUser = { ...user, ...updates };
-        setUser(updatedUser);
+        setUser({ ...user, ...updates });
       } catch (error) {
         console.error('Error updating user:', error);
         throw error;
@@ -163,7 +181,10 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
         const userDocRef = doc(db, 'users', user.uid);
         await updateDoc(userDocRef, { credits: newCredits });
         setUser({ ...user, credits: newCredits });
-        console.log(`Credits updated to ${newCredits}`);
+        if (process.env.NODE_ENV !== 'production') {
+          // eslint-disable-next-line no-console
+          console.log(`Credits updated to ${newCredits}`);
+        }
       } catch (error) {
         console.error('Error updating credits:', error);
         throw error;
@@ -173,20 +194,18 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
 
   const checkCredits = async (): Promise<number> => {
     if (!user) return 0;
-    
+
     try {
       const userDocRef = doc(db, 'users', user.uid);
       const userDoc = await getDoc(userDocRef);
-      
+
       if (userDoc.exists()) {
         const data = userDoc.data();
         const credits = data.credits || 0;
-        
-        // Update local state if different
+
         if (credits !== user.credits) {
           setUser({ ...user, credits });
         }
-        
         return credits;
       }
       return 0;
@@ -214,15 +233,17 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
           createdAt: new Date().toISOString(),
           needsOnboarding: false,
         };
-        
+
         await setDoc(userDocRef, userData);
-        
         setUser({
           ...user,
           ...userData,
         });
-        
-        console.log('Onboarding completed and user saved to database');
+
+        if (process.env.NODE_ENV !== 'production') {
+          // eslint-disable-next-line no-console
+          console.log('Onboarding completed and user saved to database');
+        }
       } catch (error) {
         console.error('Error completing onboarding:', error);
         throw error;
@@ -231,16 +252,18 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
   };
 
   return (
-    <FirebaseAuthContext.Provider value={{ 
-      user, 
-      signIn, 
-      signOut, 
-      updateUser,
-      updateCredits,  // Add this
-      checkCredits,   // Add this
-      completeOnboarding, 
-      isLoading 
-    }}>
+    <FirebaseAuthContext.Provider
+      value={{
+        user,
+        signIn,
+        signOut,
+        updateUser,
+        updateCredits,
+        checkCredits,
+        completeOnboarding,
+        isLoading,
+      }}
+    >
       {children}
     </FirebaseAuthContext.Provider>
   );
