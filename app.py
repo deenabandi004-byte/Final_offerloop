@@ -59,23 +59,7 @@ def robots():
 # Serve any other actual files if they exist
 # Replace the existing catch_all function with this:
 # Replace the existing catch_all function with this:
-@app.route("/<path:path>")
-def catch_all(path):
-    # Check if it's an API route - don't handle those here
-    if path.startswith('api/'):
-        # Let Flask handle 404 for API routes
-        from flask import abort
-        abort(404)
-    
-    # Check if requesting an actual static file
-    full_path = os.path.join(app.static_folder, path)
-    if os.path.isfile(full_path):
-        return send_from_directory(app.static_folder, path)
-    
-    # For everything else (React routes), return index.html
-    # This handles /pricing, /dashboard, /home, etc.
-    return send_from_directory(app.static_folder, "index.html")
-
+ 
 
 # Load environment variables from .env
 load_dotenv()
@@ -4331,6 +4315,16 @@ def generate_email_for_both_tiers(contact, resume_text=None, user_profile=None, 
 # ========================================
 # MAIN ENTRY POINT
 # ========================================
+@app.route("/<path:path>")
+def serve_react(path):
+    # Check if the path is for an asset file
+    if path.startswith("assets/"):
+        return send_from_directory(os.path.join(app.static_folder, "assets"), path[7:])
+    # Check if the file exists in dist
+    if os.path.exists(os.path.join(app.static_folder, path)):
+        return send_from_directory(app.static_folder, path)
+    # Otherwise serve index.html for client-side routing
+    return send_from_directory(app.static_folder, "index.html")
 if __name__ == '__main__':
     print("=" * 50)
     print("Initializing RecruitEdge server with TWO TIERS: Free and Pro...")
