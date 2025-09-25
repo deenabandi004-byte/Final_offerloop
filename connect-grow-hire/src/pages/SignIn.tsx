@@ -1,240 +1,149 @@
 // src/pages/SignIn.tsx
-import React, { useEffect, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { useFirebaseAuth } from '../contexts/FirebaseAuthContext';
+import React, { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft } from 'lucide-react';
+import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  getAdditionalUserInfo,
+} from "firebase/auth";
+
+type Tab = "signin" | "signup";
 
 const SignIn: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, signIn, isLoading } = useFirebaseAuth();
   const { toast } = useToast();
-  
-  // Check if user came from signup button or URL param
-  const searchParams = new URLSearchParams(location.search);
-  const isSignUpMode = searchParams.get('mode') === 'signup' || location.state?.from === '/onboarding';
-  const [activeTab, setActiveTab] = useState<'signin' | 'signup'>(
-    isSignUpMode ? 'signup' : 'signin'
-  );
-  
-  // Track if this is a new signup
-  const [isNewSignup, setIsNewSignup] = useState(false);
+  const { isLoading } = useFirebaseAuth();
 
-  useEffect(() => {
-    console.log('SignIn useEffect triggered');
-    console.log('User state:', user);
-    console.log('Is loading?', isLoading);
-    console.log('Active tab:', activeTab);
-    console.log('Is new signup?', isNewSignup);
-    
-    if (user && !isLoading) {
-      console.log('User details:', {
-        email: user.email,
-        name: user.name,
-        uid: user.uid,
-        needsOnboarding: user.needsOnboarding
-      });
-      
-      // If user just signed up (was on signup tab), always go to onboarding
-      if (activeTab === 'signup' || isNewSignup || user.needsOnboarding) {
-        console.log('Directing to onboarding (signup flow or new user)');
-        navigate('/onboarding');
-        toast({
-          title: "Welcome to Offerloop!",
-          description: "Let's get you set up",
-        });
-      } else {
-        // Only for existing users signing in
-        const hasCompletedOnboarding = localStorage.getItem('onboardingCompleted') === 'true';
-        
-        if (!hasCompletedOnboarding) {
-          console.log('Existing user but onboarding not completed - redirecting to onboarding');
-          navigate('/onboarding');
-          toast({
-            title: "Welcome back!",
-            description: "Let's finish setting up your profile",
-          });
-        } else {
-          console.log('Existing user with completed onboarding - redirecting to home');
-          navigate('/home');
-          toast({
-            title: "Welcome back!",
-            description: `Hello ${user.name}!`,
-          });
-        }
-      }
-    }
-  }, [user, navigate, toast, isLoading, activeTab, isNewSignup]);
+  // derive initial tab from URL (?mode=signup)
+  const initialTab: Tab = useMemo(() => {
+    const sp = new URLSearchParams(location.search);
+    return sp.get("mode") === "signup" ? "signup" : "signin";
+  }, [location.search]);
 
-  const handleGoogleSignIn = async () => {
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab);
+  const [submitting, setSubmitting] = useState(false);
+
+  // keep tab in sync if the query param changes
+  useEffect(() => setActiveTab(initialTab), [initialTab]);
+
+  const handleGoogleAuth = async () => {
+    if (submitting || isLoading) return;
+    setSubmitting(true);
     try {
-      console.log('Starting Google sign in...');
-      console.log('Current tab:', activeTab);
-      
-      // If on signup tab, mark as new signup
-      if (activeTab === 'signup') {
-        setIsNewSignup(true);
-      }
-      
-      await signIn();
-      console.log('signIn() function completed');
-    } catch (error) {
-      console.error('Sign in failed:', error);
+      const provider = new GoogleAuthProvider();
+      // If you request extra scopes, add them here, e.g.:
+      // provider.addScope('https://www.googleapis.com/auth/gmail.compose');
+
+      const result = await signInWithPopup(getAuth(), provider);
+
+      // Helpful for analytics/branching in your backend if you want
+      const info = getAdditionalUserInfo(result);
+      const isNewUser = !!info?.isNewUser;
+
       toast({
-        title: "Sign-in failed",
-        description: "Please try again.",
-        variant: "destructive",
+        title: activeTab === "signup" || isNewUser ? "Welcome! 🎉" : "Signed in",
+        description:
+          activeTab === "signup" || isNewUser
+            ? "Account created. Finishing setup…"
+            : "Welcome back! Redirecting…",
       });
+
+      // ⛔️ No navigate() here on purpose.
+      // Your Route Guards will now take over routing based on auth state
+      // (see App.tsx PublicRoute/ProtectedRoute).
+    } catch (err: any) {
+      console.error(err);
+      toast({
+        variant: "destructive",
+        title: "Sign-in failed",
+        description: err?.message || "Please try again.",
+      });
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center">
-        <div className="bg-gray-800 p-8 rounded-lg shadow-lg text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-gray-300">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center px-4">
-      <div className="max-w-md w-full">
-        {/* Back button */}
+    <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white">
+      <div className="max-w-3xl mx-auto px-4 py-8">
+        {/* Back to landing */}
         <button
-          onClick={() => navigate('/')}
-          className="mb-8 flex items-center text-gray-400 hover:text-white transition-colors"
+          onClick={() => navigate("/")}
+          className="inline-flex items-center gap-2 text-sm text-zinc-300 hover:text-white transition"
         >
-          <ArrowLeft className="mr-2 h-4 w-4" />
+          <ArrowLeft className="h-4 w-4" />
           Back to Home
         </button>
 
-        <div className="bg-gray-800 rounded-2xl shadow-2xl overflow-hidden border border-gray-700">
-          {/* Tab Navigation */}
-          <div className="flex">
+        <div className="mt-10 bg-zinc-900/60 backdrop-blur rounded-2xl p-6 border border-zinc-800">
+          {/* Tabs */}
+          <div className="flex gap-4 mb-6">
             <button
-              onClick={() => setActiveTab('signin')}
-              className={`flex-1 py-4 text-center font-semibold transition-all ${
-                activeTab === 'signin'
-                  ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white'
-                  : 'bg-gray-700 text-gray-300 hover:text-white'
+              className={`px-4 py-2 rounded-xl border ${
+                activeTab === "signin"
+                  ? "bg-white text-black border-white"
+                  : "border-zinc-700 text-zinc-300 hover:text-white"
               }`}
+              onClick={() => setActiveTab("signin")}
+              disabled={submitting}
             >
-              Sign In
+              Sign in
             </button>
             <button
-              onClick={() => setActiveTab('signup')}
-              className={`flex-1 py-4 text-center font-semibold transition-all ${
-                activeTab === 'signup'
-                  ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white'
-                  : 'bg-gray-700 text-gray-300 hover:text-white'
+              className={`px-4 py-2 rounded-xl border ${
+                activeTab === "signup"
+                  ? "bg-white text-black border-white"
+                  : "border-zinc-700 text-zinc-300 hover:text-white"
               }`}
+              onClick={() => setActiveTab("signup")}
+              disabled={submitting}
             >
-              Sign Up
+              Create account
             </button>
           </div>
 
-          {/* Content */}
-          <div className="p-8">
-            {activeTab === 'signin' ? (
-              <>
-                <h2 className="text-2xl font-bold text-white mb-2">Welcome Back</h2>
-                <p className="text-gray-400 mb-8">
-                  Sign in to access your AI-powered recruiting tools
-                </p>
-              </>
-            ) : (
-              <>
-                <h2 className="text-2xl font-bold text-white mb-2">Create Your Account</h2>
-                <p className="text-gray-400 mb-8">
-                  Join thousands using AI to streamline their recruiting
-                </p>
-              </>
-            )}
-
-            {/* Google Auth Button */}
+          {/* Google button */}
+          <div className="space-y-3">
             <button
-              onClick={handleGoogleSignIn}
-              disabled={isLoading}
-              className="w-full flex items-center justify-center space-x-3 px-6 py-4 text-white bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 rounded-xl font-semibold transition-all transform hover:scale-[1.02] shadow-lg disabled:opacity-50"
+              onClick={handleGoogleAuth}
+              disabled={submitting || isLoading}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 bg-white text-black font-medium hover:opacity-90 disabled:opacity-60"
             >
-              <svg className="w-5 h-5" viewBox="0 0 24 24">
-                <path 
-                  fill="#ffffff" 
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-5 w-5"
+                viewBox="0 0 48 48"
+              >
+                <path
+                  fill="#FFC107"
+                  d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12S17.373 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.651-.389-3.917z"
                 />
-                <path 
-                  fill="#ffffff" 
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                <path
+                  fill="#FF3D00"
+                  d="M6.306 14.691l6.571 4.817C14.39 16.061 18.839 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.66 8.337 6.306 14.691z"
                 />
-                <path 
-                  fill="#ffffff" 
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                <path
+                  fill="#4CAF50"
+                  d="M24 44c5.18 0 9.925-1.977 13.49-5.205l-6.228-5.27C29.058 35.917 26.671 36.8 24 36.8c-5.192 0-9.616-3.317-11.277-7.946l-6.52 5.026C9.513 39.556 16.21 44 24 44z"
                 />
-                <path 
-                  fill="#ffffff" 
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                <path
+                  fill="#1976D2"
+                  d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.18 4.186-3.999 5.531.001-.001 6.697 5.372 6.697 5.372C41.707 35.863 44 30.38 44 24c0-1.341-.138-2.651-.389-3.917z"
                 />
               </svg>
-              <span>
-                {isLoading ? 'Processing...' : `${activeTab === 'signin' ? 'Sign In' : 'Sign Up'} with Google`}
-              </span>
+              {activeTab === "signup" ? "Continue with Google" : "Sign in with Google"}
             </button>
 
-            {/* Features List */}
-            <div className="mt-8 space-y-3">
-              <div className="flex items-center text-sm text-gray-400">
-                <svg className="w-5 h-5 text-green-400 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                </svg>
-                Personalized AI-generated emails
-              </div>
-              <div className="flex items-center text-sm text-gray-400">
-                <svg className="w-5 h-5 text-green-400 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                </svg>
-                Access to 2B+ professional contacts
-              </div>
-              <div className="flex items-center text-sm text-gray-400">
-                <svg className="w-5 h-5 text-green-400 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                </svg>
-                Secure with Google authentication
-              </div>
-              <div className="flex items-center text-sm text-gray-400">
-                <svg className="w-5 h-5 text-green-400 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                </svg>
-                AI-powered resume matching
-              </div>
-            </div>
-
-            {/* Toggle message */}
-            <p className="text-center text-sm text-gray-400 mt-6">
-              {activeTab === 'signin' ? (
-                <>
-                  Don't have an account?{' '}
-                  <button
-                    onClick={() => setActiveTab('signup')}
-                    className="text-blue-400 hover:text-blue-300 underline"
-                  >
-                    Sign up
-                  </button>
-                </>
-              ) : (
-                <>
-                  Already have an account?{' '}
-                  <button
-                    onClick={() => setActiveTab('signin')}
-                    className="text-blue-400 hover:text-blue-300 underline"
-                  >
-                    Sign in
-                  </button>
-                </>
-              )}
+            <p className="text-xs text-zinc-400">
+              {activeTab === "signup"
+                ? "By continuing, you agree to create an account and accept our Terms & Privacy Policy."
+                : "We’ll never post or email anyone without your permission."}
             </p>
           </div>
         </div>
