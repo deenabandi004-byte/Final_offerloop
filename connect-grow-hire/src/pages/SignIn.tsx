@@ -58,8 +58,11 @@ useEffect(() => setActiveTab(initialTab), [initialTab]);
     setSubmitting(true);
     try {
       const provider = new GoogleAuthProvider();
-      // If you request extra scopes, add them here, e.g.:
-      // provider.addScope('https://www.googleapis.com/auth/gmail.compose');
+      if (activeTab === 'signup') {
+        provider.setCustomParameters({ 
+          prompt: 'select_account' 
+        });
+      }
 
       const result = await signInWithPopup(getAuth(), provider);
 
