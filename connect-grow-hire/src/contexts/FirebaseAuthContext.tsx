@@ -120,7 +120,15 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
           emailsUsedThisMonth: 0,
           needsOnboarding: true,
         };
+        
+        // CREATE the Firestore document for new users immediately
+        await setDoc(doc(db, 'users', firebaseUser.uid), {
+          ...newUser,
+          createdAt: new Date().toISOString()
+        });
+        
         setUser(newUser);
+        console.log('New user document created in Firestore');
       }
     } catch (error) {
       console.error('Error loading user data:', error);
