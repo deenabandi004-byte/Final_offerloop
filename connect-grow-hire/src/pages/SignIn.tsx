@@ -18,7 +18,7 @@ const SignIn: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
-  const { isLoading } = useFirebaseAuth();
+  const { user, isLoading } = useFirebaseAuth();
 
   // derive initial tab from URL (?mode=signup)
   const initialTab: Tab = useMemo(() => {
@@ -26,11 +26,25 @@ const SignIn: React.FC = () => {
     return sp.get("mode") === "signup" ? "signup" : "signin";
   }, [location.search]);
 
-  const [activeTab, setActiveTab] = useState<Tab>(initialTab);
-  const [submitting, setSubmitting] = useState(false);
+const [activeTab, setActiveTab] = useState<Tab>(initialTab);
+const [submitting, setSubmitting] = useState(false);
 
-  // keep tab in sync if the query param changes
-  useEffect(() => setActiveTab(initialTab), [initialTab]);
+// Add this to watch for user state changes and redirect
+useEffect(() => {
+  if (user && !isLoading) {
+    console.log('User authenticated, redirecting...');
+    setTimeout(() => {
+      if (user.needsOnboarding) {
+        navigate('/onboarding', { replace: true });
+      } else {
+        navigate('/home', { replace: true });
+      }
+    }, 100); // Small delay to ensure state is settled
+  }
+}, [user, isLoading, navigate]);
+
+// keep tab in sync if the query param changes
+useEffect(() => setActiveTab(initialTab), [initialTab]);
 
   const handleGoogleAuth = async () => {
     if (submitting || isLoading) return;
