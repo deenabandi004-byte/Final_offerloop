@@ -64,8 +64,14 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useFirebaseAuth();
   if (isLoading) return null;
 
-  // If fully signed-in & onboarded, skip marketing/auth pages
-  if (user && !user.needsOnboarding) return <Navigate to="/home" replace />;
+  // If user is signed in, redirect appropriately
+  if (user) {
+    if (user.needsOnboarding) {
+      return <Navigate to="/onboarding" replace />;
+    } else {
+      return <Navigate to="/home" replace />;
+    }
+  }
 
   return <>{children}</>;
 };
