@@ -224,40 +224,58 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
   };
 
   const completeOnboarding = async (onboardingData: any) => {
-    if (user) {
-      try {
-        const userDocRef = doc(db, 'users', user.uid);
-        const userData = {
-          ...onboardingData,
-          uid: user.uid,
-          email: user.email,
-          name: user.name,
-          picture: user.picture,
-          tier: 'free',
-          credits: initialCreditsByTier('free'),
-          maxCredits: initialCreditsByTier('free'),
-          emailsMonthKey: getMonthKey(),
-          emailsUsedThisMonth: 0,
-          createdAt: new Date().toISOString(),
-          needsOnboarding: false,
-        };
-
-        await setDoc(userDocRef, userData);
-        setUser({
-          ...user,
-          ...userData,
+  if (user) {
+    try {
+      const userDocRef = doc(db, 'users', user.uid);
+      
+      // Clean the onboarding data to remove undefined values
+      const cleanData = (obj: any): any => {
+        const cleaned: any = {};
+        Object.keys(obj).forEach(key => {
+          if (obj[key] !== undefined) {
+            if (typeof obj[key] === 'object' && obj[key] !== null && !Array.isArray(obj[key])) {
+              cleaned[key] = cleanData(obj[key]);
+            } else {
+              cleaned[key] = obj[key];
+            }
+          }
         });
+        return cleaned;
+      };
+      
+      const cleanedOnboardingData = cleanData(onboardingData);
+      
+      const userData = {
+        ...cleanedOnboardingData,
+        uid: user.uid,
+        email: user.email,
+        name: user.name,
+        picture: user.picture,
+        tier: 'free',
+        credits: initialCreditsByTier('free'),
+        maxCredits: initialCreditsByTier('free'),
+        emailsMonthKey: getMonthKey(),
+        emailsUsedThisMonth: 0,
+        createdAt: new Date().toISOString(),
+        needsOnboarding: false,
+      };
 
-        if (process.env.NODE_ENV !== 'production') {
-          // eslint-disable-next-line no-console
-          console.log('Onboarding completed and user saved to database');
-        }
-      } catch (error) {
-        console.error('Error completing onboarding:', error);
-        throw error;
+      await setDoc(userDocRef, userData);
+      setUser({
+        ...user,
+        ...userData,
+        needsOnboarding: false,
+      });
+
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('Onboarding completed and user saved to database');
       }
+    } catch (error) {
+      console.error('Error completing onboarding:', error);
+      throw error;
     }
-  };
+  }
+};
 
   return (
     <FirebaseAuthContext.Provider
