@@ -36,34 +36,6 @@ from flask import send_from_directory
 app = Flask(__name__, static_folder="connect-grow-hire/dist", static_url_path="")
 CORS(app, origins=["https://d33d83bb2e38.ngrok-free.app", "*"])
 
-# Serve the React index.html at root
-@app.route("/")
-def root():
-    return send_from_directory(app.static_folder, "index.html")
-
-# Serve /assets/* (JS, CSS, images)
-@app.route("/assets/<path:filename>")
-def assets(filename):
-    return send_from_directory(os.path.join(app.static_folder, "assets"), filename)
-
-# Serve favicon
-@app.route("/favicon.png")
-def favicon():
-    return send_from_directory(app.static_folder, "favicon.png")
-
-# Serve robots.txt
-@app.route("/robots.txt")
-def robots():
-    return send_from_directory(app.static_folder, "robots.txt")
-@app.route("/signin")
-def signin_page():
-    return send_from_directory(app.static_folder, "index.html")
-
-# Serve any other actual files if they exist
-# Replace the existing catch_all function with this:
-# Replace the existing catch_all function with this:
- 
-
 # Load environment variables from .env
 load_dotenv()
 
@@ -4322,14 +4294,24 @@ def generate_email_for_both_tiers(contact, resume_text=None, user_profile=None, 
 # ========================================
 # MAIN ENTRY POINT
 # ========================================
+# Replace the existing catch-all route at the end with this:
+@app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_react(path):
+    # For root path, always serve index.html
+    if not path:
+        return send_from_directory(app.static_folder, "index.html")
+    
     # Check if the path is for an asset file
     if path.startswith("assets/"):
-        return send_from_directory(os.path.join(app.static_folder, "assets"), path[7:])
+        asset_path = path[7:]  # Remove "assets/" prefix
+        return send_from_directory(os.path.join(app.static_folder, "assets"), asset_path)
+    
     # Check if the file exists in dist
-    if os.path.exists(os.path.join(app.static_folder, path)):
+    file_path = os.path.join(app.static_folder, path)
+    if os.path.exists(file_path) and os.path.isfile(file_path):
         return send_from_directory(app.static_folder, path)
+    
     # Otherwise serve index.html for client-side routing
     return send_from_directory(app.static_folder, "index.html")
 if __name__ == '__main__':
