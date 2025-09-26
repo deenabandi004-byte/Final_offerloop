@@ -64,3 +64,4 @@ public/lovable-uploads/
 *.pid
 
 connect-grow-hire/package-lock.json
+/firebase-sa.json
