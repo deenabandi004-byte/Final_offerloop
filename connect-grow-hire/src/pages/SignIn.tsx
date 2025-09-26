@@ -32,14 +32,21 @@ const [submitting, setSubmitting] = useState(false);
 // Add this to watch for user state changes and redirect
 useEffect(() => {
   if (user && !isLoading) {
-    console.log('User authenticated, redirecting...');
-    setTimeout(() => {
+    console.log('User authenticated, checking onboarding status...');
+    console.log('needsOnboarding:', user.needsOnboarding);
+    
+    // Add a small delay to ensure Firebase state is fully settled
+    const timer = setTimeout(() => {
       if (user.needsOnboarding) {
+        console.log('Redirecting to onboarding...');
         navigate('/onboarding', { replace: true });
       } else {
+        console.log('Redirecting to home...');
         navigate('/home', { replace: true });
       }
-    }, 100); // Small delay to ensure state is settled
+    }, 500); // Increased delay to 500ms
+    
+    return () => clearTimeout(timer);
   }
 }, [user, isLoading, navigate]);
 

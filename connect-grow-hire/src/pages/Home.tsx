@@ -108,6 +108,11 @@ const Home = () => {
   const hasResults = lastResults.length > 0;
 
   const currentTierConfig = TIER_CONFIGS[userTier];
+  useEffect(() => {
+    if (firebaseUser?.needsOnboarding) {
+      navigate('/onboarding');
+   }
+  }, [firebaseUser, navigate]);
 
   // Refresh credits on mount
   useEffect(() => {

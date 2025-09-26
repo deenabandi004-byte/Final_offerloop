@@ -105,7 +105,6 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
         }
       } else {
         if (process.env.NODE_ENV !== 'production') {
-          // eslint-disable-next-line no-console
           console.log('New user detected, needs onboarding');
         }
         const newUser: User = {
@@ -114,11 +113,11 @@ export const FirebaseAuthProvider: React.FC<FirebaseAuthProviderProps> = ({ chil
           name: firebaseUser.displayName || '',
           picture: firebaseUser.photoURL || undefined,
           tier: 'free',
-          credits: 0,
-          maxCredits: 0,
+          credits: 120,  // Default credits for new free tier users
+          maxCredits: 120,
           emailsMonthKey: getMonthKey(),
           emailsUsedThisMonth: 0,
-          needsOnboarding: true,
+          needsOnboarding: true,  // This MUST be true for new users
         };
         
         // CREATE the Firestore document for new users immediately
