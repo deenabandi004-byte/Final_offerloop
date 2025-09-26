@@ -4067,7 +4067,11 @@ def stripe_webhook():
 @app.errorhandler(404)
 def not_found(error):
     """Handle 404 errors"""
-    return jsonify({'error': 'Endpoint not found'}), 404
+    # For API routes, return JSON error
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'Endpoint not found'}), 404
+    # For everything else (React routes), serve the React app
+    return send_from_directory(app.static_folder, "index.html")
 
 @app.errorhandler(500)
 def internal_error(error):
