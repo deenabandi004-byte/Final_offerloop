@@ -7,8 +7,7 @@ import aiPersonalImage from '@/assets/Ai_Personal.jpeg';
 import smartMatchingImage from '@/assets/SmartMatching.jpeg';
 import topTierImage from '@/assets/TopTier.jpeg';
 import analyticsImage from '@/assets/Analytics.jpeg';
-import PrivacyPolicy from "@/pages/PrivacyPolicy";
-import TermsOfService from "@/pages/TermsOfService";
+
 
 /** Reusable, professional CTA buttons for header + hero */
 const CtaButtons: React.FC<{ compact?: boolean }> = ({ compact }) => {

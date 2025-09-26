@@ -55,6 +55,9 @@ def favicon():
 @app.route("/robots.txt")
 def robots():
     return send_from_directory(app.static_folder, "robots.txt")
+@app.route("/signin")
+def signin_page():
+    return send_from_directory(app.static_folder, "index.html")
 
 # Serve any other actual files if they exist
 # Replace the existing catch_all function with this:

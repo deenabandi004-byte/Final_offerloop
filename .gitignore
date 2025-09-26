@@ -7,7 +7,6 @@ Thumbs.db
 
 # --- Node / Vite / React / Bun ---
 node_modules/
-dist/
 build/
 .vite/
 *.tsbuildinfo
@@ -42,7 +41,6 @@ venv/
 .coverage*
 .cache/
 build/
-dist/
 pip-wheel-metadata/
 .Python
 
@@ -58,7 +56,6 @@ reports/
 
 # --- Project specific ---
 connect-grow-hire/node_modules/
-connect-grow-hire/dist/
 connect-grow-hire/.vite/
 connect-grow-hire/build/
 public/lovable-uploads/
