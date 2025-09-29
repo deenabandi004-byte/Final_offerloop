@@ -11,7 +11,7 @@ const SignIn: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
-  const { user, isLoading, signIn } = useFirebaseAuth(); // NOTE: signIn returns "new" | "returning"
+  const { user, isLoading, signIn } = useFirebaseAuth(); // signIn => "onboarding" | "home"
 
   const initialTab: Tab = useMemo(() => {
     const sp = new URLSearchParams(location.search);
@@ -34,16 +34,12 @@ const SignIn: React.FC = () => {
     if (submitting || isLoading) return;
     setSubmitting(true);
     try {
-      // Force account chooser every time
-      const outcome = await signIn({ prompt: "select_account" }); // "new" | "returning"
+      const next = await signIn({ prompt: "select_account" }); // "onboarding" | "home"
       toast({
-        title: outcome === "new" || activeTab === "signup" ? "Welcome! 🎉" : "Signed in",
-        description:
-          outcome === "new" || activeTab === "signup"
-            ? "Account created. Finishing setup…"
-            : "Welcome back! Redirecting…",
+        title: next === "onboarding" || activeTab === "signup" ? "Welcome! 🎉" : "Signed in",
+        description: next === "onboarding" ? "Account created. Finishing setup…" : "Welcome back! Redirecting…",
       });
-      navigate(outcome === "new" ? "/onboarding" : "/home", { replace: true });
+      navigate(next === "onboarding" ? "/onboarding" : "/home", { replace: true });
     } catch (err: any) {
       console.error(err);
       setSubmitting(false);
