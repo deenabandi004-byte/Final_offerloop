@@ -21,26 +21,38 @@ const SignIn: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [submitting, setSubmitting] = useState(false);
 
-  // Keep tab in sync with URL (signup vs signin)
+  // --- NEW: forceNavigate fallback ---
+  const forceNavigate = (dest: string) => {
+    navigate(dest, { replace: true });
+    setTimeout(() => {
+      const at = window.location.pathname;
+      if (at !== dest) {
+        console.warn("[signin] router nav didn't apply, forcing hard redirect", { at, dest });
+        window.location.replace(dest);
+      }
+    }, 600);
+  };
+
+  // Keep tab in sync with URL
   useEffect(() => setActiveTab(initialTab), [initialTab]);
 
-  // If already authenticated, never stay on /signin
+  // Auto-redirect if already signed in
   useEffect(() => {
     if (!isLoading && user) {
       const dest = user.needsOnboarding ? "/onboarding" : "/home";
       console.log("[signin] auto redirect ->", dest, { needsOnboarding: user.needsOnboarding });
-      navigate(dest, { replace: true });
+      forceNavigate(dest);
     }
-  }, [user, isLoading, navigate]);
+  }, [user, isLoading]);
 
   const handleGoogleAuth = async () => {
     if (submitting || isLoading) return;
     setSubmitting(true);
     try {
       const next = await signIn({ prompt: "select_account" }); // "onboarding" | "home"
-      console.log("[signin] signIn returned:", next);
       const dest = next === "onboarding" ? "/onboarding" : "/home";
-      navigate(dest, { replace: true });
+      console.log("[signin] signIn returned:", next, "→", dest);
+      forceNavigate(dest);
     } catch (err: any) {
       console.error("[signin] failed:", err);
       setSubmitting(false);
@@ -95,7 +107,7 @@ const SignIn: React.FC = () => {
               disabled={submitting || isLoading}
               className="w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 bg-white text-black font-medium hover:opacity-90 disabled:opacity-60"
             >
-              {/* Google "G" icon */}
+              {/* Google "G" logo */}
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="h-5 w-5" aria-hidden="true">
                 <path
                   fill="#FFC107"
