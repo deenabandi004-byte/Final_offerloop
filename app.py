@@ -95,7 +95,22 @@ try:
 except Exception as e:
     print(f" Firebase initialization failed: {e}")
     db = None
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
 
+# SPA fallback so React Router routes (/home, /onboarding, etc.) don’t 404
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def spa_fallback(path):
+    if path.startswith(("api/", "healthz")):
+        abort(404)
+
+    full = os.path.join(app.static_folder, path)
+    if os.path.exists(full):
+        return send_from_directory(app.static_folder, path)
+
+    return send_from_directory(app.static_folder, "index.html")
 def require_firebase_auth(fn):
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
@@ -4314,6 +4329,9 @@ def serve_react(path):
     
     # Otherwise serve index.html for client-side routing
     return send_from_directory(app.static_folder, "index.html")
+    # app = Flask(__name__, static_folder="connect-grow-hire/dist", static_url_path="")
+
+
 if __name__ == '__main__':
     print("=" * 50)
     print("Initializing RecruitEdge server with TWO TIERS: Free and Pro...")

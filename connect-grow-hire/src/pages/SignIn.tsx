@@ -11,7 +11,7 @@ const SignIn: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
-  const { user, isLoading, signIn } = useFirebaseAuth(); // signIn => "onboarding" | "home"
+  const { user, isLoading, signIn } = useFirebaseAuth(); // signIn returns "onboarding" | "home"
 
   const initialTab: Tab = useMemo(() => {
     const sp = new URLSearchParams(location.search);
@@ -21,27 +21,28 @@ const SignIn: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [submitting, setSubmitting] = useState(false);
 
+  // Keep tab in sync with URL (signup vs signin)
+  useEffect(() => setActiveTab(initialTab), [initialTab]);
+
   // If already authenticated, never stay on /signin
   useEffect(() => {
-    if (user && !isLoading) {
-      navigate(user.needsOnboarding ? "/onboarding" : "/home", { replace: true });
+    if (!isLoading && user) {
+      const dest = user.needsOnboarding ? "/onboarding" : "/home";
+      console.log("[signin] auto redirect ->", dest, { needsOnboarding: user.needsOnboarding });
+      navigate(dest, { replace: true });
     }
   }, [user, isLoading, navigate]);
-
-  useEffect(() => setActiveTab(initialTab), [initialTab]);
 
   const handleGoogleAuth = async () => {
     if (submitting || isLoading) return;
     setSubmitting(true);
     try {
       const next = await signIn({ prompt: "select_account" }); // "onboarding" | "home"
-      toast({
-        title: next === "onboarding" || activeTab === "signup" ? "Welcome! 🎉" : "Signed in",
-        description: next === "onboarding" ? "Account created. Finishing setup…" : "Welcome back! Redirecting…",
-      });
-      navigate(next === "onboarding" ? "/onboarding" : "/home", { replace: true });
+      console.log("[signin] signIn returned:", next);
+      const dest = next === "onboarding" ? "/onboarding" : "/home";
+      navigate(dest, { replace: true });
     } catch (err: any) {
-      console.error(err);
+      console.error("[signin] failed:", err);
       setSubmitting(false);
       toast({
         variant: "destructive",
