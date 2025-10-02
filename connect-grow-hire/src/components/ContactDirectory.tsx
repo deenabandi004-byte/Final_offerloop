@@ -115,45 +115,66 @@ const SpreadsheetContactDirectory: React.FC = () => {
       console.error('Error saving contacts:', err);
     }
   };
+// Update the addContactsToDirectory function in ContactDirectory.tsx
 
-  const addContactsToDirectory = async (contactsToAdd: Contact[]) => {
-    try {
-      if (currentUser) {
-        await firebaseApi.bulkCreateContacts(currentUser.uid, contactsToAdd);
-        await loadContacts();
-      } else {
-        const updatedContacts = [...contacts];
+const addContactsToDirectory = async (contactsToAdd: any[]) => {
+  try {
+    // Transform the incoming contacts to match the expected structure
+    const normalizedContacts = contactsToAdd.map(contact => {
+      // Handle both PascalCase (from backend) and camelCase field names
+      return {
+        firstName: contact.FirstName || contact.firstName || '',
+        lastName: contact.LastName || contact.lastName || '',
+        linkedinUrl: contact.LinkedIn || contact.linkedinUrl || '',
+        email: contact.Email || contact.email || '',
+        company: contact.Company || contact.company || '',
+        jobTitle: contact.Title || contact.jobTitle || '',
+        college: contact.College || contact.college || '',
+        location: `${contact.City || ''}${contact.City && contact.State ? ', ' : ''}${contact.State || ''}`.trim() || contact.location || '',
+        firstContactDate: new Date().toLocaleDateString('en-US'),
+        status: 'Not Contacted',
+        lastContactDate: new Date().toLocaleDateString('en-US'),
+        emailSubject: contact.email_subject || contact.emailSubject || '',
+        emailBody: contact.email_body || contact.emailBody || ''
+      };
+    });
+
+    if (currentUser) {
+      await firebaseApi.bulkCreateContacts(currentUser.uid, normalizedContacts);
+      await loadContacts();
+    } else {
+      const updatedContacts = [...contacts];
+      
+      normalizedContacts.forEach(newContact => {
+        const isDuplicate = updatedContacts.some(existing => 
+          existing.email && newContact.email && existing.email.toLowerCase() === newContact.email.toLowerCase()
+        );
         
-        contactsToAdd.forEach(newContact => {
-          const isDuplicate = updatedContacts.some(existing => 
-            existing.email && newContact.email && existing.email.toLowerCase() === newContact.email.toLowerCase()
-          );
-          
-          if (!isDuplicate) {
-            updatedContacts.push({
-              ...newContact,
-              id: `local_${Date.now()}_${Math.random()}`,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            });
-          }
-        });
-        
-        setContacts(updatedContacts);
-        await saveContacts(updatedContacts);
-      }
-    } catch (err) {
-      console.error('Error adding contacts:', err);
-      setError('Failed to add contacts');
+        if (!isDuplicate) {
+          updatedContacts.push({
+            ...newContact,
+            id: `local_${Date.now()}_${Math.random()}`,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+        }
+      });
+      
+      setContacts(updatedContacts);
+      await saveContacts(updatedContacts);
     }
-  };
+  } catch (err) {
+    console.error('Error adding contacts:', err);
+    setError('Failed to add contacts');
+  }
+};
 
   useEffect(() => {
     (window as any).addContactsToDirectory = addContactsToDirectory;
     return () => {
-      delete (window as any).addContactsToDirectory;
+     delete (window as any).addContactsToDirectory;
     };
-  }, [contacts, currentUser]);
+  }, [addContactsToDirectory]); // Depend on the function itself
 
   // Real-time search filtering
   useEffect(() => {

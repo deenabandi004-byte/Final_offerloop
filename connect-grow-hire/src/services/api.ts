@@ -23,6 +23,7 @@ export interface ContactSearchRequest {
   saveToDirectory?: boolean;
   userProfile?: UserProfile | null;
   careerInterests?: string[];
+  collegeAlumni?: string;  // ✅ NEW: Added collegeAlumni field
 }
 
 export interface ProContactSearchRequest extends ContactSearchRequest {
@@ -163,7 +164,8 @@ class ApiService {
       location: request.location,
       saveToDirectory: false, // Always false since we handle saving on frontend
       userProfile: request.userProfile,
-      careerInterests: request.careerInterests || []
+      careerInterests: request.careerInterests || [],
+      collegeAlumni: request.collegeAlumni || ""  // ✅ Include collegeAlumni
     };
 
     console.log(`Free Search Request:`, backendRequest);
@@ -188,6 +190,7 @@ class ApiService {
     formData.append('location', request.location);
     formData.append('resume', request.resume);
     formData.append('saveToDirectory', 'false'); // Always false since we handle saving on frontend
+    formData.append('collegeAlumni', request.collegeAlumni || "");  // ✅ Include collegeAlumni
     
     if (request.userProfile) {
       formData.append('userProfile', JSON.stringify(request.userProfile));
@@ -204,6 +207,7 @@ class ApiService {
     console.log(`  resume: ${request.resume.name} (${request.resume.size} bytes)`);
     console.log(`  userProfile: ${JSON.stringify(request.userProfile)}`);
     console.log(`  careerInterests: ${JSON.stringify(request.careerInterests)}`);
+    console.log(`  collegeAlumni: "${request.collegeAlumni || ""}"`);
 
     return this.makeRequest<SearchResult>('/pro-run', {
       method: 'POST',
@@ -228,7 +232,8 @@ class ApiService {
       location: request.location,
       saveToDirectory: false,
       userProfile: request.userProfile,
-      careerInterests: request.careerInterests || []
+      careerInterests: request.careerInterests || [],
+      collegeAlumni: request.collegeAlumni || ""  // ✅ Include collegeAlumni
     };
 
     return this.makeRequest<Blob>('/free-run-csv', {
@@ -251,6 +256,7 @@ class ApiService {
     formData.append('location', request.location);
     formData.append('resume', request.resume);
     formData.append('saveToDirectory', 'false');
+    formData.append('collegeAlumni', request.collegeAlumni || "");  // ✅ Include collegeAlumni
     
     if (request.userProfile) {
       formData.append('userProfile', JSON.stringify(request.userProfile));

@@ -7,6 +7,8 @@ import aiPersonalImage from '@/assets/Ai_Personal.jpeg';
 import smartMatchingImage from '@/assets/SmartMatching.jpeg';
 import topTierImage from '@/assets/TopTier.jpeg';
 import analyticsImage from '@/assets/Analytics.jpeg';
+import lockImg from "@/assets/lock.png";
+
 
 
 /** Reusable, professional CTA buttons for header + hero */
@@ -345,6 +347,37 @@ const Index = () => {
           </div>
         </div>
       </section>
+      {/* Data Privacy Section */}
+      <section className="relative py-28 bg-gradient-to-r from-[#0f0f1a] to-[#111827]">
+        <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center md:space-x-16 px-6">
+    
+         {/* Icon without heavy gradient */}
+         <div className="flex-shrink-0 mb-10 md:mb-0">
+          <div className="w-40 h-40 flex items-center justify-center rounded-2xl bg-transparent shadow-lg">
+            <img 
+              src={lockImg} 
+              alt="Data Privacy Lock Icon" 
+              className="w-24 h-24 object-contain drop-shadow-[0_4px_12px_rgba(99,102,241,0.6)]" 
+            />
+         </div>
+        </div>
+
+    {/* Text */}
+        <div className="text-center md:text-left">
+          <h2 className="text-4xl font-extrabold mb-6 bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">
+            Your Privacy, Our Priority
+          </h2>
+          <p className="text-gray-300 leading-relaxed max-w-2xl text-lg">
+            At Offerloop.ai, your data is yours — always. We never sell or share your information. 
+            Authentication is handled securely through Google sign-in, and all data is encrypted 
+            in transit and at rest. You can export or delete your information at any time, giving 
+            you complete control and peace of mind.
+          </p>
+        </div>
+      </div>
+    </section>
+
+
 
       {/* About Us Section */}
       <section id="about" className="py-20 px-6 bg-gray-800/30">

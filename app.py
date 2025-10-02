@@ -25,13 +25,53 @@ from werkzeug.utils import secure_filename
 import traceback
 import firebase_admin
 from firebase_admin import credentials, firestore, auth as fb_auth
-
+from flask import abort
 from dotenv import load_dotenv
 from openai import OpenAI
 import sqlite3
 from contextlib import contextmanager
-import os
 from flask import send_from_directory
+
+# === Alumni helpers (added) ===
+def _school_aliases(raw: str) -> list[str]:
+    """Return robust aliases for a school; used for query + strict server-side filtering."""
+    if not raw:
+        return []
+    s = " ".join(str(raw).lower().split())
+    aliases = {s}
+    # Extendable alias map
+    if any(k in s for k in ["usc", "southern california", "viterbi"]):
+        aliases.update({
+            "usc",
+            "university of southern california",
+            "usc viterbi school of engineering",
+            "viterbi school of engineering",
+            "usc viterbi",
+        })
+    if "stanford" in s:
+        aliases.update({"stanford", "stanford university", "school of engineering, stanford"})
+    # Add more schools over time as needed
+    return sorted({" ".join(a.split()) for a in aliases})
+
+def _contact_has_school_alias(c: dict, aliases: list[str]) -> bool:
+    fields = []
+    fields.append((c.get("College") or c.get("college") or "").lower())
+    edu = c.get("education") or []
+    if isinstance(edu, list):
+        for e in edu:
+            if isinstance(e, dict):
+                name = ""
+                sch = e.get("school")
+                if isinstance(sch, dict):
+                    name = (sch.get("name") or "").lower()
+                name = name or (e.get("school_name") or "").lower()
+                if name:
+                    fields.append(name)
+    blob = " | ".join([f for f in fields if f])
+    return any(a in blob for a in aliases)
+# === end alumni helpers ===
+
+
 
 app = Flask(__name__, static_folder="connect-grow-hire/dist", static_url_path="")
 CORS(app, origins=["https://d33d83bb2e38.ngrok-free.app", "*"])
@@ -288,7 +328,7 @@ TIER_CONFIGS = {
         'description': 'Try out platform risk free'
     },
     'pro': {
-        'max_contacts': 56,  # 56 emails = 840 credits (15 credits per email)
+        'max_contacts': 15,  # 56 emails = 840 credits (15 credits per email)
         'fields': ['FirstName', 'LastName', 'LinkedIn', 'Email', 'Title', 'Company', 'City', 'State', 'College',
                   'Phone', 'PersonalEmail', 'WorkEmail', 'SocialProfiles', 'EducationTop', 'VolunteerHistory',
                   'WorkSummary', 'Group', 'Hometown', 'Similarity'],
@@ -529,6 +569,55 @@ def get_autocomplete_suggestions(query, data_type='job_title'):
     except Exception as e:
         print(f"Autocomplete exception for {data_type}: {e}")
         return []
+def es_title_block(primary_title: str, similar_titles: list[str] | None):
+    titles = [t.strip().lower() for t in ([primary_title] + (similar_titles or [])) if t]
+    return {
+        "bool": {
+            "should": (
+                [{"match_phrase": {"job_title": t}} for t in titles] +   # exact phrase
+                [{"match": {"job_title": t}} for t in titles]            # token match
+            )
+        }
+    }
+# Alias helper used by the metro/locality search functions
+def es_title_block_from_enrichment(primary_title: str, similar_titles: list[str] | None):
+    # Reuse the already-implemented helper
+    return es_title_block(primary_title, similar_titles or [])
+
+
+
+def es_location_block_from_strategy(location_strategy: dict):
+    city  = (location_strategy.get("city") or "").lower()
+    state = (location_strategy.get("state") or "").lower()
+    metro_short = (location_strategy.get("metro_location") or "").lower()
+    full_input  = (location_strategy.get("original_input") or "").lower()
+    metro_long  = f"{city}, {state}, united states" if city and state else (f"{city}, united states" if city else "")
+
+    should = []
+    if metro_short: should.append({"match_phrase": {"location_metro": metro_short}})
+    if metro_long:  should.append({"match_phrase": {"location_metro": metro_long}})
+    if full_input:  should.append({"match_phrase": {"location_metro": full_input}})
+    if city:        should.append({"match_phrase": {"location_locality": city}})
+    if state:       should.append({"match_phrase": {"location_region": state}})
+    should.append({"match_phrase": {"location_country": "united states"}})
+
+    return {"bool": {"should": should}}
+
+
+def es_location_block_from_city_state(city: str, state: str):
+    city  = (city or "").lower()
+    state = (state or "").lower()
+    should = []
+    if city and state:
+        should.append({"match_phrase": {"location_metro": f"{city}, {state}, united states"}})
+    if city:
+        should.append({"match_phrase": {"location_metro": f"{city}, united states"}})
+        should.append({"match_phrase": {"location_locality": city}})
+    if state:
+        should.append({"match_phrase": {"location_region": state}})
+    should.append({"match_phrase": {"location_country": "united states"}})
+    return {"bool": {"should": should}}
+
 
 # ========================================
 # SMART LOCATION STRATEGY
@@ -604,7 +693,7 @@ def determine_location_strategy(location_input):
 # ENHANCED PDL SEARCH IMPLEMENTATION
 # ========================================
 
-def search_contacts_with_smart_location_strategy(job_title, company, location, max_contacts=8):
+def search_contacts_with_smart_location_strategy(job_title, company, location, max_contacts=8, college_alumni=None):
     """Enhanced search that intelligently chooses metro vs locality based on location input"""
     try:
         print(f"Starting smart location search for {job_title} at {company} in {location}")
@@ -632,7 +721,8 @@ def search_contacts_with_smart_location_strategy(job_title, company, location, m
             # Use metro search for major metro areas
             contacts = try_metro_search_optimized(
                 primary_title, similar_titles, cleaned_company,
-                location_strategy, max_contacts
+                location_strategy, max_contacts,
+                college_alumni=college_alumni
             )
             
             # If metro results are insufficient, add locality results
@@ -640,7 +730,8 @@ def search_contacts_with_smart_location_strategy(job_title, company, location, m
                 print(f"Metro results insufficient ({len(contacts)}), adding locality results")
                 locality_contacts = try_locality_search_optimized(
                     primary_title, similar_titles, cleaned_company,
-                    location_strategy, max_contacts - len(contacts)
+                    location_strategy, max_contacts - len(contacts),
+                    college_alumni=college_alumni
                 )
                 contacts.extend([c for c in locality_contacts if c not in contacts])
         
@@ -648,7 +739,8 @@ def search_contacts_with_smart_location_strategy(job_title, company, location, m
             # Use locality search for non-metro areas
             contacts = try_locality_search_optimized(
                 primary_title, similar_titles, cleaned_company,
-                location_strategy, max_contacts
+                location_strategy, max_contacts,
+                college_alumni=college_alumni
             )
             
             # If locality results are insufficient, try broader search
@@ -657,9 +749,16 @@ def search_contacts_with_smart_location_strategy(job_title, company, location, m
                 broader_contacts = try_job_title_levels_search_enhanced(
                     job_title_enrichment, cleaned_company,
                     location_strategy['city'], location_strategy['state'],
-                    max_contacts - len(contacts)
+                    max_contacts - len(contacts),
+                    college_alumni=college_alumni  # ← fixed missing comma + pass through
                 )
                 contacts.extend([c for c in broader_contacts if c not in contacts])
+
+        # ✅ server-side guardrail so only true alumni remain
+        if college_alumni:
+            aliases = _school_aliases(college_alumni)
+            if aliases:
+                contacts = [c for c in contacts if _contact_has_school_alias(c, aliases)]
         
         # LOG FINAL RESULTS
         if len(contacts) == 0:
@@ -675,162 +774,140 @@ def search_contacts_with_smart_location_strategy(job_title, company, location, m
         import traceback
         traceback.print_exc()
         return []
-def try_metro_search_optimized(primary_title, similar_titles, company, location_strategy, max_contacts):
-    """Fixed metro search - removes invalid minimum_should_match"""
-    try:
-        print(f"Metro search for: {location_strategy['metro_location']}")
-        
-        must_clauses = []
-        
-        # Simple job title matching - NO minimum_should_match
-        must_clauses.append({
-            "match": {"job_title": primary_title.lower()}
-        })
-        
-        # Company matching
-        if company:
-            must_clauses.append({
-                "match": {"job_company_name": company.lower()}
-            })
-        
-        # Metro location matching
-        must_clauses.append({
-            "match": {"location_metro": location_strategy['metro_location']}
-        })
-        
-        # Required fields
-        must_clauses.append({"exists": {"field": "emails.address"}})
-        
-        elasticsearch_query = {
-            "query": {"bool": {"must": must_clauses}},
-            "size": max_contacts
-        }
-        
-        return execute_pdl_search(elasticsearch_query, f"metro_{location_strategy['matched_metro']}")
-        
-    except Exception as e:
-        print(f"Metro search failed: {e}")
-        return []
 
-def try_locality_search_optimized(primary_title, similar_titles, company, location_strategy, max_contacts):
-    """Fixed locality search - removes invalid minimum_should_match"""
-    try:
-        print(f"Locality search for: {location_strategy['city']}, {location_strategy['state']}")
-        
-        must_clauses = []
-        
-        # Simple job title matching - NO minimum_should_match
-        must_clauses.append({
-            "match": {"job_title": primary_title.lower()}
-        })
-        
-        # Company matching
-        if company:
-            must_clauses.append({
-                "match": {"job_company_name": company.lower()}
-            })
-        
-        # Locality matching
-        must_clauses.append({
-            "match": {"location_locality": location_strategy['city'].lower()}
-        })
-        
-        if location_strategy['state']:
-            must_clauses.append({
-                "match": {"location_region": location_strategy['state'].lower()}
-            })
-        
-        # Required fields
-        must_clauses.append({"exists": {"field": "emails"}})
-        
-        elasticsearch_query = {
-            "query": {"bool": {"must": must_clauses}},
-            "size": max_contacts
-        }
-        
-        return execute_pdl_search(elasticsearch_query, f"locality_{location_strategy['city']}")
-        
-    except Exception as e:
-        print(f"Locality search failed: {e}")
-        return []
+def try_metro_search_optimized(clean_title, similar_titles, company, location_strategy, max_contacts=8, college_alumni=None):
+    """
+    Build an ES-style query targeting metro + fallbacks and run the scrolled PDL search.
+    """
+    title_block = es_title_block_from_enrichment(clean_title, similar_titles)
+    loc_block   = es_location_block_from_strategy(location_strategy)
 
-def try_job_title_levels_search_enhanced(job_title_enrichment, company, city, state, max_contacts):
-    """Enhanced job title levels search using enriched data"""
-    try:
-        print(f"Enhanced job title levels search")
-        
-        must_clauses = []
-        
-        # Use enriched job title levels if available
-        job_levels = job_title_enrichment.get('levels', [])
-        if job_levels:
-            level_queries = []
-            for level in job_levels:
-                level_queries.append({"match": {"job_title_levels": level}})
-            
-            must_clauses.append({
-                "bool": {
-                    "should": level_queries,
-                    "minimum_should_match": 1
-                }
-            })
-        else:
-            # Fallback to original job level determination
-            job_level = determine_job_level(job_title_enrichment['cleaned_name'])
-            if job_level:
-                must_clauses.append({
-                    "match": {
-                        "job_title_levels": job_level
-                    }
-                })
-        
-        # Company matching
-        if company:
-            must_clauses.append({
-                "match_phrase": {"job_company_name": company.lower()}
-            })
-        
-        # Location matching (try metro first, then locality)
-        if state:
-            metro_location = f"{city.lower()}, {state.lower()}"
-            must_clauses.append({
-                "bool": {
-                    "should": [
-                        {"match": {"location_metro": metro_location}},
-                        {"match_phrase": {"location_region": state.lower()}}
-                    ],
-                    "minimum_should_match": 1
-                }
-            })
-        else:
-            must_clauses.append({
-                "bool": {
-                    "should": [
-                        {"match": {"location_metro": city.lower()}},
-                        {"match_phrase": {"location_locality": city.lower()}}
-                    ],
-                    "minimum_should_match": 1
-                }
-            })
-        
-        # Required fields (relaxed per PDL feedback)
-        must_clauses.append({"exists": {"field": "emails"}})
-        must_clauses.append({"exists": {"field": "recommended_personal_email"}})
-        
-        elasticsearch_query = {
-            "query": {
-                "bool": {
-                    "must": must_clauses
-                }
-            },
-            "size": max_contacts
-        }
-        
-        return execute_pdl_search(elasticsearch_query, "job_levels_enhanced")
-        
-    except Exception as e:
-        print(f"Enhanced job title levels search failed: {e}")
-        return []
+    must = [title_block, loc_block]
+    if company:
+        must.append({"match_phrase": {"job_company_name": company.lower()}})
+    if college_alumni:
+        aliases = _school_aliases(college_alumni)
+        if aliases:
+            must.append({"bool": {"should": [{"match_phrase": {"education.school.name": a}} for a in aliases]}})
+
+    query_obj = {"bool": {"must": must}}
+
+    PDL_URL = f"{PDL_BASE_URL}/person/search"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
+    }
+
+    remaining = max_contacts
+    page_size = min(100, max(1, remaining))
+
+    return execute_pdl_search(
+        headers=headers,
+        url=PDL_URL,
+        query_obj=query_obj,
+        desired_limit=remaining,
+        search_type=f"metro_{location_strategy.get('matched_metro','unknown')}",
+        page_size=page_size,
+        verbose=False
+    )
+
+
+def try_locality_search_optimized(clean_title, similar_titles, company, location_strategy, max_contacts=8, college_alumni=None):
+    """
+    Locality-focused version (used when metro results are thin).
+    """
+    title_block = es_title_block_from_enrichment(clean_title, similar_titles)
+    loc_block   = es_location_block_from_strategy(location_strategy)
+
+    must = [title_block, loc_block]
+    if company:
+        must.append({"match_phrase": {"job_company_name": company.lower()}})
+    if college_alumni:
+        aliases = _school_aliases(college_alumni)
+        if aliases:
+            must.append({"bool": {"should": [{"match_phrase": {"education.school.name": a}} for a in aliases]}})
+
+    query_obj = {"bool": {"must": must}}
+
+    PDL_URL = f"{PDL_BASE_URL}/person/search"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
+    }
+
+    remaining = max_contacts
+    page_size = min(100, max(1, remaining))
+
+    return execute_pdl_search(
+        headers=headers,
+        url=PDL_URL,
+        query_obj=query_obj,
+        desired_limit=remaining,
+        search_type=f"locality_{location_strategy.get('city','unknown')}",
+        page_size=page_size,
+        verbose=False
+    )
+
+
+
+
+ 
+
+
+
+
+def try_job_title_levels_search_enhanced(job_title_enrichment, company, city, state, max_contacts, college_alumni=None):
+    print("Enhanced job title levels search")
+
+    must = []
+
+    levels = job_title_enrichment.get('levels') or []
+    if levels:
+        must.append({"bool": {"should": [{"match": {"job_title_levels": lvl}} for lvl in levels]}})
+    else:
+        jl = determine_job_level(job_title_enrichment.get('cleaned_name', ''))
+        if jl:
+            must.append({"match": {"job_title_levels": jl}})
+
+    # Also broaden titles
+    must.append(es_title_block(job_title_enrichment.get('cleaned_name',''),
+                               job_title_enrichment.get('similar_titles') or []))
+
+    if company:
+        must.append({"match_phrase": {"job_company_name": (company or "").lower()}})
+
+    must.append(es_location_block_from_city_state(city, state))
+
+    if college_alumni:
+        aliases = _school_aliases(college_alumni)
+        if aliases:
+            must.append({"bool": {"should": [{"match_phrase": {"education.school.name": a}} for a in aliases]}})
+
+    query_obj = {"bool": {"must": must}}
+
+    PDL_URL = f"{PDL_BASE_URL}/person/search"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
+    }
+
+    remaining = max_contacts
+    page_size = min(100, max(1, remaining))
+
+    return execute_pdl_search(
+        headers=headers,
+        url=PDL_URL,
+        query_obj=query_obj,
+        desired_limit=remaining,
+        search_type="job_levels_enhanced",
+        page_size=page_size,
+        verbose=False
+    )
+
+
 
 def determine_job_level(job_title):
     """Determine job level from job title for JOB_TITLE_LEVELS search"""
@@ -849,58 +926,79 @@ def determine_job_level(job_title):
     else:
         return 'mid'  # Default to mid-level
 
-def execute_pdl_search(elasticsearch_query, search_type):
-    """Execute the actual PDL search and process results with email validation logging"""
-    try:
-        query_json = json.dumps(elasticsearch_query)
-        search_params = {
-            'api_key': PEOPLE_DATA_LABS_API_KEY,
-            'query': query_json,
-            'pretty': 'true'
-        }
-        
-        print(f"Executing {search_type} search")
-        
-        response = requests.get(
-            f"{PDL_BASE_URL}/person/search",
-            params=search_params,
-            timeout=15
-        )
-        
-        print(f"{search_type.title()} search response: {response.status_code}")
-        
-        if response.status_code == 200:
-            search_data = response.json()
-            
-            if search_data.get('status') == 200 and search_data.get('data'):
-                people_data = search_data['data']
-                print(f"{search_type.title()} search found {len(people_data)} people")
-                
-                contacts = []
-                contacts_without_email = 0
-                
-                for person in people_data:
-                    contact = extract_contact_from_pdl_person_enhanced(person)
-                    if contact:
-                        contacts.append(contact)
-                    else:
-                        contacts_without_email += 1
-                
-                print(f"Extracted {len(contacts)} contacts with emails, skipped {contacts_without_email} without valid emails")
-                return contacts
-        
-        elif response.status_code == 402:
-            print(f"PDL API: Payment required for {search_type} search")
-        elif response.status_code == 429:
-            print(f"PDL API rate limited for {search_type} search")
-        else:
-            print(f"{search_type.title()} search error {response.status_code}: {response.text}")
-        
-        return []
-        
-    except Exception as e:
-        print(f"{search_type.title()} search execution failed: {e}")
-        return []
+
+
+def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page_size=50, verbose=False):
+    import requests, json
+
+    # ---- Page 1
+    body = {"query": query_obj, "size": page_size}
+    if verbose:
+        print(f"\n=== PDL {search_type} PAGE 1 BODY ===")
+        print(json.dumps(body, ensure_ascii=False))
+
+    r = requests.post(url, headers=headers, json=body, timeout=30)
+    r.raise_for_status()
+    j = r.json()
+
+    data   = j.get("data", []) or []
+    total  = j.get("total")
+    scroll = j.get("scroll_token")
+
+    if verbose:
+        print(f"{search_type} page 1: got {len(data)}; total={total}; scroll_token={scroll}")
+
+    # Stop early if we already have enough
+    if len(data) >= desired_limit or not scroll:
+        # TRANSFORM THE DATA BEFORE RETURNING
+        extracted_contacts = []
+        for person in data[:desired_limit]:
+            contact = extract_contact_from_pdl_person_enhanced(person)
+            if contact:  # Only add if extraction was successful
+                extracted_contacts.append(contact)
+        return extracted_contacts
+
+    # ---- Page 2+
+    while scroll and len(data) < desired_limit:
+        body2 = {"scroll_token": scroll, "size": page_size}
+        if verbose:
+            print(f"\n=== PDL {search_type} NEXT PAGE BODY ===")
+            print(json.dumps(body2, ensure_ascii=False))
+
+        r2 = requests.post(url, headers=headers, json=body2, timeout=30)
+
+        # Be robust to cluster quirk: require query/sql
+        if r2.status_code == 400 and "Either `query` or `sql` must be provided" in (r2.text or ""):
+            if verbose:
+                print(f"{search_type} retrying with query+scroll_token due to 400…")
+            body2_fallback = {"query": query_obj, "scroll_token": scroll, "size": page_size}
+            r2 = requests.post(url, headers=headers, json=body2_fallback, timeout=30)
+
+        if r2.status_code != 200:
+            if verbose:
+                print(f"{search_type} next page status={r2.status_code} err={r2.text}")
+            break
+
+        j2 = r2.json()
+        batch  = j2.get("data", []) or []
+        scroll = j2.get("scroll_token")
+        data.extend(batch)
+
+        if verbose:
+            print(f"{search_type} next page: got {len(batch)}, total so far={len(data)}, next scroll={scroll}")
+
+    # TRANSFORM ALL THE DATA BEFORE RETURNING
+    extracted_contacts = []
+    for person in data[:desired_limit]:
+        contact = extract_contact_from_pdl_person_enhanced(person)
+        if contact:  # Only add if extraction was successful
+            extracted_contacts.append(contact)
+    
+    print(f"Extracted {len(extracted_contacts)} valid contacts from {len(data[:desired_limit])} PDL records")
+    return extracted_contacts
+
+
+
 def extract_hometown_from_education_history_enhanced(education_history):
     """Extract hometown from contact's education history using OpenAI with your exact prompt"""
     try:
@@ -942,216 +1040,172 @@ Education History:
         print(f"Hometown extraction failed: {e}")
         return "Unknown"
 
+def _choose_best_email(emails: list[dict], recommended: str | None = None) -> str | None:
+    def is_valid(addr: str) -> bool:
+        if not addr or '@' not in addr: return False
+        bad = ["example.com", "test.com", "domain.com", "noreply@"]
+        return not any(b in addr.lower() for b in bad)
+    items = []
+    for e in emails or []:
+        addr = (e.get("address") or "").strip()
+        et  = (e.get("type") or "").lower()
+        if is_valid(addr):
+            items.append((et, addr))
+    for et, a in items:
+        if et in ("work","professional"): return a
+    for et, a in items:
+        if et == "personal": return a
+    if recommended and is_valid(recommended): return recommended
+    return items[0][1] if items else None
+
+
+
 def extract_contact_from_pdl_person_enhanced(person):
-    """Enhanced contact extraction with detailed work experience, volunteer work, and education"""
+    """Enhanced contact extraction with relaxed, sensible email acceptance."""
     try:
-        # Basic info
+        # Basic identity
         first_name = person.get('first_name', '')
         last_name = person.get('last_name', '')
-        
         if not first_name or not last_name:
             return None
-        
-        # Get detailed work experience from experience array
-        experience = person.get('experience', [])
-        work_experience_details = []
-        current_job = None
-        
+
+        # Experience (keep your enriched logic)
+        experience = person.get('experience', []) or []
+        work_experience_details, current_job = [], None
         if isinstance(experience, list) and experience:
-            # Current job (first in array)
             current_job = experience[0]
-            
-            # Build detailed work experience
-            for i, job in enumerate(experience[:5]):  # Top 5 experiences
-                if isinstance(job, dict):
-                    company_info = job.get('company', {})
-                    title_info = job.get('title', {})
-                    
-                    company_name = company_info.get('name', '') if isinstance(company_info, dict) else ''
-                    job_title = title_info.get('name', '') if isinstance(title_info, dict) else ''
-                    
-                    start_date = job.get('start_date', {})
-                    end_date = job.get('end_date', {})
-                    
-                    # Format dates
-                    start_str = ""
-                    end_str = ""
-                    if isinstance(start_date, dict):
-                        start_year = start_date.get('year')
-                        start_month = start_date.get('month')
-                        if start_year:
-                            start_str = f"{start_month or 1}/{start_year}" if start_month else str(start_year)
-                    
-                    if isinstance(end_date, dict):
-                        end_year = end_date.get('year')
-                        end_month = end_date.get('month')
-                        if end_year:
-                            end_str = f"{end_month or 12}/{end_year}" if end_month else str(end_year)
-                    elif i == 0:  # Current job
-                        end_str = "Present"
-                    
-                    # Build experience entry
-                    if company_name and job_title:
-                        duration = f"{start_str} - {end_str}" if start_str else "Date unknown"
-                        work_experience_details.append(f"{job_title} at {company_name} ({duration})")
-        
-        # Extract current job details
+            for i, job in enumerate(experience[:5]):
+                if not isinstance(job, dict):
+                    continue
+                company_info = job.get('company') or {}
+                title_info = job.get('title') or {}
+                company_name = company_info.get('name', '') if isinstance(company_info, dict) else ''
+                job_title = title_info.get('name', '') if isinstance(title_info, dict) else ''
+                start_date = job.get('start_date') or {}
+                end_date = job.get('end_date') or {}
+
+                def fmt(d, default_end=False):
+                    if not isinstance(d, dict):
+                        return ""
+                    y = d.get('year')
+                    m = d.get('month')
+                    if y:
+                        return f"{m or 1}/{y}" if m else f"{y}"
+                    return "Present" if default_end else ""
+
+                start_str = fmt(start_date)
+                end_str = fmt(end_date, default_end=(i == 0))
+                if company_name and job_title:
+                    duration = f"{start_str} - {end_str}" if start_str else "Date unknown"
+                    work_experience_details.append(f"{job_title} at {company_name} ({duration})")
+
         company_name = ''
         job_title = ''
         if current_job:
-            company_info = current_job.get('company', {})
-            title_info = current_job.get('title', {})
+            company_info = current_job.get('company') or {}
+            title_info = current_job.get('title') or {}
             company_name = company_info.get('name', '') if isinstance(company_info, dict) else ''
             job_title = title_info.get('name', '') if isinstance(title_info, dict) else ''
-        
-        # Get location using correct field structure
-        location_info = person.get('location', {})
+
+        # Location
+        location_info = person.get('location') or {}
         city = location_info.get('locality', '') if isinstance(location_info, dict) else ''
         state = location_info.get('region', '') if isinstance(location_info, dict) else ''
-        
-        # Enhanced email extraction with validation
-        primary_email = person.get('recommended_personal_email', '')
-        emails = person.get('emails', [])
-        personal_email = ''
-        work_email = ''
-        
-        if isinstance(emails, list) and emails:
-            for email in emails:
-                if isinstance(email, dict):
-                    email_address = email.get('address', '')
-                    email_type = email.get('type', '')
-                    
-                    # Validate email format
-                    if email_address and '@' in email_address and '.' in email_address.split('@')[1]:
-                        if email_type == 'work' or email_type == 'professional':
-                            work_email = email_address
-                        elif email_type == 'personal':
-                            personal_email = email_address
-        
-        if not primary_email:
-            primary_email = personal_email or work_email
-        
-        # CRITICAL: Skip contact if no valid email found
-        valid_email = None
-        for email_candidate in [primary_email, personal_email, work_email]:
-            if email_candidate and '@' in email_candidate and '.' in email_candidate.split('@')[1]:
-                # Additional validation - skip obvious placeholders
-                if not any(placeholder in email_candidate.lower() for placeholder in ['@domain.com', '@example.com', '@email.com', 'noreply@']):
-                    valid_email = email_candidate
-                    break
-        
-        if not valid_email:
+
+        # Email selection (relaxed but validated)
+        emails = person.get('emails') or []
+        recommended = person.get('recommended_personal_email') or ''
+        best_email = _choose_best_email(emails, recommended)
+
+        if not best_email:
             print(f"Skipping contact {first_name} {last_name} - no valid email found")
             return None
-        
-        # Get phone
-        phone_numbers = person.get('phone_numbers', [])
+
+        # Phone
+        phone_numbers = person.get('phone_numbers') or []
         phone = phone_numbers[0] if isinstance(phone_numbers, list) and phone_numbers else ''
-        
-        # Get LinkedIn
-        profiles = person.get('profiles', [])
+
+        # LinkedIn
+        profiles = person.get('profiles') or []
         linkedin_url = ''
-        
         if isinstance(profiles, list):
-            for profile in profiles:
-                if isinstance(profile, dict) and 'linkedin' in profile.get('network', '').lower():
-                    linkedin_url = profile.get('url', '')
+            for p in profiles:
+                if isinstance(p, dict) and 'linkedin' in (p.get('network') or '').lower():
+                    linkedin_url = p.get('url', '') or ''
                     break
-        
-        # Enhanced education extraction with detailed history
-        education = person.get('education', [])
-        education_details = []
-        college_name = ""
-        
+
+        # Education (keep your enriched history)
+        education = person.get('education') or []
+        education_details, college_name = [], ""
         if isinstance(education, list):
             for edu in education:
-                if isinstance(edu, dict):
-                    school_info = edu.get('school', {})
-                    if isinstance(school_info, dict):
-                        school_name = school_info.get('name', '')
-                        degrees = edu.get('degrees', [])
-                        degree = degrees[0] if isinstance(degrees, list) and degrees else ''
-                        
-                        # Get education dates
-                        start_date = edu.get('start_date', {})
-                        end_date = edu.get('end_date', {})
-                        
-                        start_year = start_date.get('year') if isinstance(start_date, dict) else None
-                        end_year = end_date.get('year') if isinstance(end_date, dict) else None
-                        
-                        if school_name:
-                            # Build education entry
-                            edu_entry = school_name
-                            if degree:
-                                edu_entry += f" - {degree}"
-                            if start_year or end_year:
-                                years = f"({start_year or '?'} - {end_year or 'Present'})"
-                                edu_entry += f" {years}"
-                            
-                            education_details.append(edu_entry)
-                            
-                            # Set college name (usually the first/most recent)
-                            if not college_name and 'high school' not in school_name.lower():
-                                college_name = school_name
-        
+                if not isinstance(edu, dict):
+                    continue
+                school_info = edu.get('school') or {}
+                school_name = school_info.get('name', '') if isinstance(school_info, dict) else ''
+                degrees = edu.get('degrees') or []
+                degree = degrees[0] if isinstance(degrees, list) and degrees else ''
+                start_date = edu.get('start_date') or {}
+                end_date = edu.get('end_date') or {}
+                syear = start_date.get('year') if isinstance(start_date, dict) else None
+                eyear = end_date.get('year') if isinstance(end_date, dict) else None
+
+                if school_name:
+                    entry = school_name
+                    if degree:
+                        entry += f" - {degree}"
+                    if syear or eyear:
+                        entry += f" ({syear or '?'} - {eyear or 'Present'})"
+                    education_details.append(entry)
+                    if not college_name and 'high school' not in school_name.lower():
+                        college_name = school_name
         education_history = '; '.join(education_details) if education_details else 'Not available'
-        
-        # Enhanced volunteer work extraction from interests and other sources
+
+        # Volunteer (keep your logic, trimmed)
         volunteer_work = []
-        
-        # From interests (enhanced extraction)
-        interests = person.get('interests', [])
-        if isinstance(interests, list) and interests:
+        interests = person.get('interests') or []
+        if isinstance(interests, list):
             for interest in interests:
                 if isinstance(interest, str):
-                    # Look for volunteer-related keywords
-                    if any(word in interest.lower() for word in ['volunteer', 'charity', 'nonprofit', 'community', 'outreach', 'mentor']):
+                    if any(k in interest.lower() for k in ['volunteer', 'charity', 'nonprofit', 'community', 'mentor']):
                         volunteer_work.append(interest)
-                    elif len(volunteer_work) < 3:  # Add general interests as potential volunteer areas
+                    elif len(volunteer_work) < 3:
                         volunteer_work.append(f"{interest} enthusiast")
-        
-        # From summary or bio if available
-        summary = person.get('summary', '')
-        if summary and isinstance(summary, str):
-            # Look for volunteer mentions in summary
-            volunteer_keywords = ['volunteer', 'charity', 'nonprofit', 'community service', 'mentor', 'coach']
-            summary_lower = summary.lower()
-            for keyword in volunteer_keywords:
-                if keyword in summary_lower:
-                    # Try to extract context around the keyword
-                    sentences = summary.split('.')
-                    for sentence in sentences:
-                        if keyword in sentence.lower():
+
+        summary = person.get('summary') or ''
+        if isinstance(summary, str):
+            vk = ['volunteer', 'charity', 'nonprofit', 'community service', 'mentor', 'coach']
+            for k in vk:
+                if k in summary.lower():
+                    for sentence in summary.split('.'):
+                        if k in sentence.lower():
                             volunteer_work.append(sentence.strip())
                             break
-        
-        volunteer_history = '; '.join(volunteer_work[:5]) if volunteer_work else 'Not available'  # Limit to 5 entries
-        
-        # Build enhanced contact object
+        volunteer_history = '; '.join(volunteer_work[:5]) if volunteer_work else 'Not available'
+
         contact = {
             'FirstName': first_name,
             'LastName': last_name,
             'LinkedIn': linkedin_url,
-            'Email': primary_email,
+            'Email': best_email,  # <- final chosen email
             'Title': job_title,
             'Company': company_name,
             'City': city,
             'State': state,
             'College': college_name,
             'Phone': phone,
-            'PersonalEmail': person.get('recommended_personal_email', personal_email),
-            'WorkEmail': work_email or 'Not available',
+            'PersonalEmail': person.get('recommended_personal_email', '') or '',
+            'WorkEmail': next((e.get('address') for e in emails if isinstance(e, dict) and (e.get('type') or '').lower() in ('work', 'professional')), '') or 'Not available',
             'SocialProfiles': f'LinkedIn: {linkedin_url}' if linkedin_url else 'Not available',
-            'EducationTop': education_history,  # Now contains full education history
-            'VolunteerHistory': volunteer_history,  # Enhanced volunteer work
-            'WorkSummary': '; '.join(work_experience_details[:3]) if work_experience_details else f"Professional at {company_name}",  # Detailed work experience
+            'EducationTop': education_history,
+            'VolunteerHistory': volunteer_history,
+            'WorkSummary': '; '.join(work_experience_details[:3]) if work_experience_details else f"Professional at {company_name}",
             'Group': f"{company_name} {job_title.split()[0] if job_title else 'Professional'} Team",
             'LinkedInConnections': person.get('linkedin_connections', 0),
             'DataVersion': person.get('dataset_version', 'Unknown')
         }
-        
+
         return contact
-        
     except Exception as e:
         print(f"Failed to extract enhanced contact: {e}")
         return None
@@ -1213,9 +1267,7 @@ def search_contacts_with_pdl_optimized(job_title, company, location, max_contact
     """Updated main search function using smart location strategy"""
     return search_contacts_with_smart_location_strategy(job_title, company, location, max_contacts)
 
-# ========================================
-# NEW INTERESTING EMAIL GENERATION SYSTEM
-# ========================================
+ 
 
 def find_mutual_interests_and_hooks(user_info, contact, resume_text=None):
     """Find compelling mutual interests and conversation hooks"""
@@ -2722,7 +2774,7 @@ def generate_email_for_tier(contact, tier='free', resume_info=None, user_profile
         
         return generate_simple_template_fallback(contact, user_name)
 
-def run_free_tier_enhanced_final(job_title, company, location, user_email=None, user_profile=None, resume_text=None, career_interests=None):
+def run_free_tier_enhanced_final(job_title, company, location, user_email=None, user_profile=None, resume_text=None, career_interests=None, college_alumni=None):
     """FREE: 8 contacts, identical email quality to PRO, basic fields."""
     print(f"Running FREE tier workflow with new email system for {user_email}")
     
@@ -2779,13 +2831,16 @@ def run_free_tier_enhanced_final(job_title, company, location, user_email=None, 
                 # Continue without credit checking if Firebase fails
         
         # Calculate max contacts based on available credits
-        max_contacts_by_credits = min(8, credits_available // 15)
-        print(f"Max contacts by credits: {max_contacts_by_credits} (based on {credits_available} credits)")
+        tier_max = TIER_CONFIGS['free']['max_contacts']   # 8
+        max_contacts_by_credits = min(tier_max, credits_available // 15)
+        print(f"Max contacts by credits: {max_contacts_by_credits} (based on {credits_available} credits, cap {tier_max})")
+
         
         # SEARCH FOR CONTACTS
         contacts = search_contacts_with_smart_location_strategy(
             job_title, company, location,
-            max_contacts=max_contacts_by_credits
+            max_contacts=max_contacts_by_credits,
+            college_alumni=college_alumni
         )
         
         if not contacts:
@@ -3029,7 +3084,7 @@ def build_mailto_link(contact, subject, body):
         return ''
 
 # === NEW FINAL TIER FUNCTIONS (use unified email system) ===
-def run_pro_tier_enhanced_final(job_title, company, location, resume_file, user_email=None, user_profile=None, career_interests=None):
+def run_pro_tier_enhanced_final(job_title, company, location, resume_file, user_email=None, user_profile=None, career_interests=None, college_alumni=None):
     """PRO TIER: 56 contacts max with PDL + resume analysis + new unified email system"""
     print(f"Running PRO tier workflow with new email system for {user_email}")
     
@@ -3073,8 +3128,9 @@ def run_pro_tier_enhanced_final(job_title, company, location, resume_file, user_
                 return {'error': 'Unable to verify Pro subscription', 'contacts': []}
         
         # Calculate max contacts based on credits
-        max_contacts_by_credits = min(56, credits_available // 15)
-        print(f"Max contacts by credits: {max_contacts_by_credits} (based on {credits_available} credits)")
+        max_contacts_by_credits = min(TIER_CONFIGS['pro']['max_contacts'], credits_available // 15)  # 15 cap
+        print(f"Max contacts by credits (PRO): {max_contacts_by_credits} (credits={credits_available})")
+
         
         # Step 1: Extract and parse resume
         resume_text = extract_text_from_pdf(resume_file)
@@ -3090,7 +3146,8 @@ def run_pro_tier_enhanced_final(job_title, company, location, resume_file, user_
         # Step 2: PDL Search for contacts (limited by credits)
         contacts = search_contacts_with_smart_location_strategy(
             job_title, company, location,
-            max_contacts=max_contacts_by_credits
+            max_contacts=max_contacts_by_credits,
+            college_alumni=college_alumni
         )
         
         if not contacts:
@@ -3298,68 +3355,38 @@ def post_directory_contacts():
     return jsonify({'saved': saved})
 
 # Update the /api/free-run endpoint to remove CSV download logic
-@app.route('/api/free-run', methods=['POST'])
+@app.route("/api/free-run", methods=["POST"])
 @require_firebase_auth
 def free_run():
-    """Free tier endpoint - enhanced with new unified email system"""
     try:
-        user_email = request.firebase_user.get('email')
-        user_id = request.firebase_user['uid']
-        
+        # --- Parse request body ---
         if request.is_json:
-            data = request.json or {}
-            job_title = data.get('jobTitle', '').strip() if data.get('jobTitle') else ''
-            company = data.get('company', '').strip() if data.get('company') else ''
-            location = data.get('location', '').strip() if data.get('location') else ''
-            user_profile = data.get('userProfile') or None
-            resume_text = data.get('resumeText', '').strip() if data.get('resumeText') else None
-            career_interests = data.get('careerInterests', [])
+            data = request.get_json(silent=True) or {}
+            job_title = (data.get("jobTitle") or "").strip()
+            company = (data.get("company") or "").strip()
+            location = (data.get("location") or "").strip()
+            user_profile = data.get("userProfile") or None
+            resume_text = data.get("resumeText") or None
+            career_interests = data.get("careerInterests") or []
+            college_alumni = (data.get("collegeAlumni") or "").strip()
         else:
-            job_title = (request.form.get('jobTitle') or '').strip()
-            company = (request.form.get('company') or '').strip()
-            location = (request.form.get('location') or '').strip()
-            user_profile_raw = request.form.get('userProfile')
-            try:
-                user_profile = json.loads(user_profile_raw) if user_profile_raw else None
-            except Exception:
-                user_profile = None
-            
-            # Handle optional resume for Free tier
-            resume_text = None
-            if 'resume' in request.files:
-                resume_file = request.files['resume']
-                if resume_file.filename and resume_file.filename.lower().endswith('.pdf'):
-                    resume_text = extract_text_from_pdf(resume_file)
-            
-            career_interests = []
-            try:
-                career_interests_raw = request.form.get('careerInterests')
-                if career_interests_raw:
-                    career_interests = json.loads(career_interests_raw)
-            except Exception:
-                career_interests = []
-        
-        print(f"DEBUG - Free endpoint received:")
-        print(f"  job_title: '{job_title}' (len: {len(job_title)})")
-        print(f"  company: '{company}' (len: {len(company)})")
-        print(f"  location: '{location}' (len: {len(location)})")
-        print(f"  user_email: '{user_email}'")
-        print(f"  user_profile: {user_profile}")
-        print(f"  career_interests: {career_interests}")
-        
-        if not job_title or not location:
-            missing = []
-            if not job_title: missing.append('Job Title')
-            if not location: missing.append('Location')
-            error_msg = f"Missing required fields: {', '.join(missing)}"
-            print(f"ERROR: {error_msg}")
-            return jsonify({'error': error_msg}), 400
-        
+            job_title = (request.form.get("jobTitle") or "").strip()
+            company = (request.form.get("company") or "").strip()
+            location = (request.form.get("location") or "").strip()
+            user_profile = request.form.get("userProfile") or None
+            resume_text = request.form.get("resumeText") or None
+            career_interests = request.form.get("careerInterests") or []
+            college_alumni = (request.form.get("collegeAlumni") or "").strip()
+
+        user_email = (request.firebase_user or {}).get("email") or ""
+
+        # --- Debug logging ---
         print(f"New unified email system Free search for {user_email}: {job_title} at {company} in {location}")
         if resume_text:
             print(f"Resume provided for enhanced personalization ({len(resume_text)} chars)")
-        
-        # Run the search
+        print(f"DEBUG - college_alumni received: {college_alumni!r}")
+
+        # --- Run the search ---
         result = run_free_tier_enhanced_final(
             job_title,
             company,
@@ -3367,27 +3394,27 @@ def free_run():
             user_email=user_email,
             user_profile=user_profile,
             resume_text=resume_text,
-            career_interests=career_interests
+            career_interests=career_interests,
+            college_alumni=college_alumni,  # ✅ pass through
         )
-        
-        if result.get('error'):
-            return jsonify({'error': result['error']}), 500
-        
-        # Always return JSON response with contacts and email data
+
+        if result.get("error"):
+            return jsonify({"error": result["error"]}), 500
+
         response_data = {
-            'contacts': result['contacts'],
-            'successful_drafts': result.get('successful_drafts', 0),
-            'total_contacts': len(result['contacts']),
-            'tier': 'free',
-            'user_email': user_email
+            "contacts": result["contacts"],
+            "successful_drafts": result.get("successful_drafts", 0),
+            "total_contacts": len(result["contacts"]),
+            "tier": "free",
+            "user_email": user_email,
         }
-        
         return jsonify(response_data)
-        
+
     except Exception as e:
         print(f"Free endpoint error: {e}")
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        import traceback; traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
 
 # Add a separate CSV download endpoint if needed
 @app.route('/api/free-run-csv', methods=['POST'])
@@ -3460,111 +3487,264 @@ def free_run_csv():
         return jsonify({'error': str(e)}), 500
 
 # Update the /api/pro-run endpoint similarly
-@app.route('/api/pro-run', methods=['POST'])
+@app.route("/api/pro-run", methods=["POST"])
 @require_firebase_auth
 def pro_run():
-    """Pro tier endpoint - enhanced with new unified email system"""
     try:
-        user_email = request.firebase_user.get('email')
-        user_id = request.firebase_user['uid']
+        user_email = (request.firebase_user or {}).get("email") or ""
         
-        print("=== PRO ENDPOINT DEBUG ===")
-        print(f"Content-Type: {request.content_type}")
-        print(f"Form data keys: {list(request.form.keys())}")
-        print(f"Files: {list(request.files.keys())}")
-        
-        for key in request.form.keys():
-            print(f"Form[{key}] = '{request.form.get(key)}'")
-        
-        # Extract form data
-        job_title = request.form.get('jobTitle')
-        company = request.form.get('company')
-        location = request.form.get('location')
-        
-        # Extract user profile data if provided
-        user_profile_raw = request.form.get('userProfile')
-        user_profile = None
-        try:
-            user_profile = json.loads(user_profile_raw) if user_profile_raw else None
-        except Exception:
-            user_profile = None
-        
-        # Extract career interests if provided
-        career_interests = []
-        try:
-            career_interests_raw = request.form.get('careerInterests')
-            if career_interests_raw:
-                career_interests = json.loads(career_interests_raw)
-        except Exception:
-            career_interests = []
-        
-        print(f"DEBUG - Pro endpoint received:")
-        print(f"  job_title: '{job_title}' (type: {type(job_title)})")
-        print(f"  company: '{company}' (type: {type(company)})")
-        print(f"  location: '{location}' (type: {type(location)})")
-        print(f"  user_email: '{user_email}'")
-        print(f"  user_profile: {user_profile}")
-        print(f"  career_interests: {career_interests}")
-        
-        job_title = (job_title or '').strip()
-        company = (company or '').strip()
-        location = (location or '').strip()
-        
-        print(f"Cleaned values:")
-        print(f"  job_title: '{job_title}' (len: {len(job_title)})")
-        print(f"  company: '{company}' (len: {len(company)})")
-        print(f"  location: '{location}' (len: {len(location)})")
-        print("=== END PRO DEBUG ===")
-        
+        # Handle both JSON and form-data requests
+        if request.is_json:
+            # JSON request - expecting base64 encoded resume or resume text
+            data = request.get_json(silent=True) or {}
+            job_title = (data.get("jobTitle") or "").strip()
+            company = (data.get("company") or "").strip()
+            location = (data.get("location") or "").strip()
+            
+            # For JSON requests, we expect either resumeText or a different format
+            resume_text = data.get("resumeText") or None
+            if not resume_text:
+                return jsonify({"error": "Resume text is required for Pro tier"}), 400
+                
+            user_profile = data.get("userProfile") or None
+            career_interests = data.get("careerInterests") or []
+            college_alumni = (data.get("collegeAlumni") or "").strip()
+            
+        else:
+            # Form data request - expecting file upload
+            job_title = (request.form.get("jobTitle") or "").strip()
+            company = (request.form.get("company") or "").strip()
+            location = (request.form.get("location") or "").strip()
+            
+            # Handle file upload
+            if 'resume' not in request.files:
+                return jsonify({'error': 'Resume PDF file is required for Pro tier'}), 400
+            
+            resume_file = request.files['resume']
+            if resume_file.filename == '' or not resume_file.filename.lower().endswith('.pdf'):
+                return jsonify({'error': 'Valid PDF resume file is required'}), 400
+            
+            # Extract text from uploaded PDF
+            resume_text = extract_text_from_pdf(resume_file)
+            if not resume_text:
+                return jsonify({'error': 'Could not extract text from PDF'}), 400
+            
+            # Parse other form data
+            try:
+                user_profile_raw = request.form.get("userProfile")
+                user_profile = json.loads(user_profile_raw) if user_profile_raw else None
+            except:
+                user_profile = None
+                
+            try:
+                career_interests_raw = request.form.get("careerInterests")
+                career_interests = json.loads(career_interests_raw) if career_interests_raw else []
+            except:
+                career_interests = []
+                
+            college_alumni = (request.form.get("collegeAlumni") or "").strip()
+
+        # Validation
         if not job_title or not location:
             missing = []
             if not job_title: missing.append('Job Title')
             if not location: missing.append('Location')
-            error_msg = f"Missing required fields: {', '.join(missing)}"
-            print(f"VALIDATION ERROR: {error_msg}")
-            return jsonify({'error': error_msg}), 400
-        
-        if 'resume' not in request.files:
-            print("ERROR: No resume file in request")
-            return jsonify({'error': 'Resume PDF file is required for Pro tier'}), 400
-        
-        resume_file = request.files['resume']
-        if resume_file.filename == '' or not resume_file.filename.lower().endswith('.pdf'):
-            print(f"ERROR: Invalid resume file: {resume_file.filename}")
-            return jsonify({'error': 'Valid PDF resume file is required'}), 400
-        
-        print(f"All validations passed!")
-        print(f"New unified email system Pro search for {user_email}: {job_title} at {company} in {location}")
-        
-        # Run the search
-        result = run_pro_tier_enhanced_final(
+            return jsonify({'error': f"Missing required fields: {', '.join(missing)}"}), 400
+
+        # Debug logging
+        print(f"New unified email system PRO search for {user_email}: {job_title} at {company} in {location}")
+        if resume_text:
+            print(f"Resume provided ({len(resume_text)} chars)")
+        print(f"DEBUG - college_alumni received: {college_alumni!r}")
+
+        # Run the PRO tier search - pass resume_text directly instead of resume_file
+        result = run_pro_tier_enhanced_final_with_text(
             job_title,
             company,
             location,
-            resume_file,
+            resume_text,  # Pass the extracted text, not the file
             user_email=user_email,
             user_profile=user_profile,
-            career_interests=career_interests
+            career_interests=career_interests,
+            college_alumni=college_alumni,
+        )
+
+        if result.get("error"):
+            return jsonify({"error": result["error"]}), 500
+
+        response_data = {
+            "contacts": result["contacts"],
+            "successful_drafts": result.get("successful_drafts", 0),
+            "total_contacts": len(result["contacts"]),
+            "tier": "pro",
+            "user_email": user_email,
+        }
+        return jsonify(response_data)
+
+    except Exception as e:
+        print(f"Pro endpoint error: {e}")
+        import traceback; traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+# Create a new version of the PRO tier function that accepts resume_text instead of resume_file
+def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_text, user_email=None, user_profile=None, career_interests=None, college_alumni=None):
+    """PRO TIER: Modified to accept resume_text instead of resume_file"""
+    print(f"Running PRO tier workflow with resume text for {user_email}")
+    
+    try:
+        # GET USER ID FROM REQUEST CONTEXT
+        user_id = None
+        if hasattr(request, 'firebase_user'):
+            user_id = request.firebase_user.get('uid')
+            print(f"Using Firebase user ID: {user_id}")
+        
+        # CHECK USER CREDITS BEFORE SEARCHING
+        credits_available = 840  # Default for pro tier
+        if db and user_id:
+            try:
+                user_ref = db.collection('users').document(user_id)
+                user_doc = user_ref.get()
+                
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+                    credits_available = user_data.get('credits', 840)
+                    tier = user_data.get('tier', 'free')
+                    
+                    # Verify user is Pro tier
+                    if tier != 'pro':
+                        return {'error': 'Pro tier subscription required', 'contacts': []}
+                    
+                    # Check credits (minimum 15 for 1 contact)
+                    if credits_available < 15:
+                        return {
+                            'error': 'Insufficient credits. Please contact support for additional credits.',
+                            'credits_needed': 15,
+                            'current_credits': credits_available,
+                            'contacts': []
+                        }
+                    
+                    print(f"Pro user has {credits_available} credits available")
+                else:
+                    return {'error': 'User not found. Pro subscription required.', 'contacts': []}
+            except Exception as credit_check_error:
+                print(f"Credit check error: {credit_check_error}")
+                return {'error': 'Unable to verify Pro subscription', 'contacts': []}
+        
+        # Calculate max contacts based on credits
+        tier_max = TIER_CONFIGS['pro']['max_contacts']    # 15
+        max_contacts_by_credits = min(tier_max, credits_available // 15)
+        print(f"Max contacts by credits: {max_contacts_by_credits} (based on {credits_available} credits)")
+        
+        # Validate resume text
+        if not resume_text or len(resume_text.strip()) < 10:
+            return {'error': 'Valid resume content is required for Pro tier', 'contacts': []}
+        
+        print(f"DEBUG - PRO tier input data:")
+        print(f"  resume_text length: {len(resume_text)}")
+        print(f"  user_profile: {user_profile}")
+        print(f"  career_interests: {career_interests}")
+        print(f"  user_email: {user_email}")
+        
+        # PDL Search for contacts (limited by credits)
+        contacts = search_contacts_with_smart_location_strategy(
+            job_title, company, location,
+            max_contacts=max_contacts_by_credits,
+            college_alumni=college_alumni
         )
         
-        if result.get('error'):
-            return jsonify({'error': result['error']}), 500
+        if not contacts:
+            print("No contacts found for Pro tier")
+            return {'error': 'No contacts found', 'contacts': []}
         
-        # Always return JSON response
-        response_data = {
-            'contacts': result['contacts'],
-            'successful_drafts': result.get('successful_drafts', 0),
-            'total_contacts': len(result['contacts']),
+        # DEDUCT CREDITS BASED ON ACTUAL CONTACTS FOUND
+        credits_to_deduct = len(contacts) * 15
+        new_credits_balance = credits_available - credits_to_deduct
+        
+        # UPDATE CREDITS IN FIREBASE
+        if db and user_id:
+            try:
+                user_ref = db.collection('users').document(user_id)
+                user_ref.update({
+                    'credits': new_credits_balance,
+                    'last_search': datetime.datetime.now(),
+                    'last_search_job_title': job_title,
+                    'last_search_company': company,
+                    'last_search_location': location,
+                    'last_search_contacts': len(contacts),
+                    'last_search_credits_used': credits_to_deduct,
+                    'tier': 'pro'
+                })
+                print(f"Pro tier: Deducted {credits_to_deduct} credits for {len(contacts)} contacts. New balance: {new_credits_balance}")
+            except Exception as credit_update_error:
+                print(f"Failed to update credits for user ID {user_id}: {credit_update_error}")
+        
+        # Generate similarities and hometowns for each contact
+        for contact in contacts:
+            # Generate similarity
+            try:
+                similarity = generate_similarity_summary(resume_text, contact)
+            except Exception:
+                similarity = ''
+            contact['Similarity'] = similarity
+            
+            # Extract hometown
+            edu_hist = contact.get('EducationTop') or contact.get('EducationHistory') or ''
+            try:
+                hometown = extract_hometown_from_education_history_enhanced(edu_hist)
+            except Exception:
+                hometown = contact.get('Hometown') or 'Unknown'
+            contact['Hometown'] = hometown or 'Unknown'
+        
+        # Generate emails using unified system
+        successful_drafts = 0
+        for contact in contacts:
+            print(f"DEBUG - Generating PRO email for {contact.get('FirstName', 'Unknown')}")
+            
+            # Generate personalized email
+            email_subject, email_body = generate_email_for_both_tiers(
+                contact,
+                resume_text=resume_text,
+                user_profile=user_profile,
+                career_interests=career_interests
+            )
+            
+            contact['email_subject'] = email_subject
+            contact['email_body'] = email_body
+            
+            # Create Gmail draft
+            draft_id = create_gmail_draft_for_user(contact, email_subject, email_body, tier='pro', user_email=user_email)
+            contact['draft_id'] = draft_id
+            if not str(draft_id).startswith('mock_'):
+                successful_drafts += 1
+        
+        # Filter to Pro fields
+        pro_contacts = []
+        for c in contacts:
+            pro_contact = {k: v for k, v in c.items() if k in TIER_CONFIGS['pro']['fields']}
+            pro_contact['email_subject'] = c.get('email_subject','')
+            pro_contact['email_body'] = c.get('email_body','')
+            pro_contacts.append(pro_contact)
+        
+        print(f"Pro tier completed for {user_email}: {len(pro_contacts)} contacts, {successful_drafts} Gmail drafts")
+        
+        return {
+            'contacts': pro_contacts,
+            'successful_drafts': successful_drafts,
             'tier': 'pro',
-            'user_email': user_email
+            'user_email': user_email,
+            'user_id': user_id,
+            'credits_used': credits_to_deduct,
+            'credits_remaining': new_credits_balance,
+            'total_contacts': len(contacts)
         }
         
-        return jsonify(response_data)
-        
     except Exception as e:
-        print(f"Pro endpoint exception: {e}")
+        print(f"Pro tier failed for {user_email}: {e}")
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return {'error': str(e), 'contacts': []}
+
+
 
 # Add Pro CSV download endpoint
 @app.route('/api/pro-run-csv', methods=['POST'])
@@ -4351,6 +4531,7 @@ if __name__ == '__main__':
     print("- /api/pro-run (enhanced with resume)")
     print("- /api/tier-info (get tier information)")
     print("=" * 50 + "\n")
-    
     port = int(os.environ.get('PORT', 5001))
     app.run(host='0.0.0.0', port=port, debug=True)
+
+ 

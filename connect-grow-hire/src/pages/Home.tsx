@@ -82,7 +82,18 @@ const Home = () => {
       tier: "free",
     } as const);
 
-  const [userTier] = useState<"free" | "pro">(effectiveUser?.tier || "free");
+  // Resolve tier even if backend hasn't set user.tier yet
+  const userTier: "free" | "pro" = React.useMemo(() => {
+  // 1) explicit
+    if (effectiveUser?.tier === "pro") return "pro";
+  // 2) infer from allowances (treat >= 840 max as Pro)
+    const max = Number(effectiveUser?.maxCredits ?? 0);
+    const credits = Number(effectiveUser?.credits ?? 0);
+    if (max >= 840 || credits > 120) return "pro";
+  // 3) fall back
+    return "free";
+  }, [effectiveUser?.tier, effectiveUser?.maxCredits, effectiveUser?.credits]);
+
 
   // Form state
   const [jobTitle, setJobTitle] = useState("");
@@ -266,6 +277,7 @@ const Home = () => {
           saveToDirectory: false,
           userProfile,
           careerInterests: userProfile?.careerInterests || [],
+          collegeAlumni: (collegeAlumni || '').trim(),
         };
 
         const result = await apiService.runFreeSearch(searchRequest);
@@ -326,6 +338,7 @@ const Home = () => {
           saveToDirectory: false,
           userProfile,
           careerInterests: userProfile?.careerInterests || [],
+          collegeAlumni: (collegeAlumni || '').trim(),
         };
 
         const result = await apiService.runProSearch(proRequest);
@@ -687,7 +700,7 @@ const Home = () => {
                         </div>
                       )}
 
-                      {/* Search Button - static label + helper line */}
+                      {/* Search Button - now tier-aware label & math */}
                       <div className="flex items-center justify-between">
                         <div>
                           <Button
@@ -702,17 +715,24 @@ const Home = () => {
                             size="lg"
                             className="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white font-medium px-8 transition-all hover:scale-105"
                           >
-                            {isSearching ? "Searching..." : "Search Free Tier"}
+                            {isSearching ? "Searching..." : `Search ${currentTierConfig.name} Tier`}
                           </Button>
 
+                          {/* Helper line uses the active tier's cap and your current credits */}
                           <p className="mt-2 text-xs text-white/60">
                             Uses up to{" "}
                             <span className="tabular-nums">
-                              {Math.min(8, Math.floor((effectiveUser.credits ?? 0) / 15))}
+                              {Math.min(
+                                currentTierConfig.maxContacts,
+                                Math.floor((effectiveUser.credits ?? 0) / 15)
+                              )}
                             </span>{" "}
                             contacts (
                             <span className="tabular-nums">
-                              {Math.min(8, Math.floor((effectiveUser.credits ?? 0) / 15)) * 15}
+                              {Math.min(
+                                currentTierConfig.maxContacts,
+                                Math.floor((effectiveUser.credits ?? 0) / 15)
+                              ) * 15}
                             </span>{" "}
                             credits) •{" "}
                             <span className="tabular-nums">

@@ -83,18 +83,18 @@ const Pricing = () => {
 
   const handleUpgrade = async (planType: 'free' | 'pro') => {
     if (!user) return;
-    
+  
     try {
       if (planType === 'free') {
-        await updateUser({
+        // Update user with free tier and reset credits to 120
+        await updateUser({ 
           tier: 'free',
           credits: 120,
-          maxCredits: 120,
-          emailsUsedThisMonth: 0,
-          emailsMonthKey: new Date().toISOString().slice(0, 7),
-        });
+          maxCredits: 120
+        }); 
         navigate("/home");
-      } else if (planType === 'pro') {
+      } 
+      else if (planType === 'pro') {
         await handleStripeCheckout();
       }
     } catch (error) {
