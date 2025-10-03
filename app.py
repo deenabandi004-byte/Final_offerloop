@@ -31,6 +31,25 @@ from openai import OpenAI
 import sqlite3
 from contextlib import contextmanager
 from flask import send_from_directory
+import concurrent.futures
+from functools import lru_cache
+import time
+
+# Add this right after your imports section
+@lru_cache(maxsize=1000)
+def cached_enrich_job_title(job_title):
+    """Cache job title enrichments to avoid repeated API calls"""
+    return enrich_job_title_with_pdl(job_title)
+
+@lru_cache(maxsize=1000)
+def cached_clean_company(company):
+    """Cache company cleaning to avoid repeated API calls"""
+    return clean_company_name(company) if company else ''
+
+@lru_cache(maxsize=1000)
+def cached_clean_location(location):
+    """Cache location cleaning to avoid repeated API calls"""
+    return clean_location_name(location)
 
 # === Alumni helpers (added) ===
 def _school_aliases(raw: str) -> list[str]:
@@ -699,9 +718,11 @@ def search_contacts_with_smart_location_strategy(job_title, company, location, m
         print(f"Starting smart location search for {job_title} at {company} in {location}")
         
         # Step 1: Enrich job title
-        job_title_enrichment = enrich_job_title_with_pdl(job_title)
+        job_title_enrichment = cached_enrich_job_title(job_title)
         primary_title = job_title_enrichment['cleaned_name']
         similar_titles = job_title_enrichment['similar_titles'][:3]
+        cleaned_company = cached_clean_company(company)
+        cleaned_location = cached_clean_location(location)
         
         # Step 2: Clean company
         cleaned_company = clean_company_name(company) if company else ''
@@ -1057,8 +1078,170 @@ def _choose_best_email(emails: list[dict], recommended: str | None = None) -> st
         if et == "personal": return a
     if recommended and is_valid(recommended): return recommended
     return items[0][1] if items else None
+def batch_extract_hometowns(contacts):
+    """Extract hometowns for all contacts in one API call"""
+    try:
+        if not contacts:
+            return {}
+        
+        # Build a single prompt for all contacts
+        education_data = []
+        for i, contact in enumerate(contacts):
+            edu = contact.get('EducationTop', '')
+            if edu and edu != 'Not available':
+                education_data.append(f"{i}: {edu}")
+        
+        if not education_data:
+            return {i: "Unknown" for i in range(len(contacts))}
+        
+        prompt = f"""Extract the hometown (city where high school is located) for each education history.
+If no high school is mentioned or hometown cannot be determined, use "Unknown".
 
+{chr(10).join(education_data)}
 
+Return ONLY a valid JSON object in this exact format with no other text:
+{{"0": "City, State", "1": "City, State", "2": "Unknown"}}"""
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a JSON extraction assistant. Return only valid JSON with no explanation."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=500,
+            temperature=0.1
+        )
+        
+        result_text = response.choices[0].message.content.strip()
+        
+        # Try to extract JSON even if there's extra text
+        import json
+        import re
+        
+        # Find JSON pattern in response
+        json_match = re.search(r'\{[^{}]*\}', result_text)
+        if json_match:
+            result = json.loads(json_match.group())
+            return {int(k): v for k, v in result.items()}
+        else:
+            # If no JSON found, try to parse the whole response
+            result = json.loads(result_text)
+            return {int(k): v for k, v in result.items()}
+        
+    except Exception as e:
+        print(f"Batch hometown extraction failed: {e}")
+        # Fallback: return Unknown for all
+        return {i: "Unknown" for i in range(len(contacts))}
+
+def batch_generate_emails(contacts, resume_text, user_profile, career_interests):
+    """Generate all emails in a single OpenAI call"""
+    try:
+        if not contacts:
+            return {}
+        
+        # Ensure career_interests are in user_profile
+        if career_interests and user_profile:
+            if 'careerInterests' not in user_profile and 'career_interests' not in user_profile:
+                user_profile = {**user_profile, 'careerInterests': career_interests}
+        elif career_interests and not user_profile:
+            user_profile = {'careerInterests': career_interests}
+        
+        # Extract user info properly
+        user_info = extract_user_info_from_resume_priority(resume_text, user_profile)
+        
+        # Build contact summaries
+        contacts_info = []
+        for i, contact in enumerate(contacts):
+            contacts_info.append(f"""Contact {i}:
+- Name: {contact.get('FirstName', '')} {contact.get('LastName', '')}
+- Title: {contact.get('Title', '')}
+- Company: {contact.get('Company', '')}
+- Location: {contact.get('City', '')}, {contact.get('State', '')}""")
+        
+        # Build career interests string
+        interests_str = ""
+        ci = user_info.get('career_interests', [])
+        if ci:
+            if len(ci) == 1:
+                interests_str = ci[0]
+            elif len(ci) == 2:
+                interests_str = f"{ci[0]} and {ci[1]}"
+            else:
+                interests_str = f"{', '.join(ci[:-1])}, and {ci[-1]}"
+        
+        prompt = f"""Generate {len(contacts)} personalized networking emails.
+
+Student: {user_info.get('name', 'Student')} - {user_info.get('year', '')} {user_info.get('major', '')} at {user_info.get('university', '')}
+{f"Career interests: {interests_str}" if interests_str else ""}
+
+{chr(10).join(contacts_info)}
+
+For EACH contact, generate:
+1. Subject line (6-8 words, no placeholders)
+2. Email body (120-150 words, personalized, no placeholders like [name] or {{name}})
+
+CRITICAL: Use actual names - write "Hi Grace," not "Hi {{FirstName}},"
+
+Return as valid JSON:
+{{"0": {{"subject": "...", "body": "..."}}, "1": {{"subject": "...", "body": "..."}}, ...}}
+"""
+        
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You generate professional networking emails. Return ONLY valid JSON with no markdown formatting."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=3000,
+            temperature=0.7
+        )
+        
+        response_text = response.choices[0].message.content.strip()
+        
+        # Remove markdown code blocks if present
+        if '```' in response_text:
+            response_text = response_text.split('```')[1]
+            if response_text.startswith('json'):
+                response_text = response_text[4:]
+            response_text = response_text.strip()
+        
+        import json
+        results = json.loads(response_text)
+        
+        # Convert string keys to integers and apply sanitization
+        cleaned_results = {}
+        for k, v in results.items():
+            idx = int(k)
+            subject = v.get('subject', 'Quick question about your work')
+            body = v.get('body', '')
+            
+            # Apply sanitization to remove any remaining placeholders
+            if idx < len(contacts):
+                contact = contacts[idx]
+                body = sanitize_email_placeholders(body, contact, user_info)
+                body = enforce_networking_prompt_rules(body)
+                subject = sanitize_placeholders(
+                    subject,
+                    user_name=user_info.get('name', ''),
+                    user_year=user_info.get('year', ''),
+                    user_major=user_info.get('major', ''),
+                    user_university=user_info.get('university', ''),
+                    career_interests=user_info.get('career_interests', [])
+                )
+            
+            cleaned_results[idx] = {'subject': subject, 'body': body}
+        
+        return cleaned_results
+        
+    except json.JSONDecodeError as e:
+        print(f"Batch email JSON parsing failed: {e}")
+        print(f"Response was: {response_text[:500]}")
+        return {}
+    except Exception as e:
+        print(f"Batch email generation failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {}
 
 def extract_contact_from_pdl_person_enhanced(person):
     """Enhanced contact extraction with relaxed, sensible email acceptance."""
@@ -2922,6 +3105,138 @@ def run_free_tier_enhanced_final(job_title, company, location, user_email=None, 
         traceback.print_exc()
         return {'error': str(e), 'contacts': []}
 
+def run_free_tier_enhanced_optimized(job_title, company, location, user_email=None, user_profile=None, resume_text=None, career_interests=None, college_alumni=None):
+    """Optimized version - keep original as backup"""
+    import time
+    start_time = time.time()
+    
+    print(f"Starting OPTIMIZED Free tier for {user_email}")
+    
+    try:
+        # Copy the credit check code from your original function
+        user_id = None
+        if hasattr(request, 'firebase_user'):
+            user_id = request.firebase_user.get('uid')
+        
+        credits_available = 120
+        if db and user_id:
+            try:
+                user_ref = db.collection('users').document(user_id)
+                user_doc = user_ref.get()
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+                    credits_available = user_data.get('credits', 120)
+                    if credits_available < 15:
+                        return {
+                            'error': 'Insufficient credits',
+                            'credits_needed': 15,
+                            'current_credits': credits_available,
+                            'contacts': []
+                        }
+            except Exception:
+                pass
+        
+        max_contacts_by_credits = min(8, credits_available // 15)
+        
+        # Search contacts (this will now use cached enrichment)
+        print("Searching for contacts...")
+        search_start = time.time()
+        contacts = search_contacts_with_smart_location_strategy(
+            job_title, company, location,
+            max_contacts=max_contacts_by_credits,
+            college_alumni=college_alumni
+        )
+        print(f"Search took {time.time() - search_start:.2f} seconds")
+        
+        if not contacts:
+            return {'error': 'No contacts found', 'contacts': []}
+        
+        # OPTIMIZATION: Batch extract hometowns instead of one by one
+        print("Extracting hometowns in batch...")
+        hometown_start = time.time()
+        hometown_map = batch_extract_hometowns(contacts)
+        for i, contact in enumerate(contacts):
+            contact['Hometown'] = hometown_map.get(i, "Unknown")
+        print(f"Hometown extraction took {time.time() - hometown_start:.2f} seconds")
+        
+        # PARALLEL EMAIL GENERATION
+        # BATCH EMAIL GENERATION (single API call for all emails)
+        print("Generating emails (batch)...")
+        email_start = time.time()
+
+        email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests)
+
+        for i, contact in enumerate(contacts):
+            if i in email_results:
+                contact['email_subject'] = email_results[i].get('subject', 'Quick question about your work')
+                contact['email_body'] = email_results[i].get('body', f"Hi {contact.get('FirstName', '')}, I'd love to connect about your work at {contact.get('Company', 'your company')}.")
+            else:
+             # Fallback if batch generation failed for this contact
+                contact['email_subject'] = "Quick question about your work"
+                contact['email_body'] = f"Hi {contact.get('FirstName', '')}, I'd love to connect about your work at {contact.get('Company', 'your company')}."
+
+        print(f"Emails generated in {time.time() - email_start:.2f} seconds")
+        
+        # Create drafts (keep simple for now)
+        successful_drafts = 0
+        for contact in contacts:
+            draft_id = create_gmail_draft_for_user(contact, contact['email_subject'], contact['email_body'], tier='free', user_email=user_email)
+            contact['draft_id'] = draft_id
+            if not str(draft_id).startswith('mock_'):
+                successful_drafts += 1
+        
+        # Update credits (keeping your existing logic)
+        credits_to_deduct = len(contacts) * 15
+        new_credits_balance = credits_available - credits_to_deduct
+        
+        if db and user_id:
+            try:
+                user_ref = db.collection('users').document(user_id)
+                user_ref.update({
+                    'credits': new_credits_balance,
+                    'last_search': datetime.datetime.now(),
+                    'last_search_job_title': job_title,
+                    'last_search_company': company,
+                    'last_search_location': location,
+                    'last_search_contacts': len(contacts),
+                    'last_search_credits_used': credits_to_deduct
+                })
+            except Exception:
+                pass
+        
+        # Filter to Free fields (keeping your existing logic)
+        free_contacts = []
+        for c in contacts:
+            free_contact = {k: v for k, v in c.items() if k in TIER_CONFIGS['free']['fields']}
+            free_contact['email_subject'] = c.get('email_subject','')
+            free_contact['email_body'] = c.get('email_body','')
+            free_contacts.append(free_contact)
+        
+        total_time = time.time() - start_time
+        print(f"✅ OPTIMIZED Free tier completed in {total_time:.2f} seconds")
+        
+        return {
+            'contacts': free_contacts,
+            'successful_drafts': successful_drafts,
+            'tier': 'free',
+            'user_email': user_email,
+            'user_id': user_id,
+            'credits_used': credits_to_deduct,
+            'credits_remaining': new_credits_balance,
+            'total_contacts': len(contacts),
+            'processing_time': total_time
+        }
+        
+    except Exception as e:
+        print(f"Optimized version failed, check error: {e}")
+        import traceback
+        traceback.print_exc()
+        # FALLBACK to original function if something goes wrong
+        return run_free_tier_enhanced_final(
+            job_title, company, location, user_email, user_profile, 
+            resume_text, career_interests, college_alumni
+        )
+
 # ========================================
 # ENHANCED TIER FUNCTIONS WITH LOGGING - TWO TIERS ONLY
 # ========================================
@@ -3387,7 +3702,7 @@ def free_run():
         print(f"DEBUG - college_alumni received: {college_alumni!r}")
 
         # --- Run the search ---
-        result = run_free_tier_enhanced_final(
+        result = run_free_tier_enhanced_optimized(
             job_title,
             company,
             location,
