@@ -27,21 +27,22 @@ const BACKEND_URL =
 // Tiers (UI text only)
 const TIER_CONFIGS = {
   free: {
-    maxContacts: 8,
+    maxContacts: 3,  // Changed from 8
+    minContacts: 1,  // NEW
     name: "Free",
-    credits: 120, // informational only; no longer printed on UI
-    description: "Try out platform risk free - 8 contacts + Email drafts",
+    credits: 120,
+    description: "Try out platform risk free - up to 3 contacts + Email drafts",
     coffeeChat: true,
     interviewPrep: false,
     timeSavedMinutes: 200,
     usesResume: false,
   },
   pro: {
-    maxContacts: 56,
+    maxContacts: 8,  // Changed from 56
+    minContacts: 1,  // NEW
     name: "Pro",
     credits: 840,
-    description:
-      "Everything in free plus advanced features - 56 contacts + Resume matching",
+    description: "Everything in free plus advanced features - up to 8 contacts + Resume matching",
     coffeeChat: true,
     interviewPrep: true,
     timeSavedMinutes: 1200,
@@ -105,6 +106,22 @@ const Home = () => {
   const [linkedinUrl, setLinkedinUrl] = useState("");
   const [jobPostUrl, setJobPostUrl] = useState("");
   const [isScoutChatOpen, setIsScoutChatOpen] = useState(false);
+  // Batch size state
+const [batchSize, setBatchSize] = useState<number>(1);
+
+// Calculate max batch size based on tier AND credits
+const maxBatchSize = React.useMemo(() => {
+  const tierMax = userTier === 'free' ? 3 : 8;
+  const creditMax = Math.floor((effectiveUser.credits ?? 0) / 15);
+  return Math.min(tierMax, creditMax);
+}, [userTier, effectiveUser.credits]);
+
+// Reset batch size when it exceeds new max
+useEffect(() => {
+  if (batchSize > maxBatchSize) {
+    setBatchSize(Math.max(1, maxBatchSize));
+  }
+}, [maxBatchSize, batchSize]);
 
   // Search state
   const [isSearching, setIsSearching] = useState(false);
@@ -278,6 +295,7 @@ const Home = () => {
           userProfile,
           careerInterests: userProfile?.careerInterests || [],
           collegeAlumni: (collegeAlumni || '').trim(),
+          batchSize: batchSize,
         };
 
         const result = await apiService.runFreeSearch(searchRequest);
@@ -339,6 +357,7 @@ const Home = () => {
           userProfile,
           careerInterests: userProfile?.careerInterests || [],
           collegeAlumni: (collegeAlumni || '').trim(),
+          batchSize: batchSize,
         };
 
         const result = await apiService.runProSearch(proRequest);
@@ -665,6 +684,66 @@ const Home = () => {
                           />
                         </div>
                       </div>
+                      {/* Batch Size Slider */}
+                      {/* Batch Size Slider */}
+                      <div className="col-span-1 lg:col-span-2 mt-4">
+                        <label className="block text-sm font-medium mb-3 text-white">
+                          Batch Size
+                        </label>
+                        <div className="space-y-4">
+                          <div className="relative pt-1">
+                            <input
+                              type="range"
+                              min="1"
+                              max={maxBatchSize}
+                              value={batchSize}
+                              onChange={(e) => setBatchSize(Number(e.target.value))}
+                              disabled={isSearching || maxBatchSize < 1}
+                              className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                              style={{
+                                background: `linear-gradient(to right, rgb(168, 85, 247) 0%, rgb(168, 85, 247) ${((batchSize - 1) / (maxBatchSize - 1)) * 100}%, rgb(55, 65, 81) ${((batchSize - 1) / (maxBatchSize - 1)) * 100}%, rgb(55, 65, 81) 100%)`
+                              }}
+                            />
+                            {/* Value bubble on slider */}
+                            <div 
+                              className="absolute -top-10 transform -translate-x-1/2 bg-purple-500 text-white px-3 py-1 rounded-md text-sm font-semibold shadow-lg"
+                              style={{
+                                left: `${((batchSize - 1) / (maxBatchSize - 1)) * 100}%`
+                              }}
+                            >
+                              {batchSize}
+                            </div>
+                          </div>
+                          
+                          <div className="flex justify-between items-center text-xs text-gray-400 px-1">
+                            <span>1 contact</span>
+                            <span>{maxBatchSize} contacts (max)</span>
+                          </div>
+                          
+                          {maxBatchSize < (userTier === 'free' ? 3 : 8) && (
+                            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                              <p className="text-xs text-yellow-400 flex items-start gap-2">
+                                <span>⚠️</span>
+                                <span>Limited by available credits. You can search for up to {maxBatchSize} contacts.</span>
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Credit Usage Info - Separate from slider */}
+                      <div className="col-span-1 lg:col-span-2 mt-6 mb-8">
+                        <div className="bg-gray-800/30 rounded-lg p-4 border border-gray-700">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-gray-300">
+                              Will use: <span className="font-semibold text-white">{batchSize}</span> contact{batchSize !== 1 ? 's' : ''}
+                            </span>
+                            <span className="text-sm text-purple-400 font-semibold">
+                              {batchSize * 15} credits
+                            </span>
+                          </div>
+                        </div>
+                      </div>
 
                       {/* Resume upload (Pro only) */}
                       {userTier === "pro" && (
@@ -701,53 +780,30 @@ const Home = () => {
                       )}
 
                       {/* Search Button - now tier-aware label & math */}
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Button
-                            onClick={handleSearch}
-                            disabled={
-                              !jobTitle.trim() ||
-                              !location.trim() ||
-                              isSearching ||
-                              (userTier === "pro" && !uploadedFile) ||
-                              (effectiveUser.credits ?? 0) < 15
-                            }
-                            size="lg"
-                            className="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white font-medium px-8 transition-all hover:scale-105"
-                          >
-                            {isSearching ? "Searching..." : `Search ${currentTierConfig.name} Tier`}
-                          </Button>
+                      {/* Search Button and Info */}
+                      <div className="space-y-4">
+                        <Button
+                          onClick={handleSearch}
+                          disabled={
+                            !jobTitle.trim() ||
+                            !location.trim() ||
+                            isSearching ||
+                            (userTier === "pro" && !uploadedFile) ||
+                            (effectiveUser.credits ?? 0) < 15
+                          }
+                          size="lg"
+                          className="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white font-medium px-8 transition-all hover:scale-105"
+                        >
+                          {isSearching ? "Searching..." : `Search ${currentTierConfig.name} Tier`}
+                        </Button>
 
-                          {/* Helper line uses the active tier's cap and your current credits */}
-                          <p className="mt-2 text-xs text-white/60">
-                            Uses up to{" "}
-                            <span className="tabular-nums">
-                              {Math.min(
-                                currentTierConfig.maxContacts,
-                                Math.floor((effectiveUser.credits ?? 0) / 15)
-                              )}
-                            </span>{" "}
-                            contacts (
-                            <span className="tabular-nums">
-                              {Math.min(
-                                currentTierConfig.maxContacts,
-                                Math.floor((effectiveUser.credits ?? 0) / 15)
-                              ) * 15}
-                            </span>{" "}
-                            credits) •{" "}
-                            <span className="tabular-nums">
-                              {Math.floor((effectiveUser.credits ?? 0) / 15)}
-                            </span>{" "}
-                            searches remaining
-                          </p>
-                        </div>
-
-                        <div className="flex items-center gap-4">
-                          <div className="text-sm text-gray-400">
-                            <Download className="h-4 w-4 inline mr-2" />
-                            Up to {currentTierConfig.maxContacts} contacts + emails (auto-saved to
-                            Contact Library)
+                        <div className="flex items-center gap-4 text-sm text-gray-400">
+                          <div className="flex items-center gap-2">
+                            <Download className="h-4 w-4" />
+                            <span>Up to {currentTierConfig.maxContacts} contacts + emails</span>
                           </div>
+                          <span className="text-gray-600">•</span>
+                          <span>Auto-saved to Contact Library</span>
                         </div>
                       </div>
 

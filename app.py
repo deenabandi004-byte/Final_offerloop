@@ -337,7 +337,8 @@ PDL_BASE_URL = 'https://api.peopledatalabs.com/v5'
 # TIER CONFIGURATIONS - SIMPLIFIED TO TWO TIERS
 TIER_CONFIGS = {
     'free': {
-        'max_contacts': 8,  # 8 emails = 120 credits (15 credits per email)
+        'max_contacts': 3,   
+        'min_contacts': 1,
         'fields': ['FirstName', 'LastName', 'LinkedIn', 'Email', 'Title', 'Company', 'City', 'State', 'College', 'Hometown'],
         'uses_pdl': True,
         'uses_email_drafting': True,
@@ -347,7 +348,8 @@ TIER_CONFIGS = {
         'description': 'Try out platform risk free'
     },
     'pro': {
-        'max_contacts': 15,  # 56 emails = 840 credits (15 credits per email)
+        'max_contacts': 8,  # 56 emails = 840 credits (15 credits per email)
+        'min_contacts': 1, 
         'fields': ['FirstName', 'LastName', 'LinkedIn', 'Email', 'Title', 'Company', 'City', 'State', 'College',
                   'Phone', 'PersonalEmail', 'WorkEmail', 'SocialProfiles', 'EducationTop', 'VolunteerHistory',
                   'WorkSummary', 'Group', 'Hometown', 'Similarity'],
@@ -3684,6 +3686,7 @@ def free_run():
             resume_text = data.get("resumeText") or None
             career_interests = data.get("careerInterests") or []
             college_alumni = (data.get("collegeAlumni") or "").strip()
+            batch_size = data.get("batchSize")
         else:
             job_title = (request.form.get("jobTitle") or "").strip()
             company = (request.form.get("company") or "").strip()
@@ -3692,6 +3695,9 @@ def free_run():
             resume_text = request.form.get("resumeText") or None
             career_interests = request.form.get("careerInterests") or []
             college_alumni = (request.form.get("collegeAlumni") or "").strip()
+            batch_size = request.form.get("batchSize")  # NEW
+            if batch_size:
+                batch_size = int(batch_size)
 
         user_email = (request.firebase_user or {}).get("email") or ""
 
@@ -3711,6 +3717,7 @@ def free_run():
             resume_text=resume_text,
             career_interests=career_interests,
             college_alumni=college_alumni,  # ✅ pass through
+            batch_size=batch_size
         )
 
         if result.get("error"):
@@ -3824,6 +3831,7 @@ def pro_run():
             user_profile = data.get("userProfile") or None
             career_interests = data.get("careerInterests") or []
             college_alumni = (data.get("collegeAlumni") or "").strip()
+            batch_size = data.get("batchSize") 
             
         else:
             # Form data request - expecting file upload
@@ -3858,6 +3866,9 @@ def pro_run():
                 career_interests = []
                 
             college_alumni = (request.form.get("collegeAlumni") or "").strip()
+            batch_size = request.form.get("batchSize")  # NEW
+            if batch_size:
+                batch_size = int(batch_size)
 
         # Validation
         if not job_title or not location:
@@ -3882,6 +3893,7 @@ def pro_run():
             user_profile=user_profile,
             career_interests=career_interests,
             college_alumni=college_alumni,
+            batch_size=batch_size
         )
 
         if result.get("error"):
