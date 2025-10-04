@@ -297,7 +297,7 @@ useEffect(() => {
           collegeAlumni: (collegeAlumni || '').trim(),
           batchSize: batchSize,
         };
-
+        console.log('Sending search request with batchSize:', batchSize)
         const result = await apiService.runFreeSearch(searchRequest);
         if (isErrorResponse(result)) {
           if (result.error?.includes("Insufficient credits")) {
@@ -685,50 +685,79 @@ useEffect(() => {
                         </div>
                       </div>
                       {/* Batch Size Slider */}
-                      {/* Batch Size Slider */}
+                     
+                      {/* Batch Size Slider - Premium Design with Thicker Track */}
                       <div className="col-span-1 lg:col-span-2 mt-4">
-                        <label className="block text-sm font-medium mb-3 text-white">
+                        <label className="block text-sm font-medium mb-4 text-white">
                           Batch Size
                         </label>
-                        <div className="space-y-4">
-                          <div className="relative pt-1">
-                            <input
-                              type="range"
-                              min="1"
-                              max={maxBatchSize}
-                              value={batchSize}
-                              onChange={(e) => setBatchSize(Number(e.target.value))}
-                              disabled={isSearching || maxBatchSize < 1}
-                              className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                              style={{
-                                background: `linear-gradient(to right, rgb(168, 85, 247) 0%, rgb(168, 85, 247) ${((batchSize - 1) / (maxBatchSize - 1)) * 100}%, rgb(55, 65, 81) ${((batchSize - 1) / (maxBatchSize - 1)) * 100}%, rgb(55, 65, 81) 100%)`
-                              }}
-                            />
-                            {/* Value bubble on slider */}
-                            <div 
-                              className="absolute -top-10 transform -translate-x-1/2 bg-purple-500 text-white px-3 py-1 rounded-md text-sm font-semibold shadow-lg"
-                              style={{
-                                left: `${((batchSize - 1) / (maxBatchSize - 1)) * 100}%`
-                              }}
-                            >
-                              {batchSize}
+                        
+                        <div className="bg-gray-800/30 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 shadow-lg">
+                          <div className="flex items-center gap-6">
+                            {/* Current value display */}
+                            <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-400/40 rounded-xl px-4 py-3 min-w-[70px] text-center shadow-inner">
+                              <span className="text-2xl font-bold bg-gradient-to-r from-purple-300 to-pink-300 bg-clip-text text-transparent">
+                                {batchSize}
+                              </span>
+                            </div>
+                            
+                            {/* Slider container with more top padding */}
+                            <div className="flex-1 max-w-[320px] pt-4">
+                              <div className="relative">
+                                <input
+                                  type="range"
+                                  min="1"
+                                  max={maxBatchSize}
+                                  value={batchSize}
+                                  onChange={(e) => setBatchSize(Number(e.target.value))}
+                                  disabled={isSearching || maxBatchSize < 1}
+                                  className="w-full h-3 bg-gray-700/50 rounded-full appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed 
+                                    [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 
+                                    [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white
+                                    [&::-webkit-slider-thumb]:shadow-[0_0_20px_rgba(168,85,247,0.6)] 
+                                    [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-purple-400
+                                    [&::-webkit-slider-thumb]:hover:shadow-[0_0_25px_rgba(168,85,247,0.8)] 
+                                    [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:duration-200
+                                    [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-7 [&::-moz-range-thumb]:h-7 
+                                    [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white
+                                    [&::-moz-range-thumb]:shadow-[0_0_20px_rgba(168,85,247,0.6)] 
+                                    [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-purple-400"
+                                  style={{
+                                    background: `linear-gradient(to right, 
+                                      rgba(168, 85, 247, 0.8) 0%, 
+                                      rgba(219, 39, 119, 0.8) ${((batchSize - 1) / (maxBatchSize - 1)) * 100}%, 
+                                      rgba(55, 65, 81, 0.3) ${((batchSize - 1) / (maxBatchSize - 1)) * 100}%, 
+                                      rgba(55, 65, 81, 0.3) 100%)`
+                                  }}
+                                />
+                                
+                                {/* Min/Max labels */}
+                                <div className="flex justify-between text-xs text-gray-500 mt-3 font-medium">
+                                  <span>1</span>
+                                  <span>{maxBatchSize}</span>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Credits display - single line */}
+                            <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-xl px-4 py-3 min-w-[100px] border border-purple-400/20">
+                              <div className="text-center">
+                                <span className="text-xl font-bold text-purple-300">{batchSize * 15}</span>
+                                <span className="text-sm text-gray-400 ml-2">credits</span>
+                              </div>
                             </div>
                           </div>
-                          
-                          <div className="flex justify-between items-center text-xs text-gray-400 px-1">
-                            <span>1 contact</span>
-                            <span>{maxBatchSize} contacts (max)</span>
-                          </div>
-                          
-                          {maxBatchSize < (userTier === 'free' ? 3 : 8) && (
-                            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
-                              <p className="text-xs text-yellow-400 flex items-start gap-2">
-                                <span>⚠️</span>
-                                <span>Limited by available credits. You can search for up to {maxBatchSize} contacts.</span>
-                              </p>
-                            </div>
-                          )}
                         </div>
+                        
+                        {/* Warning if limited by credits */}
+                        {maxBatchSize < (userTier === 'free' ? 3 : 8) && (
+                          <div className="mt-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                            <p className="text-xs text-yellow-400 flex items-start gap-2">
+                              <span>⚠️</span>
+                              <span>Limited by available credits. Maximum: {maxBatchSize} contacts.</span>
+                            </p>
+                          </div>
+                        )}
                       </div>
 
                       {/* Credit Usage Info - Separate from slider */}
@@ -819,7 +848,7 @@ useEffect(() => {
                               <div className="text-xs text-gray-400">Contacts Found</div>
                             </div>
                             <div className="bg-gray-800/50 rounded p-2">
-                              <div className="text-2xl font-bold text-white">{lastSearchStats.successful_drafts}</div>
+                              <div className="text-2xl font-bold text-white">{lastResults.length}</div>
                               <div className="text-xs text-gray-400">Email Drafts</div>
                             </div>
                           </div>

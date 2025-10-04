@@ -3107,8 +3107,9 @@ def run_free_tier_enhanced_final(job_title, company, location, user_email=None, 
         traceback.print_exc()
         return {'error': str(e), 'contacts': []}
 
-def run_free_tier_enhanced_optimized(job_title, company, location, user_email=None, user_profile=None, resume_text=None, career_interests=None, college_alumni=None):
+def run_free_tier_enhanced_optimized(job_title, company, location, user_email=None, user_profile=None, resume_text=None, career_interests=None, college_alumni=None, batch_size=None):
     """Optimized version - keep original as backup"""
+    print(f">>> BATCH SIZE RECEIVED: {batch_size}, type: {type(batch_size)}")  # ADD THIS
     import time
     start_time = time.time()
     
@@ -3138,16 +3139,28 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
             except Exception:
                 pass
         
-        max_contacts_by_credits = min(8, credits_available // 15)
+        # USE BATCH_SIZE FROM SLIDER
+        tier_max = TIER_CONFIGS['free']['max_contacts']  # 8
+        
+        # WITH THIS:
+        if batch_size is not None and isinstance(batch_size, int) and batch_size > 0:
+            max_contacts_by_credits = min(batch_size, tier_max, credits_available // 15)
+            print(f"Using batch_size: {batch_size} -> searching for {max_contacts_by_credits} contacts")
+        else:
+            # Default to 3 if not specified
+            default_batch = 3
+            max_contacts_by_credits = min(default_batch, tier_max, credits_available // 15)
+            print(f"No batch_size, using default: {max_contacts_by_credits} contacts")
         
         # Search contacts (this will now use cached enrichment)
         print("Searching for contacts...")
         search_start = time.time()
         contacts = search_contacts_with_smart_location_strategy(
             job_title, company, location,
-            max_contacts=max_contacts_by_credits,
+            max_contacts=max_contacts_by_credits,  # This will now respect the slider
             college_alumni=college_alumni
         )
+        print(f">>> SEARCH RETURNED: {len(contacts)} contacts (asked for {max_contacts_by_credits})")
         print(f"Search took {time.time() - search_start:.2f} seconds")
         
         if not contacts:
@@ -3161,7 +3174,6 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
             contact['Hometown'] = hometown_map.get(i, "Unknown")
         print(f"Hometown extraction took {time.time() - hometown_start:.2f} seconds")
         
-        # PARALLEL EMAIL GENERATION
         # BATCH EMAIL GENERATION (single API call for all emails)
         print("Generating emails (batch)...")
         email_start = time.time()
@@ -3173,7 +3185,7 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                 contact['email_subject'] = email_results[i].get('subject', 'Quick question about your work')
                 contact['email_body'] = email_results[i].get('body', f"Hi {contact.get('FirstName', '')}, I'd love to connect about your work at {contact.get('Company', 'your company')}.")
             else:
-             # Fallback if batch generation failed for this contact
+                # Fallback if batch generation failed for this contact
                 contact['email_subject'] = "Quick question about your work"
                 contact['email_body'] = f"Hi {contact.get('FirstName', '')}, I'd love to connect about your work at {contact.get('Company', 'your company')}."
 
@@ -3216,6 +3228,7 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         
         total_time = time.time() - start_time
         print(f"✅ OPTIMIZED Free tier completed in {total_time:.2f} seconds")
+        print(f"✅ Found and processed {len(free_contacts)} contacts (requested: {batch_size})")
         
         return {
             'contacts': free_contacts,
@@ -3236,7 +3249,7 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         # FALLBACK to original function if something goes wrong
         return run_free_tier_enhanced_final(
             job_title, company, location, user_email, user_profile, 
-            resume_text, career_interests, college_alumni
+            resume_text, career_interests, college_alumni,batch_size
         )
 
 # ========================================
@@ -3686,7 +3699,8 @@ def free_run():
             resume_text = data.get("resumeText") or None
             career_interests = data.get("careerInterests") or []
             college_alumni = (data.get("collegeAlumni") or "").strip()
-            batch_size = data.get("batchSize")
+            batch_size = data.get("batchSize")  # <-- ADD THIS LINE
+            
         else:
             job_title = (request.form.get("jobTitle") or "").strip()
             company = (request.form.get("company") or "").strip()
@@ -3695,9 +3709,14 @@ def free_run():
             resume_text = request.form.get("resumeText") or None
             career_interests = request.form.get("careerInterests") or []
             college_alumni = (request.form.get("collegeAlumni") or "").strip()
-            batch_size = request.form.get("batchSize")  # NEW
-            if batch_size:
+            batch_size = request.form.get("batchSize")  # <-- ADD THIS LINE
+            
+        # Convert batch_size to int if it exists
+        if batch_size is not None:
+            try:
                 batch_size = int(batch_size)
+            except (ValueError, TypeError):
+                batch_size = None
 
         user_email = (request.firebase_user or {}).get("email") or ""
 
@@ -3706,6 +3725,7 @@ def free_run():
         if resume_text:
             print(f"Resume provided for enhanced personalization ({len(resume_text)} chars)")
         print(f"DEBUG - college_alumni received: {college_alumni!r}")
+        print(f"DEBUG - batch_size received: {batch_size}")  # <-- ADD THIS LINE
 
         # --- Run the search ---
         result = run_free_tier_enhanced_optimized(
@@ -3716,8 +3736,8 @@ def free_run():
             user_profile=user_profile,
             resume_text=resume_text,
             career_interests=career_interests,
-            college_alumni=college_alumni,  # ✅ pass through
-            batch_size=batch_size
+            college_alumni=college_alumni,
+            batch_size=batch_size  # <-- Now this variable exists
         )
 
         if result.get("error"):

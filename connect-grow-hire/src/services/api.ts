@@ -24,6 +24,7 @@ export interface ContactSearchRequest {
   userProfile?: UserProfile | null;
   careerInterests?: string[];
   collegeAlumni?: string;  // ✅ NEW: Added collegeAlumni field
+  batchSize?: number;
 }
 
 export interface ProContactSearchRequest extends ContactSearchRequest {
@@ -165,7 +166,8 @@ class ApiService {
       saveToDirectory: false, // Always false since we handle saving on frontend
       userProfile: request.userProfile,
       careerInterests: request.careerInterests || [],
-      collegeAlumni: request.collegeAlumni || ""  // ✅ Include collegeAlumni
+      collegeAlumni: request.collegeAlumni || "",  // ✅ Include collegeAlumni
+      batchSize: request.batchSize  // ← ADD THIS LINE
     };
 
     console.log(`Free Search Request:`, backendRequest);
