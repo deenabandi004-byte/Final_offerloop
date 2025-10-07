@@ -11,7 +11,7 @@ const SignIn: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
-  const { user, isLoading, signIn } = useFirebaseAuth(); // signIn returns "onboarding" | "home"
+  const { user, isLoading, signIn } = useFirebaseAuth();
 
   const initialTab: Tab = useMemo(() => {
     const sp = new URLSearchParams(location.search);
@@ -21,7 +21,6 @@ const SignIn: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [submitting, setSubmitting] = useState(false);
 
-  // --- NEW: forceNavigate fallback ---
   const forceNavigate = (dest: string) => {
     navigate(dest, { replace: true });
     setTimeout(() => {
@@ -33,10 +32,8 @@ const SignIn: React.FC = () => {
     }, 600);
   };
 
-  // Keep tab in sync with URL
   useEffect(() => setActiveTab(initialTab), [initialTab]);
 
-  // Auto-redirect if already signed in
   useEffect(() => {
     if (!isLoading && user) {
       const dest = user.needsOnboarding ? "/onboarding" : "/home";
@@ -49,7 +46,8 @@ const SignIn: React.FC = () => {
     if (submitting || isLoading) return;
     setSubmitting(true);
     try {
-      const next = await signIn({ prompt: "select_account" }); // "onboarding" | "home"
+      console.log('🔐 Initiating Google Sign-In with Gmail permissions...');
+      const next = await signIn({ prompt: "consent" }); // Force consent to show Gmail permissions
       const dest = next === "onboarding" ? "/onboarding" : "/home";
       console.log("[signin] signIn returned:", next, "→", dest);
       forceNavigate(dest);
@@ -107,7 +105,6 @@ const SignIn: React.FC = () => {
               disabled={submitting || isLoading}
               className="w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 bg-white text-black font-medium hover:opacity-90 disabled:opacity-60"
             >
-              {/* Google "G" logo */}
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="h-5 w-5" aria-hidden="true">
                 <path
                   fill="#FFC107"
@@ -129,11 +126,18 @@ const SignIn: React.FC = () => {
               {activeTab === "signup" ? "Continue with Google" : "Sign in with Google"}
             </button>
 
-            <p className="text-xs text-zinc-400">
-              {activeTab === "signup"
-                ? "By continuing, you agree to create an account and accept our Terms & Privacy Policy."
-                : "We’ll never post or email anyone without your permission."}
-            </p>
+            <div className="text-xs text-zinc-400 space-y-2">
+              <p>
+                {activeTab === "signup"
+                  ? "By continuing, you'll be asked to grant Gmail permissions to create drafts on your behalf."
+                  : "You'll be asked to grant Gmail permissions to create drafts in your account."}
+              </p>
+              <p className="text-zinc-500">
+                ✓ We'll never send emails without your permission<br />
+                ✓ We only create drafts in your Gmail<br />
+                ✓ You review and send all emails yourself
+              </p>
+            </div>
           </div>
         </div>
       </div>
