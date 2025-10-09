@@ -5,9 +5,10 @@
 import os
 import json
 import requests
-import datetime
 import stripe
 import csv
+import threading
+import asyncio
 from io import StringIO
 import base64
 from email.mime.text import MIMEText
@@ -34,8 +35,56 @@ from flask import send_from_directory
 import concurrent.futures
 from functools import lru_cache
 import time
+import hashlib
+from datetime import datetime, timedelta, date
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.pdfgen import canvas
+from serpapi import GoogleSearch
+
 
 # Add this right after your imports section
+def check_and_reset_credits(user_ref, user_data):
+    """Check if 30 days have passed and reset credits if needed"""
+    try:
+        last_reset = user_data.get('lastCreditReset')
+        if not last_reset:
+            # If no reset date, set it to now
+            user_ref.update({'lastCreditReset': datetime.now()})
+            return user_data.get('credits', 0)
+        
+        # Convert Firestore timestamp to datetime if needed
+        if hasattr(last_reset, 'timestamp'):
+            last_reset = datetime.fromtimestamp(last_reset.timestamp())
+        elif isinstance(last_reset, str):
+            from dateutil import parser
+            last_reset = parser.parse(last_reset)
+        
+        # Check if 30 days have passed
+        days_since_reset = (datetime.now() - last_reset).days
+        
+        if days_since_reset >= 30:
+            # Reset credits
+            tier = user_data.get('tier', 'free')
+            max_credits = TIER_CONFIGS[tier]['credits']
+            
+            user_ref.update({
+                'credits': max_credits,
+                'lastCreditReset': datetime.now()
+            })
+            
+            print(f"✅ Credits reset for user {user_data.get('email')} - {max_credits} credits restored")
+            return max_credits
+        
+        return user_data.get('credits', 0)
+        
+    except Exception as e:
+        print(f"Error checking credit reset: {e}")
+        return user_data.get('credits', 0)
 @lru_cache(maxsize=1000)
 def cached_enrich_job_title(job_title):
     """Cache job title enrichments to avoid repeated API calls"""
@@ -93,7 +142,53 @@ def _contact_has_school_alias(c: dict, aliases: list[str]) -> bool:
 
 
 app = Flask(__name__, static_folder="connect-grow-hire/dist", static_url_path="")
-CORS(app, origins=["https://d33d83bb2e38.ngrok-free.app", "*"])
+CORS(app, 
+     resources={
+         r"/api/*": {
+             "origins": [
+                 "http://localhost:8080",
+                 "http://localhost:3000", 
+                 "http://localhost:5173",
+                 "https://d33d83bb2e38.ngrok-free.app",
+                 "https://www.offerloop.ai"
+             ],
+             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+             "allow_headers": ["Content-Type", "Authorization"],
+             "supports_credentials": True,
+             "max_age": 3600  # Cache preflight for 1 hour
+         }
+     })
+@app.after_request
+def after_request(response):
+    """Ensure CORS headers are present on all responses"""
+    origin = request.headers.get('Origin')
+    
+    # Allow specific origins
+    allowed_origins = [
+        'http://localhost:8080',
+        'http://localhost:3000',
+        'http://localhost:5173',
+        'https://d33d83bb2e38.ngrok-free.app',
+        'https://www.offerloop.ai'
+    ]
+    
+    if origin in allowed_origins:
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+        response.headers['Access-Control-Max-Age'] = '3600'
+    
+    return response
+@app.before_request
+def log_request():
+    """Log requests for debugging (only for coffee-chat and when needed)"""
+    # Only log if you want to debug - comment this out in production
+    if 'coffee-chat-prep' in request.path:
+        print(f"\n📨 {request.method} {request.path}")
+        print(f"   Origin: {request.headers.get('Origin')}")
+        if request.headers.get('Authorization'):
+            print(f"   Auth: {request.headers.get('Authorization')[:50]}...")
 
 # Load environment variables from .env
 load_dotenv()
@@ -103,12 +198,19 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Initialize OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
+from openai import AsyncOpenAI
+async_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 # Replace them with these lines:
 PEOPLE_DATA_LABS_API_KEY = os.getenv('PEOPLE_DATA_LABS_API_KEY')
 STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY')
 STRIPE_PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY')
-STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')  # This might be empty for now
+STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')
+SERPAPI_KEY = os.getenv('SERPAPI_KEY')
+COFFEE_CHAT_CREDITS = 5
+
+pdl_cache = {}
+CACHE_DURATION = timedelta(days=365) 
 # Add this validation
 if not PEOPLE_DATA_LABS_API_KEY:
     print("WARNING: PEOPLE_DATA_LABS_API_KEY not found in .env file")
@@ -265,7 +367,7 @@ def init_db():
         db.commit()
 
 def normalize_contact(c: dict) -> dict:
-    today = datetime.date.today().strftime("%m/%d/%Y")
+    today = date.today().strftime("%m/%d/%Y")
     return {
       'FirstName': c.get('FirstName',''),
       'LastName': c.get('LastName',''),
@@ -606,40 +708,6 @@ def es_title_block_from_enrichment(primary_title: str, similar_titles: list[str]
     return es_title_block(primary_title, similar_titles or [])
 
 
-
-def es_location_block_from_strategy(location_strategy: dict):
-    city  = (location_strategy.get("city") or "").lower()
-    state = (location_strategy.get("state") or "").lower()
-    metro_short = (location_strategy.get("metro_location") or "").lower()
-    full_input  = (location_strategy.get("original_input") or "").lower()
-    metro_long  = f"{city}, {state}, united states" if city and state else (f"{city}, united states" if city else "")
-
-    should = []
-    if metro_short: should.append({"match_phrase": {"location_metro": metro_short}})
-    if metro_long:  should.append({"match_phrase": {"location_metro": metro_long}})
-    if full_input:  should.append({"match_phrase": {"location_metro": full_input}})
-    if city:        should.append({"match_phrase": {"location_locality": city}})
-    if state:       should.append({"match_phrase": {"location_region": state}})
-    should.append({"match_phrase": {"location_country": "united states"}})
-
-    return {"bool": {"should": should}}
-
-
-def es_location_block_from_city_state(city: str, state: str):
-    city  = (city or "").lower()
-    state = (state or "").lower()
-    should = []
-    if city and state:
-        should.append({"match_phrase": {"location_metro": f"{city}, {state}, united states"}})
-    if city:
-        should.append({"match_phrase": {"location_metro": f"{city}, united states"}})
-        should.append({"match_phrase": {"location_locality": city}})
-    if state:
-        should.append({"match_phrase": {"location_region": state}})
-    should.append({"match_phrase": {"location_country": "united states"}})
-    return {"bool": {"should": should}}
-
-
 # ========================================
 # SMART LOCATION STRATEGY
 # ========================================
@@ -801,9 +869,43 @@ def search_contacts_with_smart_location_strategy(job_title, company, location, m
 def try_metro_search_optimized(clean_title, similar_titles, company, location_strategy, max_contacts=8, college_alumni=None):
     """
     Build an ES-style query targeting metro + fallbacks and run the scrolled PDL search.
+    STRICT LOCATION: (metro OR city) AND state AND country
     """
     title_block = es_title_block_from_enrichment(clean_title, similar_titles)
-    loc_block   = es_location_block_from_strategy(location_strategy)
+    
+    # BUILD STRICT LOCATION FILTER
+    city = (location_strategy.get("city") or "").lower()
+    state = (location_strategy.get("state") or "").lower()
+    metro_location = (location_strategy.get("metro_location") or "").lower()
+    
+    location_must = []
+    
+    # ✅ FIXED: Build location filter without minimum_should_match
+    if metro_location and city:
+        # Both available: metro OR city
+        location_must.append({
+            "bool": {
+                "should": [
+                    {"term": {"location_metro": metro_location}},
+                    {"term": {"location_locality": city}}
+                ]
+            }
+        })
+    elif metro_location:
+        # Only metro available
+        location_must.append({"term": {"location_metro": metro_location}})
+    elif city:
+        # Only city available
+        location_must.append({"term": {"location_locality": city}})
+    
+    # STRICT: Must match state
+    if state:
+        location_must.append({"term": {"location_region": state}})
+    
+    # STRICT: Must be USA
+    location_must.append({"term": {"location_country": "united states"}})
+    
+    loc_block = {"bool": {"must": location_must}}
 
     must = [title_block, loc_block]
     if company:
@@ -835,13 +937,31 @@ def try_metro_search_optimized(clean_title, similar_titles, company, location_st
         verbose=False
     )
 
-
 def try_locality_search_optimized(clean_title, similar_titles, company, location_strategy, max_contacts=8, college_alumni=None):
     """
     Locality-focused version (used when metro results are thin).
+    STRICT LOCATION: city AND state AND country
     """
     title_block = es_title_block_from_enrichment(clean_title, similar_titles)
-    loc_block   = es_location_block_from_strategy(location_strategy)
+    
+    # BUILD STRICT LOCATION FILTER
+    city = (location_strategy.get("city") or "").lower()
+    state = (location_strategy.get("state") or "").lower()
+    
+    location_must = []
+    
+    # Require exact city match
+    if city:
+        location_must.append({"term": {"location_locality": city}})
+    
+    # STRICT: Require exact state match  
+    if state:
+        location_must.append({"term": {"location_region": state}})
+    
+    # Always require USA
+    location_must.append({"term": {"location_country": "united states"}})
+    
+    loc_block = {"bool": {"must": location_must}}
 
     must = [title_block, loc_block]
     if company:
@@ -872,15 +992,6 @@ def try_locality_search_optimized(clean_title, similar_titles, company, location
         page_size=page_size,
         verbose=False
     )
-
-
-
-
- 
-
-
-
-
 def try_job_title_levels_search_enhanced(job_title_enrichment, company, city, state, max_contacts, college_alumni=None):
     print("Enhanced job title levels search")
 
@@ -901,7 +1012,20 @@ def try_job_title_levels_search_enhanced(job_title_enrichment, company, city, st
     if company:
         must.append({"match_phrase": {"job_company_name": (company or "").lower()}})
 
-    must.append(es_location_block_from_city_state(city, state))
+    location_must = []
+
+    # Require exact city match
+    if city:
+        location_must.append({"term": {"location_locality": city}})
+
+    # STRICT: Require exact state match
+    if state:
+        location_must.append({"term": {"location_region": state}})
+
+    # Always require USA
+    location_must.append({"term": {"location_country": "united states"}})
+
+    must.append({"bool": {"must": location_must}})
 
     if college_alumni:
         aliases = _school_aliases(college_alumni)
@@ -956,11 +1080,24 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
 
     # ---- Page 1
     body = {"query": query_obj, "size": page_size}
+    
+    # ✅ ADD DEBUG LOGGING
+    print(f"\n=== PDL {search_type} DEBUG ===")
+    print(f"Query being sent:")
+    print(json.dumps(body, indent=2, ensure_ascii=False))
+    print("=" * 50)
+    
     if verbose:
         print(f"\n=== PDL {search_type} PAGE 1 BODY ===")
         print(json.dumps(body, ensure_ascii=False))
 
     r = requests.post(url, headers=headers, json=body, timeout=30)
+    
+    # ✅ ADD ERROR DETAIL LOGGING
+    if r.status_code != 200:
+        print(f"\n❌ PDL ERROR {r.status_code}:")
+        print(f"Response: {r.text[:1000]}")
+    
     r.raise_for_status()
     j = r.json()
 
@@ -1065,20 +1202,32 @@ Education History:
 
 def _choose_best_email(emails: list[dict], recommended: str | None = None) -> str | None:
     def is_valid(addr: str) -> bool:
-        if not addr or '@' not in addr: return False
+        # Handle case where addr might be a boolean or other non-string type
+        if not isinstance(addr, str):
+            return False
+        if not addr or '@' not in addr: 
+            return False
         bad = ["example.com", "test.com", "domain.com", "noreply@"]
         return not any(b in addr.lower() for b in bad)
+    
     items = []
     for e in emails or []:
         addr = (e.get("address") or "").strip()
-        et  = (e.get("type") or "").lower()
+        et = (e.get("type") or "").lower()
         if is_valid(addr):
             items.append((et, addr))
+    
     for et, a in items:
-        if et in ("work","professional"): return a
+        if et in ("work","professional"): 
+            return a
     for et, a in items:
-        if et == "personal": return a
-    if recommended and is_valid(recommended): return recommended
+        if et == "personal": 
+            return a
+    
+    # Handle case where recommended might be a boolean
+    if isinstance(recommended, str) and is_valid(recommended): 
+        return recommended
+        
     return items[0][1] if items else None
 def batch_extract_hometowns(contacts):
     """Extract hometowns for all contacts in one API call"""
@@ -1248,16 +1397,24 @@ Return as valid JSON:
 def extract_contact_from_pdl_person_enhanced(person):
     """Enhanced contact extraction with relaxed, sensible email acceptance."""
     try:
+        print(f"DEBUG: Starting contact extraction")
+        
         # Basic identity
         first_name = person.get('first_name', '')
         last_name = person.get('last_name', '')
         if not first_name or not last_name:
+            print(f"DEBUG: Missing name")
             return None
 
-        # Experience (keep your enriched logic)
+        print(f"DEBUG: Name found - {first_name} {last_name}")
+
+        # Experience
         experience = person.get('experience', []) or []
+        if not isinstance(experience, list):
+            experience = []
+            
         work_experience_details, current_job = [], None
-        if isinstance(experience, list) and experience:
+        if experience:
             current_job = experience[0]
             for i, job in enumerate(experience[:5]):
                 if not isinstance(job, dict):
@@ -1286,7 +1443,7 @@ def extract_contact_from_pdl_person_enhanced(person):
 
         company_name = ''
         job_title = ''
-        if current_job:
+        if current_job and isinstance(current_job, dict):
             company_info = current_job.get('company') or {}
             title_info = current_job.get('title') or {}
             company_name = company_info.get('name', '') if isinstance(company_info, dict) else ''
@@ -1297,65 +1454,83 @@ def extract_contact_from_pdl_person_enhanced(person):
         city = location_info.get('locality', '') if isinstance(location_info, dict) else ''
         state = location_info.get('region', '') if isinstance(location_info, dict) else ''
 
-        # Email selection (relaxed but validated)
+        # Email selection - FIXED VERSION
         emails = person.get('emails') or []
+        if not isinstance(emails, list):
+            emails = []
+            
         recommended = person.get('recommended_personal_email') or ''
+        if not isinstance(recommended, str):
+            recommended = ''
+            
         best_email = _choose_best_email(emails, recommended)
 
         if not best_email:
-            print(f"Skipping contact {first_name} {last_name} - no valid email found")
-            return None
+            print(f"WARNING: No email found for {first_name} {last_name}, continuing anyway for Coffee Chat")
+            best_email = "Not available"  # Set a placeholder instead of returning None
 
         # Phone
         phone_numbers = person.get('phone_numbers') or []
-        phone = phone_numbers[0] if isinstance(phone_numbers, list) and phone_numbers else ''
+        if not isinstance(phone_numbers, list):
+            phone_numbers = []
+        phone = phone_numbers[0] if phone_numbers else ''
 
         # LinkedIn
         profiles = person.get('profiles') or []
+        if not isinstance(profiles, list):
+            profiles = []
+            
         linkedin_url = ''
-        if isinstance(profiles, list):
-            for p in profiles:
-                if isinstance(p, dict) and 'linkedin' in (p.get('network') or '').lower():
-                    linkedin_url = p.get('url', '') or ''
-                    break
+        for p in profiles:
+            if isinstance(p, dict) and 'linkedin' in (p.get('network') or '').lower():
+                linkedin_url = p.get('url', '') or ''
+                break
 
-        # Education (keep your enriched history)
+        # Education
         education = person.get('education') or []
+        if not isinstance(education, list):
+            education = []
+            
         education_details, college_name = [], ""
-        if isinstance(education, list):
-            for edu in education:
-                if not isinstance(edu, dict):
-                    continue
-                school_info = edu.get('school') or {}
-                school_name = school_info.get('name', '') if isinstance(school_info, dict) else ''
-                degrees = edu.get('degrees') or []
-                degree = degrees[0] if isinstance(degrees, list) and degrees else ''
-                start_date = edu.get('start_date') or {}
-                end_date = edu.get('end_date') or {}
-                syear = start_date.get('year') if isinstance(start_date, dict) else None
-                eyear = end_date.get('year') if isinstance(end_date, dict) else None
+        for edu in education:
+            if not isinstance(edu, dict):
+                continue
+            school_info = edu.get('school') or {}
+            school_name = school_info.get('name', '') if isinstance(school_info, dict) else ''
+            degrees = edu.get('degrees') or []
+            
+            if not isinstance(degrees, list):
+                degrees = []
+                
+            degree = degrees[0] if degrees else ''
+            start_date = edu.get('start_date') or {}
+            end_date = edu.get('end_date') or {}
+            syear = start_date.get('year') if isinstance(start_date, dict) else None
+            eyear = end_date.get('year') if isinstance(end_date, dict) else None
 
-                if school_name:
-                    entry = school_name
-                    if degree:
-                        entry += f" - {degree}"
-                    if syear or eyear:
-                        entry += f" ({syear or '?'} - {eyear or 'Present'})"
-                    education_details.append(entry)
-                    if not college_name and 'high school' not in school_name.lower():
-                        college_name = school_name
+            if school_name:
+                entry = school_name
+                if degree:
+                    entry += f" - {degree}"
+                if syear or eyear:
+                    entry += f" ({syear or '?'} - {eyear or 'Present'})"
+                education_details.append(entry)
+                if not college_name and 'high school' not in school_name.lower():
+                    college_name = school_name
         education_history = '; '.join(education_details) if education_details else 'Not available'
 
-        # Volunteer (keep your logic, trimmed)
+        # Volunteer
         volunteer_work = []
         interests = person.get('interests') or []
-        if isinstance(interests, list):
-            for interest in interests:
-                if isinstance(interest, str):
-                    if any(k in interest.lower() for k in ['volunteer', 'charity', 'nonprofit', 'community', 'mentor']):
-                        volunteer_work.append(interest)
-                    elif len(volunteer_work) < 3:
-                        volunteer_work.append(f"{interest} enthusiast")
+        if not isinstance(interests, list):
+            interests = []
+            
+        for interest in interests:
+            if isinstance(interest, str):
+                if any(k in interest.lower() for k in ['volunteer', 'charity', 'nonprofit', 'community', 'mentor']):
+                    volunteer_work.append(interest)
+                elif len(volunteer_work) < 3:
+                    volunteer_work.append(f"{interest} enthusiast")
 
         summary = person.get('summary') or ''
         if isinstance(summary, str):
@@ -1368,19 +1543,26 @@ def extract_contact_from_pdl_person_enhanced(person):
                             break
         volunteer_history = '; '.join(volunteer_work[:5]) if volunteer_work else 'Not available'
 
+        # Safe email extraction for WorkEmail
+        work_email = 'Not available'
+        for e in emails:
+            if isinstance(e, dict) and (e.get('type') or '').lower() in ('work', 'professional'):
+                work_email = e.get('address', '') or 'Not available'
+                break
+
         contact = {
             'FirstName': first_name,
             'LastName': last_name,
             'LinkedIn': linkedin_url,
-            'Email': best_email,  # <- final chosen email
+            'Email': best_email or "Not available", 
             'Title': job_title,
             'Company': company_name,
             'City': city,
             'State': state,
             'College': college_name,
             'Phone': phone,
-            'PersonalEmail': person.get('recommended_personal_email', '') or '',
-            'WorkEmail': next((e.get('address') for e in emails if isinstance(e, dict) and (e.get('type') or '').lower() in ('work', 'professional')), '') or 'Not available',
+            'PersonalEmail': recommended if isinstance(recommended, str) else '',
+            'WorkEmail': work_email,
             'SocialProfiles': f'LinkedIn: {linkedin_url}' if linkedin_url else 'Not available',
             'EducationTop': education_history,
             'VolunteerHistory': volunteer_history,
@@ -1390,9 +1572,13 @@ def extract_contact_from_pdl_person_enhanced(person):
             'DataVersion': person.get('dataset_version', 'Unknown')
         }
 
+        print(f"DEBUG: Contact extraction successful")
         return contact
+        
     except Exception as e:
         print(f"Failed to extract enhanced contact: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def add_pdl_enrichment_fields_optimized(contact, person_data):
@@ -1982,6 +2168,244 @@ def extract_text_from_pdf(pdf_file):
     except Exception as e:
         print(f"PDF text extraction failed: {e}")
         return None
+    
+# ========================================
+# COFFEE CHAT HELPER FUNCTIONS
+# ========================================
+def enrich_linkedin_profile(linkedin_url):
+    """Use PDL to enrich LinkedIn profile"""
+    try:
+        # Check cache first
+        cached = get_cached_pdl_data(linkedin_url)
+        if cached:
+            print(f"Using cached data for: {linkedin_url}")
+            return cached
+        
+        print(f"Enriching LinkedIn profile: {linkedin_url}")
+        
+        # Clean the LinkedIn URL - FIXED VERSION
+        linkedin_url = linkedin_url.strip()
+        
+        # Remove protocol if present
+        linkedin_url = linkedin_url.replace('https://', '').replace('http://', '')
+        
+        # Remove www. if present
+        linkedin_url = linkedin_url.replace('www.', '')
+        
+        # If it's just the username (no linkedin.com), add the full path
+        if not linkedin_url.startswith('linkedin.com'):
+            linkedin_url = f'https://www.linkedin.com/in/{linkedin_url}'
+        else:
+            # If it already has linkedin.com, just add https://
+            linkedin_url = f'https://{linkedin_url}'
+        
+        print(f"Cleaned URL: {linkedin_url}")
+        
+        # Use PDL Person Enrichment API
+        response = requests.get(
+            f"{PDL_BASE_URL}/person/enrich",
+            params={
+                'api_key': PEOPLE_DATA_LABS_API_KEY,
+                'profile': linkedin_url,
+                'pretty': True
+            },
+            timeout=30
+        )
+        
+        print(f"PDL API response status: {response.status_code}")
+        
+        if response.status_code == 200:
+            person_data = response.json()
+            print(f"PDL response status: {person_data.get('status')}")
+            
+            if person_data.get('status') == 200 and person_data.get('data'):
+                print(f"Successfully enriched profile")
+                
+                # Extract the data using your existing function
+                enriched = extract_contact_from_pdl_person_enhanced(person_data['data'])
+                
+                if not enriched:
+                    print(f"Failed to extract contact data")
+                    return None
+                
+                # Transform to coffee chat format
+                coffee_chat_data = {
+                    'firstName': enriched.get('FirstName', ''),
+                    'lastName': enriched.get('LastName', ''),
+                    'jobTitle': enriched.get('Title', ''),
+                    'company': enriched.get('Company', ''),
+                    'location': f"{enriched.get('City', '')}, {enriched.get('State', '')}",
+                    'workExperience': [enriched.get('WorkSummary', '')],
+                    'education': [enriched.get('EducationTop', '')],
+                    'volunteerWork': [enriched.get('VolunteerHistory', '')] if enriched.get('VolunteerHistory') else [],
+                    'linkedinUrl': enriched.get('LinkedIn', ''),
+                    'email': enriched.get('Email', ''),
+                    'city': enriched.get('City', ''),
+                    'state': enriched.get('State', ''),
+                    'interests': []
+                }
+                
+                print(f"Caching enriched data for: {linkedin_url}")
+                set_pdl_cache(linkedin_url, coffee_chat_data)
+                return coffee_chat_data
+            else:
+                print(f"PDL returned status {person_data.get('status')} - no data found")
+                if person_data.get('error'):
+                    print(f"PDL error: {person_data.get('error')}")
+                return None
+        
+        elif response.status_code == 404:
+            print(f"LinkedIn profile not found in PDL database")
+            return None
+        elif response.status_code == 402:
+            print(f"PDL API: Payment required (out of credits)")
+            return None
+        elif response.status_code == 401:
+            print(f"PDL API: Invalid API key")
+            return None
+        else:
+            print(f"PDL enrichment failed with status {response.status_code}")
+            print(f"Response: {response.text[:500]}")
+            return None
+        
+    except requests.exceptions.Timeout:
+        print(f"PDL API timeout for {linkedin_url}")
+        return None
+    except Exception as e:
+        print(f"LinkedIn enrichment error: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+        
+    except requests.exceptions.Timeout:
+        print(f"⏱️ PDL API timeout for {linkedin_url}")
+        return None
+    except Exception as e:
+        print(f"❌ LinkedIn enrichment error: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+def fetch_company_news(company, location):
+    """Fetch recent company news using SerpAPI"""
+    try:
+        if not SERPAPI_KEY:
+            print("SerpAPI key not configured - skipping news fetch")
+            return []
+        
+        print(f"Fetching news for {company} in {location}")
+        
+        # Build search query
+        query = f"{company} {location} recent news announcements"
+        
+        from serpapi import GoogleSearch
+        search = GoogleSearch({
+            'q': query,
+            'api_key': SERPAPI_KEY,
+            'num': 5,
+            'tbm': 'nws',  # News search
+            'tbs': 'qdr:m3'  # Last 3 months
+        })
+        
+        results = search.get_dict()
+        news_items = []
+        
+        # Process news results
+        if 'news_results' in results:
+            for result in results.get('news_results', [])[:5]:
+                news_items.append({
+                    'title': result.get('title', ''),
+                    'url': result.get('link', ''),
+                    'summary': result.get('snippet', '')[:200],
+                    'source': result.get('source', ''),
+                    'published_at': result.get('date', ''),
+                    'relevance_tag': 'company'
+                })
+        
+        return news_items
+        
+    except Exception as e:
+        print(f"Error fetching company news: {e}")
+        return []
+
+def generate_coffee_chat_similarity(user_data, contact_data):
+    """Generate similarity summary for coffee chat"""
+    try:
+        prompt = f"""You are an expert in identifying meaningful personal commonalities for networking. 
+Given structured profile data for User and Contact, analyze and describe shared similarities between them in 40-60 words.
+
+USER DATA:
+Name: {user_data.get('name', '')}
+University: {user_data.get('university', '')}
+Major: {user_data.get('major', '')}
+
+CONTACT DATA:
+Name: {contact_data.get('firstName', '')} {contact_data.get('lastName', '')}
+Company: {contact_data.get('company', '')}
+Education: {', '.join(contact_data.get('education', [])[:2])}
+Location: {contact_data.get('location', '')}
+
+Focus only on personal, human-connection similarities. Be conversational and natural."""
+        
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=150,
+            temperature=0.7
+        )
+        
+        return response.choices[0].message.content.strip()
+        
+    except Exception as e:
+        print(f"Similarity generation failed: {e}")
+        return "Both professionals share a commitment to excellence in their respective fields."
+
+def generate_coffee_chat_questions(contact_data, user_data):
+    """Generate 8 coffee chat questions"""
+    try:
+        prompt = f"""Generate 8 thoughtful coffee chat questions for a student to ask a professional.
+
+PROFESSIONAL:
+Name: {contact_data.get('firstName', '')} {contact_data.get('lastName', '')}
+Role: {contact_data.get('jobTitle', '')} at {contact_data.get('company', '')}
+
+STUDENT:
+Field of Study: {user_data.get('major', '')}
+
+Create 8 specific, engaging questions. Return only the 8 questions, one per line, without numbering."""
+        
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=400,
+            temperature=0.8
+        )
+        
+        questions = response.choices[0].message.content.strip().split('\n')
+        questions = [q.strip() for q in questions if q.strip()][:8]
+        
+        # Ensure we have exactly 8 questions
+        while len(questions) < 8:
+            questions.append(f"What advice would you give someone starting in your field?")
+        
+        return questions
+        
+    except Exception as e:
+        print(f"Question generation failed: {e}")
+        return [
+            "How did you decide to pursue your current career path?",
+            "What's the most rewarding aspect of your role?",
+            "What skills have been most valuable in your career?",
+            "How has the industry changed since you started?",
+            "What's a typical day like in your position?",
+            "What challenges does your team face?",
+            "What advice would you give someone entering this field?",
+            "What emerging trends should I be aware of?"
+        ]
+
+# ========================================
+# RESUME PROCESSING FUNCTIONS
+# ========================================
 
 def parse_resume_info(resume_text):
     """Extract user information from resume text with improved error handling"""
@@ -2210,6 +2634,84 @@ Keep each field concise - 1-2 words per item maximum.
     except Exception as e:
         print(f"Detailed resume insights extraction failed: {e}")
         return {'experiences': [], 'skills': [], 'interests': [], 'projects': [], 'leadership': []}
+def save_resume_to_firebase(user_id, resume_text):
+    """Save resume text to Firebase for later use"""
+    try:
+        if not db or not user_id:
+            print("ERROR: DB or user_id missing")
+            return False
+        
+        print(f"DEBUG: Saving resume for user {user_id}")
+        print(f"DEBUG: Resume text length: {len(resume_text)} characters")
+        
+        profile_ref = db.collection('users').document(user_id).collection('profile').document('resume')
+        profile_ref.set({
+            'resumeText': resume_text,
+            'updatedAt': datetime.now().isoformat()
+        }, merge=True)
+        
+        print(f"SUCCESS: Resume saved for user {user_id}")
+        return True
+    except Exception as e:
+        print(f"ERROR saving resume: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+async def generate_similarity_async(resume_text, contact):
+    """Async version of similarity generation for parallel processing"""
+    try:
+        if not resume_text or len(resume_text.strip()) < 10:
+            return "Both professionals with complementary experience"
+        
+        clean_resume = resume_text.replace('"', "'").replace('\n', ' ')
+        clean_resume = ' '.join(clean_resume.split())[:800]
+        
+        contact_summary = f"""
+Name: {contact.get('FirstName', '')} {contact.get('LastName', '')}
+Company: {contact.get('Company', '')}
+Title: {contact.get('Title', '')}
+Education: {contact.get('EducationTop', '')}
+Work Summary: {contact.get('WorkSummary', '')}
+"""
+        
+        prompt = f"""
+Compare this resume with the contact's background and identify ONE key similarity in a single sentence.
+Focus on: education, work experience, volunteer work, interests, or career path.
+Be specific and concise.
+
+Resume (first 800 chars):
+{clean_resume}
+
+Contact Background:
+{contact_summary}
+
+Generate ONE sentence highlighting the most relevant similarity:
+"""
+        
+        response = await async_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are an expert at finding meaningful connections between people's backgrounds. Write concise, specific similarities."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=100,
+            temperature=0.7
+        )
+        
+        similarity = response.choices[0].message.content.strip()
+        similarity = similarity.replace('"', "'").strip()
+        
+        return similarity
+        
+    except Exception as e:
+        print(f"Async similarity generation failed for {contact.get('FirstName', '')}: {e}")
+        return "Both professionals with strong backgrounds in their respective fields"
+
+async def batch_generate_similarities(contacts, resume_text):
+    """Generate all similarities in parallel"""
+    print(f"Generating {len(contacts)} similarities in parallel...")
+    tasks = [generate_similarity_async(resume_text, contact) for contact in contacts]
+    return await asyncio.gather(*tasks)
 
 def generate_similarity_summary(resume_text, contact):
     """Generate similarity between resume and contact with improved error handling"""
@@ -2987,7 +3489,7 @@ def run_free_tier_enhanced_final(job_title, company, location, user_email=None, 
                 
                 if user_doc.exists:
                     user_data = user_doc.to_dict()
-                    credits_available = user_data.get('credits', 120)
+                    credits_available = check_and_reset_credits(user_ref, user_data)
                     
                     # Check if user has enough credits (minimum 15 for 1 contact)
                     if credits_available < 15:
@@ -3002,13 +3504,15 @@ def run_free_tier_enhanced_final(job_title, company, location, user_email=None, 
                     print(f"User has {credits_available} credits available")
                 else:
                     # Create new user document with default credits using user ID
+                    # Create new user document with default credits using user ID
                     user_ref.set({
                         'uid': user_id,
                         'email': user_email,
                         'credits': 120,
                         'maxCredits': 120,
                         'tier': 'free',
-                        'created_at': datetime.datetime.now()
+                        'created_at': datetime.now(),
+                        'lastCreditReset': datetime.now()
                     })
                     print(f"Created new user document with ID {user_id} and 120 credits")
             except Exception as credit_check_error:
@@ -3042,7 +3546,7 @@ def run_free_tier_enhanced_final(job_title, company, location, user_email=None, 
                 user_ref = db.collection('users').document(user_id)
                 user_ref.update({
                     'credits': new_credits_balance,
-                    'last_search': datetime.datetime.now(),
+                    'last_search': datetime.now(),
                     'last_search_job_title': job_title,
                     'last_search_company': company,
                     'last_search_location': location,
@@ -3208,7 +3712,7 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                 user_ref = db.collection('users').document(user_id)
                 user_ref.update({
                     'credits': new_credits_balance,
-                    'last_search': datetime.datetime.now(),
+                    'last_search': datetime.now(),
                     'last_search_job_title': job_title,
                     'last_search_company': company,
                     'last_search_location': location,
@@ -3273,7 +3777,7 @@ def validate_search_inputs(job_title, company, location):
 
 def log_api_usage(tier, user_email, contacts_found, emails_generated=0):
     """Log API usage for monitoring and billing"""
-    timestamp = datetime.datetime.now().isoformat()
+    timestamp = datetime.now().isoformat()
     usage_log = {
         'timestamp': timestamp,
         'tier': tier,
@@ -3293,7 +3797,7 @@ def log_api_usage(tier, user_email, contacts_found, emails_generated=0):
 def cleanup_old_csv_files():
     """Clean up old CSV files to save disk space"""
     try:
-        current_time = datetime.datetime.now()
+        current_time = datetime.now()
         
         for filename in os.listdir('.'):
             if filename.startswith('RecruitEdge_') and filename.endswith('.csv'):
@@ -3413,165 +3917,7 @@ def build_mailto_link(contact, subject, body):
     except Exception:
         return ''
 
-# === NEW FINAL TIER FUNCTIONS (use unified email system) ===
-def run_pro_tier_enhanced_final(job_title, company, location, resume_file, user_email=None, user_profile=None, career_interests=None, college_alumni=None):
-    """PRO TIER: 56 contacts max with PDL + resume analysis + new unified email system"""
-    print(f"Running PRO tier workflow with new email system for {user_email}")
-    
-    try:
-        # GET USER ID FROM REQUEST CONTEXT
-        user_id = None
-        if hasattr(request, 'firebase_user'):
-            user_id = request.firebase_user.get('uid')
-            print(f"Using Firebase user ID: {user_id}")
-        
-        # CHECK USER CREDITS BEFORE SEARCHING
-        credits_available = 840  # Default for pro tier
-        if db and user_id:
-            try:
-                user_ref = db.collection('users').document(user_id)
-                user_doc = user_ref.get()
-                
-                if user_doc.exists:
-                    user_data = user_doc.to_dict()
-                    credits_available = user_data.get('credits', 840)
-                    tier = user_data.get('tier', 'free')
-                    
-                    # Verify user is Pro tier
-                    if tier != 'pro':
-                        return {'error': 'Pro tier subscription required', 'contacts': []}
-                    
-                    # Check credits (minimum 15 for 1 contact)
-                    if credits_available < 15:
-                        return {
-                            'error': 'Insufficient credits. Please contact support for additional credits.',
-                            'credits_needed': 15,
-                            'current_credits': credits_available,
-                            'contacts': []
-                        }
-                    
-                    print(f"Pro user has {credits_available} credits available")
-                else:
-                    return {'error': 'User not found. Pro subscription required.', 'contacts': []}
-            except Exception as credit_check_error:
-                print(f"Credit check error: {credit_check_error}")
-                return {'error': 'Unable to verify Pro subscription', 'contacts': []}
-        
-        # Calculate max contacts based on credits
-        max_contacts_by_credits = min(TIER_CONFIGS['pro']['max_contacts'], credits_available // 15)  # 15 cap
-        print(f"Max contacts by credits (PRO): {max_contacts_by_credits} (credits={credits_available})")
-
-        
-        # Step 1: Extract and parse resume
-        resume_text = extract_text_from_pdf(resume_file)
-        if not resume_text:
-            return {'error': 'Could not extract text from PDF', 'contacts': []}
-        
-        print(f"DEBUG - PRO tier input data:")
-        print(f"  resume_text length: {len(resume_text)}")
-        print(f"  user_profile: {user_profile}")
-        print(f"  career_interests: {career_interests}")
-        print(f"  user_email: {user_email}")
-        
-        # Step 2: PDL Search for contacts (limited by credits)
-        contacts = search_contacts_with_smart_location_strategy(
-            job_title, company, location,
-            max_contacts=max_contacts_by_credits,
-            college_alumni=college_alumni
-        )
-        
-        if not contacts:
-            print("No contacts found for Pro tier")
-            return {'error': 'No contacts found', 'contacts': []}
-        
-        # DEDUCT CREDITS BASED ON ACTUAL CONTACTS FOUND
-        credits_to_deduct = len(contacts) * 15
-        new_credits_balance = credits_available - credits_to_deduct
-        
-        # UPDATE CREDITS IN FIREBASE
-        if db and user_id:
-            try:
-                user_ref = db.collection('users').document(user_id)
-                user_ref.update({
-                    'credits': new_credits_balance,
-                    'last_search': datetime.datetime.now(),
-                    'last_search_job_title': job_title,
-                    'last_search_company': company,
-                    'last_search_location': location,
-                    'last_search_contacts': len(contacts),
-                    'last_search_credits_used': credits_to_deduct,
-                    'tier': 'pro'  # Ensure tier stays pro
-                })
-                print(f"Pro tier: Deducted {credits_to_deduct} credits for {len(contacts)} contacts. New balance: {new_credits_balance}")
-            except Exception as credit_update_error:
-                print(f"Failed to update credits for user ID {user_id}: {credit_update_error}")
-                # Continue even if credit update fails
-        
-        # Step 3: Generate similarities and hometowns for each contact
-        for contact in contacts:
-            # Generate similarity
-            try:
-                similarity = generate_similarity_summary(resume_text, contact)
-            except Exception:
-                similarity = ''
-            contact['Similarity'] = similarity
-            
-            # Extract hometown
-            edu_hist = contact.get('EducationTop') or contact.get('EducationHistory') or ''
-            try:
-                hometown = extract_hometown_from_education_history_enhanced(edu_hist)
-            except Exception:
-                hometown = contact.get('Hometown') or 'Unknown'
-            contact['Hometown'] = hometown or 'Unknown'
-        
-        # Step 4: Generate emails using NEW UNIFIED SYSTEM
-        successful_drafts = 0
-        for contact in contacts:
-            print(f"DEBUG - Generating PRO email for {contact.get('FirstName', 'Unknown')}")
-            
-            # Generate personalized email
-            email_subject, email_body = generate_email_for_both_tiers(
-                contact,
-                resume_text=resume_text,
-                user_profile=user_profile,
-                career_interests=career_interests
-            )
-            
-            contact['email_subject'] = email_subject
-            contact['email_body'] = email_body
-            
-            # Create Gmail draft
-            draft_id = create_gmail_draft_for_user(contact, email_subject, email_body, tier='pro', user_email=user_email)
-            contact['draft_id'] = draft_id
-            if not str(draft_id).startswith('mock_'):
-                successful_drafts += 1
-        
-        # Step 5: Filter to Pro fields
-        pro_contacts = []
-        for c in contacts:
-            pro_contact = {k: v for k, v in c.items() if k in TIER_CONFIGS['pro']['fields']}
-            pro_contact['email_subject'] = c.get('email_subject','')
-            pro_contact['email_body'] = c.get('email_body','')
-            pro_contacts.append(pro_contact)
-        
-        print(f"Pro tier completed for {user_email}: {len(pro_contacts)} contacts, {successful_drafts} Gmail drafts")
-        
-        # RETURN WITH CREDIT INFO (NO CSV FILE)
-        return {
-            'contacts': pro_contacts,
-            'successful_drafts': successful_drafts,
-            'tier': 'pro',
-            'user_email': user_email,
-            'user_id': user_id,
-            'credits_used': credits_to_deduct,
-            'credits_remaining': new_credits_balance,
-            'total_contacts': len(contacts)
-        }
-        
-    except Exception as e:
-        print(f"Pro tier failed for {user_email}: {e}")
-        traceback.print_exc()
-        return {'error': str(e), 'contacts': []}
+ 
 @app.route('/api/tier-info')
 def get_tier_info():
     """Get information about available tiers"""
@@ -3630,7 +3976,7 @@ def check_credits():
             
             if user_doc.exists:
                 user_data = user_doc.to_dict()
-                credits = user_data.get('credits', 0)
+                credits = check_and_reset_credits(user_ref, user_data)
                 max_credits = user_data.get('maxCredits', 120)
                 tier = user_data.get('tier', 'free')
                 
@@ -3683,7 +4029,210 @@ def post_directory_contacts():
         return jsonify({'error': 'contacts must be an array'}), 400
     saved = save_contacts_sqlite(user_email, contacts)
     return jsonify({'saved': saved})
+def get_pdl_cache_key(linkedin_url):
+    """Generate cache key for LinkedIn URL"""
+    return hashlib.md5(linkedin_url.encode()).hexdigest()
 
+def get_cached_pdl_data(linkedin_url):
+    """Get cached PDL data if available"""
+    cache_key = get_pdl_cache_key(linkedin_url)
+    if cache_key in pdl_cache:
+        cached = pdl_cache[cache_key]
+        # Don't expire - keep forever as requested
+        print(f"Using cached PDL data for {linkedin_url}")
+        return cached['data']
+    return None
+
+def set_pdl_cache(linkedin_url, data):
+    """Cache PDL data permanently"""
+    cache_key = get_pdl_cache_key(linkedin_url)
+    pdl_cache[cache_key] = {
+        'data': data,
+        'timestamp': datetime.now()
+    }
+def generate_coffee_chat_pdf_simple_fixed(prep_id, contact_data, company_news, similarity, questions):
+    """Generate a simple Coffee Chat PDF"""
+    try:
+        from io import BytesIO
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+        
+        print("Creating PDF buffer...")
+        buffer = BytesIO()
+        
+        # Create PDF
+        doc = SimpleDocTemplate(buffer, pagesize=letter)
+        styles = getSampleStyleSheet()
+        story = []
+        
+        # Title
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=24,
+            textColor='#1a73e8',
+            spaceAfter=30,
+            alignment=TA_CENTER
+        )
+        
+        story.append(Paragraph("Coffee Chat Prep", title_style))
+        story.append(Spacer(1, 0.3*inch))
+        
+        # Contact Info
+        story.append(Paragraph(f"<b>Contact:</b> {contact_data.get('firstName', '')} {contact_data.get('lastName', '')}", styles['Heading2']))
+        story.append(Paragraph(f"<b>Title:</b> {contact_data.get('jobTitle', 'N/A')}", styles['Normal']))
+        story.append(Paragraph(f"<b>Company:</b> {contact_data.get('company', 'N/A')}", styles['Normal']))
+        story.append(Paragraph(f"<b>Location:</b> {contact_data.get('location', 'N/A')}", styles['Normal']))
+        story.append(Spacer(1, 0.3*inch))
+        
+        # Similarity
+        story.append(Paragraph("<b>Why You're a Great Match:</b>", styles['Heading2']))
+        story.append(Paragraph(similarity, styles['Normal']))
+        story.append(Spacer(1, 0.3*inch))
+        
+        # Questions
+        story.append(Paragraph("<b>Questions to Ask:</b>", styles['Heading2']))
+        for i, question in enumerate(questions, 1):
+            story.append(Paragraph(f"{i}. {question}", styles['Normal']))
+            story.append(Spacer(1, 0.1*inch))
+        
+        story.append(Spacer(1, 0.3*inch))
+        
+        # Company News
+        if company_news:
+            story.append(PageBreak())
+            story.append(Paragraph("<b>Recent Company News:</b>", styles['Heading2']))
+            for news in company_news[:5]:
+                story.append(Paragraph(f"<b>{news.get('title', '')}</b>", styles['Normal']))
+                story.append(Paragraph(news.get('summary', '')[:200] + "...", styles['Normal']))
+                story.append(Spacer(1, 0.2*inch))
+        
+        # Build PDF
+        doc.build(story)
+        buffer.seek(0)
+        
+        print(f"PDF generated successfully ({buffer.getbuffer().nbytes} bytes)")
+        return buffer
+        
+    except Exception as e:
+        print(f"PDF generation failed: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Return a minimal fallback PDF
+        from io import BytesIO
+        buffer = BytesIO()
+        buffer.write(b"%PDF-1.4\nCoffee Chat Prep - Error generating PDF")
+        buffer.seek(0)
+        return buffer
+def process_coffee_chat_prep_background(prep_id, linkedin_url, user_id, credits_available, resume_text):
+    """Background worker to process coffee chat prep"""
+    try:
+        print(f"\n=== PROCESSING PREP {prep_id} ===")
+        
+        if not db:
+            print("❌ No database connection")
+            return
+        
+        prep_ref = db.collection('users').document(user_id).collection('coffee-chat-preps').document(prep_id)
+        
+        # Step 1: Enrich LinkedIn profile
+        print("Step 1: Enriching LinkedIn profile...")
+        prep_ref.update({'status': 'enriching_profile'})
+        contact_data = enrich_linkedin_profile(linkedin_url)
+        
+        if not contact_data:
+            print("❌ Failed to enrich profile")
+            prep_ref.update({
+                'status': 'failed',
+                'error': 'Could not enrich LinkedIn profile. Please check the URL and try again.'
+            })
+            return
+        
+        print(f"✅ Profile enriched: {contact_data.get('firstName')} {contact_data.get('lastName')}")
+        prep_ref.update({'contactData': contact_data})
+        
+        # Step 2: Fetch company news
+        print("Step 2: Fetching company news...")
+        prep_ref.update({'status': 'fetching_news'})
+        company_news = fetch_company_news(
+            contact_data.get('company', ''),
+            contact_data.get('location', '')
+        )
+        print(f"✅ Found {len(company_news)} news items")
+        
+        # Step 3: Generate user data from resume
+        print("Step 3: Parsing resume...")
+        user_data = parse_resume_info(resume_text) if resume_text else {}
+        print(f"✅ User data: {user_data.get('name')}")
+        
+        # Step 4: Generate similarity and questions
+        print("Step 4: Generating similarity and questions...")
+        prep_ref.update({'status': 'generating_content'})
+        
+        similarity = generate_coffee_chat_similarity(user_data, contact_data)
+        questions = generate_coffee_chat_questions(contact_data, user_data)
+        
+        print(f"✅ Generated similarity and {len(questions)} questions")
+        
+        # Step 5: Generate PDF
+        print("Step 5: Generating PDF...")
+        prep_ref.update({'status': 'generating_pdf'})
+        
+        pdf_buffer = generate_coffee_chat_pdf_simple_fixed(
+            prep_id,
+            contact_data,
+            company_news,
+            similarity,
+            questions
+        )
+        
+        # Save PDF to temporary file
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
+            tmp.write(pdf_buffer.getvalue())
+            pdf_path = tmp.name
+        
+        print(f"✅ PDF generated ({pdf_buffer.getbuffer().nbytes} bytes)")
+        print(f"✅ PDF saved to: {pdf_path}")
+        
+        # Step 6: Mark as completed
+        print("Step 6: Marking as completed...")
+        prep_ref.update({
+            'status': 'completed',
+            'pdfPath': pdf_path,
+            'completedAt': datetime.now().isoformat(),
+            'companyNews': company_news,
+            'similaritySummary': similarity,
+            'coffeeQuestions': questions
+        })
+        
+        print(f"✅ Status set to 'completed'")
+        
+        # Step 7: Deduct credits
+        print("Step 7: Deducting credits...")
+        user_ref = db.collection('users').document(user_id)
+        new_credits = max(0, credits_available - COFFEE_CHAT_CREDITS)
+        user_ref.update({'credits': new_credits})
+        
+        print(f"✅ Credits deducted: {credits_available} -> {new_credits}")
+        print(f"=== PREP {prep_id} COMPLETED SUCCESSFULLY ===\n")
+        
+    except Exception as e:
+        print(f"❌ Coffee chat prep failed: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        try:
+            prep_ref.update({
+                'status': 'failed',
+                'error': str(e)
+            })
+        except:
+            pass
 # Update the /api/free-run endpoint to remove CSV download logic
 @app.route("/api/free-run", methods=["POST"])
 @require_firebase_auth
@@ -3837,13 +4386,12 @@ def pro_run():
         
         # Handle both JSON and form-data requests
         if request.is_json:
-            # JSON request - expecting base64 encoded resume or resume text
             data = request.get_json(silent=True) or {}
             job_title = (data.get("jobTitle") or "").strip()
             company = (data.get("company") or "").strip()
             location = (data.get("location") or "").strip()
             
-            # For JSON requests, we expect either resumeText or a different format
+            # For JSON requests, expect resume text directly
             resume_text = data.get("resumeText") or None
             if not resume_text:
                 return jsonify({"error": "Resume text is required for Pro tier"}), 400
@@ -3851,7 +4399,7 @@ def pro_run():
             user_profile = data.get("userProfile") or None
             career_interests = data.get("careerInterests") or []
             college_alumni = (data.get("collegeAlumni") or "").strip()
-            batch_size = data.get("batchSize") 
+            batch_size = data.get("batchSize")
             
         else:
             # Form data request - expecting file upload
@@ -3859,7 +4407,7 @@ def pro_run():
             company = (request.form.get("company") or "").strip()
             location = (request.form.get("location") or "").strip()
             
-            # Handle file upload
+            # Handle file upload and extract text
             if 'resume' not in request.files:
                 return jsonify({'error': 'Resume PDF file is required for Pro tier'}), 400
             
@@ -3867,7 +4415,7 @@ def pro_run():
             if resume_file.filename == '' or not resume_file.filename.lower().endswith('.pdf'):
                 return jsonify({'error': 'Valid PDF resume file is required'}), 400
             
-            # Extract text from uploaded PDF
+            # Extract text from PDF
             resume_text = extract_text_from_pdf(resume_file)
             if not resume_text:
                 return jsonify({'error': 'Could not extract text from PDF'}), 400
@@ -3886,7 +4434,7 @@ def pro_run():
                 career_interests = []
                 
             college_alumni = (request.form.get("collegeAlumni") or "").strip()
-            batch_size = request.form.get("batchSize")  # NEW
+            batch_size = request.form.get("batchSize")
             if batch_size:
                 batch_size = int(batch_size)
 
@@ -3903,12 +4451,12 @@ def pro_run():
             print(f"Resume provided ({len(resume_text)} chars)")
         print(f"DEBUG - college_alumni received: {college_alumni!r}")
 
-        # Run the PRO tier search - pass resume_text directly instead of resume_file
+        # ✅ Call the OPTIMIZED version with resume_text (not resume_file)
         result = run_pro_tier_enhanced_final_with_text(
             job_title,
             company,
             location,
-            resume_text,  # Pass the extracted text, not the file
+            resume_text,  # Pass extracted text, not file
             user_email=user_email,
             user_profile=user_profile,
             career_interests=career_interests,
@@ -3932,10 +4480,426 @@ def pro_run():
         print(f"Pro endpoint error: {e}")
         import traceback; traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+# ========================================
+# COFFEE CHAT - FIXED VERSION
+# ========================================
+# ========================================
+# COFFEE CHAT ENDPOINTS - CORRECT ORDER
+# ========================================
+
+@app.route('/api/coffee-chat-prep', methods=['POST'])
+@require_firebase_auth
+def create_coffee_chat_prep():
+    """Create a new coffee chat prep"""
+    try:
+        print("\n=== COFFEE CHAT PREP START ===")
+        
+        data = request.get_json() or {}
+        linkedin_url = data.get('linkedinUrl', '').strip()
+        
+        if not linkedin_url:
+            return jsonify({'error': 'LinkedIn URL is required'}), 400
+        
+        user_id = request.firebase_user.get('uid')
+        user_email = request.firebase_user.get('email')
+        
+        # Check credits
+        credits_available = 120
+        if db and user_id:
+            user_ref = db.collection('users').document(user_id)
+            user_doc = user_ref.get()
+            if user_doc.exists:
+                user_data = user_doc.to_dict()
+                credits_available = check_and_reset_credits(user_ref, user_data)
+                
+                if credits_available < COFFEE_CHAT_CREDITS:
+                    return jsonify({
+                        'error': f'Insufficient credits. You need {COFFEE_CHAT_CREDITS} credits.',
+                        'credits_needed': COFFEE_CHAT_CREDITS,
+                        'current_credits': credits_available
+                    }), 400
+        
+        # Get resume
+        resume_text = None
+        if db and user_id:
+            profile_ref = db.collection('users').document(user_id).collection('profile').document('resume')
+            profile_doc = profile_ref.get()
+            
+            if profile_doc.exists:
+                profile_data = profile_doc.to_dict()
+                resume_text = profile_data.get('resumeText')
+        
+        if not resume_text:
+            return jsonify({
+                'error': 'Please upload your resume in Account Settings first.',
+                'needsResume': True
+            }), 400
+        
+        # Create prep record
+        prep_data = {
+            'linkedinUrl': linkedin_url,
+            'status': 'processing',
+            'createdAt': datetime.now().isoformat(),
+            'userId': user_id,
+            'userEmail': user_email
+        }
+        
+        prep_ref = db.collection('users').document(user_id).collection('coffee-chat-preps').document()
+        prep_ref.set(prep_data)
+        prep_id = prep_ref.id
+        
+        # Start background processing
+        thread = threading.Thread(
+            target=process_coffee_chat_prep_background,
+            args=(prep_id, linkedin_url, user_id, credits_available, resume_text)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({
+            'prepId': prep_id,
+            'status': 'processing',
+            'message': 'Coffee Chat Prep is being generated...'
+        }), 200
+        
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/coffee-chat-prep/history', methods=['GET'])
+@require_firebase_auth
+def get_coffee_chat_history():
+    """Get recent coffee chat prep history"""
+    try:
+        user_id = request.firebase_user.get('uid')
+        limit = request.args.get('limit', 5, type=int)
+        
+        if not db:
+            return jsonify({'history': []}), 200
+        
+        preps_ref = db.collection('users').document(user_id).collection('coffee-chat-preps')
+        preps = preps_ref.order_by('createdAt', direction=firestore.Query.DESCENDING).limit(limit).stream()
+        
+        history = []
+        for prep in preps:
+            prep_data = prep.to_dict()
+            contact_data = prep_data.get('contactData', {})
+            history.append({
+                'id': prep.id,
+                'contactName': f"{contact_data.get('firstName', '')} {contact_data.get('lastName', '')}".strip() or 'Unknown',
+                'company': contact_data.get('company', ''),
+                'jobTitle': contact_data.get('jobTitle', ''),
+                'status': prep_data.get('status', 'unknown'),
+                'createdAt': prep_data.get('createdAt', ''),
+                'error': prep_data.get('error', '')
+            })
+        
+        return jsonify({'history': history}), 200
+        
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({'history': []}), 200
+
+
+@app.route('/api/coffee-chat-prep/all', methods=['GET'])
+@require_firebase_auth
+def get_all_coffee_chat_preps():
+    """Get all coffee chat preps"""
+    try:
+        user_id = request.firebase_user.get('uid')
+        preps_ref = db.collection('users').document(user_id).collection('coffee-chat-preps')
+        preps = preps_ref.order_by('createdAt', direction=firestore.Query.DESCENDING).stream()
+        
+        all_preps = []
+        for prep in preps:
+            prep_data = prep.to_dict()
+            contact_data = prep_data.get('contactData', {})
+            
+            all_preps.append({
+                'id': prep.id,
+                'contactName': f"{contact_data.get('firstName', '')} {contact_data.get('lastName', '')}".strip() or 'Unknown',
+                'company': contact_data.get('company', ''),
+                'jobTitle': contact_data.get('jobTitle', ''),
+                'linkedinUrl': prep_data.get('linkedinUrl', ''),
+                'status': prep_data.get('status'),
+                'createdAt': prep_data.get('createdAt', ''),
+                'error': prep_data.get('error', '')
+            })
+        
+        return jsonify({'preps': all_preps})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/coffee-chat-prep/<prep_id>/download', methods=['GET'])
+@require_firebase_auth
+def download_coffee_chat_pdf(prep_id):
+    """Download Coffee Chat PDF"""
+    try:
+        user_id = request.firebase_user.get('uid')
+        prep_ref = db.collection('users').document(user_id).collection('coffee-chat-preps').document(prep_id)
+        prep_doc = prep_ref.get()
+        
+        if not prep_doc.exists:
+            return jsonify({'error': 'Prep not found'}), 404
+        
+        prep_data = prep_doc.to_dict()
+        pdf_path = prep_data.get('pdfPath')
+        
+        if not pdf_path or not os.path.exists(pdf_path):
+            return jsonify({'error': 'PDF not found'}), 404
+        
+        return send_file(
+            pdf_path,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=f'coffee_chat_{prep_id}.pdf'
+        )
+        
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/coffee-chat-prep/<prep_id>', methods=['GET'])
+@require_firebase_auth
+def get_coffee_chat_prep(prep_id):
+    """Get prep status"""
+    try:
+        user_id = request.firebase_user.get('uid')
+        prep_ref = db.collection('users').document(user_id).collection('coffee-chat-preps').document(prep_id)
+        prep_doc = prep_ref.get()
+        
+        if not prep_doc.exists:
+            return jsonify({'error': 'Prep not found'}), 404
+        
+        prep_data = prep_doc.to_dict()
+        prep_data['id'] = prep_id
+        
+        return jsonify(prep_data), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/coffee-chat-prep/<prep_id>', methods=['DELETE'])
+@require_firebase_auth
+def delete_coffee_chat_prep(prep_id):
+    """Delete prep"""
+    try:
+        user_id = request.firebase_user.get('uid')
+        prep_ref = db.collection('users').document(user_id).collection('coffee-chat-preps').document(prep_id)
+        
+        if not prep_ref.get().exists:
+            return jsonify({'error': 'Prep not found'}), 404
+        
+        prep_ref.delete()
+        return jsonify({'success': True, 'message': 'Prep deleted'}), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_text, user_email=None, user_profile=None, career_interests=None, college_alumni=None, batch_size=None):
+    """OPTIMIZED PRO TIER: Parallel processing for faster results"""
+    import time
+    start_time = time.time()
+    
+    print(f"Starting OPTIMIZED Pro tier for {user_email}")
+    
+    try:
+        # GET USER ID FROM REQUEST CONTEXT
+        user_id = None
+        if hasattr(request, 'firebase_user'):
+            user_id = request.firebase_user.get('uid')
+            print(f"Using Firebase user ID: {user_id}")
+        
+        # CHECK USER CREDITS BEFORE SEARCHING
+        credits_available = 840  # Default for pro tier
+        if db and user_id:
+            try:
+                user_ref = db.collection('users').document(user_id)
+                user_doc = user_ref.get()
+                
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+                    credits_available = user_data.get('credits', 840)
+                    tier = user_data.get('tier', 'free')
+                    
+                    # Verify user is Pro tier
+                    if tier != 'pro':
+                        return {'error': 'Pro tier subscription required', 'contacts': []}
+                    
+                    # Check credits (minimum 15 for 1 contact)
+                    if credits_available < 15:
+                        return {
+                            'error': 'Insufficient credits. Please contact support for additional credits.',
+                            'credits_needed': 15,
+                            'current_credits': credits_available,
+                            'contacts': []
+                        }
+                    
+                    print(f"Pro user has {credits_available} credits available")
+                else:
+                    return {'error': 'User not found. Pro subscription required.', 'contacts': []}
+            except Exception as credit_check_error:
+                print(f"Credit check error: {credit_check_error}")
+                return {'error': 'Unable to verify Pro subscription', 'contacts': []}
+        
+        # Calculate max contacts based on credits
+        tier_max = TIER_CONFIGS['pro']['max_contacts']
+
+        # USE BATCH_SIZE FROM SLIDER if provided
+        if batch_size is not None and isinstance(batch_size, int) and batch_size > 0:
+            max_contacts_by_credits = min(batch_size, tier_max, credits_available // 15)
+            print(f"PRO: Using batch_size: {batch_size} -> searching for {max_contacts_by_credits} contacts")
+        else:
+            max_contacts_by_credits = min(tier_max, credits_available // 15)
+            print(f"PRO: No batch_size, using max: {max_contacts_by_credits} contacts")
+
+        # Validate resume text
+        if not resume_text or len(resume_text.strip()) < 10:
+            return {'error': 'Valid resume content is required for Pro tier', 'contacts': []}
+        
+        print(f"DEBUG - PRO tier input data:")
+        print(f"  resume_text length: {len(resume_text)}")
+        print(f"  user_profile: {user_profile}")
+        print(f"  career_interests: {career_interests}")
+        print(f"  user_email: {user_email}")
+        
+        # PDL Search for contacts
+        print("Searching for contacts...")
+        search_start = time.time()
+        contacts = search_contacts_with_smart_location_strategy(
+            job_title, company, location,
+            max_contacts=max_contacts_by_credits,
+            college_alumni=college_alumni
+        )
+        print(f"Search took {time.time() - search_start:.2f} seconds")
+        
+        if not contacts:
+            print("No contacts found for Pro tier")
+            return {'error': 'No contacts found', 'contacts': []}
+        
+        # DEDUCT CREDITS BASED ON ACTUAL CONTACTS FOUND
+        credits_to_deduct = len(contacts) * 15
+        new_credits_balance = credits_available - credits_to_deduct
+        
+        # UPDATE CREDITS IN FIREBASE
+        if db and user_id:
+            try:
+                user_ref = db.collection('users').document(user_id)
+                user_ref.update({
+                    'credits': new_credits_balance,
+                    'last_search': datetime.now(),
+                    'last_search_job_title': job_title,
+                    'last_search_company': company,
+                    'last_search_location': location,
+                    'last_search_contacts': len(contacts),
+                    'last_search_credits_used': credits_to_deduct,
+                    'tier': 'pro'
+                })
+                print(f"Pro tier: Deducted {credits_to_deduct} credits for {len(contacts)} contacts. New balance: {new_credits_balance}")
+            except Exception as credit_update_error:
+                print(f"Failed to update credits for user ID {user_id}: {credit_update_error}")
+        
+        # ============================================
+        # PARALLEL PROCESSING STARTS HERE (THE MAGIC)
+        # ============================================
+        print("Starting parallel processing...")
+        process_start = time.time()
+        
+        # Create event loop for async operations
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Step 1: Generate similarities in PARALLEL
+        print("Generating similarities (parallel)...")
+        similarities_start = time.time()
+        similarities = loop.run_until_complete(
+            batch_generate_similarities(contacts, resume_text)
+        )
+        print(f"Similarities done in {time.time() - similarities_start:.2f} seconds")
+        
+        # Assign similarities to contacts
+        for contact, similarity in zip(contacts, similarities):
+            contact['Similarity'] = similarity
+        
+        # Step 2: Extract hometowns in BATCH
+        print("Extracting hometowns (batch)...")
+        hometown_start = time.time()
+        hometown_map = batch_extract_hometowns(contacts)
+        for i, contact in enumerate(contacts):
+            contact['Hometown'] = hometown_map.get(i, "Unknown")
+        print(f"Hometowns done in {time.time() - hometown_start:.2f} seconds")
+        
+        # Step 3: Generate emails in BATCH (single API call for all)
+        print("Generating emails (batch)...")
+        email_start = time.time()
+        email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests)
+        
+        for i, contact in enumerate(contacts):
+            if i in email_results:
+                contact['email_subject'] = email_results[i].get('subject', 'Quick question about your work')
+                contact['email_body'] = email_results[i].get('body', '')
+            else:
+                # Fallback
+                contact['email_subject'] = 'Quick question about your work'
+                contact['email_body'] = f"Hi {contact.get('FirstName', '')}, I'd love to connect about your work at {contact.get('Company', '')}."
+        
+        print(f"Emails done in {time.time() - email_start:.2f} seconds")
+        
+        # Close the event loop
+        loop.close()
+        
+        print(f"✅ Parallel processing completed in {time.time() - process_start:.2f} seconds")
+        
+        # Create Gmail drafts (this part is fast, keep sequential)
+        successful_drafts = 0
+        for contact in contacts:
+            draft_id = create_gmail_draft_for_user(
+                contact, 
+                contact['email_subject'], 
+                contact['email_body'], 
+                tier='pro', 
+                user_email=user_email
+            )
+            contact['draft_id'] = draft_id
+            if not str(draft_id).startswith('mock_'):
+                successful_drafts += 1
+        
+        # Filter to Pro fields
+        pro_contacts = []
+        for c in contacts:
+            pro_contact = {k: v for k, v in c.items() if k in TIER_CONFIGS['pro']['fields']}
+            pro_contact['email_subject'] = c.get('email_subject','')
+            pro_contact['email_body'] = c.get('email_body','')
+            pro_contacts.append(pro_contact)
+        
+        total_time = time.time() - start_time
+        print(f"✅ OPTIMIZED Pro tier completed in {total_time:.2f} seconds")
+        print(f"✅ Processed {len(pro_contacts)} contacts")
+        
+        return {
+            'contacts': pro_contacts,
+            'successful_drafts': successful_drafts,
+            'tier': 'pro',
+            'user_email': user_email,
+            'user_id': user_id,
+            'credits_used': credits_to_deduct,
+            'credits_remaining': new_credits_balance,
+            'total_contacts': len(contacts),
+            'processing_time': total_time
+        }
+        
+    except Exception as e:
+        print(f"Pro tier failed for {user_email}: {e}")
+        traceback.print_exc()
+        return {'error': str(e), 'contacts': []}
 
 
 # Create a new version of the PRO tier function that accepts resume_text instead of resume_file
-def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_text, user_email=None, user_profile=None, career_interests=None, college_alumni=None):
+def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_text, user_email=None, user_profile=None, career_interests=None, college_alumni=None, batch_size=None):
     """PRO TIER: Modified to accept resume_text instead of resume_file"""
     print(f"Running PRO tier workflow with resume text for {user_email}")
     
@@ -3979,10 +4943,16 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                 return {'error': 'Unable to verify Pro subscription', 'contacts': []}
         
         # Calculate max contacts based on credits
-        tier_max = TIER_CONFIGS['pro']['max_contacts']    # 15
-        max_contacts_by_credits = min(tier_max, credits_available // 15)
-        print(f"Max contacts by credits: {max_contacts_by_credits} (based on {credits_available} credits)")
-        
+        tier_max = TIER_CONFIGS['pro']['max_contacts']    # 8
+
+        # USE BATCH_SIZE FROM SLIDER if provided
+        if batch_size is not None and isinstance(batch_size, int) and batch_size > 0:
+            max_contacts_by_credits = min(batch_size, tier_max, credits_available // 15)
+            print(f"PRO: Using batch_size: {batch_size} -> searching for {max_contacts_by_credits} contacts")
+        else:
+            max_contacts_by_credits = min(tier_max, credits_available // 15)
+            print(f"PRO: No batch_size, using max: {max_contacts_by_credits} contacts")
+
         # Validate resume text
         if not resume_text or len(resume_text.strip()) < 10:
             return {'error': 'Valid resume content is required for Pro tier', 'contacts': []}
@@ -4014,7 +4984,7 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                 user_ref = db.collection('users').document(user_id)
                 user_ref.update({
                     'credits': new_credits_balance,
-                    'last_search': datetime.datetime.now(),
+                    'last_search': datetime.now(),
                     'last_search_job_title': job_title,
                     'last_search_company': company,
                     'last_search_location': location,
@@ -4141,7 +5111,7 @@ def pro_run_csv():
             return jsonify({'error': 'Valid PDF resume file is required'}), 400
         
         # Run the search
-        result = run_pro_tier_enhanced_final(
+        result = run_pro_tier_enhanced_final_with_text(
             job_title,
             company,
             location,
@@ -4248,29 +5218,83 @@ def enrich_job_title_api():
 def parse_resume():
     """Parse uploaded resume and extract user information"""
     try:
+        print("=== RESUME UPLOAD DEBUG ===")
+        print(f"Request files: {request.files}")
+        print(f"Request headers: {dict(request.headers)}")
+        
         if 'resume' not in request.files:
+            print("ERROR: No resume file in request")
             return jsonify({'error': 'No resume file provided'}), 400
         
         file = request.files['resume']
+        print(f"File received: {file.filename}")
+        
         if file.filename == '':
+            print("ERROR: Empty filename")
             return jsonify({'error': 'No file selected'}), 400
         
         if not file.filename.lower().endswith('.pdf'):
+            print(f"ERROR: Invalid file type: {file.filename}")
             return jsonify({'error': 'Only PDF files are supported'}), 400
         
+        # Extract text from PDF
+        print("Extracting text from PDF...")
         resume_text = extract_text_from_pdf(file)
         if not resume_text:
+            print("ERROR: Could not extract text from PDF")
             return jsonify({'error': 'Could not extract text from PDF'}), 400
         
+        print(f"Extracted {len(resume_text)} characters from PDF")
+        
+        # Parse the resume
+        print("Parsing resume...")
         parsed_info = parse_resume_info(resume_text)
+        print(f"Parsed info: {parsed_info}")
+        
+        # Save to Firebase if user is authenticated
+        user_id = None
+        try:
+            auth_header = request.headers.get('Authorization', '')
+            print(f"Auth header present: {bool(auth_header)}")
+            
+            if auth_header.startswith('Bearer '):
+                id_token = auth_header.split(' ', 1)[1].strip()
+                try:
+                    decoded = fb_auth.verify_id_token(id_token)
+                    user_id = decoded.get('uid')
+                    print(f"User ID from token: {user_id}")
+                    
+                    if user_id:
+                        print("Attempting to save resume to Firebase...")
+                        save_result = save_resume_to_firebase(user_id, resume_text)
+                        print(f"Save result: {save_result}")
+                        
+                        if not save_result:
+                            print("WARNING: Resume save returned False")
+                        else:
+                            print("✅ Resume saved successfully")
+                            
+                except Exception as e:
+                    print(f"ERROR: Token verification failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+        except Exception as e:
+            print(f"ERROR: Auth check failed: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        print("=== RESUME UPLOAD COMPLETE ===")
         
         return jsonify({
             'success': True,
-            'data': parsed_info
+            'data': parsed_info,
+            'savedToFirebase': bool(user_id)
         })
         
     except Exception as e:
-        print(f"Resume parsing error: {e}")
+        print(f"FATAL ERROR in resume parsing: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': 'Failed to parse resume'}), 500
 
 @app.route('/api/contacts', methods=['GET'])
@@ -4309,7 +5333,7 @@ def create_contact():
         if not db:
             return jsonify({'error': 'Firebase not initialized'}), 500
         
-        today = datetime.datetime.now().strftime('%m/%d/%Y')
+        today = datetime.now().strftime('%m/%d/%Y')
         contact = {
             'firstName': data.get('firstName', ''),
             'lastName': data.get('lastName', ''),
@@ -4357,7 +5381,7 @@ def update_contact(contact_id):
         if 'status' in data:
             current = doc.to_dict()
             if current.get('status') != data['status']:
-                update['lastContactDate'] = datetime.datetime.now().strftime('%m/%d/%Y')
+                update['lastContactDate'] = datetime.now().strftime('%m/%d/%Y')
             update['status'] = data['status']
         
         ref.update(update)
@@ -4410,7 +5434,7 @@ def bulk_create_contacts():
         created = 0
         skipped = 0
         created_contacts = []
-        today = datetime.datetime.now().strftime('%m/%d/%Y')
+        today = datetime.now().strftime('%m/%d/%Y')
 
         for rc in raw_contacts:
             first_name = (rc.get('FirstName') or rc.get('firstName') or '').strip()
@@ -4490,7 +5514,7 @@ def update_user_tier():
             'tier': tier,
             'credits': credits,
             'maxCredits': max_credits,
-            'updated_at': datetime.datetime.now().isoformat()
+            'updated_at': datetime.now().isoformat()
         }
         
         print(f"Updated user {user_email} to {tier} tier with {credits} credits")
@@ -4559,6 +5583,7 @@ def create_checkout_session():
         return jsonify({'error': 'Failed to create checkout session'}), 500
 @app.route('/api/stripe-webhook', methods=['POST'])
 def stripe_webhook():
+    """Enhanced webhook handler for all subscription lifecycle events"""
     payload = request.get_data()
     sig_header = request.headers.get('Stripe-Signature')
     
@@ -4566,16 +5591,303 @@ def stripe_webhook():
         event = stripe.Webhook.construct_event(
             payload, sig_header, STRIPE_WEBHOOK_SECRET
         )
-    except:
-        return jsonify({'error': 'Invalid webhook'}), 400
+    except ValueError as e:
+        print(f"Invalid payload: {e}")
+        return jsonify({'error': 'Invalid payload'}), 400
+    except stripe.error.SignatureVerificationError as e:
+        print(f"Invalid signature: {e}")
+        return jsonify({'error': 'Invalid signature'}), 400
 
-    if event['type'] == 'checkout.session.completed':
-        session = event['data']['object']
-        user_id = session['metadata']['userId']
-        # Update user to Pro tier here
+    print(f"Received Stripe webhook: {event['type']}")
+    
+    event_type = event['type']
+    
+    try:
+        if event_type == 'checkout.session.completed':
+            handle_checkout_completed(event['data']['object'])
+        elif event_type == 'customer.subscription.updated':
+            handle_subscription_updated(event['data']['object'])
+        elif event_type == 'customer.subscription.deleted':
+            handle_subscription_deleted(event['data']['object'])
+        elif event_type == 'invoice.payment_succeeded':
+            handle_payment_succeeded(event['data']['object'])
+        elif event_type == 'invoice.payment_failed':
+            handle_payment_failed(event['data']['object'])
+        else:
+            print(f"Unhandled event type: {event_type}")
+    
+    except Exception as e:
+        print(f"Error handling webhook event {event_type}: {e}")
+        traceback.print_exc()
+        return jsonify({'error': 'Webhook handler failed'}), 500
+    
+    return jsonify({'status': 'success'}), 200
+
+def handle_checkout_completed(session):
+    """Handle successful checkout - upgrade user to Pro"""
+    try:
+        user_id = session['metadata'].get('userId')
+        user_email = session['metadata'].get('userEmail')
+        customer_id = session.get('customer')
+        subscription_id = session.get('subscription')
         
-    return jsonify({'status': 'success'})
+        if not user_id or not db:
+            print(f"Missing user_id or db connection")
+            return
+        
+        print(f"Upgrading user {user_email} to Pro tier")
+        
+        # Retrieve subscription with expand to get all fields
+        subscription = stripe.Subscription.retrieve(
+            subscription_id,
+            expand=['latest_invoice']
+        )
+        
+        # Build update data safely
+        update_data = {
+            'tier': 'pro',
+            'credits': 840,
+            'maxCredits': 840,
+            'stripeCustomerId': customer_id,
+            'stripeSubscriptionId': subscription_id,
+            'subscriptionStatus': subscription.status,
+            'upgraded_at': datetime.now().isoformat()
+        }
+        
+        # Add period dates if available
+        if hasattr(subscription, 'current_period_start') and subscription.current_period_start:
+            update_data['subscriptionStartDate'] = datetime.fromtimestamp(subscription.current_period_start).isoformat()
+        
+        if hasattr(subscription, 'current_period_end') and subscription.current_period_end:
+            update_data['subscriptionEndDate'] = datetime.fromtimestamp(subscription.current_period_end).isoformat()
+        
+        # Update Firebase
+        user_ref = db.collection('users').document(user_id)
+        user_ref.update(update_data)
+        
+        print(f"✅ Successfully upgraded {user_email} to Pro")
+        
+    except Exception as e:
+        print(f"Error in handle_checkout_completed: {e}")
+        traceback.print_exc()
+def handle_subscription_updated(subscription):
+    """Handle subscription updates"""
+    try:
+        customer_id = subscription.get('customer')
+        
+        if not db:
+            return
+        
+        users_ref = db.collection('users')
+        query = users_ref.where('stripeCustomerId', '==', customer_id).limit(1)
+        docs = list(query.stream())
+        
+        if not docs:
+            print(f"No user found for customer {customer_id}")
+            return
+        
+        user_doc = docs[0]
+        user_ref = users_ref.document(user_doc.id)
+        
+        status = subscription.get('status')
+        
+        update_data = {
+            'subscriptionStatus': status,
+            'subscriptionEndDate': datetime.fromtimestamp(subscription.current_period_end).isoformat(),
+            'updated_at': datetime.now().isoformat()
+        }
+        
+        if status == 'active':
+            update_data['tier'] = 'pro'
+            user_data = user_doc.to_dict()
+            if user_data.get('credits', 0) < 100:
+                update_data['credits'] = 840
+        
+        user_ref.update(update_data)
+        print(f"Updated subscription for user {user_doc.id}")
+        
+    except Exception as e:
+        print(f"Error in handle_subscription_updated: {e}")
+        traceback.print_exc()
 
+def handle_subscription_deleted(subscription):
+    """Handle subscription cancellation"""
+    try:
+        customer_id = subscription.get('customer')
+        
+        if not db:
+            return
+        
+        users_ref = db.collection('users')
+        query = users_ref.where('stripeCustomerId', '==', customer_id).limit(1)
+        docs = list(query.stream())
+        
+        if not docs:
+            print(f"No user found for customer {customer_id}")
+            return
+        
+        user_doc = docs[0]
+        user_ref = users_ref.document(user_doc.id)
+        
+        user_ref.update({
+            'tier': 'free',
+            'credits': 120,
+            'maxCredits': 120,
+            'subscriptionStatus': 'canceled',
+            'downgraded_at': datetime.now().isoformat()
+        })
+        
+        print(f"Downgraded user {user_doc.id} to Free tier")
+        
+    except Exception as e:
+        print(f"Error in handle_subscription_deleted: {e}")
+        traceback.print_exc()
+
+def handle_payment_succeeded(invoice):
+    """Handle successful payment"""
+    try:
+        customer_id = invoice.get('customer')
+        subscription_id = invoice.get('subscription')
+        
+        if not db or not subscription_id:
+            return
+        
+        users_ref = db.collection('users')
+        query = users_ref.where('stripeCustomerId', '==', customer_id).limit(1)
+        docs = list(query.stream())
+        
+        if not docs:
+            return
+        
+        user_doc = docs[0]
+        user_ref = users_ref.document(user_doc.id)
+        
+        user_ref.update({
+            'credits': 840,
+            'lastCreditReset': datetime.now(),
+            'last_payment_date': datetime.now().isoformat(),
+            'subscriptionStatus': 'active'
+        })
+        
+        print(f"Refreshed credits for user {user_doc.id} after payment")
+        
+    except Exception as e:
+        print(f"Error in handle_payment_succeeded: {e}")
+
+def handle_payment_failed(invoice):
+    """Handle failed payment"""
+    try:
+        customer_id = invoice.get('customer')
+        
+        if not db:
+            return
+        
+        users_ref = db.collection('users')
+        query = users_ref.where('stripeCustomerId', '==', customer_id).limit(1)
+        docs = list(query.stream())
+        
+        if not docs:
+            return
+        
+        user_doc = docs[0]
+        user_ref = users_ref.document(user_doc.id)
+        
+        user_ref.update({
+            'subscriptionStatus': 'past_due',
+            'payment_failed_at': datetime.now().isoformat()
+        })
+        
+        print(f"Payment failed for user {user_doc.id}")
+        
+    except Exception as e:
+        print(f"Error in handle_payment_failed: {e}")
+@app.route('/api/create-portal-session', methods=['POST'])
+@require_firebase_auth
+def create_portal_session():
+    """Create Stripe Customer Portal session"""
+    try:
+        user_id = request.firebase_user['uid']
+        
+        if not db:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            return jsonify({'error': 'User not found'}), 404
+        
+        user_data = user_doc.to_dict()
+        customer_id = user_data.get('stripeCustomerId')
+        
+        if not customer_id:
+            return jsonify({'error': 'No active subscription found'}), 400
+        
+        return_url = request.json.get('returnUrl', 'http://localhost:3000/account')
+        
+        session = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=return_url
+        )
+        
+        return jsonify({'url': session.url})
+        
+    except Exception as e:
+        print(f"Portal session creation failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# ========================================
+# SUBSCRIPTION STATUS
+# ========================================
+
+@app.route('/api/subscription-status', methods=['GET'])
+@require_firebase_auth
+def get_subscription_status():
+    """Get current subscription status"""
+    try:
+        user_id = request.firebase_user['uid']
+        
+        if not db:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            return jsonify({'error': 'User not found'}), 404
+        
+        user_data = user_doc.to_dict()
+        subscription_id = user_data.get('stripeSubscriptionId')
+        
+        if not subscription_id:
+            return jsonify({
+                'tier': user_data.get('tier', 'free'),
+                'status': 'none',
+                'hasSubscription': False
+            })
+        
+        subscription = stripe.Subscription.retrieve(subscription_id)
+        
+        if subscription.status != user_data.get('subscriptionStatus'):
+            user_ref.update({
+                'subscriptionStatus': subscription.status,
+                'subscriptionEndDate': datetime.fromtimestamp(subscription.current_period_end).isoformat()
+            })
+        
+        return jsonify({
+            'tier': user_data.get('tier', 'free'),
+            'status': subscription.status,
+            'hasSubscription': True,
+            'currentPeriodEnd': subscription.current_period_end,
+            'cancelAtPeriodEnd': subscription.cancel_at_period_end
+        })
+        
+    except stripe.error.StripeError as e:
+        print(f"Stripe error: {e}")
+        return jsonify({'error': 'Failed to fetch subscription'}), 500
+    except Exception as e:
+        print(f"Error fetching subscription status: {e}")
+        return jsonify({'error': str(e)}), 500
 
 # Error handlers
 @app.errorhandler(404)
@@ -4648,61 +5960,157 @@ def extract_user_info_from_resume_priority(resume_text, profile):
         return {}
 
 def build_template_prompt(user_info, contact, resume_text):
-    """Build the exact prompt spec that drives template selection and drafting."""
+    """Build the prompt for generating short, punchy networking emails."""
     import json as _json
     
     # Get actual values, not placeholders
-    name = user_info.get('name', '') or 'John Smith'  # Use actual name or fallback
+    name = user_info.get('name', '') or 'John Smith'
     university = user_info.get('university', '') or 'University'
     major = user_info.get('major', '') or 'student'
     year = user_info.get('year', '') or ''
     degree = user_info.get('degree', '') or ''
     career_interests = user_info.get('career_interests', [])
     
-    # Build a clean description of career interests
-    interests_str = ""
-    if career_interests:
-        if len(career_interests) == 1:
-            interests_str = career_interests[0]
-        elif len(career_interests) == 2:
-            interests_str = f"{career_interests[0]} and {career_interests[1]}"
-        else:
-            interests_str = f"{', '.join(career_interests[:-1])}, and {career_interests[-1]}"
+    # Build sender description
+    sender_desc = f"{name}"
+    if year:
+        sender_desc += f" - {year}"
+    if major:
+        sender_desc += f" {major}"
+    if university:
+        sender_desc += f" at {university}"
     
-    contact_norm = {
-        'FirstName': contact.get('FirstName',''),
-        'LastName': contact.get('LastName',''),
-        'Title': contact.get('Title',''),
-        'Company': contact.get('Company',''),
-        'City': contact.get('City',''),
-        'State': contact.get('State',''),
-        'College': contact.get('College',''),
-        'Hometown': contact.get('Hometown','')
-    }
+    # Build recipient description
+    recipient_desc = f"{contact.get('FirstName', '')} {contact.get('LastName', '')} - {contact.get('Title', '')} at {contact.get('Company', '')}"
     
-    return (
-        "You are an expert career outreach email writer for college students.\n"
-        "Follow these rules exactly:\n"
-        "- Write a complete, personalized email using the provided information\n"
-        "- Return STRICT JSON with keys: template, subject, body\n"
-        "- The email must be 120-170 words, concise, respectful, and specific\n"
-        "- Use actual names and information - NO placeholders like [name], {name}, or [Company]\n"
-        "- Choose appropriate template: Straightforward, Common-Background, Research-Acknowledgment, Resume-Context, or Aspirational\n"
-        "- Ask for a 15-20 minute chat within 1-2 weeks\n\n"
-        f"Student Information:\n"
-        f"- Name: {name}\n"
-        f"- University: {university}\n"
-        f"- Major: {major}\n"
-        f"- Year: {year}\n"
-        f"- Degree: {degree}\n"
-        f"- Career Interests: {interests_str}\n\n"
-        f"Contact Information: {_json.dumps(contact_norm)}\n\n"
-        f"Resume Context: {resume_text[:1000].replace(chr(10), ' ') if resume_text else 'No resume provided'}\n\n"
-        "Write the complete email using the actual names and information provided. "
-        "Do NOT use any placeholders - fill in all information directly.\n"
-        "Return JSON only with template, subject, and body keys."
-    )
+    # Generate conversation hook based on available information
+    hook = generate_conversation_hook(contact, user_info, resume_text)
+    
+    # Location info
+    location = f"{contact.get('City', '')}, {contact.get('State', '')}"
+    
+    # Background/Work summary
+    background = contact.get('WorkSummary', '') or f"Professional at {contact.get('Company', '')}"
+    
+    # User contact info for signature
+    user_email = user_info.get('email', '')
+    user_phone = user_info.get('phone', '')
+    user_linkedin = user_info.get('linkedin', '')
+    
+    contact_info_lines = []
+    if user_email:
+        contact_info_lines.append(user_email)
+    if user_phone:
+        contact_info_lines.append(user_phone)
+    if user_linkedin:
+        contact_info_lines.append(user_linkedin)
+    contact_info_str = " | ".join(contact_info_lines) if contact_info_lines else ""
+    
+    return f"""Write a short, compelling and punchy networking email that feels genuine and creates immediate interest.
 
+SENDER: {sender_desc}
+RECIPIENT: {recipient_desc}
+PRIMARY CONVERSATION HOOK: {hook}
+ADDITIONAL CONTEXT:
+- Location: {location}
+- Background: {background}
+
+EMAIL REQUIREMENTS:
+1. Start with "Hi {contact.get('FirstName', '')},"
+2. Naturally weave the conversation hook into the first or second sentence.
+3. Show you've done light research by asking one curiosity-driven question about their work/experience (not obvious from LinkedIn).
+4. It's important to highlight any relevant similarities or shared connections between the sender and the recipient, if present, to create immediate rapport.
+5. Keep tone conversational, interesting, and concise—not stiff or templated.
+6. Use one vivid or unexpected word/phrase that makes the note memorable.
+7. End with a warm, low-friction ask for a 15–20 min chat.
+8. Keep it ~50 words (shorter > longer).
+9. Close with "Thank you," then {name}.
+10. After the signature, add: "I've attached my resume in case helpful for context." followed by: {contact_info_str}
+
+Return ONLY valid JSON with these exact keys:
+{{
+    "subject": "6-8 word intriguing subject line",
+    "body": "the complete email body including all elements above"
+}}
+"""
+def generate_conversation_hook(contact, user_info, resume_text):
+    """Generate a compelling conversation hook based on contact and user data."""
+    company = contact.get('Company', '')
+    title = contact.get('Title', '')
+    
+    # Try to find shared connections first
+    user_uni = user_info.get('university', '').lower()
+    contact_edu = contact.get('College', '').lower() + ' ' + contact.get('EducationTop', '').lower()
+    
+    if user_uni and user_uni in contact_edu:
+        return f"We're both {user_info.get('university', '')} alumni, and your transition to {company} caught my eye"
+    
+    # Company-specific hooks
+    company_lower = company.lower()
+    if 'google' in company_lower:
+        return "your work on Google's AI integration caught my attention"
+    elif 'tesla' in company_lower:
+        return "your experience with Tesla's rapid innovation cycles"
+    elif 'meta' in company_lower or 'facebook' in company_lower:
+        return "your role in Meta's ambitious VR/AR push"
+    elif 'amazon' in company_lower:
+        return "your perspective on Amazon's scale challenges"
+    elif 'microsoft' in company_lower:
+        return "your work during Microsoft's cloud transformation"
+    elif any(word in company_lower for word in ['startup', 'labs', 'ventures']):
+        return f"the unique challenges of building at {company}"
+    elif any(word in title.lower() for word in ['product', 'pm']):
+        return "your approach to product development"
+    elif any(word in title.lower() for word in ['engineer', 'developer']):
+        return "the technical challenges you're solving"
+    else:
+        return f"your journey to {company}"
+
+def parse_openai_email_response_updated(text):
+    """Parse JSON from model response with updated format."""
+    import json as _json
+    try:
+        parsed = _json.loads(text)
+        # Ensure body includes all required elements
+        return parsed
+    except Exception:
+        try:
+            start = text.find('{')
+            end = text.rfind('}')
+            if start != -1 and end != -1 and end > start:
+                return _json.loads(text[start:end+1])
+        except Exception:
+            pass
+    return {
+        'subject': 'Quick question about your work',
+        'body': 'Hi there, I had a quick question about your role and would value a brief chat.'
+    }
+
+def generate_enhanced_fallback_email_updated(contact, user_info):
+    """Generate fallback email using new punchy format."""
+    subject = f"Question from {user_info.get('university', 'student')}"
+    
+    # Get user contact info
+    contact_lines = []
+    if user_info.get('email'):
+        contact_lines.append(user_info.get('email'))
+    if user_info.get('phone'):
+        contact_lines.append(user_info.get('phone'))
+    contact_str = " | ".join(contact_lines) if contact_lines else ""
+    
+    body = f"""Hi {contact.get('FirstName', '')},
+
+I'm {user_info.get('name', '[Your Name]')}, a {user_info.get('year', '')} {user_info.get('major', '')} at {user_info.get('university', '')}. Your path to {contact.get('Company', '')} caught my eye – especially your {contact.get('Title', 'role')}.
+
+Quick question: what's the most unexpected challenge you've faced there? Would love a brief 15-min chat if you're open to it.
+
+Thank you,
+{user_info.get('name', '[Your Name]')}
+
+I've attached my resume in case helpful for context.
+{contact_str}"""
+    
+    return subject, body
 def parse_openai_email_response(text):
     """Parse JSON from model response gracefully, with fallbacks."""
     import json as _json
@@ -4800,24 +6208,39 @@ Thank you,
     return subject, body
 
 def generate_template_based_email_system(contact, resume_text=None, user_profile=None):
-    """Core function: unified email generation for both tiers using 5 templates."""
+    """Core function: unified email generation using new punchy format."""
     user_info = extract_user_info_from_resume_priority(resume_text, user_profile)
+    
+    # Extract additional user contact info if available
+    user_info['email'] = user_profile.get('email', '') if user_profile else ''
+    user_info['phone'] = user_profile.get('phone', '') if user_profile else ''
+    user_info['linkedin'] = user_profile.get('linkedin', '') if user_profile else ''
+    
     prompt = build_template_prompt(user_info, contact, resume_text or '')
+    
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role":"user","content": prompt}],
-            temperature=0.4,
+            messages=[
+                {"role": "system", "content": "You are an expert at writing short, punchy networking emails that create immediate interest. Keep emails to ~50 words. Always return valid JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,  # Slightly higher for more creative/memorable language
             max_tokens=500
         )
         raw = response.choices[0].message.content
-        parsed = parse_openai_email_response(raw)
+        parsed = parse_openai_email_response_updated(raw)
         subject = parsed.get('subject') or 'Quick question about your work'
         body = parsed.get('body') or ''
+        
+        # Light sanitization only - preserve the punchy style
         body = sanitize_email_placeholders(body, contact, user_info)
+        body = enforce_networking_prompt_rules(body)
+        
         return subject, body
-    except Exception:
-        return generate_enhanced_fallback_email(contact, user_info)
+    except Exception as e:
+        print(f"Email generation error: {e}")
+        return generate_enhanced_fallback_email_updated(contact, user_info)
 
 def generate_email_for_both_tiers(contact, resume_text=None, user_profile=None, career_interests=None):
     """Public entrypoint used by FREE and PRO tier pipelines, identical email quality."""

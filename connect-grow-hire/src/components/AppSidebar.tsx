@@ -11,6 +11,7 @@ import {
   ChevronRight,
   ChevronDown,
   Users,
+  Coffee, // Added Coffee icon
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
@@ -42,6 +43,7 @@ const navigationItems = [
   { title: "Home", url: "/home", icon: Home },
   { title: "Dashboard", url: "/dashboard", icon: BarChart3 },
   { title: "Contact Library", url: "/contact-directory", icon: Users },
+  { title: "Coffee Chat Library", url: "/coffee-chat-library", icon: Coffee }, // Added this line
   { title: "Loop News", url: "/news", icon: Newspaper },
   { title: "Pricing", url: "/pricing", icon: CreditCard },
 ];

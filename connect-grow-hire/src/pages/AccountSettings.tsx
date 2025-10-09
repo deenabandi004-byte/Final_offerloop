@@ -57,90 +57,93 @@ export default function AccountSettings() {
     }
   };
 
-  const handleResumeUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+const handleResumeUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
 
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-      setUploadError("Please upload a PDF file");
-      return;
+  if (!file.name.toLowerCase().endsWith('.pdf')) {
+    setUploadError("Please upload a PDF file");
+    return;
+  }
+
+  setIsUploading(true);
+  setUploadError(null);
+
+  try {
+    // Convert file to base64 for storage
+    const fileReader = new FileReader();
+    
+    const readFilePromise = new Promise<string>((resolve, reject) => {
+      fileReader.onload = () => resolve(fileReader.result as string);
+      fileReader.onerror = reject;
+      fileReader.readAsDataURL(file);
+    });
+
+    const base64File = await readFilePromise;
+    
+    const formData = new FormData();
+    formData.append('resume', file);
+
+    const API_URL = window.location.hostname === 'localhost' 
+      ? 'http://localhost:5001' 
+      : 'https://www.offerloop.ai';
+
+    // Get Firebase auth token
+    const { auth } = await import('../lib/firebase');
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+
+    const response = await fetch(`${API_URL}/api/parse-resume`, {
+      method: 'POST',
+      headers: token ? {
+        'Authorization': `Bearer ${token}`
+      } : {},
+      body: formData,
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Failed to parse resume');
     }
 
-    setIsUploading(true);
-    setUploadError(null);
+    // Store both the parsed data and the file
+    const resumeData = {
+      name: result.data.name || '',
+      year: result.data.year || '',
+      major: result.data.major || '',
+      university: result.data.university || '',
+      fileName: file.name,
+      uploadDate: new Date().toISOString()
+    };
+    
+    localStorage.setItem('resumeData', JSON.stringify(resumeData));
+    localStorage.setItem('resumeFile', base64File.split(',')[1]);
+    
+    // Update the personal info with the new data
+    const { firstName, lastName } = parseName(resumeData.name);
+    setPersonalInfo(prev => ({
+      ...prev,
+      firstName: firstName || prev.firstName,
+      lastName: lastName || prev.lastName,
+      university: resumeData.university || prev.university,
+    }));
 
-    try {
-      // Convert file to base64 for storage
-      const fileReader = new FileReader();
-      
-      const readFilePromise = new Promise<string>((resolve, reject) => {
-        fileReader.onload = () => resolve(fileReader.result as string);
-        fileReader.onerror = reject;
-        fileReader.readAsDataURL(file);
-      });
+    setAcademicInfo(prev => ({
+      ...prev,
+      fieldOfStudy: resumeData.major || prev.fieldOfStudy,
+      graduationYear: resumeData.year || prev.graduationYear,
+    }));
 
-      const base64File = await readFilePromise;
-      
-      const formData = new FormData();
-      formData.append('resume', file);
-
-      const API_URL = window.location.hostname === 'localhost' 
-        ? 'http://localhost:5001' 
-        : 'https://www.offerloop.ai';
-
-      // ✅ FIX: close options object and actually send formData
-      const response = await fetch(`${API_URL}/api/parse-resume`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to parse resume');
-      }
-
-      // Store both the parsed data and the file
-      const resumeData = {
-        name: result.data.name || '',
-        year: result.data.year || '',
-        major: result.data.major || '',
-        university: result.data.university || '',
-        fileName: file.name,
-        uploadDate: new Date().toISOString()
-      };
-      
-      localStorage.setItem('resumeData', JSON.stringify(resumeData));
-      localStorage.setItem('resumeFile', base64File.split(',')[1]); // Store base64 without data URL prefix
-
-      // Update the personal info with the new data
-      const { firstName, lastName } = parseName(resumeData.name);
-      setPersonalInfo(prev => ({
-        ...prev,
-        firstName: firstName || prev.firstName,
-        lastName: lastName || prev.lastName,
-        university: resumeData.university || prev.university,
-      }));
-
-      setAcademicInfo(prev => ({
-        ...prev,
-        fieldOfStudy: resumeData.major || prev.fieldOfStudy,
-        graduationYear: resumeData.year || prev.graduationYear,
-      }));
-
-      // Update resume file state
-      setResumeFile(base64File.split(',')[1]);
-      
-      // Reset the file input
-      event.target.value = '';
-      
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
-      setUploadError(errorMessage);
-    } finally {
-      setIsUploading(false);
-    }
-  };
+    setResumeFile(base64File.split(',')[1]);
+    event.target.value = '';
+    
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
+    setUploadError(errorMessage);
+  } finally {
+    setIsUploading(false);
+  }
+};
 
   const getUserInitials = () => {
     if (personalInfo.firstName && personalInfo.lastName) {

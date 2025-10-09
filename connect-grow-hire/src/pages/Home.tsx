@@ -1,11 +1,12 @@
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import React from "react";
-import { Upload, Download, Crown, ChevronRight, ChevronLeft } from "lucide-react";
+import { Upload, Download, Crown, ChevronRight, ChevronLeft, Loader2, Clock, CheckCircle, XCircle, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Input } from "@/components/ui/input";
@@ -18,17 +19,19 @@ import { firebaseApi } from "../services/firebaseApi";
 import { useFirebaseMigration } from "../hooks/useFirebaseMigration";
 import { apiService, isErrorResponse } from "@/services/api";
 import { CreditPill } from "../components/credits";
+ 
 
 const BACKEND_URL =
   window.location.hostname === "localhost"
     ? "http://localhost:5001"
     : "https://www.offerloop.ai";
 
-// Tiers (UI text only)
+const COFFEE_CHAT_CREDITS = 30;
+
 const TIER_CONFIGS = {
   free: {
-    maxContacts: 3,  // Changed from 8
-    minContacts: 1,  // NEW
+    maxContacts: 3,
+    minContacts: 1,
     name: "Free",
     credits: 120,
     description: "Try out platform risk free - up to 3 contacts + Email drafts",
@@ -38,8 +41,8 @@ const TIER_CONFIGS = {
     usesResume: false,
   },
   pro: {
-    maxContacts: 8,  // Changed from 56
-    minContacts: 1,  // NEW
+    maxContacts: 8,
+    minContacts: 1,
     name: "Pro",
     credits: 840,
     description: "Everything in free plus advanced features - up to 8 contacts + Resume matching",
@@ -55,7 +58,6 @@ const Home = () => {
   const { migrationComplete } = useFirebaseMigration();
   const currentUser = firebaseUser;
 
-  // cute wave anim for Scout image
   const waveKeyframes = `
     @keyframes wave {
       0%, 100% { transform: rotate(-8deg); }
@@ -83,18 +85,13 @@ const Home = () => {
       tier: "free",
     } as const);
 
-  // Resolve tier even if backend hasn't set user.tier yet
   const userTier: "free" | "pro" = React.useMemo(() => {
-  // 1) explicit
     if (effectiveUser?.tier === "pro") return "pro";
-  // 2) infer from allowances (treat >= 840 max as Pro)
     const max = Number(effectiveUser?.maxCredits ?? 0);
     const credits = Number(effectiveUser?.credits ?? 0);
     if (max >= 840 || credits > 120) return "pro";
-  // 3) fall back
     return "free";
   }, [effectiveUser?.tier, effectiveUser?.maxCredits, effectiveUser?.credits]);
-
 
   // Form state
   const [jobTitle, setJobTitle] = useState("");
@@ -106,27 +103,34 @@ const Home = () => {
   const [linkedinUrl, setLinkedinUrl] = useState("");
   const [jobPostUrl, setJobPostUrl] = useState("");
   const [isScoutChatOpen, setIsScoutChatOpen] = useState(false);
+
+  // Coffee Chat state
+  const [coffeeChatLoading, setCoffeeChatLoading] = useState(false);
+  const [coffeeChatProgress, setCoffeeChatProgress] = useState<string>("");
+  const [coffeeChatPrepId, setCoffeeChatPrepId] = useState<string | null>(null);
+  const [coffeeChatStatus, setCoffeeChatStatus] = useState<'idle' | 'processing' | 'completed' | 'failed'>('idle');
+  const [coffeeChatHistory, setCoffeeChatHistory] = useState<any[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+
   // Batch size state
-const [batchSize, setBatchSize] = useState<number>(1);
+  const [batchSize, setBatchSize] = useState<number>(1);
 
-// Calculate max batch size based on tier AND credits
-const maxBatchSize = React.useMemo(() => {
-  const tierMax = userTier === 'free' ? 3 : 8;
-  const creditMax = Math.floor((effectiveUser.credits ?? 0) / 15);
-  return Math.min(tierMax, creditMax);
-}, [userTier, effectiveUser.credits]);
+  const maxBatchSize = React.useMemo(() => {
+    const tierMax = userTier === 'free' ? 3 : 8;
+    const creditMax = Math.floor((effectiveUser.credits ?? 0) / 15);
+    return Math.min(tierMax, creditMax);
+  }, [userTier, effectiveUser.credits]);
 
-// Reset batch size when it exceeds new max
-useEffect(() => {
-  if (batchSize > maxBatchSize) {
-    setBatchSize(Math.max(1, maxBatchSize));
-  }
-}, [maxBatchSize, batchSize]);
+  useEffect(() => {
+    if (batchSize > maxBatchSize) {
+      setBatchSize(Math.max(1, maxBatchSize));
+    }
+  }, [maxBatchSize, batchSize]);
 
   // Search state
   const [isSearching, setIsSearching] = useState(false);
   const [progressValue, setProgressValue] = useState(0);
-  const [searchComplete, setSearchComplete] = useState(false); // NEW STATE
+  const [searchComplete, setSearchComplete] = useState(false);
   const [lastResults, setLastResults] = useState<any[]>([]);
   const [lastResultsTier, setLastResultsTier] = useState<"free" | "pro" | string>("");
   const [lastSearchStats, setLastSearchStats] = useState<{
@@ -136,20 +140,43 @@ useEffect(() => {
   const hasResults = lastResults.length > 0;
 
   const currentTierConfig = TIER_CONFIGS[userTier];
+
   useEffect(() => {
     if (firebaseUser?.needsOnboarding) {
       navigate('/onboarding');
    }
   }, [firebaseUser, navigate]);
 
-  // Refresh credits on mount
   useEffect(() => {
     if (firebaseUser && checkCredits) {
       checkCredits();
     }
   }, [firebaseUser]);
 
-  // Build a minimal user profile from onboarding/local storage
+  // Load coffee chat history on mount
+  useEffect(() => {
+    if (firebaseUser) {
+      loadCoffeeChatHistory();
+    }
+  }, [firebaseUser]);
+
+  const loadCoffeeChatHistory = async () => {
+  try {
+    if (!firebaseUser) return;
+    
+    const result = await apiService.getCoffeeChatHistory(5);
+    
+    // Type guard to check if result has history property
+    if ('history' in result && result.history) {
+      setCoffeeChatHistory(result.history);
+    } else if ('error' in result) {
+      console.error('Failed to load history:', result.error);
+    }
+  } catch (error) {
+    console.error('Failed to load coffee chat history:', error);
+  }
+};
+
   const getUserProfileData = async () => {
     if (!currentUser) return null;
     try {
@@ -194,7 +221,6 @@ useEffect(() => {
     }
   };
 
-  // Auto-save to contact library (Firebase)
   const autoSaveToDirectory = async (contacts: any[]) => {
     try {
       if (!currentUser || contacts.length === 0) return;
@@ -217,7 +243,6 @@ useEffect(() => {
     }
   };
 
-  // Backend health check (optional)
   useEffect(() => {
     fetch(`${BACKEND_URL}/health`)
       .then((res) => res.json())
@@ -234,6 +259,194 @@ useEffect(() => {
         });
       });
   }, [toast]);
+
+  const handleCoffeeChatSubmit = async () => {
+    if (!linkedinUrl.trim()) {
+      toast({
+        title: "Missing LinkedIn URL",
+        description: "Please enter a LinkedIn profile URL.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!firebaseUser) {
+      toast({
+        title: "Authentication Required",
+        description: "Please sign in to continue.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setCoffeeChatLoading(true);
+    setCoffeeChatStatus('processing');
+    setCoffeeChatProgress('Starting Coffee Chat Prep...');
+
+    try {
+      const result = await apiService.createCoffeeChatPrep({ linkedinUrl });
+      
+      if ('error' in result) {
+        throw new Error(result.error);
+      }
+
+      const prepId = result.prepId;
+      setCoffeeChatPrepId(prepId);
+      
+      console.log('✅ Prep created, starting polling...');
+      
+      // ✅ FIXED POLLING LOGIC
+      let pollCount = 0;
+      const maxPolls = 60; // 60 polls * 3 seconds = 3 minutes max
+      
+      const pollStatus = async () => {
+        try {
+          pollCount++;
+          
+          // Timeout check
+          if (pollCount >= maxPolls) {
+            setCoffeeChatStatus('failed');
+            setCoffeeChatProgress('Generation timed out');
+            setCoffeeChatLoading(false);
+            toast({
+              title: "Timeout",
+              description: "Coffee Chat Prep generation timed out. Please try again.",
+              variant: "destructive",
+            });
+            return;
+          }
+
+          console.log(`🔄 Polling attempt ${pollCount}/${maxPolls} for prep ${prepId}`);
+          
+          // ✅ MAKE THE ACTUAL GET REQUEST
+          const statusResult = await apiService.getCoffeeChatPrepStatus(prepId);
+          
+          console.log(`📦 Received response:`, statusResult);
+          
+          // Type guard: Check if it's an error response
+          if ('error' in statusResult && !('status' in statusResult)) {
+            console.error('❌ Error response:', statusResult.error);
+            setCoffeeChatStatus('failed');
+            setCoffeeChatProgress(statusResult.error);
+            setCoffeeChatLoading(false);
+            toast({
+              title: "Error",
+              description: statusResult.error,
+              variant: "destructive",
+            });
+            return;
+          }
+          
+          // Now TypeScript knows statusResult is CoffeeChatPrepStatus
+          if (!statusResult.status) {
+            console.warn('⚠️ No status in response, continuing...');
+            // Schedule next poll
+            setTimeout(pollStatus, 3000);
+            return;
+          }
+          
+          const status = statusResult.status;
+          console.log(`📊 Status: "${status}"`);
+          
+          // Update progress messages
+          const progressMessages: Record<string, string> = {
+            'enriching_profile': 'Enriching LinkedIn profile...',
+            'fetching_news': 'Researching company news...',
+            'generating_content': 'Generating personalized content...',
+            'generating_pdf': 'Creating your PDF...',
+            'completed': 'Coffee Chat Prep ready!',
+            'failed': 'error' in statusResult ? statusResult.error || 'Generation failed' : 'Generation failed'
+          };
+          
+          if (progressMessages[status]) {
+            setCoffeeChatProgress(progressMessages[status]);
+          }
+          
+          // Handle terminal states
+          if (status === 'completed') {
+            console.log('🎉 COMPLETED! Stopping polling...');
+            setCoffeeChatStatus('completed');
+            setCoffeeChatLoading(false);
+            
+            await checkCredits();
+            await loadCoffeeChatHistory();
+            
+            toast({
+              title: "Coffee Chat Prep Ready!",
+              description: "Your one-pager has been generated successfully.",
+              duration: 5000,
+            });
+            return; // ✅ STOP POLLING
+          } else if (status === 'failed') {
+            console.log('❌ FAILED! Stopping polling...');
+            setCoffeeChatStatus('failed');
+            setCoffeeChatLoading(false);
+            
+            const errorMsg = 'error' in statusResult ? statusResult.error : undefined;
+            toast({
+              title: "Generation Failed",
+              description: errorMsg || "Please try again.",
+              variant: "destructive",
+            });
+            return; // ✅ STOP POLLING
+          }
+          
+          // ✅ Continue polling for non-terminal states
+          console.log(`⏳ Will poll again in 3 seconds...`);
+          setTimeout(pollStatus, 3000);
+          
+        } catch (error) {
+          console.error('💥 Polling error:', error);
+          setCoffeeChatStatus('failed');
+          setCoffeeChatLoading(false);
+          toast({
+            title: "Error",
+            description: "Failed to check status. Please try again.",
+            variant: "destructive",
+          });
+        }
+      };
+      
+      // ✅ START FIRST POLL
+      setTimeout(pollStatus, 3000); // Wait 3 seconds before first poll
+      
+    } catch (error) {
+      console.error('Coffee chat prep failed:', error);
+      setCoffeeChatLoading(false);
+      setCoffeeChatStatus('failed');
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to generate Coffee Chat Prep",
+        variant: "destructive",
+      });
+    }
+  };
+
+const downloadCoffeeChatPDF = async (prepId?: string) => {
+  const id = prepId || coffeeChatPrepId;
+  if (!id || !firebaseUser) return;
+  
+  try {
+    const blob = await apiService.downloadCoffeeChatPDF(id);
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `coffee_chat_${id}.pdf`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+    
+    toast({
+      title: "PDF Downloaded",
+      description: "Your Coffee Chat one-pager has been downloaded.",
+    });
+  } catch (error) {
+    toast({
+      title: "Download Failed",
+      description: "Could not download the PDF. Please try again.",
+      variant: "destructive",
+    });
+  }
+};
 
   const handleSearch = async () => {
     if (!jobTitle.trim() || !location.trim()) {
@@ -276,10 +489,9 @@ useEffect(() => {
 
     setIsSearching(true);
     setProgressValue(0);
-    setSearchComplete(false); // Reset completion state
+    setSearchComplete(false);
 
     try {
-      // Progress animation - make it reach 90% then wait
       [15, 35, 60, 85, 90].forEach((value, index) => {
         setTimeout(() => setProgressValue(value), index * 600);
       });
@@ -297,7 +509,7 @@ useEffect(() => {
           collegeAlumni: (collegeAlumni || '').trim(),
           batchSize: batchSize,
         };
-        console.log('Sending search request with batchSize:', batchSize)
+        
         const result = await apiService.runFreeSearch(searchRequest);
         if (isErrorResponse(result)) {
           if (result.error?.includes("Insufficient credits")) {
@@ -328,20 +540,19 @@ useEffect(() => {
           total_contacts: result.contacts.length,
         });
 
-        // Mark as complete and show success
         setProgressValue(100);
         setSearchComplete(true);
 
         try {
           await autoSaveToDirectory(result.contacts);
           toast({
-            title: "✅ Search Complete!",
+            title: "Search Complete!",
             description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.`,
             duration: 5000,
           });
         } catch {
           toast({
-            title: "✅ Search Complete!",
+            title: "Search Complete!",
             description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. (Warning: Failed to save to Contact Library)`,
             variant: "destructive",
             duration: 5000,
@@ -390,20 +601,19 @@ useEffect(() => {
           total_contacts: result.contacts.length,
         });
 
-        // Mark as complete and show success
         setProgressValue(100);
         setSearchComplete(true);
 
         try {
           await autoSaveToDirectory(result.contacts);
           toast({
-            title: "✅ Search Complete!",
+            title: "Search Complete!",
             description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.`,
             duration: 5000,
           });
         } catch {
           toast({
-            title: "✅ Search Complete!",
+            title: "Search Complete!",
             description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. (Warning: Failed to save to Contact Library)`,
             variant: "destructive",
             duration: 5000,
@@ -413,7 +623,7 @@ useEffect(() => {
     } catch (error) {
       console.error("Search failed:", error);
       toast({
-        title: "❌ Search Failed",
+        title: "Search Failed",
         description: error instanceof Error ? error.message : "Please try again.",
         variant: "destructive",
         duration: 5000,
@@ -421,7 +631,6 @@ useEffect(() => {
       setSearchComplete(false);
     } finally {
       setIsSearching(false);
-      // Keep showing 100% for 2 seconds if successful
       if (searchComplete) {
         setTimeout(() => {
           setProgressValue(0);
@@ -458,21 +667,6 @@ useEffect(() => {
     }
   };
 
-  const handleCoffeeChatSubmit = () => {
-    if (!linkedinUrl.trim()) {
-      toast({
-        title: "Missing LinkedIn URL",
-        description: "Please enter a LinkedIn profile URL.",
-        variant: "destructive",
-      });
-      return;
-    }
-    toast({
-      title: "Coffee Chat Prep Started",
-      description: "Generating PDF with available LinkedIn information...",
-    });
-  };
-
   const handleInterviewPrepSubmit = () => {
     if (!jobPostUrl.trim()) {
       toast({
@@ -502,14 +696,12 @@ useEffect(() => {
         <AppSidebar />
 
         <div className={`flex-1 transition-all duration-300 ${isScoutChatOpen ? "mr-80" : ""}`}>
-          {/* Header */}
           <header className="h-16 flex items-center justify-between border-b border-gray-800 px-6 bg-gray-900/80 backdrop-blur-sm">
             <div className="flex items-center gap-4">
               <SidebarTrigger className="text-white hover:bg-gray-800/50" />
               <h1 className="text-xl font-semibold">AI-Powered Candidate Search</h1>
             </div>
 
-            {/* Top-right: Credits pill + Upgrade */}
             <div className="flex items-center gap-4">
               <CreditPill
                 credits={effectiveUser.credits ?? 0}
@@ -525,7 +717,6 @@ useEffect(() => {
             </div>
           </header>
 
-          {/* Scout Chat Shortcut */}
           <div className="px-8 pt-4">
             <div className="max-w-7xl mx-auto">
               <div
@@ -576,7 +767,6 @@ useEffect(() => {
 
           <main className="p-8">
             <div className="max-w-7xl mx-auto">
-              {/* Tier header */}
               <div className="mb-6">
                 <div className="flex items-center gap-4 mb-4">
                   <div className="flex items-center gap-2">
@@ -584,7 +774,6 @@ useEffect(() => {
                     <h2 className="text-2xl font-bold text-white">{currentTierConfig.name}</h2>
                   </div>
 
-                  {/* Dynamic credits pill instead of fixed badge */}
                   <CreditPill
                     credits={effectiveUser.credits ?? 0}
                     max={effectiveUser.maxCredits ?? 120}
@@ -599,7 +788,6 @@ useEffect(() => {
                 </div>
               </div>
 
-              {/* Tabs */}
               <Tabs defaultValue="find-candidates" className="mb-8">
                 <TabsList className="grid w-full grid-cols-3 bg-gray-800/50 border border-gray-700">
                   <TabsTrigger
@@ -622,7 +810,6 @@ useEffect(() => {
                   </TabsTrigger>
                 </TabsList>
 
-                {/* Find Candidates */}
                 <TabsContent value="find-candidates" className="mt-6">
                   <Card className="bg-gray-800/50 backdrop-blur-sm border-gray-700">
                     <CardHeader className="border-b border-gray-700">
@@ -684,9 +871,7 @@ useEffect(() => {
                           />
                         </div>
                       </div>
-                      {/* Batch Size Slider */}
                      
-                      {/* Batch Size Slider - Premium Design with Thicker Track */}
                       <div className="col-span-1 lg:col-span-2 mt-4">
                         <label className="block text-sm font-medium mb-4 text-white">
                           Batch Size
@@ -694,14 +879,12 @@ useEffect(() => {
                         
                         <div className="bg-gray-800/30 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 shadow-lg">
                           <div className="flex items-center gap-6">
-                            {/* Current value display */}
                             <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-400/40 rounded-xl px-4 py-3 min-w-[70px] text-center shadow-inner">
                               <span className="text-2xl font-bold bg-gradient-to-r from-purple-300 to-pink-300 bg-clip-text text-transparent">
                                 {batchSize}
                               </span>
                             </div>
                             
-                            {/* Slider container with more top padding */}
                             <div className="flex-1 max-w-[320px] pt-4">
                               <div className="relative">
                                 <input
@@ -731,7 +914,6 @@ useEffect(() => {
                                   }}
                                 />
                                 
-                                {/* Min/Max labels */}
                                 <div className="flex justify-between text-xs text-gray-500 mt-3 font-medium">
                                   <span>1</span>
                                   <span>{maxBatchSize}</span>
@@ -739,7 +921,6 @@ useEffect(() => {
                               </div>
                             </div>
                             
-                            {/* Credits display - single line */}
                             <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-xl px-4 py-3 min-w-[100px] border border-purple-400/20">
                               <div className="text-center">
                                 <span className="text-xl font-bold text-purple-300">{batchSize * 15}</span>
@@ -749,18 +930,16 @@ useEffect(() => {
                           </div>
                         </div>
                         
-                        {/* Warning if limited by credits */}
                         {maxBatchSize < (userTier === 'free' ? 3 : 8) && (
                           <div className="mt-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
                             <p className="text-xs text-yellow-400 flex items-start gap-2">
-                              <span>⚠️</span>
+                              <span>Warning</span>
                               <span>Limited by available credits. Maximum: {maxBatchSize} contacts.</span>
                             </p>
                           </div>
                         )}
                       </div>
 
-                      {/* Credit Usage Info - Separate from slider */}
                       <div className="col-span-1 lg:col-span-2 mt-6 mb-8">
                         <div className="bg-gray-800/30 rounded-lg p-4 border border-gray-700">
                           <div className="flex items-center justify-between">
@@ -774,7 +953,6 @@ useEffect(() => {
                         </div>
                       </div>
 
-                      {/* Resume upload (Pro only) */}
                       {userTier === "pro" && (
                         <div className="mb-6">
                           <label className="block text-sm font-medium mb-2 text-white">
@@ -808,8 +986,6 @@ useEffect(() => {
                         </div>
                       )}
 
-                      {/* Search Button - now tier-aware label & math */}
-                      {/* Search Button and Info */}
                       <div className="space-y-4">
                         <Button
                           onClick={handleSearch}
@@ -836,11 +1012,10 @@ useEffect(() => {
                         </div>
                       </div>
 
-                      {/* Enhanced Results Summary */}
                       {hasResults && lastSearchStats && (
                         <div className="mt-4 p-4 bg-gradient-to-r from-green-800/30 to-blue-800/30 border-2 border-green-500/50 rounded-lg">
                           <div className="text-base font-semibold text-green-300 mb-2">
-                            ✅ Search Completed Successfully!
+                            Search Completed Successfully!
                           </div>
                           <div className="grid grid-cols-2 gap-4 mt-3">
                             <div className="bg-gray-800/50 rounded p-2">
@@ -853,14 +1028,14 @@ useEffect(() => {
                             </div>
                           </div>
                           <div className="text-sm text-blue-300 mt-3 flex items-center">
-                            <span className="mr-2">💾</span>
+                            <span className="mr-2">Saved</span>
                             All contacts saved to your Contact Library
                           </div>
                           <button 
                             onClick={() => navigate('/contact-directory')}
                             className="mt-3 text-sm text-blue-400 hover:text-blue-300 underline"
                           >
-                            View in Contact Library →
+                            View in Contact Library
                           </button>
                         </div>
                       )}
@@ -868,7 +1043,6 @@ useEffect(() => {
                   </Card>
                 </TabsContent>
 
-                {/* Coffee Chat Prep */}
                 <TabsContent value="coffee-chat" className="mt-6">
                   <Card className="bg-gray-800/50 backdrop-blur-sm border-gray-700">
                     <CardHeader className="border-b border-gray-700">
@@ -879,34 +1053,192 @@ useEffect(() => {
                             Available
                           </span>
                         )}
+                        <Badge variant="secondary" className="ml-auto">
+                          {COFFEE_CHAT_CREDITS} credits
+                        </Badge>
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-6">
                       {currentTierConfig.coffeeChat ? (
-                        <div className="space-y-4">
-                          <div>
-                            <label className="block text-sm font-medium mb-2 text-white">
-                              LinkedIn Profile URL
-                            </label>
-                            <Input
-                              value={linkedinUrl}
-                              onChange={(e) => setLinkedinUrl(e.target.value)}
-                              placeholder="https://linkedin.com/in/username"
-                              className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400 focus:border-pink-500"
-                            />
+                        <div className="space-y-6">
+                          <div className="space-y-4">
+                            <div>
+                              <label className="block text-sm font-medium mb-2 text-white">
+                                LinkedIn Profile URL
+                              </label>
+                              <Input
+                                value={linkedinUrl}
+                                onChange={(e) => setLinkedinUrl(e.target.value)}
+                                placeholder="https://linkedin.com/in/username"
+                                className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400 focus:border-pink-500"
+                                disabled={coffeeChatLoading}
+                              />
+                            </div>
+                            
+                            <p className="text-sm text-gray-400">
+                              Generate a comprehensive one-pager with profile insights, company news, and 
+                              personalized coffee chat questions to help you prepare.
+                            </p>
+                            
+                            {coffeeChatLoading && (
+                              <div className="bg-gray-900/50 rounded-lg p-4 space-y-3">
+                                <div className="flex items-center gap-3">
+                                  <Loader2 className="h-5 w-5 animate-spin text-blue-400" />
+                                  <span className="text-sm text-gray-300">{coffeeChatProgress}</span>
+                                </div>
+                                
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <CheckCircle className={`h-4 w-4 ${coffeeChatProgress.includes('LinkedIn') ? 'text-green-400' : 'text-gray-600'}`} />
+                                    <span className={coffeeChatProgress.includes('LinkedIn') ? 'text-gray-300' : 'text-gray-500'}>
+                                      LinkedIn Profile Analysis
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <CheckCircle className={`h-4 w-4 ${coffeeChatProgress.includes('company') ? 'text-green-400' : 'text-gray-600'}`} />
+                                    <span className={coffeeChatProgress.includes('company') ? 'text-gray-300' : 'text-gray-500'}>
+                                      Company Research
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <CheckCircle className={`h-4 w-4 ${coffeeChatProgress.includes('content') ? 'text-green-400' : 'text-gray-600'}`} />
+                                    <span className={coffeeChatProgress.includes('content') ? 'text-gray-300' : 'text-gray-500'}>
+                                      PDF Generation
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                            
+                            {coffeeChatStatus === 'completed' && coffeeChatPrepId && (
+                              <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-4">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <CheckCircle className="h-5 w-5 text-green-400" />
+                                    <span className="text-green-300">Coffee Chat Prep ready!</span>
+                                  </div>
+                                  <Button
+                                    onClick={() => downloadCoffeeChatPDF()}
+                                    size="sm"
+                                    className="bg-green-600 hover:bg-green-700"
+                                  >
+                                    <Download className="h-4 w-4 mr-2" />
+                                    Download PDF
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                            
+                            {coffeeChatStatus === 'failed' && (
+                              <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4">
+                                <div className="flex items-center gap-2">
+                                  <XCircle className="h-5 w-5 text-red-400" />
+                                  <span className="text-red-300">{coffeeChatProgress}</span>
+                                </div>
+                              </div>
+                            )}
+                            
+                            <Button
+                              onClick={handleCoffeeChatSubmit}
+                              disabled={!linkedinUrl.trim() || coffeeChatLoading || (effectiveUser.credits ?? 0) < COFFEE_CHAT_CREDITS}
+                              className={`w-full transition-all duration-300 ${
+                                linkedinUrl.trim() && !coffeeChatLoading && (effectiveUser.credits ?? 0) >= COFFEE_CHAT_CREDITS
+                                  ? 'bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 shadow-lg shadow-green-500/50'
+                                  : 'bg-gray-700 opacity-50 cursor-not-allowed'
+                              }`}
+                            >
+                              {coffeeChatLoading ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  Generating...
+                                </>
+                              ) : (
+                                <>
+                                  <Download className="h-4 w-4 mr-2" />
+                                  Generate Coffee Chat PDF ({COFFEE_CHAT_CREDITS} credits)
+                                </>
+                              )}
+                            </Button>
                           </div>
-                          <p className="text-sm text-gray-400">
-                            Generate a PDF with all available information from the LinkedIn profile to
-                            help you prepare for your coffee chat.
-                          </p>
-                          <Button
-                            onClick={handleCoffeeChatSubmit}
-                            disabled={!linkedinUrl.trim()}
-                            className="w-full bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
-                          >
-                            <Download className="h-4 w-4 mr-2" />
-                            Generate Coffee Chat PDF
-                          </Button>
+                          
+                          {coffeeChatHistory.length > 0 && (
+                            <div className="border-t border-gray-700 pt-6">
+                              <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-sm font-semibold text-gray-300">Recent Coffee Chat Preps</h3>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setShowHistory(!showHistory)}
+                                  className="text-xs text-gray-400 hover:text-gray-300"
+                                >
+                                  {showHistory ? 'Hide' : 'Show'} History
+                                </Button>
+                              </div>
+                              
+                              {showHistory && (
+                                <div className="space-y-2">
+                                  {coffeeChatHistory.slice(0, 5).map((prep) => (
+                                    <div
+                                      key={prep.id}
+                                      className="flex items-center justify-between p-3 bg-gray-900/50 rounded-lg hover:bg-gray-900/70 transition-colors"
+                                    >
+                                      <div className="flex-1">
+                                        <div className="font-medium text-sm text-white">
+                                          {prep.contactName || 'Unknown'}
+                                        </div>
+                                        <div className="text-xs text-gray-400">
+                                          {prep.company} • {new Date(prep.createdAt).toLocaleDateString()}
+                                        </div>
+                                      </div>
+                                      {prep.status === 'completed' && (
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => downloadCoffeeChatPDF(prep.id)}
+                                          className="text-gray-400 hover:text-white"
+                                        >
+                                          <Download className="h-4 w-4" />
+                                        </Button>
+                                      )}
+                                      <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={async () => {
+                                        if (confirm('Delete this Coffee Chat Prep?')) {
+                                          try {
+                                            // Optimistically remove from UI immediately
+                                            setCoffeeChatHistory(currentHistory => 
+                                              currentHistory.filter(p => p.id !== prep.id)
+                                            );
+                                            
+                                            await apiService.deleteCoffeeChatPrep(prep.id);
+                                            
+                                            toast({
+                                              title: "Deleted",
+                                              description: "Coffee Chat Prep deleted successfully",
+                                            });
+                                          } catch (error) {
+                                            // If delete fails, reload to restore the item
+                                            await loadCoffeeChatHistory();
+                                            
+                                            toast({
+                                              title: "Delete Failed",
+                                              description: "Could not delete prep",
+                                              variant: "destructive",
+                                            });
+                                          }
+                                        }
+                                      }}
+                                      className="text-red-400 hover:text-red-300"
+                                    >
+                                      <Trash2 className="h-4 w-4" /> 
+                                    </Button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <LockedFeatureOverlay featureName="Coffee Chat Prep" requiredTier="Free+">
@@ -935,7 +1267,6 @@ useEffect(() => {
                   </Card>
                 </TabsContent>
 
-                {/* Interview Prep */}
                 <TabsContent value="interview-prep" className="mt-6">
                   <Card className="bg-gray-800/50 backdrop-blur-sm border-gray-700">
                     <CardHeader className="border-b border-gray-700">
@@ -1003,7 +1334,6 @@ useEffect(() => {
                 </TabsContent>
               </Tabs>
 
-              {/* Progress Card - UPDATED */}
               {(isSearching || searchComplete) && (
                 <Card className="mb-6 bg-gray-800/50 backdrop-blur-sm border-gray-700">
                   <CardContent className="p-6">
@@ -1012,7 +1342,7 @@ useEffect(() => {
                         <span className="text-gray-300">
                           {searchComplete ? (
                             <span className="text-green-400 font-semibold">
-                              ✅ Search completed successfully!
+                              Search completed successfully!
                             </span>
                           ) : (
                             `Searching with ${currentTierConfig.name} tier...`
@@ -1039,7 +1369,6 @@ useEffect(() => {
           </main>
         </div>
 
-        {/* Scout Drawer */}
         {isScoutChatOpen && (
           <div className="fixed right-0 top-0 h-full w-80 bg-gray-900 shadow-2xl z-40 border-l border-gray-700">
             <div className="h-full flex flex-col">
@@ -1063,7 +1392,7 @@ useEffect(() => {
                     onClick={() => setIsScoutChatOpen(false)}
                     className="text-white/80 hover:text-white hover:bg-white/10"
                   >
-                    ×
+                    Close
                   </Button>
                 </div>
               </div>

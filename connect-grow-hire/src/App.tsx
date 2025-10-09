@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { FirebaseAuthProvider, useFirebaseAuth } from "./contexts/FirebaseAuthContext";
 
+
 // Pages
 import Index from "./pages/Index";
 import Home from "./pages/Home";
@@ -14,6 +15,7 @@ import SignIn from "./pages/SignIn";
 import AuthCallback from "./pages/AuthCallback";
 import AboutUs from "./pages/AboutUs";
 import Contact from "./pages/Contact";
+import CoffeeChatLibrary from "./pages/CoffeeChatLibrary";
 import ContactDirectory from "./pages/ContactDirectory";
 import ContactUs from "./pages/ContactUs";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
@@ -24,6 +26,7 @@ import Pricing from "./pages/Pricing";
 import News from "./pages/News";
 import Dashboard from "./pages/Dashboard";
 import NotFound from "./pages/NotFound";
+import PaymentSuccess from "./pages/PaymentSuccess";
 
 // New Lovable Onboarding Flow
 import { OnboardingFlow } from "./pages/OnboardingFlow";
@@ -103,8 +106,16 @@ const AppRoutes: React.FC = () => {
       <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/contact-directory" element={<ProtectedRoute><ContactDirectory /></ProtectedRoute>} />
+      {/* Protected App Pages */}
+      <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+      <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/contact-directory" element={<ProtectedRoute><ContactDirectory /></ProtectedRoute>} />
+      <Route path="/coffee-chat-library" element={<ProtectedRoute><CoffeeChatLibrary /></ProtectedRoute>} /> {/* ADD THIS LINE */}
       <Route path="/account-settings" element={<ProtectedRoute><AccountSettings /></ProtectedRoute>} />
       <Route path="/pricing" element={<ProtectedRoute><Pricing /></ProtectedRoute>} />
+      <Route path="/account-settings" element={<ProtectedRoute><AccountSettings /></ProtectedRoute>} />
+      <Route path="/pricing" element={<ProtectedRoute><Pricing /></ProtectedRoute>} />
+      <Route path="/payment-success" element={<ProtectedRoute><PaymentSuccess /></ProtectedRoute>} />
 
       {/* Public informational pages */}
       <Route path="/about" element={<PublicRoute><AboutUs /></PublicRoute>} />

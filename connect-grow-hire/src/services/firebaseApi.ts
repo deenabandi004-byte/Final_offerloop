@@ -10,7 +10,8 @@ import {
   where,
   limit,
   getDoc,
-  setDoc
+  setDoc,
+  serverTimestamp
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 
@@ -205,20 +206,21 @@ export class FirebaseApiService {
       throw error;
     }
   }
+
   async clearAllContacts(userId: string): Promise<void> {
-  try {
-    const contactsRef = collection(db, 'users', userId, 'contacts');
-    const querySnapshot = await getDocs(contactsRef);
-    
-    const deletePromises = querySnapshot.docs.map(doc => deleteDoc(doc.ref));
-    await Promise.all(deletePromises);
-    
-    console.log(`Deleted ${querySnapshot.docs.length} contacts for user ${userId}`);
-  } catch (error) {
-    console.error('Error clearing all contacts:', error);
-    throw error;
+    try {
+      const contactsRef = collection(db, 'users', userId, 'contacts');
+      const querySnapshot = await getDocs(contactsRef);
+      
+      const deletePromises = querySnapshot.docs.map(doc => deleteDoc(doc.ref));
+      await Promise.all(deletePromises);
+      
+      console.log(`Deleted ${querySnapshot.docs.length} contacts for user ${userId}`);
+    } catch (error) {
+      console.error('Error clearing all contacts:', error);
+      throw error;
+    }
   }
-}
 
   async saveResumeData(userId: string, data: ResumeData): Promise<void> {
     try {
@@ -229,6 +231,69 @@ export class FirebaseApiService {
       }, { merge: true });
     } catch (error) {
       console.error('Error saving resume data:', error);
+      throw error;
+    }
+  }
+
+  // ================================
+  // Coffee Chat Prep Methods
+  // ================================
+
+  async createCoffeeChatPrep(userId: string, prepData: any) {
+    try {
+      const prepRef = collection(db, 'users', userId, 'coffee-chat-preps');
+      const docRef = await addDoc(prepRef, {
+        ...prepData,
+        createdAt: serverTimestamp(),
+        status: 'pending'
+      });
+      return docRef;
+    } catch (error) {
+      console.error('Error creating coffee chat prep:', error);
+      throw error;
+    }
+  }
+
+  async getCoffeeChatPreps(userId: string, limitCount?: number) {
+    try {
+      const prepsRef = collection(db, 'users', userId, 'coffee-chat-preps');
+      let q = query(prepsRef, orderBy('createdAt', 'desc'));
+      
+      if (limitCount) {
+        q = query(prepsRef, orderBy('createdAt', 'desc'), limit(limitCount));
+      }
+      
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (error) {
+      console.error('Error getting coffee chat preps:', error);
+      throw error;
+    }
+  }
+
+  async updateCoffeeChatPrep(userId: string, prepId: string, updates: any) {
+    try {
+      const prepRef = doc(db, 'users', userId, 'coffee-chat-preps', prepId);
+      await updateDoc(prepRef, {
+        ...updates,
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Error updating coffee chat prep:', error);
+      throw error;
+    }
+  }
+
+  async getCoffeeChatPrepById(userId: string, prepId: string) {
+    try {
+      const prepRef = doc(db, 'users', userId, 'coffee-chat-preps', prepId);
+      const docSnap = await getDoc(prepRef);
+      if (docSnap.exists()) {
+        return { id: docSnap.id, ...docSnap.data() };
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting coffee chat prep:', error);
       throw error;
     }
   }

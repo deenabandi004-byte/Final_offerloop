@@ -1,20 +1,104 @@
-import { useState } from "react";
-import { Check, X, ArrowLeft, CreditCard, Users } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Check, ArrowLeft, CreditCard, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { loadStripe } from "@stripe/stripe-js";
 import { getAuth } from 'firebase/auth';
 
-// Hardcoded Stripe Configuration - Replace these with your actual keys
-const stripePromise = loadStripe("pk_live_51S4BB8ERY2WrVHp1acXrKE6RBG7NBlfHcMZ2kf7XhCX2E5g8Lasedx6ntcaD1H4BsoUMBGYXIcKHcAB4JuohLa2B00j7jtmWnB");
+const stripePromise = loadStripe("pk_test_51S4BB8ERY2WrVHp1WPs1H5UpdwCuJaxeeZE9khGQrkgIGuRY4zVrGRtrO8lCsH9QgctGEGrMYU9dIqhwEuSTh4Gu000ts47riH");
+
+interface SubscriptionStatus {
+  tier: string;
+  status: string;
+  hasSubscription: boolean;
+  currentPeriodEnd?: number;
+  cancelAtPeriodEnd?: boolean;
+}
 
 const Pricing = () => {
   const [isLoading, setIsLoading] = useState(false);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const navigate = useNavigate();
-  const { user, updateUser, completeOnboarding } = useFirebaseAuth();
+  const { user, updateUser } = useFirebaseAuth();
+
+  useEffect(() => {
+    if (user) {
+      fetchSubscriptionStatus();
+    }
+  }, [user]);
+
+  const fetchSubscriptionStatus = async () => {
+    try {
+      const auth = getAuth();
+      const firebaseUser = auth.currentUser;
+      
+      if (!firebaseUser) return;
+
+      const token = await firebaseUser.getIdToken();
+      
+      const API_URL = window.location.hostname === 'localhost' 
+        ? 'http://localhost:5001' 
+        : 'https://www.offerloop.ai';
+
+      const response = await fetch(`${API_URL}/api/subscription-status`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSubscriptionStatus(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch subscription status:', error);
+    }
+  };
+
+  const handleManageSubscription = async () => {
+    if (!user) return;
+
+    setIsLoading(true);
+    try {
+      const auth = getAuth();
+      const firebaseUser = auth.currentUser;
+      
+      if (!firebaseUser) {
+        throw new Error('No Firebase user found');
+      }
+
+      const token = await firebaseUser.getIdToken();
+      
+      const API_URL = window.location.hostname === 'localhost' 
+        ? 'http://localhost:5001' 
+        : 'https://www.offerloop.ai';
+
+      const response = await fetch(`${API_URL}/api/create-portal-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          returnUrl: `${window.location.origin}/pricing`,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create portal session');
+      }
+
+      const { url } = await response.json();
+      window.location.href = url;
+
+    } catch (error) {
+      console.error('Portal error:', error);
+      alert('Failed to open subscription management. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleStripeCheckout = async () => {
     if (!user) {
@@ -37,14 +121,15 @@ const Pricing = () => {
       const API_URL = window.location.hostname === 'localhost' 
        ? 'http://localhost:5001' 
        : 'https://www.offerloop.ai';
-       const response = await fetch(`${API_URL}/api/create-checkout-session`, {
+
+      const response = await fetch(`${API_URL}/api/create-checkout-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          priceId: "price_1S4VzUERY2WrVHp1AcWTRBDd",
+          priceId: "price_1S9ertERY2WrVHp1hyxo8qL6",
           userId: user.uid,
           userEmail: user.email,
           successUrl: `${window.location.origin}/payment-success`,
@@ -86,7 +171,6 @@ const Pricing = () => {
   
     try {
       if (planType === 'free') {
-        // Update user with free tier and reset credits to 120
         await updateUser({ 
           tier: 'free',
           credits: 120,
@@ -102,6 +186,8 @@ const Pricing = () => {
     }
   };
 
+  const isProUser = subscriptionStatus?.tier === 'pro' && subscriptionStatus?.status === 'active';
+
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <div className="container mx-auto px-6 py-6 max-w-6xl">
@@ -113,6 +199,27 @@ const Pricing = () => {
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Home
         </Button>
+
+        {isProUser && (
+          <div className="mb-8 p-4 bg-blue-600/20 border border-blue-500/50 rounded-lg flex items-center justify-between">
+            <div>
+              <p className="font-semibold text-blue-400">Pro Subscription Active</p>
+              {subscriptionStatus?.cancelAtPeriodEnd && (
+                <p className="text-sm text-gray-400">
+                  Cancels on {new Date(subscriptionStatus.currentPeriodEnd! * 1000).toLocaleDateString()}
+                </p>
+              )}
+            </div>
+            <Button
+              onClick={handleManageSubscription}
+              disabled={isLoading}
+              className="bg-slate-700 hover:bg-slate-600"
+            >
+              <Settings className="mr-2 h-4 w-4" />
+              Manage Subscription
+            </Button>
+          </div>
+        )}
 
         <div className="text-center mb-16">
           <div className="flex items-center justify-center gap-2 mb-6">
@@ -160,15 +267,18 @@ const Pricing = () => {
               <Button 
                 className="w-full py-4 px-6 rounded-lg font-semibold text-white bg-slate-700 hover:bg-slate-600 transition-colors"
                 onClick={() => handleUpgrade('free')}
+                disabled={isProUser}
               >
-                Start for free
+                {isProUser ? 'Current Plan: Pro' : 'Start for free'}
               </Button>
             </div>
 
             {/* Pro Plan */}
             <div className="relative bg-gradient-to-br from-blue-600/20 to-purple-600/20 border-2 border-blue-500/50 rounded-xl p-8 backdrop-blur-sm">
               <div className="absolute top-4 right-4">
-                <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded-full font-medium">RECOMMENDED</span>
+                <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded-full font-medium">
+                  {isProUser ? 'ACTIVE' : 'RECOMMENDED'}
+                </span>
               </div>
               
               <div className="text-center mb-8">
@@ -210,10 +320,10 @@ const Pricing = () => {
 
               <Button 
                 className="w-full py-4 px-6 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 transition-all shadow-lg"
-                onClick={() => handleUpgrade('pro')}
+                onClick={isProUser ? handleManageSubscription : () => handleUpgrade('pro')}
                 disabled={isLoading}
               >
-                {isLoading ? 'Processing...' : 'Start now'}
+                {isLoading ? 'Processing...' : isProUser ? 'Manage Subscription' : 'Start now'}
               </Button>
             </div>
           </div>
