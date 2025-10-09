@@ -5624,26 +5624,80 @@ def stripe_webhook():
     return jsonify({'status': 'success'}), 200
 
 def handle_checkout_completed(session):
-    """Handle successful checkout - upgrade user to Pro"""
+    """Handle successful checkout - upgrade user to Pro with comprehensive logging"""
     try:
+        print("\n" + "="*60)
+        print("🎉 STRIPE WEBHOOK: checkout.session.completed")
+        print("="*60)
+        
+        # Extract metadata
         user_id = session['metadata'].get('userId')
         user_email = session['metadata'].get('userEmail')
         customer_id = session.get('customer')
         subscription_id = session.get('subscription')
+        session_id = session.get('id')
         
-        if not user_id or not db:
-            print(f"Missing user_id or db connection")
+        print(f"📋 Session Details:")
+        print(f"   Session ID: {session_id}")
+        print(f"   User ID: {user_id}")
+        print(f"   User Email: {user_email}")
+        print(f"   Customer ID: {customer_id}")
+        print(f"   Subscription ID: {subscription_id}")
+        
+        # Validation checks
+        if not user_id:
+            print("❌ ERROR: No user_id in session metadata")
+            print(f"   Available metadata: {session.get('metadata', {})}")
             return
         
-        print(f"Upgrading user {user_email} to Pro tier")
+        if not db:
+            print("❌ ERROR: Firebase database connection not available")
+            return
         
-        # Retrieve subscription with expand to get all fields
+        # Check if user exists in database
+        print(f"\n🔍 Checking if user exists in Firebase...")
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            print(f"❌ ERROR: User document not found for ID: {user_id}")
+            print(f"   Attempting to create new user document...")
+            
+            # Create new user document if it doesn't exist
+            try:
+                user_ref.set({
+                    'uid': user_id,
+                    'email': user_email,
+                    'tier': 'free',
+                    'credits': 120,
+                    'maxCredits': 120,
+                    'created_at': datetime.now().isoformat(),
+                    'lastCreditReset': datetime.now().isoformat()
+                })
+                print(f"✅ Created new user document for {user_email}")
+            except Exception as create_error:
+                print(f"❌ ERROR: Failed to create user document: {create_error}")
+                return
+        else:
+            current_data = user_doc.to_dict()
+            print(f"✅ User found in Firebase")
+            print(f"   Current tier: {current_data.get('tier', 'unknown')}")
+            print(f"   Current credits: {current_data.get('credits', 0)}")
+        
+        # Retrieve subscription details
+        print(f"\n📡 Retrieving subscription details from Stripe...")
         subscription = stripe.Subscription.retrieve(
             subscription_id,
             expand=['latest_invoice']
         )
         
-        # Build update data safely
+        print(f"✅ Subscription retrieved")
+        print(f"   Status: {subscription.status}")
+        print(f"   Current period start: {subscription.current_period_start}")
+        print(f"   Current period end: {subscription.current_period_end}")
+        
+        # Build update data
+        print(f"\n🔄 Preparing user upgrade to Pro tier...")
         update_data = {
             'tier': 'pro',
             'credits': 840,
@@ -5651,25 +5705,91 @@ def handle_checkout_completed(session):
             'stripeCustomerId': customer_id,
             'stripeSubscriptionId': subscription_id,
             'subscriptionStatus': subscription.status,
-            'upgraded_at': datetime.now().isoformat()
+            'upgraded_at': datetime.now().isoformat(),
+            'lastCreditReset': datetime.now().isoformat()
         }
         
         # Add period dates if available
         if hasattr(subscription, 'current_period_start') and subscription.current_period_start:
-            update_data['subscriptionStartDate'] = datetime.fromtimestamp(subscription.current_period_start).isoformat()
+            update_data['subscriptionStartDate'] = datetime.fromtimestamp(
+                subscription.current_period_start
+            ).isoformat()
+            print(f"   Subscription start: {update_data['subscriptionStartDate']}")
         
         if hasattr(subscription, 'current_period_end') and subscription.current_period_end:
-            update_data['subscriptionEndDate'] = datetime.fromtimestamp(subscription.current_period_end).isoformat()
+            update_data['subscriptionEndDate'] = datetime.fromtimestamp(
+                subscription.current_period_end
+            ).isoformat()
+            print(f"   Subscription end: {update_data['subscriptionEndDate']}")
         
         # Update Firebase
-        user_ref = db.collection('users').document(user_id)
+        print(f"\n💾 Updating Firebase...")
         user_ref.update(update_data)
         
-        print(f"✅ Successfully upgraded {user_email} to Pro")
+        # Verify update was successful
+        print(f"\n🔍 Verifying update...")
+        updated_doc = user_ref.get()
+        if updated_doc.exists:
+            updated_data = updated_doc.to_dict()
+            print(f"✅ Update verified!")
+            print(f"   New tier: {updated_data.get('tier')}")
+            print(f"   New credits: {updated_data.get('credits')}")
+            print(f"   Subscription status: {updated_data.get('subscriptionStatus')}")
+        else:
+            print(f"⚠️  WARNING: Could not verify update")
+        
+        print(f"\n✅ Successfully upgraded {user_email} to Pro tier")
+        print("="*60 + "\n")
+        
+    except stripe.error.StripeError as stripe_error:
+        print(f"\n❌ STRIPE ERROR in handle_checkout_completed:")
+        print(f"   Type: {type(stripe_error).__name__}")
+        print(f"   Message: {str(stripe_error)}")
+        traceback.print_exc()
+        print("="*60 + "\n")
         
     except Exception as e:
-        print(f"Error in handle_checkout_completed: {e}")
+        print(f"\n❌ ERROR in handle_checkout_completed:")
+        print(f"   Type: {type(e).__name__}")
+        print(f"   Message: {str(e)}")
         traceback.print_exc()
+        print("="*60 + "\n")
+@app.route('/api/debug/check-upgrade/<user_id>', methods=['GET'])
+@require_firebase_auth
+def debug_check_upgrade(user_id):
+    """Debug endpoint to check user upgrade status"""
+    try:
+        if not db:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            return jsonify({
+                'exists': False,
+                'message': f'User {user_id} not found in database'
+            }), 404
+        
+        user_data = user_doc.to_dict()
+        
+        return jsonify({
+            'exists': True,
+            'userId': user_id,
+            'email': user_data.get('email'),
+            'tier': user_data.get('tier'),
+            'credits': user_data.get('credits'),
+            'maxCredits': user_data.get('maxCredits'),
+            'subscriptionStatus': user_data.get('subscriptionStatus'),
+            'stripeCustomerId': user_data.get('stripeCustomerId'),
+            'stripeSubscriptionId': user_data.get('stripeSubscriptionId'),
+            'upgraded_at': user_data.get('upgraded_at'),
+            'subscriptionStartDate': user_data.get('subscriptionStartDate'),
+            'subscriptionEndDate': user_data.get('subscriptionEndDate')
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 def handle_subscription_updated(subscription):
     """Handle subscription updates"""
     try:
