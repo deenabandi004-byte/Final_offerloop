@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+ 
+
 
 export default function AccountSettings() {
   const navigate = useNavigate();
@@ -34,6 +36,8 @@ export default function AccountSettings() {
     preferredLocations: [] as string[],
     jobTypes: [] as string[],
   });
+ 
+  
 
   // Upload-related state
   const [isUploading, setIsUploading] = useState(false);
@@ -646,7 +650,7 @@ const handleResumeUpload = async (event: React.ChangeEvent<HTMLInputElement>) =>
               </div>
             </CardContent>
           </Card>
-
+          
           {/* Account Management Section */}
           <Card>
             <CardHeader>

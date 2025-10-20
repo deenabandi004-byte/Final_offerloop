@@ -45,6 +45,42 @@ from reportlab.lib.units import inch
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.pdfgen import canvas
 from serpapi import GoogleSearch
+from datetime import datetime
+from google_auth_oauthlib.flow import Flow
+ 
+def require_firebase_auth(fn):
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            auth_header = request.headers.get('Authorization', '')
+            if not auth_header.startswith('Bearer '):
+                return jsonify({'error': 'Missing Authorization header'}), 401
+            
+            id_token = auth_header.split(' ', 1)[1].strip()
+            
+            # Try to verify the token
+            try:
+                decoded = fb_auth.verify_id_token(id_token)
+                request.firebase_user = decoded
+            except Exception as token_error:
+                # For beta: Accept the token if it looks valid but can't be verified
+                print(f"Token verification failed: {token_error}")
+                # Basic validation - just check it's not empty
+                if len(id_token) > 20:
+                    # Create a minimal user object for the request
+                    request.firebase_user = {
+                        'uid': 'beta_user_' + id_token[:10],
+                        'email': 'beta@offerloop.ai'
+                    }
+                    print("⚠️ Using beta authentication fallback")
+                else:
+                    return jsonify({'error': 'Invalid token format'}), 401
+            
+            return fn(*args, **kwargs)
+        except Exception as e:
+            return jsonify({'error': f'Authentication error: {str(e)}'}), 401
+    return wrapper
+
 
 
 # Add this right after your imports section
@@ -200,6 +236,331 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
 from openai import AsyncOpenAI
 async_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+# === Gmail OAuth config & helpers ===
+GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.compose"]
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+OAUTH_REDIRECT_URI = os.getenv("OAUTH_REDIRECT_URI")
+app.secret_key = os.getenv("FLASK_SECRET", "dev")
+
+def _gmail_client_config():
+    return {
+        "web": {
+            "client_id": GOOGLE_CLIENT_ID,
+            "project_id": "offerloop-native",
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "redirect_uris": [OAUTH_REDIRECT_URI],
+        }
+    }
+
+def _save_user_gmail_creds(uid, creds):
+    data = {
+        "token": creds.token,
+        "refresh_token": getattr(creds, "refresh_token", None),
+        "token_uri": creds.token_uri,
+        "client_id": creds.client_id,
+        "client_secret": creds.client_secret,
+        "scopes": creds.scopes,
+        "expiry": creds.expiry.isoformat() if getattr(creds, "expiry", None) else None,
+        "updatedAt": datetime.utcnow(),
+    }
+    db.collection("users").document(uid).collection("integrations").document("gmail").set(data, merge=True)
+
+def _load_user_gmail_creds(uid):
+    snap = db.collection("users").document(uid).collection("integrations").document("gmail").get()
+    if not snap.exists:
+        return None
+    data = snap.to_dict() or {}
+    creds = Credentials.from_authorized_user_info({
+        "token": data.get("token"),
+        "refresh_token": data.get("refresh_token"),
+        "token_uri": data.get("token_uri") or "https://oauth2.googleapis.com/token",
+        "client_id": data.get("client_id") or GOOGLE_CLIENT_ID,
+        "client_secret": data.get("client_secret") or GOOGLE_CLIENT_SECRET,
+        "scopes": data.get("scopes") or GMAIL_SCOPES,
+    })
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        _save_user_gmail_creds(uid, creds)
+    return creds
+
+def _gmail_service(creds):
+    return build("gmail", "v1", credentials=creds)
+# Add these helper functions for Gmail reply tracking
+
+def get_thread_messages(gmail_service, thread_id):
+    """Get all messages in a Gmail thread"""
+    try:
+        thread = gmail_service.users().threads().get(
+            userId='me',
+            id=thread_id,
+            format='metadata',
+            metadataHeaders=['From', 'To', 'Subject']
+        ).execute()
+        return thread.get('messages', [])
+    except Exception as e:
+        print(f"Error getting thread messages: {e}")
+        return []
+
+def check_for_replies(gmail_service, thread_id, sent_to_email):
+    """Check if there are any replies from the recipient in the thread"""
+    try:
+        messages = get_thread_messages(gmail_service, thread_id)
+        
+        # Skip the first message (our sent message)
+        for msg in messages[1:]:
+            headers = msg.get('payload', {}).get('headers', [])
+            from_header = next((h['value'] for h in headers if h['name'].lower() == 'from'), '')
+            
+            # Check if this message is from the recipient
+            if sent_to_email.lower() in from_header.lower():
+                # Check if it's unread
+                if 'UNREAD' in msg.get('labelIds', []):
+                    return {
+                        'hasReply': True,
+                        'isUnread': True,
+                        'messageId': msg['id']
+                    }
+                else:
+                    return {
+                        'hasReply': True,
+                        'isUnread': False,
+                        'messageId': msg['id']
+                    }
+        
+        return {'hasReply': False, 'isUnread': False}
+    except Exception as e:
+        print(f"Error checking for replies: {e}")
+        return {'hasReply': False, 'isUnread': False}
+
+# Add these API endpoints
+
+@app.route('/api/contacts/<contact_id>/check-replies', methods=['GET'])
+@require_firebase_auth
+def check_contact_replies(contact_id):
+    """Check if a contact has replied to our email"""
+    try:
+        user_id = request.firebase_user['uid']
+        
+        # Get contact from Firestore
+        contact_ref = db.collection('users').document(user_id).collection('contacts').document(contact_id)
+        contact_doc = contact_ref.get()
+        
+        if not contact_doc.exists:
+            return jsonify({'error': 'Contact not found'}), 404
+        
+        contact_data = contact_doc.to_dict()
+        thread_id = contact_data.get('gmailThreadId')
+        email = contact_data.get('email')
+        
+        if not thread_id or not email:
+            return jsonify({'hasReply': False, 'isUnread': False})
+        
+        # Get Gmail service
+        creds = _load_user_gmail_creds(user_id)
+        if not creds:
+            return jsonify({'error': 'Gmail not connected'}), 401
+        
+        gmail_service = _gmail_service(creds)
+        
+        # Check for replies
+        reply_status = check_for_replies(gmail_service, thread_id, email)
+        
+        # Update contact with reply status
+        contact_ref.update({
+            'hasUnreadReply': reply_status['isUnread'],
+            'lastChecked': datetime.now().isoformat()
+        })
+        
+        return jsonify(reply_status)
+        
+    except Exception as e:
+        print(f"Error checking replies: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/contacts/<contact_id>/mute-notifications', methods=['POST'])
+@require_firebase_auth
+def mute_contact_notifications(contact_id):
+    """Mute/unmute notifications for a contact"""
+    try:
+        user_id = request.firebase_user['uid']
+        data = request.get_json() or {}
+        muted = data.get('muted', True)
+        
+        contact_ref = db.collection('users').document(user_id).collection('contacts').document(contact_id)
+        
+        if not contact_ref.get().exists:
+            return jsonify({'error': 'Contact not found'}), 404
+        
+        contact_ref.update({
+            'notificationsMuted': muted,
+            'mutedAt': datetime.now().isoformat() if muted else None
+        })
+        
+        return jsonify({'success': True, 'muted': muted})
+        
+    except Exception as e:
+        print(f"Error muting notifications: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/contacts/batch-check-replies', methods=['POST'])
+@require_firebase_auth
+def batch_check_replies():
+    """Check replies for multiple contacts at once"""
+    try:
+        user_id = request.firebase_user['uid']
+        data = request.get_json() or {}
+        contact_ids = data.get('contactIds', [])
+        
+        if not contact_ids:
+            return jsonify({'results': {}})
+        
+        # Get Gmail service
+        creds = _load_user_gmail_creds(user_id)
+        if not creds:
+            return jsonify({'error': 'Gmail not connected'}), 401
+        
+        gmail_service = _gmail_service(creds)
+        results = {}
+        
+        for contact_id in contact_ids[:20]:  # Limit to 20 at a time
+            try:
+                contact_ref = db.collection('users').document(user_id).collection('contacts').document(contact_id)
+                contact_doc = contact_ref.get()
+                
+                if not contact_doc.exists:
+                    continue
+                
+                contact_data = contact_doc.to_dict()
+                
+                # Skip if notifications are muted
+                if contact_data.get('notificationsMuted'):
+                    results[contact_id] = {'hasReply': False, 'isUnread': False, 'muted': True}
+                    continue
+                
+                thread_id = contact_data.get('gmailThreadId')
+                email = contact_data.get('email')
+                
+                if thread_id and email:
+                    reply_status = check_for_replies(gmail_service, thread_id, email)
+                    results[contact_id] = reply_status
+                    
+                    # Update in Firestore
+                    contact_ref.update({
+                        'hasUnreadReply': reply_status['isUnread'],
+                        'lastChecked': datetime.now().isoformat()
+                    })
+            except Exception as e:
+                print(f"Error checking contact {contact_id}: {e}")
+                continue
+        
+        return jsonify({'results': results})
+        
+    except Exception as e:
+        print(f"Error batch checking replies: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/contacts/<contact_id>/generate-reply', methods=['POST'])
+@require_firebase_auth
+def generate_reply_draft(contact_id):
+    """Generate a reply draft for a contact's message"""
+    try:
+        user_id = request.firebase_user['uid']
+        
+        # Get contact
+        contact_ref = db.collection('users').document(user_id).collection('contacts').document(contact_id)
+        contact_doc = contact_ref.get()
+        
+        if not contact_doc.exists:
+            return jsonify({'error': 'Contact not found'}), 404
+        
+        contact_data = contact_doc.to_dict()
+        thread_id = contact_data.get('gmailThreadId')
+        
+        if not thread_id:
+            return jsonify({'error': 'No Gmail thread found'}), 400
+        
+        # Get Gmail service
+        creds = _load_user_gmail_creds(user_id)
+        if not creds:
+            return jsonify({'error': 'Gmail not connected'}), 401
+        
+        gmail_service = _gmail_service(creds)
+        
+        # Get the latest message in the thread
+        thread = gmail_service.users().threads().get(
+            userId='me',
+            id=thread_id,
+            format='full'
+        ).execute()
+        
+        messages = thread.get('messages', [])
+        if not messages:
+            return jsonify({'error': 'No messages in thread'}), 400
+        
+        latest_message = messages[-1]
+        
+        # Extract message body (simplified)
+        payload = latest_message.get('payload', {})
+        body = ''
+        
+        if 'parts' in payload:
+            for part in payload['parts']:
+                if part['mimeType'] == 'text/plain':
+                    body = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
+                    break
+        elif 'body' in payload and 'data' in payload['body']:
+            body = base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8')
+        
+        # Generate reply using AI (placeholder - you'll enhance this later)
+        reply_text = f"Thank you for your reply! I appreciate you taking the time to respond.\n\nBest regards"
+        
+        # Create draft reply in Gmail
+        message = MIMEText(reply_text)
+        message['to'] = contact_data.get('email')
+        message['subject'] = f"Re: {contact_data.get('emailSubject', 'Our conversation')}"
+        
+        raw = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
+        
+        draft_body = {
+            'message': {
+                'raw': raw,
+                'threadId': thread_id
+            }
+        }
+        
+        draft = gmail_service.users().drafts().create(userId='me', body=draft_body).execute()
+        
+        # Mark as read
+        gmail_service.users().threads().modify(
+            userId='me',
+            id=thread_id,
+            body={'removeLabelIds': ['UNREAD']}
+        ).execute()
+        
+        # Update contact
+        contact_ref.update({
+            'hasUnreadReply': False,
+            'lastReplyDraftId': draft['id']
+        })
+        
+        return jsonify({
+            'success': True,
+            'draftId': draft['id'],
+            'threadId': thread_id,
+            'gmailUrl': f"https://mail.google.com/mail/u/0/#drafts/{draft['id']}"
+        })
+        
+    except Exception as e:
+        print(f"Error generating reply: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+# === end Gmail config ===
+
 
 # Replace them with these lines:
 PEOPLE_DATA_LABS_API_KEY = os.getenv('PEOPLE_DATA_LABS_API_KEY')
@@ -272,40 +633,54 @@ def spa_fallback(path):
         return send_from_directory(app.static_folder, path)
 
     return send_from_directory(app.static_folder, "index.html")
-def require_firebase_auth(fn):
-    @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        try:
-            auth_header = request.headers.get('Authorization', '')
-            if not auth_header.startswith('Bearer '):
-                return jsonify({'error': 'Missing Authorization header'}), 401
-            
-            id_token = auth_header.split(' ', 1)[1].strip()
-            
-            # Try to verify the token
-            try:
-                decoded = fb_auth.verify_id_token(id_token)
-                request.firebase_user = decoded
-            except Exception as token_error:
-                # For beta: Accept the token if it looks valid but can't be verified
-                print(f"Token verification failed: {token_error}")
-                # Basic validation - just check it's not empty
-                if len(id_token) > 20:
-                    # Create a minimal user object for the request
-                    request.firebase_user = {
-                        'uid': 'beta_user_' + id_token[:10],
-                        'email': 'beta@offerloop.ai'
-                    }
-                    print("⚠️ Using beta authentication fallback")
-                else:
-                    return jsonify({'error': 'Invalid token format'}), 401
-            
-            return fn(*args, **kwargs)
-        except Exception as e:
-            return jsonify({'error': f'Authentication error: {str(e)}'}), 401
-    return wrapper
 
 # Initialize Flask app
+# === Gmail OAuth routes ===
+@app.get("/api/google/oauth/start")
+@require_firebase_auth
+def google_oauth_start():
+    flow = Flow.from_client_config(_gmail_client_config(), scopes=GMAIL_SCOPES)
+    flow.redirect_uri = OAUTH_REDIRECT_URI
+    auth_url, state = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes=True,
+        prompt="consent"
+    )
+    uid = request.firebase_user["uid"]
+    db.collection("oauth_state").document(state).set({"uid": uid, "createdAt": datetime.utcnow()})
+    return jsonify({"authUrl": auth_url})
+@app.get("/api/gmail/status")
+@require_firebase_auth
+def gmail_status():
+    uid = request.firebase_user["uid"]
+    creds = _load_user_gmail_creds(uid)
+    return jsonify({
+        "connected": bool(creds and creds.valid),
+        "scopes": list(creds.scopes) if creds else []
+    })
+
+@app.get("/api/google/oauth/callback")
+def google_oauth_callback():
+    state = request.args.get("state")
+    code  = request.args.get("code")
+    if not state or not code:
+        return jsonify({"error":"Missing state or code"}), 400
+
+    sdoc = db.collection("oauth_state").document(state).get()
+    if not sdoc.exists:
+        return jsonify({"error":"Invalid state"}), 400
+    uid = sdoc.to_dict().get("uid")
+
+    flow = Flow.from_client_config(_gmail_client_config(), scopes=GMAIL_SCOPES, state=state)
+    flow.redirect_uri = OAUTH_REDIRECT_URI
+    flow.fetch_token(authorization_response=request.url)
+
+    creds = flow.credentials
+    _save_user_gmail_creds(uid, creds)
+    db.collection("oauth_state").document(state).delete()
+
+    return redirect("https://www.offerloop.ai/settings?connected=gmail")
+# === end Gmail OAuth routes ===
 
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'contacts.db')
@@ -1160,44 +1535,82 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
 
 
 def extract_hometown_from_education_history_enhanced(education_history):
-    """Extract hometown from contact's education history using OpenAI with your exact prompt"""
+    """Smart hometown extraction: Try regex first (instant), fall back to OpenAI only if needed"""
+    import re
+    
+    if not education_history or education_history in ['Not available', '']:
+        return "Unknown"
+    
+    # ============================================
+    # STEP 1: Try regex patterns first (instant)
+    # ============================================
+    
+    # Pattern 1: "High School, City, State" or "High School - City, State"
+    match = re.search(
+        r'(?:High School|Secondary School|Prep)[,\-]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)[,\s]+([A-Z]{2})',
+        education_history
+    )
+    if match:
+        city, state = match.groups()
+        hometown = f"{city}, {state}"
+        print(f"✓ Regex found hometown: {hometown}")
+        return hometown
+    
+    # Pattern 2: "City High School, State"
+    match = re.search(
+        r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+High School[,\s]+([A-Z]{2})',
+        education_history
+    )
+    if match:
+        city, state = match.groups()
+        hometown = f"{city}, {state}"
+        print(f"✓ Regex found hometown: {hometown}")
+        return hometown
+    
+    # Pattern 3: Generic "City, State" near school terms
+    match = re.search(
+        r'(?:School|Academy|Institute).*?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)[,\s]+([A-Z]{2})',
+        education_history
+    )
+    if match:
+        city, state = match.groups()
+        hometown = f"{city}, {state}"
+        print(f"✓ Regex found hometown: {hometown}")
+        return hometown
+    
+    # ============================================
+    # STEP 2: Regex failed - use OpenAI fallback
+    # ============================================
+    
+    print(f"Regex failed for education: {education_history[:100]}...")
+    print("Using OpenAI fallback...")
+    
     try:
-        if not education_history or education_history in ['Not available', '']:
-            return "Unknown"
-        
-        print(f"Extracting hometown from education: {education_history[:100]}...")
-        
-        prompt = f"""You are given a candidate's full education history (as plain text). 
-1. **Extract** the name of the high school the candidate attended. 
-2. **Determine** the city/town (hometown) where that high school is located. Use your knowledge of schools and their locations; no external APIs are required. 
-3. **Return** only the hometown as a plain string, without any additional explanations or formatting.
+        prompt = f"""Extract hometown from education history. Return ONLY "City, State" or "Unknown".
 
-Education History:
-{education_history}
-"""
+Education: {education_history[:300]}
+
+Hometown:"""
         
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=50,
+            max_tokens=30,
             temperature=0.3
         )
         
         hometown = response.choices[0].message.content.strip()
-        
-        # Clean up the response
         hometown = hometown.replace('"', '').replace("'", "").strip()
         
-        # Validate the response
-        if hometown and len(hometown) > 0 and not hometown.lower().startswith('i '):
-            print(f"Extracted hometown: {hometown}")
+        if hometown and len(hometown) > 0 and hometown.lower() not in ['unknown', 'n/a', 'not available']:
+            print(f"✓ OpenAI found hometown: {hometown}")
             return hometown
         else:
-            print("Could not determine hometown from education history")
+            print(f"OpenAI couldn't determine hometown")
             return "Unknown"
-        
+            
     except Exception as e:
-        print(f"Hometown extraction failed: {e}")
+        print(f"OpenAI fallback failed: {e}")
         return "Unknown"
 
 def _choose_best_email(emails: list[dict], recommended: str | None = None) -> str | None:
@@ -1283,9 +1696,72 @@ Return ONLY a valid JSON object in this exact format with no other text:
         print(f"Batch hometown extraction failed: {e}")
         # Fallback: return Unknown for all
         return {i: "Unknown" for i in range(len(contacts))}
+def clean_email_text(text):
+    """Clean email text to remove problematic characters"""
+    if not text:
+        return ""
+    
+    # Replace common Unicode characters with ASCII equivalents
+    replacements = {
+        '\u2019': "'",  # Right single quote
+        '\u2018': "'",  # Left single quote
+        '\u201C': '"',  # Left double quote
+        '\u201D': '"',  # Right double quote
+        '\u2013': '-',  # En dash
+        '\u2014': '--', # Em dash
+        '\u2026': '...',  # Ellipsis
+        '\u00A0': ' ',  # Non-breaking space
+        '\u00AD': '',   # Soft hyphen
+        # Common corrupted UTF-8 sequences
+        'â€™': "'",     # Corrupted apostrophe
+        'â€œ': '"',     # Corrupted left quote
+        'â€': '"',      # Corrupted right quote
+        'â€"': '--',    # Corrupted em dash
+        'â€"': '-',     # Corrupted en dash
+        'Ã¢': '',       # Remove corrupted characters
+        'â‚¬': '',
+        'Å': '',
+        '¸': '',
+        'Â': '',
+        '–': '-',
+        '—': '--',
+        ''': "'",
+        ''': "'",
+        '"': '"',
+        '"': '"',
+    }
+    
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    
+    # Remove any remaining non-ASCII characters that might cause issues
+    # But preserve common accented characters that are valid
+    cleaned = []
+    for char in text:
+        if ord(char) < 128:  # ASCII range
+            cleaned.append(char)
+        elif ord(char) in range(192, 256):  # Extended ASCII (accented letters)
+            cleaned.append(char)
+        else:
+            # Replace other characters with space or appropriate substitute
+            if ord(char) in [8211, 8212]:  # em dash, en dash
+                cleaned.append('-')
+            elif ord(char) in [8216, 8217]:  # smart quotes
+                cleaned.append("'")
+            elif ord(char) in [8220, 8221]:  # smart double quotes
+                cleaned.append('"')
+            else:
+                cleaned.append(' ')
+    
+    text = ''.join(cleaned)
+    
+    # Clean up extra spaces
+    text = ' '.join(text.split())
+    
+    return text
 
 def batch_generate_emails(contacts, resume_text, user_profile, career_interests):
-    """Generate all emails in a single OpenAI call"""
+    """Generate all emails using the new compelling prompt template"""
     try:
         if not contacts:
             return {}
@@ -1297,59 +1773,96 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests)
         elif career_interests and not user_profile:
             user_profile = {'careerInterests': career_interests}
         
-        # Extract user info properly
+        # Extract user info
         user_info = extract_user_info_from_resume_priority(resume_text, user_profile)
         
-        # Build contact summaries
-        contacts_info = []
+        # Build sender description
+        sender_desc = f"{user_info.get('name', 'Student')} - {user_info.get('year', '')} {user_info.get('major', '')} at {user_info.get('university', '')}"
+        
+        # Get user contact info for signature
+        user_email = user_profile.get('email', '') if user_profile else ''
+        user_phone = user_profile.get('phone', '') if user_profile else ''
+        user_linkedin = user_profile.get('linkedin', '') if user_profile else ''
+        
+        contact_info_lines = []
+        if user_email:
+            contact_info_lines.append(user_email)
+        if user_phone:
+            contact_info_lines.append(user_phone)
+        if user_linkedin:
+            contact_info_lines.append(user_linkedin)
+        contact_info_str = " | ".join(contact_info_lines) if contact_info_lines else ""
+        
+        # Generate individual prompts for each contact
+        email_prompts = []
         for i, contact in enumerate(contacts):
-            contacts_info.append(f"""Contact {i}:
-- Name: {contact.get('FirstName', '')} {contact.get('LastName', '')}
-- Title: {contact.get('Title', '')}
-- Company: {contact.get('Company', '')}
-- Location: {contact.get('City', '')}, {contact.get('State', '')}""")
-        
-        # Build career interests string
-        interests_str = ""
-        ci = user_info.get('career_interests', [])
-        if ci:
-            if len(ci) == 1:
-                interests_str = ci[0]
-            elif len(ci) == 2:
-                interests_str = f"{ci[0]} and {ci[1]}"
+            # Generate conversation hook based on contact details
+            company = contact.get('Company', '')
+            title = contact.get('Title', '')
+            
+            # Create specific hooks
+            if 'intern' in title.lower():
+                hook = f"your internship experience at {company} and transition to full-time"
+            elif 'medical' in company.lower() or 'health' in company.lower() or 'jude' in company.lower():
+                hook = "how data analytics shapes medical device innovation"
+            elif 'data' in title.lower() or 'analyst' in title.lower():
+                hook = "the unique data challenges you're solving"
+            elif any(word in company.lower() for word in ['tech', 'software', 'digital']):
+                hook = f"the technical innovation happening at {company}"
             else:
-                interests_str = f"{', '.join(ci[:-1])}, and {ci[-1]}"
+                hook = f"your journey to {company}"
+            
+            recipient_desc = f"{contact.get('FirstName', '')} {contact.get('LastName', '')} - {contact.get('Title', '')} at {contact.get('Company', '')}"
+            location = f"{contact.get('City', '')}, {contact.get('State', '')}"
+            background = contact.get('WorkSummary', '') or f"Professional at {contact.get('Company', '')}"
+            
+            email_prompts.append(f"""Contact {i}:
+SENDER: {sender_desc}
+RECIPIENT: {recipient_desc}
+PRIMARY CONVERSATION HOOK: {hook}
+ADDITIONAL CONTEXT:
+- Location: {location}
+- Background: {background[:100]}""")
         
-        prompt = f"""Generate {len(contacts)} personalized networking emails.
+        # Build the complete prompt - FIX THE FORMATTING HERE
+        prompt = f"""Write {len(contacts)} short, compelling and punchy networking emails that feel genuine and create immediate interest.
 
-Student: {user_info.get('name', 'Student')} - {user_info.get('year', '')} {user_info.get('major', '')} at {user_info.get('university', '')}
-{f"Career interests: {interests_str}" if interests_str else ""}
+{chr(10).join(email_prompts)}
 
-{chr(10).join(contacts_info)}
+For EACH contact, follow these EMAIL REQUIREMENTS:
+1. Start with "Hi [FirstName],"
+2. Naturally weave the conversation hook into the first or second sentence
+3. Show you've done light research by asking one curiosity-driven question about their work/experience (not obvious from LinkedIn)
+4. Highlight any relevant similarities or shared connections between sender and recipient to create immediate rapport
+5. Keep tone conversational, interesting, and concise—not stiff or templated
+6. Use one vivid or unexpected word/phrase that makes the note memorable
+7. End with a warm, low-friction ask for a 15-20 min chat
+8. Keep it ~50 words (shorter > longer)
+9. Close with "Thank you," then {user_info.get('name', '[Name]')}
+10. After signature, add: "I've attached my resume in case helpful for context." followed by: {contact_info_str}
 
-For EACH contact, generate:
-1. Subject line (6-8 words, no placeholders)
-2. Email body (120-150 words, personalized, no placeholders like [name] or {{name}})
+CRITICAL: Each email must be unique and conversational. Use actual names, not placeholders.
+IMPORTANT: Use standard ASCII characters only. Use straight quotes ("), hyphens (-), and apostrophes ('). Do not use smart quotes, em dashes, or other special characters.
 
-CRITICAL: Use actual names - write "Hi Grace," not "Hi {{FirstName}},"
+Return ONLY valid JSON:
+{{"0": {{"subject": "6-8 word intriguing subject", "body": "complete email with all elements"}}, "1": {{"subject": "...", "body": "..."}}, ...}}"""
 
-Return as valid JSON:
-{{"0": {{"subject": "...", "body": "..."}}, "1": {{"subject": "...", "body": "..."}}, ...}}
-"""
-        
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You generate professional networking emails. Return ONLY valid JSON with no markdown formatting."},
+                {"role": "system", "content": "You write short, punchy networking emails that create immediate interest. Each email must be unique, memorable, and ~50 words. Use only standard ASCII characters - no smart quotes, em dashes, or special characters."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=3000,
-            temperature=0.7
+            max_tokens=2000,
+            temperature=0.8,
         )
         
         response_text = response.choices[0].message.content.strip()
         
-        # Remove markdown code blocks if present
+        # Clean the response text of any unicode issues
+        response_text = response_text.encode('ascii', 'ignore').decode('ascii')
+        
+        # Remove markdown if present
         if '```' in response_text:
             response_text = response_text.split('```')[1]
             if response_text.startswith('json'):
@@ -1359,41 +1872,48 @@ Return as valid JSON:
         import json
         results = json.loads(response_text)
         
-        # Convert string keys to integers and apply sanitization
+        # Process and clean results
         cleaned_results = {}
         for k, v in results.items():
             idx = int(k)
-            subject = v.get('subject', 'Quick question about your work')
-            body = v.get('body', '')
+            subject = clean_email_text(v.get('subject', 'Quick question about your work'))
+            body = clean_email_text(v.get('body', ''))
             
-            # Apply sanitization to remove any remaining placeholders
+            # Light sanitization only - preserve the punchy style
             if idx < len(contacts):
                 contact = contacts[idx]
-                body = sanitize_email_placeholders(body, contact, user_info)
-                body = enforce_networking_prompt_rules(body)
-                subject = sanitize_placeholders(
-                    subject,
-                    user_name=user_info.get('name', ''),
-                    user_year=user_info.get('year', ''),
-                    user_major=user_info.get('major', ''),
-                    user_university=user_info.get('university', ''),
-                    career_interests=user_info.get('career_interests', [])
-                )
-            
+                # Only replace obvious placeholders, keep the natural flow
+                body = body.replace('[FirstName]', contact.get('FirstName', ''))
+                body = body.replace('[Name]', user_info.get('name', ''))
+                body = body.replace('[Company]', contact.get('Company', ''))
+                
             cleaned_results[idx] = {'subject': subject, 'body': body}
         
         return cleaned_results
         
-    except json.JSONDecodeError as e:
-        print(f"Batch email JSON parsing failed: {e}")
-        print(f"Response was: {response_text[:500]}")
-        return {}
     except Exception as e:
         print(f"Batch email generation failed: {e}")
         import traceback
         traceback.print_exc()
-        return {}
+        
+        # Fallback emails
+        fallback_results = {}
+        user_info = extract_user_info_from_resume_priority(resume_text, user_profile) if resume_text else {'name': ''}
+        for i, contact in enumerate(contacts):
+            fallback_results[i] = {
+                'subject': f"Question about {contact.get('Company', 'your work')}",
+                'body': f"""Hi {contact.get('FirstName', '')},
 
+I'm {user_info.get('name', 'a student')} studying {user_info.get('major', '')} at {user_info.get('university', '')}. Your work at {contact.get('Company', 'your company')} caught my attention.
+
+Would you be open to a brief 15-minute chat about your experience?
+
+Thank you,
+{user_info.get('name', '')}
+
+I've attached my resume in case helpful for context."""
+            }
+        return fallback_results
 def extract_contact_from_pdl_person_enhanced(person):
     """Enhanced contact extraction with relaxed, sensible email acceptance."""
     try:
@@ -2658,7 +3178,7 @@ def save_resume_to_firebase(user_id, resume_text):
         traceback.print_exc()
         return False
 async def generate_similarity_async(resume_text, contact):
-    """Async version of similarity generation for parallel processing"""
+    """Async version of similarity generation for parallel processing with timeout"""
     try:
         if not resume_text or len(resume_text.strip()) < 10:
             return "Both professionals with complementary experience"
@@ -2688,14 +3208,19 @@ Contact Background:
 Generate ONE sentence highlighting the most relevant similarity:
 """
         
-        response = await async_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are an expert at finding meaningful connections between people's backgrounds. Write concise, specific similarities."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=100,
-            temperature=0.7
+        # Add timeout to the API call
+        response = await asyncio.wait_for(
+            async_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are an expert at finding meaningful connections between people's backgrounds. Write concise, specific similarities."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=100,
+                temperature=0.7,
+                timeout=15.0  # 15 second timeout per API call
+            ),
+            timeout=20.0  # 20 second overall timeout including network overhead
         )
         
         similarity = response.choices[0].message.content.strip()
@@ -2703,15 +3228,46 @@ Generate ONE sentence highlighting the most relevant similarity:
         
         return similarity
         
+    except asyncio.TimeoutError:
+        print(f"⏱️ Timeout generating similarity for {contact.get('FirstName', '')}")
+        return "Both professionals with strong backgrounds in their respective fields"
     except Exception as e:
         print(f"Async similarity generation failed for {contact.get('FirstName', '')}: {e}")
         return "Both professionals with strong backgrounds in their respective fields"
 
 async def batch_generate_similarities(contacts, resume_text):
-    """Generate all similarities in parallel"""
+    """Generate all similarities in parallel with timeout protection"""
     print(f"Generating {len(contacts)} similarities in parallel...")
+    
     tasks = [generate_similarity_async(resume_text, contact) for contact in contacts]
-    return await asyncio.gather(*tasks)
+    
+    try:
+        # Add overall timeout for the entire batch (20 seconds per contact + buffer)
+        total_timeout = max(60, len(contacts) * 25)  # At least 60s, or 25s per contact
+        
+        results = await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True),
+            timeout=total_timeout
+        )
+        
+        # Handle any exceptions in results
+        final_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                print(f"⚠️ Error for contact {i}: {result}")
+                final_results.append("Both professionals with strong backgrounds in their respective fields")
+            else:
+                final_results.append(result)
+        
+        return final_results
+        
+    except asyncio.TimeoutError:
+        print(f"⚠️ Batch similarity generation timed out after {total_timeout}s")
+        # Return fallback similarities for all
+        return ["Both professionals with complementary experience"] * len(contacts)
+    except Exception as e:
+        print(f"⚠️ Batch similarity generation failed: {e}")
+        return ["Both professionals with complementary experience"] * len(contacts)
 
 def generate_similarity_summary(resume_text, contact):
     """Generate similarity between resume and contact with improved error handling"""
@@ -2895,8 +3451,12 @@ def get_gmail_service_for_user(user_email):
         return None
 
 def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free', user_email=None):
-    """Create Gmail draft in the user's account"""
+    """Create Gmail draft in the user's account with proper encoding"""
     try:
+        # Clean the email subject and body FIRST
+        email_subject = clean_email_text(email_subject)
+        email_body = clean_email_text(email_body)
+        
         gmail_service = get_gmail_service_for_user(user_email)
         if not gmail_service:
             print(f"Gmail unavailable for {user_email} - creating mock draft")
@@ -2920,13 +3480,15 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         
         print(f"User {user_email} drafting to: {recipient_email}")
         
-        message = MIMEText(email_body)
+        # Create message with explicit UTF-8 encoding
+        message = MIMEText(email_body, 'plain', 'utf-8')
         message['to'] = recipient_email
         message['subject'] = email_subject
         safe_from = user_email or os.getenv("DEFAULT_FROM_EMAIL", "noreply@offerloop.ai")
         message['from'] = safe_from
         
-        raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        # Ensure proper encoding when creating the raw message
+        raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
         
         draft_body = {
             'message': {
@@ -2949,6 +3511,8 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         
     except Exception as e:
         print(f"{tier.capitalize()} Gmail draft creation failed for {user_email}: {e}")
+        import traceback
+        traceback.print_exc()
         return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}_user_{user_email}"
 
 def apply_recruitedge_label_for_user(gmail_service, message_id, tier, user_email):
@@ -4899,168 +5463,7 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
 
 
 # Create a new version of the PRO tier function that accepts resume_text instead of resume_file
-def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_text, user_email=None, user_profile=None, career_interests=None, college_alumni=None, batch_size=None):
-    """PRO TIER: Modified to accept resume_text instead of resume_file"""
-    print(f"Running PRO tier workflow with resume text for {user_email}")
-    
-    try:
-        # GET USER ID FROM REQUEST CONTEXT
-        user_id = None
-        if hasattr(request, 'firebase_user'):
-            user_id = request.firebase_user.get('uid')
-            print(f"Using Firebase user ID: {user_id}")
-        
-        # CHECK USER CREDITS BEFORE SEARCHING
-        credits_available = 840  # Default for pro tier
-        if db and user_id:
-            try:
-                user_ref = db.collection('users').document(user_id)
-                user_doc = user_ref.get()
-                
-                if user_doc.exists:
-                    user_data = user_doc.to_dict()
-                    credits_available = user_data.get('credits', 840)
-                    tier = user_data.get('tier', 'free')
-                    
-                    # Verify user is Pro tier
-                    if tier != 'pro':
-                        return {'error': 'Pro tier subscription required', 'contacts': []}
-                    
-                    # Check credits (minimum 15 for 1 contact)
-                    if credits_available < 15:
-                        return {
-                            'error': 'Insufficient credits. Please contact support for additional credits.',
-                            'credits_needed': 15,
-                            'current_credits': credits_available,
-                            'contacts': []
-                        }
-                    
-                    print(f"Pro user has {credits_available} credits available")
-                else:
-                    return {'error': 'User not found. Pro subscription required.', 'contacts': []}
-            except Exception as credit_check_error:
-                print(f"Credit check error: {credit_check_error}")
-                return {'error': 'Unable to verify Pro subscription', 'contacts': []}
-        
-        # Calculate max contacts based on credits
-        tier_max = TIER_CONFIGS['pro']['max_contacts']    # 8
-
-        # USE BATCH_SIZE FROM SLIDER if provided
-        if batch_size is not None and isinstance(batch_size, int) and batch_size > 0:
-            max_contacts_by_credits = min(batch_size, tier_max, credits_available // 15)
-            print(f"PRO: Using batch_size: {batch_size} -> searching for {max_contacts_by_credits} contacts")
-        else:
-            max_contacts_by_credits = min(tier_max, credits_available // 15)
-            print(f"PRO: No batch_size, using max: {max_contacts_by_credits} contacts")
-
-        # Validate resume text
-        if not resume_text or len(resume_text.strip()) < 10:
-            return {'error': 'Valid resume content is required for Pro tier', 'contacts': []}
-        
-        print(f"DEBUG - PRO tier input data:")
-        print(f"  resume_text length: {len(resume_text)}")
-        print(f"  user_profile: {user_profile}")
-        print(f"  career_interests: {career_interests}")
-        print(f"  user_email: {user_email}")
-        
-        # PDL Search for contacts (limited by credits)
-        contacts = search_contacts_with_smart_location_strategy(
-            job_title, company, location,
-            max_contacts=max_contacts_by_credits,
-            college_alumni=college_alumni
-        )
-        
-        if not contacts:
-            print("No contacts found for Pro tier")
-            return {'error': 'No contacts found', 'contacts': []}
-        
-        # DEDUCT CREDITS BASED ON ACTUAL CONTACTS FOUND
-        credits_to_deduct = len(contacts) * 15
-        new_credits_balance = credits_available - credits_to_deduct
-        
-        # UPDATE CREDITS IN FIREBASE
-        if db and user_id:
-            try:
-                user_ref = db.collection('users').document(user_id)
-                user_ref.update({
-                    'credits': new_credits_balance,
-                    'last_search': datetime.now(),
-                    'last_search_job_title': job_title,
-                    'last_search_company': company,
-                    'last_search_location': location,
-                    'last_search_contacts': len(contacts),
-                    'last_search_credits_used': credits_to_deduct,
-                    'tier': 'pro'
-                })
-                print(f"Pro tier: Deducted {credits_to_deduct} credits for {len(contacts)} contacts. New balance: {new_credits_balance}")
-            except Exception as credit_update_error:
-                print(f"Failed to update credits for user ID {user_id}: {credit_update_error}")
-        
-        # Generate similarities and hometowns for each contact
-        for contact in contacts:
-            # Generate similarity
-            try:
-                similarity = generate_similarity_summary(resume_text, contact)
-            except Exception:
-                similarity = ''
-            contact['Similarity'] = similarity
-            
-            # Extract hometown
-            edu_hist = contact.get('EducationTop') or contact.get('EducationHistory') or ''
-            try:
-                hometown = extract_hometown_from_education_history_enhanced(edu_hist)
-            except Exception:
-                hometown = contact.get('Hometown') or 'Unknown'
-            contact['Hometown'] = hometown or 'Unknown'
-        
-        # Generate emails using unified system
-        successful_drafts = 0
-        for contact in contacts:
-            print(f"DEBUG - Generating PRO email for {contact.get('FirstName', 'Unknown')}")
-            
-            # Generate personalized email
-            email_subject, email_body = generate_email_for_both_tiers(
-                contact,
-                resume_text=resume_text,
-                user_profile=user_profile,
-                career_interests=career_interests
-            )
-            
-            contact['email_subject'] = email_subject
-            contact['email_body'] = email_body
-            
-            # Create Gmail draft
-            draft_id = create_gmail_draft_for_user(contact, email_subject, email_body, tier='pro', user_email=user_email)
-            contact['draft_id'] = draft_id
-            if not str(draft_id).startswith('mock_'):
-                successful_drafts += 1
-        
-        # Filter to Pro fields
-        pro_contacts = []
-        for c in contacts:
-            pro_contact = {k: v for k, v in c.items() if k in TIER_CONFIGS['pro']['fields']}
-            pro_contact['email_subject'] = c.get('email_subject','')
-            pro_contact['email_body'] = c.get('email_body','')
-            pro_contacts.append(pro_contact)
-        
-        print(f"Pro tier completed for {user_email}: {len(pro_contacts)} contacts, {successful_drafts} Gmail drafts")
-        
-        return {
-            'contacts': pro_contacts,
-            'successful_drafts': successful_drafts,
-            'tier': 'pro',
-            'user_email': user_email,
-            'user_id': user_id,
-            'credits_used': credits_to_deduct,
-            'credits_remaining': new_credits_balance,
-            'total_contacts': len(contacts)
-        }
-        
-    except Exception as e:
-        print(f"Pro tier failed for {user_email}: {e}")
-        traceback.print_exc()
-        return {'error': str(e), 'contacts': []}
-
+ 
 
 
 # Add Pro CSV download endpoint
@@ -5490,6 +5893,73 @@ def bulk_create_contacts():
         print(f"Bulk create error: {e}")
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+# === Gmail Drafts ===
+@app.post("/api/gmail/drafts")
+@require_firebase_auth
+def create_gmail_draft(contact, email_subject, email_body, tier='free'):
+    """Create Gmail draft with appropriate RecruitEdge label and proper encoding"""
+    try:
+        # Clean the email text first
+        email_subject = clean_email_text(email_subject)
+        email_body = clean_email_text(email_body)
+        
+        gmail_service = get_gmail_service()
+        if not gmail_service:
+            print(f"Gmail unavailable - creating mock draft for {contact.get('FirstName', 'Unknown')}")
+            return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
+        
+        print(f"Creating {tier.capitalize()} Gmail draft for {contact.get('FirstName', 'Unknown')}")
+        
+        # Get the best available email address
+        recipient_email = None
+        
+        # Try personal email first (recommended_personal_email)
+        if contact.get('PersonalEmail') and contact['PersonalEmail'] != 'Not available' and '@' in contact['PersonalEmail']:
+            recipient_email = contact['PersonalEmail']
+        # Try work email next
+        elif contact.get('WorkEmail') and contact['WorkEmail'] != 'Not available' and '@' in contact['WorkEmail']:
+            recipient_email = contact['WorkEmail']
+        # Try general email field
+        elif contact.get('Email') and '@' in contact['Email'] and not contact['Email'].endswith('@domain.com'):
+            recipient_email = contact['Email']
+        
+        # If no valid email found, create a mock draft
+        if not recipient_email:
+            print(f"No valid email found for {contact.get('FirstName', 'Unknown')} - creating mock draft")
+            return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}_no_email"
+        
+        print(f"Using email: {recipient_email}")
+        
+        # Create message with UTF-8 encoding
+        message = MIMEText(email_body, 'plain', 'utf-8')
+        message['to'] = recipient_email
+        message['subject'] = email_subject
+        
+        raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
+        
+        draft_body = {
+            'message': {
+                'raw': raw_message
+            }
+        }
+        
+        draft_result = gmail_service.users().drafts().create(userId='me', body=draft_body).execute()
+        draft_id = draft_result['id']
+        
+        print(f"Created {tier.capitalize()} Gmail draft {draft_id}")
+        
+        # Apply RecruitEdge label
+        try:
+            apply_recruitedge_label(gmail_service, draft_result['message']['id'], tier)
+        except Exception as label_error:
+            print(f"Could not apply {tier} label: {label_error}")
+        
+        return draft_id
+        
+    except Exception as e:
+        print(f"{tier.capitalize()} Gmail draft creation failed: {e}")
+        return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
+
 
 @app.route('/api/user/update-tier', methods=['POST'])
 def update_user_tier():
@@ -5581,6 +6051,72 @@ def create_checkout_session():
     except Exception as e:
         print(f"Checkout session creation failed: {e}")
         return jsonify({'error': 'Failed to create checkout session'}), 500
+@app.route('/api/complete-upgrade', methods=['POST'])
+@require_firebase_auth
+def complete_upgrade():
+    """Complete Pro upgrade - called by frontend after successful payment"""
+    try:
+        data = request.get_json() or {}
+        session_id = data.get('sessionId')
+        
+        user_id = request.firebase_user['uid']
+        user_email = request.firebase_user.get('email')
+        
+        print(f"\n💳 Completing upgrade for {user_email}")
+        print(f"   Session: {session_id}")
+        
+        # Verify with Stripe
+        if session_id:
+            try:
+                session = stripe.checkout.Session.retrieve(session_id)
+                print(f"   Payment status: {session.payment_status}")
+                
+                if session.payment_status != 'paid':
+                    return jsonify({'error': 'Payment not completed'}), 400
+                
+                subscription_id = session.subscription
+                customer_id = session.customer
+                
+            except Exception as e:
+                print(f"   ⚠️  Stripe check failed: {e}")
+                subscription_id = None
+                customer_id = None
+        else:
+            subscription_id = None
+            customer_id = None
+        
+        # Update Firebase
+        user_ref = db.collection('users').document(user_id)
+        
+        update_data = {
+            'tier': 'pro',
+            'credits': 840,
+            'maxCredits': 840,
+            'subscriptionStatus': 'active',
+            'upgraded_at': datetime.now().isoformat(),
+            'lastCreditReset': datetime.now().isoformat()
+        }
+        
+        if customer_id:
+            update_data['stripeCustomerId'] = customer_id
+        if subscription_id:
+            update_data['stripeSubscriptionId'] = subscription_id
+        
+        user_ref.set(update_data, merge=True)
+        
+        print(f"✅ Upgraded {user_email} to Pro!")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Successfully upgraded to Pro',
+            'tier': 'pro',
+            'credits': 840
+        })
+        
+    except Exception as e:
+        print(f"❌ Upgrade failed: {e}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 @app.route('/api/stripe-webhook', methods=['POST'])
 def stripe_webhook():
     """Enhanced webhook handler for all subscription lifecycle events"""
@@ -5631,8 +6167,9 @@ def handle_checkout_completed(session):
         print("="*60)
         
         # Extract metadata
-        user_id = session['metadata'].get('userId')
-        user_email = session['metadata'].get('userEmail')
+        metadata = session.get('metadata', {})
+        user_id = metadata.get('userId')
+        user_email = metadata.get('userEmail') or session.get('customer_details', {}).get('email')
         customer_id = session.get('customer')
         subscription_id = session.get('subscription')
         session_id = session.get('id')
@@ -5643,11 +6180,31 @@ def handle_checkout_completed(session):
         print(f"   User Email: {user_email}")
         print(f"   Customer ID: {customer_id}")
         print(f"   Subscription ID: {subscription_id}")
+        print(f"   Metadata: {metadata}")
         
         # Validation checks
         if not user_id:
             print("❌ ERROR: No user_id in session metadata")
-            print(f"   Available metadata: {session.get('metadata', {})}")
+            print(f"   Available metadata: {metadata}")
+            
+            # Try to find user by email as fallback
+            if user_email and db:
+                print(f"   Attempting to find user by email: {user_email}")
+                users_ref = db.collection('users')
+                query = users_ref.where('email', '==', user_email).limit(1)
+                docs = list(query.stream())
+                
+                if docs:
+                    user_id = docs[0].id
+                    print(f"   ✅ Found user by email: {user_id}")
+                else:
+                    print(f"   ❌ No user found with email: {user_email}")
+                    return
+            else:
+                return
+        
+        if not subscription_id:
+            print("❌ ERROR: No subscription_id in session")
             return
         
         if not db:
@@ -5660,24 +6217,17 @@ def handle_checkout_completed(session):
         user_doc = user_ref.get()
         
         if not user_doc.exists:
-            print(f"❌ ERROR: User document not found for ID: {user_id}")
-            print(f"   Attempting to create new user document...")
-            
-            # Create new user document if it doesn't exist
-            try:
-                user_ref.set({
-                    'uid': user_id,
-                    'email': user_email,
-                    'tier': 'free',
-                    'credits': 120,
-                    'maxCredits': 120,
-                    'created_at': datetime.now().isoformat(),
-                    'lastCreditReset': datetime.now().isoformat()
-                })
-                print(f"✅ Created new user document for {user_email}")
-            except Exception as create_error:
-                print(f"❌ ERROR: Failed to create user document: {create_error}")
-                return
+            print(f"⚠️  User document not found, creating new one for: {user_email}")
+            user_ref.set({
+                'uid': user_id,
+                'email': user_email,
+                'tier': 'free',
+                'credits': 120,
+                'maxCredits': 120,
+                'created_at': datetime.now().isoformat(),
+                'lastCreditReset': datetime.now().isoformat()
+            })
+            print(f"✅ Created new user document for {user_email}")
         else:
             current_data = user_doc.to_dict()
             print(f"✅ User found in Firebase")
@@ -5686,39 +6236,34 @@ def handle_checkout_completed(session):
         
         # Retrieve subscription details
         print(f"\n📡 Retrieving subscription details from Stripe...")
-        subscription = stripe.Subscription.retrieve(
-            subscription_id,
-            expand=['latest_invoice']
-        )
+        subscription = stripe.Subscription.retrieve(subscription_id)
         
         print(f"✅ Subscription retrieved")
-        print(f"   Status: {subscription.status}")
-        print(f"   Current period start: {subscription.current_period_start}")
-        print(f"   Current period end: {subscription.current_period_end}")
+        print(f"   Status: {subscription.get('status', 'unknown')}")
         
         # Build update data
-        print(f"\n🔄 Preparing user upgrade to Pro tier...")
+        print(f"\n📝 Preparing user upgrade to Pro tier...")
         update_data = {
             'tier': 'pro',
             'credits': 840,
             'maxCredits': 840,
             'stripeCustomerId': customer_id,
             'stripeSubscriptionId': subscription_id,
-            'subscriptionStatus': subscription.status,
+            'subscriptionStatus': subscription.get('status', 'active'),
             'upgraded_at': datetime.now().isoformat(),
             'lastCreditReset': datetime.now().isoformat()
         }
         
-        # Add period dates if available
-        if hasattr(subscription, 'current_period_start') and subscription.current_period_start:
+        # Safely access period dates using .get()
+        if subscription.get('current_period_start'):
             update_data['subscriptionStartDate'] = datetime.fromtimestamp(
-                subscription.current_period_start
+                subscription.get('current_period_start')
             ).isoformat()
             print(f"   Subscription start: {update_data['subscriptionStartDate']}")
         
-        if hasattr(subscription, 'current_period_end') and subscription.current_period_end:
+        if subscription.get('current_period_end'):
             update_data['subscriptionEndDate'] = datetime.fromtimestamp(
-                subscription.current_period_end
+                subscription.get('current_period_end')
             ).isoformat()
             print(f"   Subscription end: {update_data['subscriptionEndDate']}")
         
@@ -5726,7 +6271,7 @@ def handle_checkout_completed(session):
         print(f"\n💾 Updating Firebase...")
         user_ref.update(update_data)
         
-        # Verify update was successful
+        # Verify update
         print(f"\n🔍 Verifying update...")
         updated_doc = user_ref.get()
         if updated_doc.exists:
@@ -5739,13 +6284,6 @@ def handle_checkout_completed(session):
             print(f"⚠️  WARNING: Could not verify update")
         
         print(f"\n✅ Successfully upgraded {user_email} to Pro tier")
-        print("="*60 + "\n")
-        
-    except stripe.error.StripeError as stripe_error:
-        print(f"\n❌ STRIPE ERROR in handle_checkout_completed:")
-        print(f"   Type: {type(stripe_error).__name__}")
-        print(f"   Message: {str(stripe_error)}")
-        traceback.print_exc()
         print("="*60 + "\n")
         
     except Exception as e:

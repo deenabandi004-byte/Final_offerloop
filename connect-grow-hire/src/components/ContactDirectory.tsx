@@ -1,30 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Mail, Search, RefreshCw, Trash2, ExternalLink, ArrowLeft } from "lucide-react";
+import {
+  Loader2,
+  Mail,
+  Search,
+  RefreshCw,
+  Trash2,
+  ExternalLink,
+  ArrowLeft
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from '../contexts/FirebaseAuthContext';
 import { firebaseApi } from '../services/firebaseApi';
+import type { Contact as ContactApi } from '../services/firebaseApi';
 import { useFirebaseMigration } from '../hooks/useFirebaseMigration';
+import { NotificationBell } from '../components/NotificationBell'; // adjust if your bell lives elsewhere
+import { apiService } from '@/services/api';
 
-interface Contact {
-  id?: string;
-  firstName: string;
-  lastName: string;
-  linkedinUrl: string;
-  email: string;
-  company: string;
-  jobTitle: string;
-  college: string;
-  location: string;
-  firstContactDate: string;
-  status: string;
-  lastContactDate: string;
-  emailSubject?: string;
-  emailBody?: string;
-  createdAt?: string;
-  updatedAt?: string;
-}
+// Reuse the Contact shape from firebaseApi so types stay in sync
+type Contact = ContactApi;
 
 const STATUS_OPTIONS = [
   { value: 'Not Contacted', color: '#A0A0A0', label: 'Not Contacted' },
@@ -40,37 +35,50 @@ const SpreadsheetContactDirectory: React.FC = () => {
   const navigate = useNavigate();
   const { user: currentUser } = useFirebaseAuth();
   const { isLoading: migrationLoading } = useFirebaseMigration();
+
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [filteredContacts, setFilteredContacts] = useState<Contact[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingCell, setEditingCell] = useState<{ row: number; col: string } | null>(null);
+  const [mailAppDialogOpen, setMailAppDialogOpen] = useState(false);
+  const [selectedContactForEmail, setSelectedContactForEmail] = useState<Contact | null>(null);
+
+  // 🔔 Reply check state
+  const [replyStatuses, setReplyStatuses] = useState<Record<string, any>>({});
+  const [isCheckingReplies, setIsCheckingReplies] = useState(false);
 
   const getStorageKey = () => {
     return currentUser ? `contacts_${currentUser.uid}` : 'contacts_anonymous';
   };
 
-  const normalizeFromServer = (serverContact: any): Contact => {
-    return {
-      id: serverContact.id,
-      firstName: serverContact.firstName || serverContact.first_name || '',
-      lastName: serverContact.lastName || serverContact.last_name || '',
-      linkedinUrl: serverContact.linkedinUrl || serverContact.linkedin_url || '',
-      email: serverContact.email || '',
-      company: serverContact.company || '',
-      jobTitle: serverContact.jobTitle || serverContact.job_title || '',
-      college: serverContact.college || '',
-      location: serverContact.location || '',
-      firstContactDate: serverContact.firstContactDate || serverContact.first_contact_date || '',
-      status: serverContact.status || 'Not Contacted',
-      lastContactDate: serverContact.lastContactDate || serverContact.last_contact_date || '',
-      emailSubject: serverContact.emailSubject || serverContact.email_subject || '',
-      emailBody: serverContact.emailBody || serverContact.email_body || '',
-      createdAt: serverContact.createdAt || serverContact.created_at,
-      updatedAt: serverContact.updatedAt || serverContact.updated_at
-    };
-  };
+  const normalizeFromServer = (serverContact: any): Contact => ({
+    id: serverContact.id,
+    firstName: serverContact.firstName || serverContact.first_name || '',
+    lastName: serverContact.lastName || serverContact.last_name || '',
+    linkedinUrl: serverContact.linkedinUrl || serverContact.linkedin_url || '',
+    email: serverContact.email || '',
+    company: serverContact.company || '',
+    jobTitle: serverContact.jobTitle || serverContact.job_title || '',
+    college: serverContact.college || '',
+    location: serverContact.location || '',
+    firstContactDate: serverContact.firstContactDate || serverContact.first_contact_date || '',
+    status: serverContact.status || 'Not Contacted',
+    lastContactDate: serverContact.lastContactDate || serverContact.last_contact_date || '',
+    emailSubject: serverContact.emailSubject || serverContact.email_subject || '',
+    emailBody: serverContact.emailBody || serverContact.email_body || '',
+    createdAt: serverContact.createdAt || serverContact.created_at,
+    updatedAt: serverContact.updatedAt || serverContact.updated_at,
+    // Gmail tracking fields
+    gmailThreadId: serverContact.gmailThreadId || serverContact.gmail_thread_id,
+    gmailMessageId: serverContact.gmailMessageId || serverContact.gmail_message_id,
+    hasUnreadReply: serverContact.hasUnreadReply || serverContact.has_unread_reply || false,
+    notificationsMuted: serverContact.notificationsMuted || serverContact.notifications_muted || false,
+    draftCreatedAt: serverContact.draftCreatedAt,
+    lastChecked: serverContact.lastChecked,
+    mutedAt: serverContact.mutedAt,
+  });
 
   const loadContacts = async () => {
     try {
@@ -106,85 +114,129 @@ const SpreadsheetContactDirectory: React.FC = () => {
 
   const saveContacts = async (newContacts: Contact[]) => {
     try {
-      if (currentUser) {
-        return;
-      } else {
+      if (!currentUser) {
         localStorage.setItem(getStorageKey(), JSON.stringify(newContacts));
       }
     } catch (err) {
       console.error('Error saving contacts:', err);
     }
   };
-// Update the addContactsToDirectory function in ContactDirectory.tsx
 
-const addContactsToDirectory = async (contactsToAdd: any[]) => {
-  try {
-    // Transform the incoming contacts to match the expected structure
-    const normalizedContacts = contactsToAdd.map(contact => {
-      // Handle both PascalCase (from backend) and camelCase field names
-      return {
-        firstName: contact.FirstName || contact.firstName || '',
-        lastName: contact.LastName || contact.lastName || '',
-        linkedinUrl: contact.LinkedIn || contact.linkedinUrl || '',
-        email: contact.Email || contact.email || '',
-        company: contact.Company || contact.company || '',
-        jobTitle: contact.Title || contact.jobTitle || '',
-        college: contact.College || contact.college || '',
-        location: `${contact.City || ''}${contact.City && contact.State ? ', ' : ''}${contact.State || ''}`.trim() || contact.location || '',
-        firstContactDate: new Date().toLocaleDateString('en-US'),
-        status: 'Not Contacted',
-        lastContactDate: new Date().toLocaleDateString('en-US'),
-        emailSubject: contact.email_subject || contact.emailSubject || '',
-        emailBody: contact.email_body || contact.emailBody || ''
-      };
-    });
+  // ✅ Build a strictly typed array for bulkCreateContacts
+  const stripUndefined = <T extends Record<string, any>>(obj: T) =>
+  Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as T;
 
-    if (currentUser) {
-      await firebaseApi.bulkCreateContacts(currentUser.uid, normalizedContacts);
-      await loadContacts();
-    } else {
-      const updatedContacts = [...contacts];
-      
-      normalizedContacts.forEach(newContact => {
-        const isDuplicate = updatedContacts.some(existing => 
-          existing.email && newContact.email && existing.email.toLowerCase() === newContact.email.toLowerCase()
-        );
-        
-        if (!isDuplicate) {
-          updatedContacts.push({
-            ...newContact,
-            id: `local_${Date.now()}_${Math.random()}`,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          });
-        }
-      });
-      
-      setContacts(updatedContacts);
-      await saveContacts(updatedContacts);
+  const addContactsToDirectory = async (contactsToAdd: any[]) => {
+    try {
+      const today = new Date().toLocaleDateString('en-US');
+
+      const mapped: Omit<Contact, 'id'>[] = contactsToAdd.map((c: any) =>
+        stripUndefined({
+          firstName: c.FirstName ?? c.firstName ?? '',
+          lastName: c.LastName ?? c.lastName ?? '',
+          linkedinUrl: c.LinkedIn ?? c.linkedinUrl ?? '',
+          email: c.Email ?? c.email ?? '',
+          company: c.Company ?? c.company ?? '',
+          jobTitle: c.Title ?? c.jobTitle ?? '',
+          college: c.College ?? c.college ?? '',
+          location:
+            `${c.City ?? ''}${c.City && c.State ? ', ' : ''}${c.State ?? ''}`.trim() ||
+            c.location ||
+            '',
+
+          // required
+          firstContactDate: today,
+          status: 'Not Contacted',
+          lastContactDate: today,
+
+          // optional (only include if present)
+          emailSubject: c.email_subject ?? c.emailSubject ?? undefined,
+          emailBody: c.email_body ?? c.emailBody ?? undefined,
+          gmailThreadId: c.gmailThreadId ?? c.gmail_thread_id ?? undefined,
+          gmailMessageId: c.gmailMessageId ?? c.gmail_message_id ?? undefined,
+          hasUnreadReply: false,
+          notificationsMuted: false,
+        })
+      );
+
+      if (currentUser) {
+        await firebaseApi.bulkCreateContacts(currentUser.uid, mapped);
+        await loadContacts();
+      } else {
+        const updatedContacts: Contact[] = [...contacts];
+        mapped.forEach((newContact) => {
+          const isDuplicate = updatedContacts.some(
+            (existing) =>
+              existing.email &&
+              newContact.email &&
+              existing.email.toLowerCase() === newContact.email.toLowerCase()
+          );
+          if (!isDuplicate) {
+            updatedContacts.push({
+              ...newContact,
+              id: `local_${Date.now()}_${Math.random()}`,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            } as Contact);
+          }
+        });
+        setContacts(updatedContacts);
+        await saveContacts(updatedContacts);
+      }
+    } catch (err) {
+      console.error('Error adding contacts:', err);
+      setError('Failed to add contacts');
     }
-  } catch (err) {
-    console.error('Error adding contacts:', err);
-    setError('Failed to add contacts');
-  }
-};
+  };
+
+
+  // 🔔 Check replies for all contacts
+  const checkRepliesForAllContacts = useCallback(async () => {
+    if (!contacts || contacts.length === 0 || isCheckingReplies || !currentUser) return;
+    setIsCheckingReplies(true);
+
+    try {
+      const contactsWithThreads = contacts
+        .filter((c) => c.gmailThreadId && !c.notificationsMuted && c.id)
+        .map((c) => c.id!)
+        .filter(Boolean);
+
+      if (contactsWithThreads.length === 0) {
+        setIsCheckingReplies(false);
+        return;
+      }
+
+      const result = await apiService.batchCheckReplies(contactsWithThreads);
+      if ('results' in result) setReplyStatuses(result.results);
+    } catch (error) {
+      console.error('Error checking replies:', error);
+    } finally {
+      setIsCheckingReplies(false);
+    }
+  }, [contacts, isCheckingReplies, currentUser]);
+
+  useEffect(() => {
+    if (currentUser && contacts.length > 0) {
+      checkRepliesForAllContacts();
+      const interval = setInterval(() => checkRepliesForAllContacts(), 120000);
+      return () => clearInterval(interval);
+    }
+  }, [currentUser, contacts.length, checkRepliesForAllContacts]);
 
   useEffect(() => {
     (window as any).addContactsToDirectory = addContactsToDirectory;
     return () => {
-     delete (window as any).addContactsToDirectory;
+      delete (window as any).addContactsToDirectory;
     };
-  }, [addContactsToDirectory]); // Depend on the function itself
+  }, [addContactsToDirectory]);
 
-  // Real-time search filtering
   useEffect(() => {
     if (!searchQuery.trim()) {
       setFilteredContacts(contacts);
       return;
     }
-
-    const filtered = contacts.filter(contact => 
-      Object.values(contact).some(value => 
+    const filtered = contacts.filter((contact) =>
+      Object.values(contact).some((value) =>
         value?.toString().toLowerCase().includes(searchQuery.toLowerCase())
       )
     );
@@ -193,15 +245,13 @@ const addContactsToDirectory = async (contactsToAdd: any[]) => {
 
   const handleCellEdit = async (contactId: string, field: keyof Contact, value: string) => {
     try {
-      setContacts(prev => 
-        prev.map(contact => {
+      setContacts((prev) =>
+        prev.map((contact) => {
           if (contact.id === contactId) {
-            const updated = { ...contact, [field]: value };
-            
+            const updated: Contact = { ...contact, [field]: value } as Contact;
             if (field === 'status' && value !== contact.status) {
               updated.lastContactDate = new Date().toLocaleDateString('en-US');
             }
-            
             return updated;
           }
           return contact;
@@ -209,7 +259,7 @@ const addContactsToDirectory = async (contactsToAdd: any[]) => {
       );
 
       if (currentUser && contactId && !contactId.startsWith('local_')) {
-        const updates: Partial<Contact> = { [field]: value };
+        const updates: Partial<Contact> = { [field]: value } as Partial<Contact>;
         if (field === 'status') {
           updates.lastContactDate = new Date().toLocaleDateString('en-US');
         }
@@ -233,23 +283,51 @@ const addContactsToDirectory = async (contactsToAdd: any[]) => {
   const buildMailto = (contact: Contact) => {
     const to = contact.email;
     if (!to) return '#';
+    const subject =
+      contact.emailSubject || `Question about your work at ${contact.company || 'your company'}`;
+    const body =
+      contact.emailBody ||
+      `Hi ${contact.firstName || 'there'},\n\nI'd love to connect and learn more about your work.\n\nBest regards`;
+    return `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(
+      subject
+    )}&body=${encodeURIComponent(body.replace(/\n/g, '\r\n'))}`;
+  };
 
-    const subject = contact.emailSubject || `Question about your work at ${contact.company || 'your company'}`;
-    const body = contact.emailBody || `Hi ${contact.firstName || 'there'},\n\nI'd love to connect and learn more about your work.\n\nBest regards`;
-    
-    return `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body.replace(/\n/g, '\r\n'))}`;
+  const buildGmailLink = (contact: Contact) => {
+    const to = contact.email;
+    if (!to) return '#';
+    const subject =
+      contact.emailSubject || `Question about your work at ${contact.company || 'your company'}`;
+    const body =
+      contact.emailBody ||
+      `Hi ${contact.firstName || 'there'},\n\nI'd love to connect and learn more about your work.\n\nBest regards`;
+    return `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(
+      to
+    )}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  };
+
+  const handleEmailClick = (contact: Contact) => {
+    setSelectedContactForEmail(contact);
+    setMailAppDialogOpen(true);
+  };
+
+  const handleMailAppSelect = (app: 'apple' | 'gmail') => {
+    if (!selectedContactForEmail) return;
+    if (app === 'apple') {
+      window.open(buildMailto(selectedContactForEmail), '_blank');
+    } else {
+      window.open(buildGmailLink(selectedContactForEmail), '_blank');
+    }
+    setMailAppDialogOpen(false);
+    setSelectedContactForEmail(null);
   };
 
   const getDisplayName = (contact: Contact) => {
-    if (contact.firstName && contact.lastName) {
-      return `${contact.firstName} ${contact.lastName}`;
-    } else if (contact.firstName) {
-      return contact.firstName;
-    } else if (contact.lastName) {
-      return contact.lastName;
-    } else if (contact.email) {
-      return contact.email.split('@')[0];
-    } else if (contact.linkedinUrl) {
+    if (contact.firstName && contact.lastName) return `${contact.firstName} ${contact.lastName}`;
+    if (contact.firstName) return contact.firstName;
+    if (contact.lastName) return contact.lastName;
+    if (contact.email) return contact.email.split('@')[0];
+    if (contact.linkedinUrl) {
       const match = contact.linkedinUrl.match(/linkedin\.com\/in\/([^\/\?]+)/);
       return match ? match[1] : 'Unknown Contact';
     }
@@ -294,8 +372,8 @@ const addContactsToDirectory = async (contactsToAdd: any[]) => {
       <div className="border-b border-gray-700 px-6 py-4 bg-gray-900 sticky top-0 z-20 shadow-lg">
         <div className="flex justify-between items-center mb-4">
           <div className="flex items-center gap-4">
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               size="sm"
               onClick={() => navigate('/home')}
               className="flex items-center gap-2 text-gray-300 hover:text-white hover:bg-gray-800"
@@ -305,8 +383,8 @@ const addContactsToDirectory = async (contactsToAdd: any[]) => {
             </Button>
           </div>
           <div className="flex gap-2">
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               size="sm"
               onClick={loadContacts}
               disabled={isLoading}
@@ -316,8 +394,8 @@ const addContactsToDirectory = async (contactsToAdd: any[]) => {
               Refresh
             </Button>
             {contacts.length > 0 && (
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="sm"
                 onClick={clearAllContacts}
                 className="flex items-center gap-2 text-red-400 border-red-600 hover:bg-red-900/20"
@@ -328,14 +406,12 @@ const addContactsToDirectory = async (contactsToAdd: any[]) => {
             )}
           </div>
         </div>
-        
-        {/* Contact Library Title - Above Line */}
         <div className="text-center mb-4">
           <h1 className="text-3xl font-bold text-white">Contact Library</h1>
         </div>
       </div>
 
-      {/* Search Bar - Below Line */}
+      {/* Search */}
       <div className="px-6 py-4">
         <div className="relative w-80">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
@@ -355,17 +431,15 @@ const addContactsToDirectory = async (contactsToAdd: any[]) => {
         </div>
       )}
 
-
-
       {contacts.length === 0 ? (
         <div className="text-center py-24">
           <p className="text-gray-300 text-lg mb-2">No contacts saved yet.</p>
           <p className="text-gray-500 mb-6">
             Run a search from the Home page to automatically save contacts to your library.
           </p>
-          <Button 
+          <Button
             onClick={() => navigate('/')}
-            className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
+            className="bg-gradient-to-r from-blue-500 to purple-500 hover:from-blue-600 hover:to-purple-600"
           >
             Go to Search
           </Button>
@@ -377,37 +451,41 @@ const addContactsToDirectory = async (contactsToAdd: any[]) => {
               <table className="w-full border-collapse bg-gray-900">
                 <thead>
                   <tr className="bg-gray-800 border-b-2 border-gray-700 sticky top-0 z-10">
-                    <th className="bg-gray-800 border-r border-gray-700 px-4 py-3 text-left text-sm font-medium text-gray-200 min-w-[200px]">
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-200 min-w-[200px]">
                       Contact
                     </th>
-                    <th className="bg-gray-800 border-r border-gray-700 px-4 py-3 text-left text-sm font-medium text-gray-200 min-w-[250px]">
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-200 min-w-[250px]">
                       LinkedIn
                     </th>
-                    <th className="bg-gray-800 border-r border-gray-700 px-4 py-3 text-left text-sm font-medium text-gray-200 min-w-[200px]">
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-200 min-w-[200px]">
                       Email
                     </th>
-                    <th className="bg-gray-800 border-r border-gray-700 px-4 py-3 text-left text-sm font-medium text-gray-200 min-w-[180px]">
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-200 min-w-[180px]">
                       Company
                     </th>
-                    <th className="bg-gray-800 border-r border-gray-700 px-4 py-3 text-left text-sm font-medium text-gray-200 min-w-[150px]">
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-200 min-w-[150px]">
                       Role
                     </th>
-                    <th className="bg-gray-800 border-r border-gray-700 px-4 py-3 text-left text-sm font-medium text-gray-200 min-w-[120px]">
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-200 min-w-[150px]">
                       Status
                     </th>
-                    <th className="bg-gray-800 px-4 py-3 text-center text-sm font-medium text-gray-200 w-[80px]">
+                    <th className="px-4 py-3 text-center text-sm font-medium text-gray-200 w-[80px]">
                       Actions
                     </th>
                   </tr>
                 </thead>
-                
                 <tbody>
                   {filteredContacts.map((contact, index) => {
                     const statusOption = STATUS_OPTIONS.find(opt => opt.value === contact.status);
                     const isEvenRow = index % 2 === 0;
 
                     return (
-                      <tr key={contact.id} className={`border-b border-gray-700 hover:bg-gray-800 ${isEvenRow ? 'bg-gray-900' : 'bg-gray-850'}`}>
+                      <tr
+                        key={contact.id}
+                        className={`border-b border-gray-700 hover:bg-gray-800 ${
+                          isEvenRow ? 'bg-gray-900' : 'bg-gray-850'
+                        }`}
+                      >
                         <td className="border-r border-gray-700 px-4 py-3">
                           <div className="flex flex-col">
                             {editingCell?.row === index && editingCell?.col === 'name' ? (
@@ -429,7 +507,7 @@ const addContactsToDirectory = async (contactsToAdd: any[]) => {
                                 />
                               </div>
                             ) : (
-                              <div 
+                              <div
                                 onClick={() => handleCellClick(index, 'name')}
                                 className="cursor-text hover:bg-gray-800 rounded px-2 py-1"
                               >
@@ -441,9 +519,13 @@ const addContactsToDirectory = async (contactsToAdd: any[]) => {
 
                         <td className="border-r border-gray-700 px-4 py-3">
                           {contact.linkedinUrl ? (
-                            <a 
-                              href={contact.linkedinUrl.startsWith('http') ? contact.linkedinUrl : `https://${contact.linkedinUrl}`}
-                              target="_blank" 
+                            <a
+                              href={
+                                contact.linkedinUrl.startsWith('http')
+                                  ? contact.linkedinUrl
+                                  : `https://${contact.linkedinUrl}`
+                              }
+                              target="_blank"
                               rel="noopener noreferrer"
                               className="text-blue-400 hover:text-blue-300 hover:underline text-sm flex items-center gap-1 truncate"
                             >
@@ -473,7 +555,7 @@ const addContactsToDirectory = async (contactsToAdd: any[]) => {
                               autoFocus
                             />
                           ) : (
-                            <div 
+                            <div
                               onClick={() => handleCellClick(index, 'company')}
                               className="cursor-text hover:bg-gray-800 rounded px-2 py-1 text-sm text-gray-300"
                             >
@@ -492,7 +574,7 @@ const addContactsToDirectory = async (contactsToAdd: any[]) => {
                               autoFocus
                             />
                           ) : (
-                            <div 
+                            <div
                               onClick={() => handleCellClick(index, 'jobTitle')}
                               className="cursor-text hover:bg-gray-800 rounded px-2 py-1 text-sm text-gray-300"
                             >
@@ -501,19 +583,40 @@ const addContactsToDirectory = async (contactsToAdd: any[]) => {
                           )}
                         </td>
 
+                        {/* Status + Bell */}
                         <td className="border-r border-gray-700 px-4 py-3">
-                          <select
-                            value={contact.status}
-                            onChange={(e) => handleCellEdit(contact.id!, 'status', e.target.value)}
-                            className="w-full text-xs bg-gray-800 border-gray-600 text-white focus:ring-1 focus:ring-blue-500 cursor-pointer rounded px-2 py-1"
-                            style={{ color: statusOption?.color }}
-                          >
-                            {STATUS_OPTIONS.map(option => (
-                              <option key={option.value} value={option.value} style={{ color: option.color, backgroundColor: '#1f2937' }}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={contact.status}
+                              onChange={(e) => handleCellEdit(contact.id!, 'status', e.target.value)}
+                              className="flex-1 text-xs bg-gray-800 border-gray-600 text-white focus:ring-1 focus:ring-blue-500 cursor-pointer rounded px-2 py-1"
+                              style={{ color: statusOption?.color }}
+                            >
+                              {STATUS_OPTIONS.map(option => (
+                                <option
+                                  key={option.value}
+                                  value={option.value}
+                                  style={{ color: option.color, backgroundColor: '#1f2937' }}
+                                >
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+
+                            {contact.gmailThreadId && contact.id && (
+                              <NotificationBell
+                                contactId={contact.id}
+                                contactEmail={contact.email}
+                                gmailThreadId={contact.gmailThreadId}
+                                hasUnreadReply={replyStatuses[contact.id]?.isUnread || false}
+                                notificationsMuted={contact.notificationsMuted || false}
+                                onStateChange={() => {
+                                  loadContacts();
+                                  checkRepliesForAllContacts();
+                                }}
+                              />
+                            )}
+                          </div>
                         </td>
 
                         <td className="px-4 py-3 text-center">
@@ -521,11 +624,17 @@ const addContactsToDirectory = async (contactsToAdd: any[]) => {
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => window.open(buildMailto(contact), '_blank')}
+                              onClick={() => handleEmailClick(contact)}
                               className="p-2 h-8 w-8 hover:bg-gray-800 text-gray-400 hover:text-white"
-                              title={`Email ${getDisplayName(contact)}${contact.emailSubject ? ' (Generated email available)' : ''}`}
+                              title={`Email ${getDisplayName(contact)}${
+                                contact.emailSubject ? ' (Generated email available)' : ''
+                              }`}
                             >
-                              <Mail className={`h-4 w-4 ${contact.emailSubject ? 'text-green-400' : 'text-blue-400'}`} />
+                              <Mail
+                                className={`h-4 w-4 ${
+                                  contact.emailSubject ? 'text-green-400' : 'text-blue-400'
+                                }`}
+                              />
                             </Button>
                           ) : (
                             <span className="text-gray-600">-</span>
@@ -542,8 +651,8 @@ const addContactsToDirectory = async (contactsToAdd: any[]) => {
           {filteredContacts.length === 0 && contacts.length > 0 && (
             <div className="text-center py-12">
               <p className="text-gray-400">No contacts match your search.</p>
-              <Button 
-                variant="ghost" 
+              <Button
+                variant="ghost"
                 onClick={() => setSearchQuery('')}
                 className="mt-2 text-gray-300 hover:text-white hover:bg-gray-800"
               >
@@ -566,6 +675,51 @@ const addContactsToDirectory = async (contactsToAdd: any[]) => {
           </div>
         </div>
       </div>
+
+      {/* Mail App Selection Dialog */}
+      {mailAppDialogOpen && selectedContactForEmail && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 border border-gray-700">
+            <h3 className="text-xl font-semibold text-white mb-4">Choose Email App</h3>
+            <p className="text-gray-300 mb-6">
+              Send email to {getDisplayName(selectedContactForEmail)}
+            </p>
+
+            <div className="flex gap-3">
+              <Button
+                onClick={() => handleMailAppSelect('apple')}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-6"
+              >
+                <div className="flex flex-col items-center gap-2">
+                  <Mail className="h-6 w-6" />
+                  <span>Apple Mail</span>
+                </div>
+              </Button>
+
+              <Button
+                onClick={() => handleMailAppSelect('gmail')}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-6"
+              >
+                <div className="flex flex-col items-center gap-2">
+                  <Mail className="h-6 w-6" />
+                  <span>Gmail</span>
+                </div>
+              </Button>
+            </div>
+
+            <Button
+              onClick={() => {
+                setMailAppDialogOpen(false);
+                setSelectedContactForEmail(null);
+              }}
+              variant="ghost"
+              className="w-full mt-4 text-gray-400 hover:text-white"
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

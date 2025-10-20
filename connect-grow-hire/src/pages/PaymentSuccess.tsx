@@ -1,4 +1,4 @@
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
@@ -9,19 +9,23 @@ export default function PaymentSuccess() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const { user, refreshUser } = useFirebaseAuth();
-  const [isProcessing, setIsProcessing] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<'processing' | 'success' | 'error'>('processing');
+  const [message, setMessage] = useState('Completing your upgrade...');
 
   const sessionId = params.get("session_id");
 
   useEffect(() => {
-    async function verifyPayment() {
+    async function completeUpgrade() {
       if (!user || !sessionId) {
-        setIsProcessing(false);
+        setStatus('error');
+        setMessage('Missing session information. Please contact support.');
         return;
       }
 
       try {
+        setStatus('processing');
+        setMessage('Completing your upgrade...');
+
         const auth = getAuth();
         const firebaseUser = auth.currentUser;
         
@@ -35,74 +39,92 @@ export default function PaymentSuccess() {
           ? 'http://localhost:5001' 
           : 'https://www.offerloop.ai';
 
-        let attempts = 0;
-        const maxAttempts = 10;
-        
-        while (attempts < maxAttempts) {
-          const response = await fetch(`${API_URL}/api/subscription-status`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-            },
-          });
+        console.log('Calling complete-upgrade endpoint...');
 
-          if (response.ok) {
-            const data = await response.json();
-            
-            if (data.tier === 'pro' && data.status === 'active') {
-              await refreshUser();
-              setIsProcessing(false);
-              return;
-            }
-          }
+        // Call the manual upgrade endpoint
+        const response = await fetch(`${API_URL}/api/complete-upgrade`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ sessionId })
+        });
 
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          attempts++;
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+          console.log('Upgrade successful:', result);
+          setStatus('success');
+          setMessage('Successfully upgraded to Pro! 🎉');
+          
+          // Refresh user data
+          await refreshUser();
+          
+          // Redirect after 2 seconds
+          setTimeout(() => {
+            navigate('/home');
+          }, 2000);
+        } else {
+          console.error('Upgrade failed:', result);
+          setStatus('error');
+          setMessage(result.error || 'Upgrade failed. Please contact support.');
         }
 
-        setError('Payment processing is taking longer than expected. Your account will be upgraded shortly.');
-        setIsProcessing(false);
-
       } catch (e) {
-        console.error("Payment verification failed:", e);
-        setError('Unable to verify payment. Please contact support if your account is not upgraded within 5 minutes.');
-        setIsProcessing(false);
+        console.error("Upgrade error:", e);
+        setStatus('error');
+        setMessage('An error occurred during upgrade. Please contact support if your account is not upgraded within 5 minutes.');
       }
     }
 
-    verifyPayment();
-  }, [user, sessionId, refreshUser]);
+    completeUpgrade();
+  }, [user, sessionId, refreshUser, navigate]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white px-6">
-      <div className="max-w-md text-center">
-        {isProcessing ? (
-          <>
+      <div className="max-w-md w-full text-center">
+        {status === 'processing' && (
+          <div className="bg-slate-900 p-8 rounded-lg">
             <Loader2 className="h-16 w-16 text-blue-400 mx-auto mb-4 animate-spin" />
-            <h1 className="text-3xl font-bold mb-2">Processing your payment...</h1>
-            <p className="text-gray-400 mb-6">
-              Please wait while we activate your Pro subscription.
-            </p>
-          </>
-        ) : error ? (
-          <>
-            <CheckCircle2 className="h-16 w-16 text-yellow-400 mx-auto mb-4" />
-            <h1 className="text-3xl font-bold mb-2">Payment Received</h1>
-            <p className="text-gray-400 mb-6">{error}</p>
-            <Button onClick={() => navigate("/home")} className="w-full">
-              Go to Home
-            </Button>
-          </>
-        ) : (
-          <>
+            <h1 className="text-3xl font-bold mb-2">Processing Payment</h1>
+            <p className="text-gray-400 mb-6">{message}</p>
+          </div>
+        )}
+
+        {status === 'success' && (
+          <div className="bg-slate-900 p-8 rounded-lg">
             <CheckCircle2 className="h-16 w-16 text-green-400 mx-auto mb-4" />
             <h1 className="text-3xl font-bold mb-2">Welcome to Pro!</h1>
-            <p className="text-gray-400 mb-6">
-              Your account has been upgraded to Pro. You now have access to all premium features.
+            <p className="text-gray-400 mb-2">{message}</p>
+            <p className="text-sm text-gray-500 mb-6">
+              You now have access to all premium features.
             </p>
-            <Button onClick={() => navigate("/home")} className="w-full">
-              Go to Home
-            </Button>
-          </>
+            <p className="text-sm text-gray-600">Redirecting to home...</p>
+          </div>
+        )}
+
+        {status === 'error' && (
+          <div className="bg-slate-900 p-8 rounded-lg">
+            <XCircle className="h-16 w-16 text-red-400 mx-auto mb-4" />
+            <h1 className="text-3xl font-bold mb-2">Upgrade Issue</h1>
+            <p className="text-gray-400 mb-6">{message}</p>
+            <div className="space-y-3">
+              <Button 
+                onClick={() => window.location.reload()} 
+                className="w-full bg-blue-600 hover:bg-blue-700"
+              >
+                Try Again
+              </Button>
+              <Button 
+                onClick={() => navigate("/home")} 
+                variant="outline"
+                className="w-full"
+              >
+                Go to Home
+              </Button>
+            </div>
+          </div>
         )}
       </div>
     </div>

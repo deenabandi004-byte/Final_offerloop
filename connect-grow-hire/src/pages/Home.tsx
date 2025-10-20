@@ -19,7 +19,11 @@ import { firebaseApi } from "../services/firebaseApi";
 import { useFirebaseMigration } from "../hooks/useFirebaseMigration";
 import { apiService, isErrorResponse } from "@/services/api";
 import { CreditPill } from "../components/credits";
- 
+import type { Contact as ContactApi } from '@/services/firebaseApi';
+import { BetaBadge } from "@/components/BetaBadges";
+// ✅ NEW: import flushSync for a guaranteed UI commit
+import { flushSync } from "react-dom";
+import { Sparkles, Rocket, Star } from "lucide-react";
 
 const BACKEND_URL =
   window.location.hostname === "localhost"
@@ -84,7 +88,47 @@ const Home = () => {
       email: "user@example.com",
       tier: "free",
     } as const);
-
+  // New Coming Soon Component
+  const ComingSoonOverlay = ({ title, description, icon: Icon, gradient }: { 
+    title: string; 
+    description: string; 
+    icon: any;
+    gradient: string;
+  }) => (
+    <div className="absolute inset-0 z-10 flex items-center justify-center backdrop-blur-md bg-gray-900/80 rounded-lg">
+      <div className="text-center px-6 py-8 max-w-md">
+        <div className={`inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br ${gradient} mb-6 animate-pulse`}>
+          <Icon className="h-10 w-10 text-white" />
+        </div>
+        
+        <div className="mb-4">
+          <Badge className={`bg-gradient-to-r ${gradient} text-white border-none px-4 py-1 text-sm font-semibold mb-3`}>
+            <Sparkles className="h-3 w-3 mr-1 inline" />
+            Coming Soon
+          </Badge>
+        </div>
+        
+        <h3 className="text-2xl font-bold text-white mb-3 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+          {title}
+        </h3>
+        
+        <p className="text-gray-300 mb-6 leading-relaxed">
+          {description}
+        </p>
+        
+        <div className="flex items-center justify-center gap-2 text-sm text-gray-400">
+          <Rocket className="h-4 w-4 text-purple-400" />
+          <span>Launching soon - stay tuned!</span>
+        </div>
+        
+        <div className="mt-6 flex justify-center gap-1">
+          {[...Array(5)].map((_, i) => (
+            <Star key={i} className="h-4 w-4 text-yellow-400 fill-yellow-400" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
   const userTier: "free" | "pro" = React.useMemo(() => {
     if (effectiveUser?.tier === "pro") return "pro";
     const max = Number(effectiveUser?.maxCredits ?? 0);
@@ -108,9 +152,12 @@ const Home = () => {
   const [coffeeChatLoading, setCoffeeChatLoading] = useState(false);
   const [coffeeChatProgress, setCoffeeChatProgress] = useState<string>("");
   const [coffeeChatPrepId, setCoffeeChatPrepId] = useState<string | null>(null);
+  const [renderKey, setRenderKey] = useState(0);
   const [coffeeChatStatus, setCoffeeChatStatus] = useState<'idle' | 'processing' | 'completed' | 'failed'>('idle');
   const [coffeeChatHistory, setCoffeeChatHistory] = useState<any[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  // (kept) Explicit completion UI toggle
+  const [showCompletionUI, setShowCompletionUI] = useState(false);
 
   // Batch size state
   const [batchSize, setBatchSize] = useState<number>(1);
@@ -161,21 +208,18 @@ const Home = () => {
   }, [firebaseUser]);
 
   const loadCoffeeChatHistory = async () => {
-  try {
-    if (!firebaseUser) return;
-    
-    const result = await apiService.getCoffeeChatHistory(5);
-    
-    // Type guard to check if result has history property
-    if ('history' in result && result.history) {
-      setCoffeeChatHistory(result.history);
-    } else if ('error' in result) {
-      console.error('Failed to load history:', result.error);
+    try {
+      if (!firebaseUser) return;
+      const result = await apiService.getCoffeeChatHistory(5);
+      if ('history' in result && result.history) {
+        setCoffeeChatHistory(result.history);
+      } else if ('error' in result) {
+        console.error('Failed to load history:', result.error);
+      }
+    } catch (error) {
+      console.error('Failed to load coffee chat history:', error);
     }
-  } catch (error) {
-    console.error('Failed to load coffee chat history:', error);
-  }
-};
+  };
 
   const getUserProfileData = async () => {
     if (!currentUser) return null;
@@ -221,24 +265,45 @@ const Home = () => {
     }
   };
 
+  const stripUndefined = <T extends Record<string, any>>(obj: T) =>
+    Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as T;
+
   const autoSaveToDirectory = async (contacts: any[]) => {
+    if (!currentUser) return;
+
     try {
-      if (!currentUser || contacts.length === 0) return;
-      const mapped = contacts.map((c) => ({
-        firstName: c.FirstName || "",
-        lastName: c.LastName || "",
-        linkedinUrl: c.LinkedIn || c.linkedinUrl || "",
-        email: c.Email || c.WorkEmail || c.PersonalEmail || "",
-        company: c.Company || "",
-        jobTitle: c.Title || c.jobTitle || "",
-        college: c.College || "",
-        location: [c.City, c.State].filter(Boolean).join(", "),
-        emailSubject: c.email_subject || "",
-        emailBody: c.email_body || "",
-      }));
+      const today = new Date().toLocaleDateString('en-US');
+
+      const mapped: Omit<ContactApi, 'id'>[] = contacts.map((c: any) =>
+        stripUndefined({
+          firstName: c.FirstName ?? c.firstName ?? '',
+          lastName: c.LastName ?? c.lastName ?? '',
+          linkedinUrl: c.LinkedIn ?? c.linkedinUrl ?? '',
+          email: c.Email ?? c.email ?? '',
+          company: c.Company ?? c.company ?? '',
+          jobTitle: c.Title ?? c.jobTitle ?? '',
+          college: c.College ?? c.college ?? '',
+          location: [c.City ?? '', c.State ?? ''].filter(Boolean).join(', ') || c.location || '',
+
+          // required
+          firstContactDate: today,
+          status: 'Not Contacted',
+          lastContactDate: today,
+
+          // optional (only include if present)
+          emailSubject: c.email_subject ?? c.emailSubject ?? undefined,
+          emailBody: c.email_body ?? c.emailBody ?? undefined,
+          gmailThreadId: c.gmailThreadId ?? c.gmail_thread_id ?? undefined,
+          gmailMessageId: c.gmailMessageId ?? c.gmail_message_id ?? undefined,
+          hasUnreadReply: false,
+          notificationsMuted: false,
+          // DO NOT set createdAt/updatedAt; backend adds them
+        })
+      );
+
       await firebaseApi.bulkCreateContacts(currentUser.uid, mapped);
     } catch (error) {
-      console.error("Auto-save failed:", error);
+      console.error('Auto-save failed:', error);
       throw error;
     }
   };
@@ -259,6 +324,22 @@ const Home = () => {
         });
       });
   }, [toast]);
+
+  // Debug: Watch coffee chat state changes
+  useEffect(() => {
+    console.log('🔍 Coffee Chat State Changed:');
+    console.log('  Status:', coffeeChatStatus);
+    console.log('  PrepId:', coffeeChatPrepId);
+    console.log('  Loading:', coffeeChatLoading);
+    console.log('  Progress:', coffeeChatProgress);
+    console.log('  Will show completed UI?', coffeeChatStatus === 'completed' && coffeeChatPrepId);
+  }, [coffeeChatStatus, coffeeChatPrepId, coffeeChatLoading, coffeeChatProgress]);
+
+  useEffect(() => {
+    if (coffeeChatStatus === 'completed' && coffeeChatPrepId && !coffeeChatLoading) {
+      setShowCompletionUI(true);
+    }
+  }, [coffeeChatStatus, coffeeChatPrepId, coffeeChatLoading]);
 
   const handleCoffeeChatSubmit = async () => {
     if (!linkedinUrl.trim()) {
@@ -282,28 +363,32 @@ const Home = () => {
     setCoffeeChatLoading(true);
     setCoffeeChatStatus('processing');
     setCoffeeChatProgress('Starting Coffee Chat Prep...');
+    setShowCompletionUI(false); // reset completion UI
 
     try {
       const result = await apiService.createCoffeeChatPrep({ linkedinUrl });
-      
       if ('error' in result) {
         throw new Error(result.error);
       }
 
       const prepId = result.prepId;
       setCoffeeChatPrepId(prepId);
-      
       console.log('✅ Prep created, starting polling...');
-      
-      // ✅ FIXED POLLING LOGIC
+
+      // ✅ NEW: tie the poller to THIS prep only
+      const activePrepId = prepId;
+
       let pollCount = 0;
-      const maxPolls = 60; // 60 polls * 3 seconds = 3 minutes max
-      
+      const maxPolls = 60; // 3 minutes total
+
       const pollStatus = async () => {
         try {
+          // ✅ stale-poll guard: if a newer run started, stop
+          if (coffeeChatPrepId !== activePrepId) {
+            return;
+          }
+
           pollCount++;
-          
-          // Timeout check
           if (pollCount >= maxPolls) {
             setCoffeeChatStatus('failed');
             setCoffeeChatProgress('Generation timed out');
@@ -317,13 +402,10 @@ const Home = () => {
           }
 
           console.log(`🔄 Polling attempt ${pollCount}/${maxPolls} for prep ${prepId}`);
-          
-          // ✅ MAKE THE ACTUAL GET REQUEST
+
           const statusResult = await apiService.getCoffeeChatPrepStatus(prepId);
-          
           console.log(`📦 Received response:`, statusResult);
-          
-          // Type guard: Check if it's an error response
+
           if ('error' in statusResult && !('status' in statusResult)) {
             console.error('❌ Error response:', statusResult.error);
             setCoffeeChatStatus('failed');
@@ -336,19 +418,16 @@ const Home = () => {
             });
             return;
           }
-          
-          // Now TypeScript knows statusResult is CoffeeChatPrepStatus
+
           if (!statusResult.status) {
             console.warn('⚠️ No status in response, continuing...');
-            // Schedule next poll
             setTimeout(pollStatus, 3000);
             return;
           }
-          
+
           const status = statusResult.status;
           console.log(`📊 Status: "${status}"`);
-          
-          // Update progress messages
+
           const progressMessages: Record<string, string> = {
             'enriching_profile': 'Enriching LinkedIn profile...',
             'fetching_news': 'Researching company news...',
@@ -357,44 +436,51 @@ const Home = () => {
             'completed': 'Coffee Chat Prep ready!',
             'failed': 'error' in statusResult ? statusResult.error || 'Generation failed' : 'Generation failed'
           };
-          
+
           if (progressMessages[status]) {
             setCoffeeChatProgress(progressMessages[status]);
           }
-          
-          // Handle terminal states
+
           if (status === 'completed') {
             console.log('🎉 COMPLETED! Stopping polling...');
-            setCoffeeChatStatus('completed');
-            setCoffeeChatLoading(false);
-            
-            await checkCredits();
-            await loadCoffeeChatHistory();
-            
-            toast({
-              title: "Coffee Chat Prep Ready!",
-              description: "Your one-pager has been generated successfully.",
-              duration: 5000,
+
+            // ✅ NEW: force a synchronous commit so the banner paints immediately
+            flushSync(() => {
+              setCoffeeChatStatus('completed');
+              setCoffeeChatLoading(false);
+              setCoffeeChatProgress('Coffee Chat Prep ready!');
+              setShowCompletionUI(true);
+              setRenderKey(prev => prev + 1);
             });
-            return; // ✅ STOP POLLING
+
+            Promise.all([
+              checkCredits(),
+              loadCoffeeChatHistory()
+            ]).then(() => {
+              toast({
+                title: "Coffee Chat Prep Ready!",
+                description: "Your one-pager has been generated successfully.",
+                duration: 5000,
+              });
+            });
+
+            return; // stop polling
           } else if (status === 'failed') {
             console.log('❌ FAILED! Stopping polling...');
             setCoffeeChatStatus('failed');
             setCoffeeChatLoading(false);
-            
+
             const errorMsg = 'error' in statusResult ? statusResult.error : undefined;
             toast({
               title: "Generation Failed",
               description: errorMsg || "Please try again.",
               variant: "destructive",
             });
-            return; // ✅ STOP POLLING
+            return;
           }
-          
-          // ✅ Continue polling for non-terminal states
+
           console.log(`⏳ Will poll again in 3 seconds...`);
           setTimeout(pollStatus, 3000);
-          
         } catch (error) {
           console.error('💥 Polling error:', error);
           setCoffeeChatStatus('failed');
@@ -406,10 +492,8 @@ const Home = () => {
           });
         }
       };
-      
-      // ✅ START FIRST POLL
-      setTimeout(pollStatus, 3000); // Wait 3 seconds before first poll
-      
+
+      setTimeout(pollStatus, 3000); // first poll
     } catch (error) {
       console.error('Coffee chat prep failed:', error);
       setCoffeeChatLoading(false);
@@ -422,31 +506,31 @@ const Home = () => {
     }
   };
 
-const downloadCoffeeChatPDF = async (prepId?: string) => {
-  const id = prepId || coffeeChatPrepId;
-  if (!id || !firebaseUser) return;
-  
-  try {
-    const blob = await apiService.downloadCoffeeChatPDF(id);
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `coffee_chat_${id}.pdf`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-    
-    toast({
-      title: "PDF Downloaded",
-      description: "Your Coffee Chat one-pager has been downloaded.",
-    });
-  } catch (error) {
-    toast({
-      title: "Download Failed",
-      description: "Could not download the PDF. Please try again.",
-      variant: "destructive",
-    });
-  }
-};
+  const downloadCoffeeChatPDF = async (prepId?: string) => {
+    const id = prepId || coffeeChatPrepId;
+    if (!id || !firebaseUser) return;
+
+    try {
+      const blob = await apiService.downloadCoffeeChatPDF(id);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `coffee_chat_${id}.pdf`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: "PDF Downloaded",
+        description: "Your Coffee Chat one-pager has been downloaded.",
+      });
+    } catch (error) {
+      toast({
+        title: "Download Failed",
+        description: "Could not download the PDF. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleSearch = async () => {
     if (!jobTitle.trim() || !location.trim()) {
@@ -509,7 +593,7 @@ const downloadCoffeeChatPDF = async (prepId?: string) => {
           collegeAlumni: (collegeAlumni || '').trim(),
           batchSize: batchSize,
         };
-        
+
         const result = await apiService.runFreeSearch(searchRequest);
         if (isErrorResponse(result)) {
           if (result.error?.includes("Insufficient credits")) {
@@ -545,9 +629,16 @@ const downloadCoffeeChatPDF = async (prepId?: string) => {
 
         try {
           await autoSaveToDirectory(result.contacts);
+
+          const draftResults = await saveContactsToGmailDrafts(result.contacts);
+
+          const draftMessage = draftResults.successful > 0
+            ? ` ${draftResults.successful} Gmail drafts created.`
+            : '';
+
           toast({
             title: "Search Complete!",
-            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.`,
+            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.${draftMessage}`,
             duration: 5000,
           });
         } catch {
@@ -606,9 +697,16 @@ const downloadCoffeeChatPDF = async (prepId?: string) => {
 
         try {
           await autoSaveToDirectory(result.contacts);
+
+          const draftResults = await saveContactsToGmailDrafts(result.contacts);
+
+          const draftMessage = draftResults.successful > 0
+            ? ` ${draftResults.successful} Gmail drafts created.`
+            : '';
+
           toast({
             title: "Search Complete!",
-            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.`,
+            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.${draftMessage}`,
             duration: 5000,
           });
         } catch {
@@ -639,6 +737,62 @@ const downloadCoffeeChatPDF = async (prepId?: string) => {
       } else {
         setTimeout(() => setProgressValue(0), 500);
       }
+    }
+  };
+
+  const saveContactsToGmailDrafts = async (contacts: any[]) => {
+    try {
+      const status = await apiService.gmailStatus();
+
+      if (!status.connected) {
+        console.log('Gmail not connected, skipping draft creation');
+        return { successful: 0, failed: 0 };
+      }
+
+      let successful = 0;
+      let failed = 0;
+
+      for (const contact of contacts) {
+        try {
+          const result = await apiService.saveGmailDraft({
+            to: contact.Email || contact.email,
+            subject: contact.email_subject || `Question about your work at ${contact.Company || 'your company'}`,
+            body: contact.email_body || `Hi ${contact.FirstName || 'there'},\n\nI'd love to connect about your work.\n\nBest regards`
+          });
+
+          if ('error' in result) {
+            console.error(`Failed to save draft for ${contact.FirstName}:`, result.error);
+            failed++;
+          } else {
+            if ('threadId' in result && currentUser) {
+              try {
+                const contactId = contact.id || contact.email;
+
+                await firebaseApi.updateContact(currentUser.uid, contactId, {
+                  gmailThreadId: result.threadId,
+                  gmailMessageId: result.messageId,
+                  draftCreatedAt: new Date().toISOString(),
+                });
+
+                console.log(`✅ Saved thread ID for ${contact.FirstName}`);
+              } catch (updateError) {
+                console.error('Failed to save thread ID:', updateError);
+              }
+            }
+
+            console.log(`✅ Saved draft for ${contact.FirstName} ${contact.LastName}`);
+            successful++;
+          }
+        } catch (error) {
+          console.error(`Error saving draft for ${contact.FirstName}: ${String(error)}`);
+          failed++;
+        }
+      }
+
+      return { successful, failed };
+    } catch (error) {
+      console.error('Error in saveContactsToGmailDrafts:', error);
+      return { successful: 0, failed: 0 };
     }
   };
 
@@ -692,14 +846,19 @@ const downloadCoffeeChatPDF = async (prepId?: string) => {
 
   return (
     <SidebarProvider>
+ 
       <div className="flex min-h-screen w-full bg-gray-900 text-white">
+        
         <AppSidebar />
 
         <div className={`flex-1 transition-all duration-300 ${isScoutChatOpen ? "mr-80" : ""}`}>
           <header className="h-16 flex items-center justify-between border-b border-gray-800 px-6 bg-gray-900/80 backdrop-blur-sm">
             <div className="flex items-center gap-4">
               <SidebarTrigger className="text-white hover:bg-gray-800/50" />
-              <h1 className="text-xl font-semibold">AI-Powered Candidate Search</h1>
+              <h1 className="text-xl font-semibold flex items-center gap-2">
+                AI-Powered Candidate Search
+                <BetaBadge size="xs" variant="subtle" />
+              </h1>
             </div>
 
             <div className="flex items-center gap-4">
@@ -871,12 +1030,12 @@ const downloadCoffeeChatPDF = async (prepId?: string) => {
                           />
                         </div>
                       </div>
-                     
+
                       <div className="col-span-1 lg:col-span-2 mt-4">
                         <label className="block text-sm font-medium mb-4 text-white">
                           Batch Size
                         </label>
-                        
+
                         <div className="bg-gray-800/30 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 shadow-lg">
                           <div className="flex items-center gap-6">
                             <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-400/40 rounded-xl px-4 py-3 min-w-[70px] text-center shadow-inner">
@@ -884,7 +1043,7 @@ const downloadCoffeeChatPDF = async (prepId?: string) => {
                                 {batchSize}
                               </span>
                             </div>
-                            
+
                             <div className="flex-1 max-w-[320px] pt-4">
                               <div className="relative">
                                 <input
@@ -913,14 +1072,14 @@ const downloadCoffeeChatPDF = async (prepId?: string) => {
                                       rgba(55, 65, 81, 0.3) 100%)`
                                   }}
                                 />
-                                
+
                                 <div className="flex justify-between text-xs text-gray-500 mt-3 font-medium">
                                   <span>1</span>
                                   <span>{maxBatchSize}</span>
                                 </div>
                               </div>
                             </div>
-                            
+
                             <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-xl px-4 py-3 min-w-[100px] border border-purple-400/20">
                               <div className="text-center">
                                 <span className="text-xl font-bold text-purple-300">{batchSize * 15}</span>
@@ -929,7 +1088,7 @@ const downloadCoffeeChatPDF = async (prepId?: string) => {
                             </div>
                           </div>
                         </div>
-                        
+
                         {maxBatchSize < (userTier === 'free' ? 3 : 8) && (
                           <div className="mt-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
                             <p className="text-xs text-yellow-400 flex items-start gap-2">
@@ -1042,293 +1201,93 @@ const downloadCoffeeChatPDF = async (prepId?: string) => {
                     </CardContent>
                   </Card>
                 </TabsContent>
+           
 
                 <TabsContent value="coffee-chat" className="mt-6">
-                  <Card className="bg-gray-800/50 backdrop-blur-sm border-gray-700">
+                  <Card className="bg-gray-800/50 backdrop-blur-sm border-gray-700 relative overflow-hidden">
                     <CardHeader className="border-b border-gray-700">
                       <CardTitle className="text-xl text-white flex items-center gap-2">
                         Coffee Chat Prep
-                        {currentTierConfig.coffeeChat && (
-                          <span className="text-green-400 text-xs border border-green-400 rounded px-2 py-0.5">
-                            Available
-                          </span>
-                        )}
+                        <BetaBadge size="xs" variant="glow" />
                         <Badge variant="secondary" className="ml-auto">
                           {COFFEE_CHAT_CREDITS} credits
                         </Badge>
                       </CardTitle>
                     </CardHeader>
-                    <CardContent className="p-6">
-                      {currentTierConfig.coffeeChat ? (
-                        <div className="space-y-6">
-                          <div className="space-y-4">
-                            <div>
-                              <label className="block text-sm font-medium mb-2 text-white">
-                                LinkedIn Profile URL
-                              </label>
-                              <Input
-                                value={linkedinUrl}
-                                onChange={(e) => setLinkedinUrl(e.target.value)}
-                                placeholder="https://linkedin.com/in/username"
-                                className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400 focus:border-pink-500"
-                                disabled={coffeeChatLoading}
-                              />
-                            </div>
-                            
-                            <p className="text-sm text-gray-400">
-                              Generate a comprehensive one-pager with profile insights, company news, and 
-                              personalized coffee chat questions to help you prepare.
-                            </p>
-                            
-                            {coffeeChatLoading && (
-                              <div className="bg-gray-900/50 rounded-lg p-4 space-y-3">
-                                <div className="flex items-center gap-3">
-                                  <Loader2 className="h-5 w-5 animate-spin text-blue-400" />
-                                  <span className="text-sm text-gray-300">{coffeeChatProgress}</span>
-                                </div>
-                                
-                                <div className="space-y-2">
-                                  <div className="flex items-center gap-2 text-xs">
-                                    <CheckCircle className={`h-4 w-4 ${coffeeChatProgress.includes('LinkedIn') ? 'text-green-400' : 'text-gray-600'}`} />
-                                    <span className={coffeeChatProgress.includes('LinkedIn') ? 'text-gray-300' : 'text-gray-500'}>
-                                      LinkedIn Profile Analysis
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2 text-xs">
-                                    <CheckCircle className={`h-4 w-4 ${coffeeChatProgress.includes('company') ? 'text-green-400' : 'text-gray-600'}`} />
-                                    <span className={coffeeChatProgress.includes('company') ? 'text-gray-300' : 'text-gray-500'}>
-                                      Company Research
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2 text-xs">
-                                    <CheckCircle className={`h-4 w-4 ${coffeeChatProgress.includes('content') ? 'text-green-400' : 'text-gray-600'}`} />
-                                    <span className={coffeeChatProgress.includes('content') ? 'text-gray-300' : 'text-gray-500'}>
-                                      PDF Generation
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                            
-                            {coffeeChatStatus === 'completed' && coffeeChatPrepId && (
-                              <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-4">
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-2">
-                                    <CheckCircle className="h-5 w-5 text-green-400" />
-                                    <span className="text-green-300">Coffee Chat Prep ready!</span>
-                                  </div>
-                                  <Button
-                                    onClick={() => downloadCoffeeChatPDF()}
-                                    size="sm"
-                                    className="bg-green-600 hover:bg-green-700"
-                                  >
-                                    <Download className="h-4 w-4 mr-2" />
-                                    Download PDF
-                                  </Button>
-                                </div>
-                              </div>
-                            )}
-                            
-                            {coffeeChatStatus === 'failed' && (
-                              <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4">
-                                <div className="flex items-center gap-2">
-                                  <XCircle className="h-5 w-5 text-red-400" />
-                                  <span className="text-red-300">{coffeeChatProgress}</span>
-                                </div>
-                              </div>
-                            )}
-                            
-                            <Button
-                              onClick={handleCoffeeChatSubmit}
-                              disabled={!linkedinUrl.trim() || coffeeChatLoading || (effectiveUser.credits ?? 0) < COFFEE_CHAT_CREDITS}
-                              className={`w-full transition-all duration-300 ${
-                                linkedinUrl.trim() && !coffeeChatLoading && (effectiveUser.credits ?? 0) >= COFFEE_CHAT_CREDITS
-                                  ? 'bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 shadow-lg shadow-green-500/50'
-                                  : 'bg-gray-700 opacity-50 cursor-not-allowed'
-                              }`}
-                            >
-                              {coffeeChatLoading ? (
-                                <>
-                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                  Generating...
-                                </>
-                              ) : (
-                                <>
-                                  <Download className="h-4 w-4 mr-2" />
-                                  Generate Coffee Chat PDF ({COFFEE_CHAT_CREDITS} credits)
-                                </>
-                              )}
-                            </Button>
-                          </div>
-                          
-                          {coffeeChatHistory.length > 0 && (
-                            <div className="border-t border-gray-700 pt-6">
-                              <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-sm font-semibold text-gray-300">Recent Coffee Chat Preps</h3>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setShowHistory(!showHistory)}
-                                  className="text-xs text-gray-400 hover:text-gray-300"
-                                >
-                                  {showHistory ? 'Hide' : 'Show'} History
-                                </Button>
-                              </div>
-                              
-                              {showHistory && (
-                                <div className="space-y-2">
-                                  {coffeeChatHistory.slice(0, 5).map((prep) => (
-                                    <div
-                                      key={prep.id}
-                                      className="flex items-center justify-between p-3 bg-gray-900/50 rounded-lg hover:bg-gray-900/70 transition-colors"
-                                    >
-                                      <div className="flex-1">
-                                        <div className="font-medium text-sm text-white">
-                                          {prep.contactName || 'Unknown'}
-                                        </div>
-                                        <div className="text-xs text-gray-400">
-                                          {prep.company} • {new Date(prep.createdAt).toLocaleDateString()}
-                                        </div>
-                                      </div>
-                                      {prep.status === 'completed' && (
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          onClick={() => downloadCoffeeChatPDF(prep.id)}
-                                          className="text-gray-400 hover:text-white"
-                                        >
-                                          <Download className="h-4 w-4" />
-                                        </Button>
-                                      )}
-                                      <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={async () => {
-                                        if (confirm('Delete this Coffee Chat Prep?')) {
-                                          try {
-                                            // Optimistically remove from UI immediately
-                                            setCoffeeChatHistory(currentHistory => 
-                                              currentHistory.filter(p => p.id !== prep.id)
-                                            );
-                                            
-                                            await apiService.deleteCoffeeChatPrep(prep.id);
-                                            
-                                            toast({
-                                              title: "Deleted",
-                                              description: "Coffee Chat Prep deleted successfully",
-                                            });
-                                          } catch (error) {
-                                            // If delete fails, reload to restore the item
-                                            await loadCoffeeChatHistory();
-                                            
-                                            toast({
-                                              title: "Delete Failed",
-                                              description: "Could not delete prep",
-                                              variant: "destructive",
-                                            });
-                                          }
-                                        }
-                                      }}
-                                      className="text-red-400 hover:text-red-300"
-                                    >
-                                      <Trash2 className="h-4 w-4" /> 
-                                    </Button>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
+                    <CardContent className="p-6 relative">
+                      <ComingSoonOverlay 
+                        title="Coffee Chat One-Pager"
+                        description="Get AI-powered prep materials with company research, conversation starters, and personalized talking points for your networking calls."
+                        icon={Clock}
+                        gradient="from-green-500 to-blue-500"
+                      />
+                      
+                      {/* Placeholder content (blurred in background) */}
+                      <div className="space-y-4 opacity-30 blur-sm">
+                        <div>
+                          <label className="block text-sm font-medium mb-2 text-white">
+                            LinkedIn Profile URL
+                          </label>
+                          <Input
+                            placeholder="https://linkedin.com/in/username"
+                            className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400"
+                            disabled
+                          />
                         </div>
-                      ) : (
-                        <LockedFeatureOverlay featureName="Coffee Chat Prep" requiredTier="Free+">
-                          <div className="space-y-4">
-                            <div>
-                              <label className="block text-sm font-medium mb-2 text-white">
-                                LinkedIn Profile URL
-                              </label>
-                              <Input
-                                placeholder="https://linkedin.com/in/username"
-                                className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400"
-                                disabled
-                              />
-                            </div>
-                            <p className="text-sm text-gray-400">
-                              Generate a PDF with all available information from the LinkedIn profile.
-                            </p>
-                            <Button className="w-full" disabled>
-                              <Download className="h-4 w-4 mr-2" />
-                              Generate Coffee Chat PDF
-                            </Button>
-                          </div>
-                        </LockedFeatureOverlay>
-                      )}
+                        <p className="text-sm text-gray-400">
+                          Generate a comprehensive one-pager with profile insights, company news, and 
+                          personalized coffee chat questions.
+                        </p>
+                        <Button className="w-full" disabled>
+                          <Download className="h-4 w-4 mr-2" />
+                          Generate Coffee Chat PDF
+                        </Button>
+                      </div>
                     </CardContent>
                   </Card>
                 </TabsContent>
 
                 <TabsContent value="interview-prep" className="mt-6">
-                  <Card className="bg-gray-800/50 backdrop-blur-sm border-gray-700">
+                  <Card className="bg-gray-800/50 backdrop-blur-sm border-gray-700 relative overflow-hidden">
                     <CardHeader className="border-b border-gray-700">
                       <CardTitle className="text-xl text-white flex items-center gap-2">
                         Interview Prep
+                        <BetaBadge size="xs" variant="glow" />
                         {currentTierConfig.interviewPrep && (
                           <span className="text-green-400 text-xs border border-green-400 rounded px-2 py-0.5">
-                            Available
+                            Pro Feature
                           </span>
                         )}
                       </CardTitle>
                     </CardHeader>
-                    <CardContent className="p-6">
-                      {currentTierConfig.interviewPrep ? (
-                        <div className="space-y-4">
-                          <div>
-                            <label className="block text-sm font-medium mb-2 text-white">
-                              Job Post URL
-                            </label>
-                            <Input
-                              value={jobPostUrl}
-                              onChange={(e) => setJobPostUrl(e.target.value)}
-                              placeholder="https://company.com/jobs/position"
-                              className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400 focus:border-pink-500"
-                            />
-                          </div>
-                          <p className="text-sm text-gray-400">
-                            Generate a PDF with job analysis and a separate prep section with materials
-                            to help you succeed in the interview.
-                          </p>
-                          <Button
-                            onClick={handleInterviewPrepSubmit}
-                            disabled={!jobPostUrl.trim()}
-                            className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
-                          >
-                            <Download className="h-4 w-4 mr-2" />
-                            Generate Interview Prep
-                          </Button>
+                    <CardContent className="p-6 relative">
+                      <ComingSoonOverlay 
+                        title="AI Interview Preparation"
+                        description="Master your next interview with tailored prep materials, common questions for your role, and company-specific insights to help you stand out."
+                        icon={Sparkles}
+                        gradient="from-purple-500 to-pink-500"
+                      />
+                      
+                      {/* Placeholder content (blurred in background) */}
+                      <div className="space-y-4 opacity-30 blur-sm">
+                        <div>
+                          <label className="block text-sm font-medium mb-2 text-white">
+                            Job Post URL
+                          </label>
+                          <Input
+                            placeholder="https://company.com/jobs/position"
+                            className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400"
+                            disabled
+                          />
                         </div>
-                      ) : (
-                        <LockedFeatureOverlay featureName="Interview Prep" requiredTier="Pro">
-                          <div className="space-y-4">
-                            <div>
-                              <label className="block text-sm font-medium mb-2 text-white">
-                                Job Post URL
-                              </label>
-                              <Input
-                                placeholder="https://company.com/jobs/position"
-                                className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400"
-                                disabled
-                              />
-                            </div>
-                            <p className="text-sm text-gray-400">
-                              Generate a PDF with job analysis and prep materials.
-                            </p>
-                            <Button className="w-full" disabled>
-                              <Download className="h-4 w-4 mr-2" />
-                              Generate Interview Prep
-                            </Button>
-                          </div>
-                        </LockedFeatureOverlay>
-                      )}
+                        <p className="text-sm text-gray-400">
+                          Generate a PDF with job analysis and prep materials.
+                        </p>
+                        <Button className="w-full" disabled>
+                          <Download className="h-4 w-4 mr-2" />
+                          Generate Interview Prep
+                        </Button>
+                      </div>
                     </CardContent>
                   </Card>
                 </TabsContent>

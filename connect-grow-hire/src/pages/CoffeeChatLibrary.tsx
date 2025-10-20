@@ -1,158 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
-import { apiService } from "../services/api";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Download, Coffee, Calendar, Building2, Loader2, AlertCircle, Trash2 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { Coffee, Sparkles, Rocket, Star, ArrowLeft, Calendar, Building2, Download, FileText } from "lucide-react";
 import { CreditPill } from "@/components/credits";
-
-interface CoffeeChatPrep {
-  id: string;
-  contactName: string;
-  company: string;
-  jobTitle: string;
-  linkedinUrl: string;
-  status: string;
-  createdAt: string;
-  error?: string;
-}
 
 const CoffeeChatLibrary: React.FC = () => {
   const { user } = useFirebaseAuth();
   const navigate = useNavigate();
-  const { toast } = useToast();
-  
-  const [preps, setPreps] = useState<CoffeeChatPrep[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  useEffect(() => {
-    loadCoffeeChatPreps();
-  }, []);
-
-  const loadCoffeeChatPreps = async () => {
-    try {
-      setLoading(true);
-      const result = await apiService.getAllCoffeeChatPreps();
-      
-      if ('preps' in result && result.preps) {
-        setPreps(result.preps);
-      } else if ('error' in result) {
-        console.error('Failed to load preps:', result.error);
-        toast({
-          title: "Error",
-          description: "Failed to load coffee chat preps",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      console.error('Error loading coffee chat preps:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load coffee chat preps",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDownload = async (prepId: string) => {
-    try {
-      setDownloadingId(prepId);
-      const blob = await apiService.downloadCoffeeChatPDF(prepId);
-      
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `coffee_chat_${prepId}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-      
-      toast({
-        title: "Success",
-        description: "PDF downloaded successfully",
-      });
-    } catch (error) {
-      console.error('Download failed:', error);
-      toast({
-        title: "Download Failed",
-        description: "Could not download the PDF. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setDownloadingId(null);
-    }
-  };
-
-  const handleDelete = async (prepId: string, contactName: string) => {
-    if (!confirm(`Delete coffee chat prep for ${contactName}?`)) {
-      return;
-    }
-
-    try {
-      setDeletingId(prepId);
-      
-      // Optimistically remove from UI immediately
-      setPreps(currentPreps => currentPreps.filter(prep => prep.id !== prepId));
-      
-      await apiService.deleteCoffeeChatPrep(prepId);
-      
-      toast({
-        title: "Deleted",
-        description: "Coffee Chat Prep deleted successfully",
-      });
-    } catch (error) {
-      console.error('Delete failed:', error);
-      
-      // If delete fails, reload to restore the item
-      await loadCoffeeChatPreps();
-      
-      toast({
-        title: "Delete Failed",
-        description: "Could not delete prep. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', { 
-        month: 'short', 
-        day: 'numeric', 
-        year: 'numeric' 
-      });
-    } catch {
-      return dateString;
-    }
-  };
-
-  const getStatusBadge = (status: string) => {
-    const statusConfig: Record<string, { color: string; text: string }> = {
-      completed: { color: 'bg-green-500/10 text-green-400 border-green-500/30', text: 'Completed' },
-      processing: { color: 'bg-blue-500/10 text-blue-400 border-blue-500/30', text: 'Processing' },
-      failed: { color: 'bg-red-500/10 text-red-400 border-red-500/30', text: 'Failed' },
-    };
-
-    const config = statusConfig[status] || statusConfig.processing;
-    
-    return (
-      <span className={`px-2 py-1 rounded-full text-xs border ${config.color}`}>
-        {config.text}
-      </span>
-    );
-  };
 
   return (
     <SidebarProvider>
@@ -174,158 +31,138 @@ const CoffeeChatLibrary: React.FC = () => {
               <Button
                 size="sm"
                 onClick={() => navigate("/home")}
-                className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
+                variant="outline"
+                className="border-gray-600 hover:border-gray-500"
               >
-                <Coffee className="h-4 w-4 mr-2" />
-                New Prep
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Home
               </Button>
             </div>
           </header>
 
           <main className="p-8">
-            <div className="max-w-7xl mx-auto">
-              {/* Header Section */}
-              <div className="mb-8">
-                <h2 className="text-3xl font-bold mb-2">Your Coffee Chat Preps</h2>
-                <p className="text-gray-400">
-                  Access all your generated coffee chat one-pagers and download them anytime.
-                </p>
-              </div>
-
-              {/* Loading State */}
-              {loading && (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+            <div className="max-w-5xl mx-auto">
+              {/* Coming Soon Hero Section */}
+              <div className="text-center mb-12">
+                <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-green-500 to-blue-500 mb-8 animate-pulse">
+                  <Coffee className="h-12 w-12 text-white" />
                 </div>
-              )}
+                
+                <div className="mb-6">
+                  <span className="inline-flex items-center gap-2 bg-gradient-to-r from-green-500 to-blue-500 text-white border-none px-6 py-2 text-lg font-semibold rounded-full mb-6">
+                    <Sparkles className="h-5 w-5" />
+                    Coming Soon
+                  </span>
+                </div>
+                
+                <h1 className="text-5xl font-bold mb-6 bg-gradient-to-r from-green-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
+                  Coffee Chat Library
+                </h1>
+                
+                <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto leading-relaxed">
+                  Your personal archive of networking prep materials. Access all your coffee chat one-pagers, 
+                  company research, and conversation guides in one organized place.
+                </p>
+                
+                <div className="flex items-center justify-center gap-3 text-gray-400 mb-12">
+                  <Rocket className="h-5 w-5 text-blue-400" />
+                  <span className="text-lg">Launching soon - get ready to network smarter!</span>
+                </div>
 
-              {/* Empty State */}
-              {!loading && preps.length === 0 && (
-                <Card className="bg-gray-800/50 border-gray-700">
-                  <CardContent className="flex flex-col items-center justify-center py-12">
-                    <Coffee className="h-16 w-16 text-gray-600 mb-4" />
-                    <h3 className="text-xl font-semibold mb-2">No Coffee Chat Preps Yet</h3>
-                    <p className="text-gray-400 mb-6 text-center max-w-md">
-                      Create your first coffee chat prep to get personalized conversation starters and insights.
-                    </p>
-                    <Button
-                      onClick={() => navigate("/home")}
-                      className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
-                    >
-                      <Coffee className="h-4 w-4 mr-2" />
-                      Create Your First Prep
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Preps Grid */}
-              {!loading && preps.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {preps.map((prep) => (
-                    <Card
-                      key={prep.id}
-                      className="bg-gray-800/50 border-gray-700 hover:border-gray-600 transition-all hover:shadow-lg"
-                    >
-                      <CardHeader>
-                        <div className="flex items-start justify-between mb-2">
-                          <CardTitle className="text-lg line-clamp-1">
-                            {prep.contactName || 'Unknown Contact'}
-                          </CardTitle>
-                          {getStatusBadge(prep.status)}
-                        </div>
-                      </CardHeader>
-
-                      <CardContent className="space-y-4">
-                        {/* Contact Details */}
-                        <div className="space-y-2">
-                          <div className="flex items-start gap-2 text-sm">
-                            <Building2 className="h-4 w-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                            <div>
-                              <div className="text-gray-300">{prep.company || 'N/A'}</div>
-                              <div className="text-gray-500 text-xs">{prep.jobTitle || 'N/A'}</div>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2 text-sm text-gray-400">
-                            <Calendar className="h-4 w-4" />
-                            <span>{formatDate(prep.createdAt)}</span>
-                          </div>
-                        </div>
-
-                        {/* Error Message */}
-                        {prep.status === 'failed' && prep.error && (
-                          <div className="flex items-start gap-2 text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded p-2">
-                            <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                            <span>{prep.error}</span>
-                          </div>
-                        )}
-
-                        {/* Actions */}
-                        <div className="pt-2 flex gap-2">
-                          {prep.status === 'completed' && (
-                            <Button
-                              onClick={() => handleDownload(prep.id)}
-                              disabled={downloadingId === prep.id || deletingId === prep.id}
-                              className="flex-1 bg-blue-600 hover:bg-blue-700"
-                              size="sm"
-                            >
-                              {downloadingId === prep.id ? (
-                                <>
-                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                  Downloading...
-                                </>
-                              ) : (
-                                <>
-                                  <Download className="h-4 w-4 mr-2" />
-                                  Download PDF
-                                </>
-                              )}
-                            </Button>
-                          )}
-
-                          {prep.status === 'processing' && (
-                            <Button
-                              disabled
-                              className="flex-1 bg-gray-700"
-                              size="sm"
-                            >
-                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                              Processing...
-                            </Button>
-                          )}
-
-                          {prep.status === 'failed' && (
-                            <Button
-                              onClick={() => navigate('/home')}
-                              variant="outline"
-                              className="flex-1"
-                              size="sm"
-                            >
-                              Try Again
-                            </Button>
-                          )}
-
-                          {/* Delete Button - Always show */}
-                          <Button
-                            onClick={() => handleDelete(prep.id, prep.contactName)}
-                            disabled={deletingId === prep.id || downloadingId === prep.id}
-                            variant="outline"
-                            size="sm"
-                            className="text-red-400 hover:text-red-300 border-red-400/30 hover:border-red-400/50"
-                          >
-                            {deletingId === prep.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-4 w-4" />
-                            )}
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
+                {/* Star Rating */}
+                <div className="flex justify-center gap-2 mb-12">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} className="h-6 w-6 text-yellow-400 fill-yellow-400" />
                   ))}
                 </div>
-              )}
+              </div>
+
+              {/* Feature Preview Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+                <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 hover:border-green-500/50 transition-all hover:shadow-lg hover:shadow-green-500/10">
+                  <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-green-500/20 to-blue-500/20 border border-green-500/30 flex items-center justify-center mb-4">
+                    <FileText className="h-6 w-6 text-green-400" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-white mb-2">Organized Archive</h3>
+                  <p className="text-sm text-gray-400">
+                    All your coffee chat preps in one place, beautifully organized and easy to find.
+                  </p>
+                </div>
+
+                <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 hover:border-blue-500/50 transition-all hover:shadow-lg hover:shadow-blue-500/10">
+                  <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/30 flex items-center justify-center mb-4">
+                    <Download className="h-6 w-6 text-blue-400" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-white mb-2">Quick Access</h3>
+                  <p className="text-sm text-gray-400">
+                    Download any prep material instantly before your networking calls.
+                  </p>
+                </div>
+
+                <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 hover:border-purple-500/50 transition-all hover:shadow-lg hover:shadow-purple-500/10">
+                  <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30 flex items-center justify-center mb-4">
+                    <Calendar className="h-6 w-6 text-purple-400" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-white mb-2">Track History</h3>
+                  <p className="text-sm text-gray-400">
+                    Review past preps and see who you've connected with over time.
+                  </p>
+                </div>
+              </div>
+
+              {/* Preview Mock Cards */}
+              <div className="space-y-4 opacity-30 blur-sm pointer-events-none">
+                <h3 className="text-lg font-semibold text-gray-400 mb-4">Preview</h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="bg-gray-800/50 border border-gray-700 rounded-lg p-6">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-2 flex-1">
+                          <div className="h-4 bg-gray-700 rounded w-3/4"></div>
+                          <div className="h-3 bg-gray-700 rounded w-1/2"></div>
+                        </div>
+                        <div className="h-6 w-20 bg-green-500/20 rounded-full"></div>
+                      </div>
+                      
+                      <div className="space-y-3 mb-4">
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4 text-gray-500" />
+                          <div className="h-3 bg-gray-700 rounded w-2/3"></div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-gray-500" />
+                          <div className="h-3 bg-gray-700 rounded w-1/3"></div>
+                        </div>
+                      </div>
+                      
+                      <div className="h-9 bg-blue-500/20 rounded"></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* CTA Section */}
+              {/* CTA Section */}
+              <div className="mt-16 text-center">
+                <div className="bg-gradient-to-r from-green-500/10 to-blue-500/10 border border-green-500/30 rounded-2xl p-8">
+                  <h3 className="text-2xl font-bold text-white mb-4">
+                    Ready to Network Smarter?
+                  </h3>
+                  <p className="text-gray-300 mb-6 max-w-xl mx-auto">
+                    When Coffee Chat Library launches, you'll have instant access to all your networking prep materials. 
+                    Start building your network today!
+                  </p>
+                  <Button
+                    onClick={() => navigate("/home")}
+                    size="lg"
+                    className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-semibold px-8 py-6 text-lg"
+                  >
+                    <Coffee className="h-5 w-5 mr-2" />
+                    Start Networking Now
+                  </Button>
+                </div>
+              </div>
             </div>
           </main>
         </div>

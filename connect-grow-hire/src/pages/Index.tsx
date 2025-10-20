@@ -8,8 +8,8 @@ import smartMatchingImage from '@/assets/SmartMatching.jpeg';
 import topTierImage from '@/assets/TopTier.jpeg';
 import analyticsImage from '@/assets/Analytics.jpeg';
 import lockImg from "@/assets/lock.png";
-
-
+import { Sparkles } from 'lucide-react';
+import { BetaBadge } from '@/components/BetaBadges';
 
 /** Reusable, professional CTA buttons for header + hero */
 const CtaButtons: React.FC<{ compact?: boolean }> = ({ compact }) => {
@@ -42,7 +42,179 @@ const CtaButtons: React.FC<{ compact?: boolean }> = ({ compact }) => {
     </div>
   );
 };
+// --- Closed Beta Section (compact) ---
+const ClosedBetaStrip: React.FC = () => {
+  return (
+    <section
+      id="beta"
+      className="mt-8 px-6"  // REMOVED mx-auto and max-w-7xl
+    >
+      {/* Outer gradient border wrapper */}
+      <div className="relative rounded-3xl p-[2px] bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500">
+        {/* Inner content with glass effect */}
+        <div className="relative rounded-3xl bg-gray-800/60 backdrop-blur-xl border border-white/10">
+          
+          {/* wide glow */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 -top-28 mx-auto h-80 w-full"  // Changed to w-full
+            style={{
+              background: 'radial-gradient(ellipse at center, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2), rgba(217, 70, 239, 0.2), transparent)'
+            }}
+          />
 
+          {/* USC emphasis row */}
+          <div className="relative mb-5 flex flex-wrap items-center justify-center gap-2 pt-8">
+            <span className="inline-flex items-center rounded-full bg-white text-gray-900 px-3 py-1 text-xs font-semibold">
+              Closed Beta
+            </span>
+            <span className="text-xs text-slate-300">100 seats • 5 weeks</span>
+            <span className="inline-flex items-center rounded-full border border-fuchsia-300/40 bg-fuchsia-400/10 px-3 py-1 text-xs font-semibold text-fuchsia-200">
+              USC students prioritized
+            </span>
+          </div>
+
+          {/* Headline + subhead */}
+          <div className="relative mx-auto max-w-5xl text-center px-6">
+            <h3 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-slate-50">
+              USC Closed Beta is live
+            </h3>
+            <p className="mt-4 text-base sm:text-lg text-slate-300 leading-relaxed">
+              Validate Gmail-powered networking outreach and turn more conversations into offers—starting at USC.
+              Small weekly admit batches to protect deliverability.
+            </p>
+          </div>
+
+          {/* Primary actions */}
+          <div className="relative mt-7 flex flex-wrap items-center justify-center gap-4 px-6">
+            <button
+              onClick={() => window.location.assign('/signin?mode=signup')}
+              className="
+                inline-flex items-center justify-center
+                rounded-2xl px-7 py-3.5 text-base font-semibold text-white
+                bg-gradient-to-r from-indigo-500 to-violet-500
+                hover:from-indigo-600 hover:to-violet-600
+                shadow-lg shadow-indigo-900/30 transition
+              "
+            >
+              Join the USC Beta
+            </button>
+            <button
+              onClick={() => window.location.assign('/signin?mode=signin')}
+              className="
+                inline-flex items-center justify-center
+                rounded-2xl px-6 py-3.5 text-base font-semibold
+                text-slate-100 border border-white/12
+                bg-white/[0.03] hover:bg-white/[0.06] transition
+              "
+            >
+              I have an invite code
+            </button>
+          </div>
+
+          {/* Divider */}
+          <div className="relative mx-auto my-12 h-px w-full bg-gradient-to-r from-transparent via-white/15 to-transparent" />
+
+          {/* --- How it works --- */}
+          <div className="relative w-full px-6">  // REMOVED mx-auto and max-w
+            <h4 className="text-center text-[28px] md:text-3xl font-extrabold tracking-tight text-slate-50">
+              How it works
+            </h4>
+
+            <ol className="mt-8 space-y-6 max-w-7xl mx-auto">  // Keep content centered but allow full width
+              {[
+                {
+                  title: "Request Access",
+                  sub: "Tell us your use case (USC admitted first).",
+                  grad: "from-indigo-500 via-violet-500 to-fuchsia-500",
+                  chip: "bg-indigo-500",
+                },
+                {
+                  title: "Get an Invite",
+                  sub: "We admit in small weekly batches.",
+                  grad: "from-violet-500 via-fuchsia-500 to-indigo-500",
+                  chip: "bg-violet-500",
+                },
+                {
+                  title: "Start Sending",
+                  sub: "Guided setup with a safe Gmail cap during beta.",
+                  grad: "from-fuchsia-500 via-indigo-500 to-violet-500",
+                  chip: "bg-fuchsia-500",
+                },
+              ].map(({ title, sub, grad, chip }, i) => (
+                <li key={title} className="relative">
+                  <div className={`rounded-2xl p-[1.5px] bg-gradient-to-r ${grad} shadow-[0_10px_40px_-10px_rgba(0,0,0,0.6)]`}>
+                    <div className="rounded-2xl bg-slate-900/70 backdrop-blur border border-white/10 px-7 py-6">
+                      <div className="flex items-start gap-5">
+                        <span className="relative inline-flex h-10 w-10 items-center justify-center rounded-full text-white text-sm font-bold">
+                          <span className={`absolute inset-0 ${chip} blur-md opacity-70`} aria-hidden />
+                          <span className="relative z-[1] rounded-full bg-white/10 h-10 w-10 grid place-items-center">
+                            {i + 1}
+                          </span>
+                        </span>
+
+                        <div className="min-w-0">
+                          <h5 className="text-[18px] font-semibold tracking-tight text-slate-100">
+                            {title}
+                          </h5>
+                          <p className="mt-1 text-sm text-slate-400 leading-relaxed">{sub}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          {/* --- Benefits --- */}
+          <div className="relative mt-12 grid w-full gap-8 px-6 max-w-7xl mx-auto">  // Keep content centered
+            {/* What you'll get */}
+            <div className="rounded-3xl p-[1.5px] bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500">
+              <div className="rounded-3xl bg-slate-900/70 backdrop-blur border border-white/10 p-7 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.6)]">
+                <h5 className="text-center text-sm font-semibold text-slate-100 mb-3 tracking-wide">
+                  What you'll get
+                </h5>
+                <ul className="mx-auto max-w-[70ch] text-sm text-slate-300 leading-relaxed list-disc list-inside space-y-1.5">
+                  <li>Guided onboarding tailored for USC workflows</li>
+                  <li>Working Gmail outreach flow (no spray-and-pray)</li>
+                  <li>Fast support + quick fixes from the core team</li>
+                </ul>
+              </div>
+            </div>
+
+            {/* What we ask */}
+            <div className="rounded-3xl p-[1.5px] bg-gradient-to-r from-fuchsia-500 via-indigo-500 to-violet-500">
+              <div className="rounded-3xl bg-slate-900/70 backdrop-blur border border-white/10 p-7 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.6)]">
+                <h5 className="text-center text-sm font-semibold text-slate-100 mb-3 tracking-wide">
+                  What we ask
+                </h5>
+                <ul className="mx-auto max-w-[70ch] text-sm text-slate-300 leading-relaxed list-disc list-inside space-y-1.5">
+                  <li>Run a real outreach use case</li>
+                  <li>Share quick feedback at key moments (1–2 min)</li>
+                  <li>Be patient with small rough edges — we ship weekly</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* --- Micro FAQ + footnote --- */}
+          <div className="relative mt-10 mb-8 text-center px-6 max-w-7xl mx-auto">
+            <details className="text-sm text-slate-300 inline-block">
+              <summary className="cursor-pointer text-slate-100/90 font-medium">Why a closed beta?</summary>
+              <p className="mt-1 text-slate-400">
+                We're validating reliability & deliverability in real student workflows before scaling beyond USC.
+              </p>
+            </details>
+            <p className="mt-3 text-[12px] text-slate-400/90">
+              Sending is available to Closed Beta users (100 seats). Request access to join a weekly batch.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
 const Index = () => {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const navigate = useNavigate();
@@ -64,6 +236,7 @@ const Index = () => {
               >
                 Offer<span className="bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">loop</span>.ai
               </span>
+               
               <span className="bg-white text-gray-900 text-xs font-semibold px-2 py-1 rounded-md">
                 BETA
               </span>
@@ -88,13 +261,14 @@ const Index = () => {
           </div>
         </div>
       </header>
-
+ 
       {/* Hero Section */}
       <section className="pt-32 pb-8 px-6" style={{ fontFamily: 'Nunito, sans-serif' }}>
         <div className="max-w-7xl mx-auto text-center">
           <div className="max-w-4xl mx-auto mb-8">
             <h1 className="text-6xl lg:text-8xl font-bold tracking-tight mb-12">
               Offerloop <span className="bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">Fundamentally</span> changes how you recruit
+              
             </h1>
             <p className="text-xl md:text-2xl text-gray-300 mb-10 leading-relaxed max-w-4xl mx-auto">
               We take the tedious, repetitive work out of recruiting. Spend less time stuck behind a screen and more time connecting with professionals and living your life.
@@ -104,6 +278,7 @@ const Index = () => {
             <div className="flex items-center justify-center">
               <CtaButtons />
             </div>
+            <ClosedBetaStrip />
           </div>
         </div>
       </section>
@@ -113,7 +288,10 @@ const Index = () => {
         <div className="max-w-7xl mx-auto">
           <div className="grid md:grid-cols-2 gap-16 items-center mb-20">
             <div>
-              <h3 className="text-3xl font-bold mb-6 text-blue-400">2 Billion+ Professionals</h3>
+              <h3 className="text-3xl font-bold mb-6 text-blue-400 flex items-center gap-3">
+                2 Billion+ Professionals
+                <BetaBadge size="xs" variant="outline" />
+              </h3>
               <p className="text-xl text-gray-300 mb-8">
                 Access the world's largest database of professional contacts with advanced filtering capabilities to find exactly who you're looking for.
               </p>
@@ -162,7 +340,11 @@ const Index = () => {
               </div>
             </div>
             <div>
-              <h3 className="text-3xl font-bold mb-6 text-purple-400">AI Personalizations</h3>
+              <h3 className="text-3xl font-bold mb-6 text-purple-400 flex items-center gap-3">
+                AI Personalizations
+                <BetaBadge size="xs" variant="outline" />
+              </h3>
+
               <p className="text-xl text-gray-300 mb-8">
                 Maximize your response rate and recruitment success with hyper personalized emails curated to capture attention.
               </p>
@@ -189,8 +371,9 @@ const Index = () => {
       <section id="features" className="py-20 px-6 bg-gray-800/30">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-4xl md:text-5xl font-bold mb-6">
-              Why Choose Offerloop.ai?
+            <h2 className="text-4xl md:text-5xl font-bold mb-6 flex items-center justify-center gap-3 flex-wrap">
+              <span>Why Choose Offerloop.ai?</span>
+              <BetaBadge size="sm" variant="subtle" />
             </h2>
             <p className="text-xl text-gray-300">
               Everything you need to streamline your recruiting process and land the best opportunities — in less time.
@@ -596,6 +779,15 @@ const Index = () => {
           </div>
         </div>
       </footer>
+      <div className="fixed bottom-6 right-6 z-50 animate-pulse">
+        <div className="bg-gray-900/95 backdrop-blur-sm border-2 border-blue-400/50 rounded-full px-4 py-2 flex items-center gap-2 shadow-xl shadow-blue-500/30">
+          <div className="relative">
+            <div className="absolute inset-0 bg-blue-500 rounded-full blur-sm opacity-50"></div>
+            <Sparkles className="relative h-4 w-4 text-blue-400" />
+          </div>
+          <span className="text-sm font-semibold text-blue-300">BETA</span>
+        </div>
+      </div>
     </div>
   );
 };

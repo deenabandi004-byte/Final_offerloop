@@ -72,6 +72,22 @@ export interface ErrorResponse {
   current_credits?: number;
   credits_needed?: number;
 }
+// ================================
+// NEW: Bell Notification Types
+// ================================
+export interface ReplyStatus {
+  hasReply: boolean;
+  isUnread: boolean;
+  messageId?: string;
+  muted?: boolean;
+}
+
+export interface GenerateReplyResult {
+  success: boolean;
+  draftId: string;
+  threadId: string;
+  gmailUrl: string;
+}
 
 // Union type for search results
 export type SearchResult = SearchResponse | ErrorResponse;
@@ -400,6 +416,37 @@ class ApiService {
     });
   }
 
+    // ================================
+  // Gmail Integration Endpoints
+  // ================================
+  async startGmailOAuth(): Promise<string> {
+    const headers = await this.getAuthHeaders();
+    const { authUrl } = await this.makeRequest<{ authUrl: string }>(
+      '/google/oauth/start',
+      { headers }
+    );
+    return authUrl;
+  }
+
+  async gmailStatus(): Promise<{ connected: boolean; scopes: string[] }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ connected: boolean; scopes: string[] }>(
+      '/gmail/status',
+      { headers }
+    );
+  }
+
+  async saveGmailDraft(params: {
+    to?: string; subject?: string; body?: string; threadId?: string;
+  }): Promise<{ ok: boolean; draftId: string; messageId?: string; threadId?: string } | ApiError> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/gmail/drafts', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(params),
+    });
+  }
+
   // ================================
   // Misc
   // ================================
@@ -447,6 +494,54 @@ async deleteCoffeeChatPrep(prepId: string): Promise<{ success: boolean; message:
     headers,
   });
 }
+// ================================
+// NEW: Bell Notification Endpoints
+// ================================
+
+/** Check if a contact has replied to our email */
+async checkContactReplies(contactId: string): Promise<ReplyStatus | ErrorResponse> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<ReplyStatus | ErrorResponse>(`/contacts/${contactId}/check-replies`, {
+    method: 'GET',
+    headers,
+  });
+}
+
+/** Batch check replies for multiple contacts */
+async batchCheckReplies(contactIds: string[]): Promise<{ results: Record<string, ReplyStatus> } | ErrorResponse> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<{ results: Record<string, ReplyStatus> } | ErrorResponse>(
+    '/contacts/batch-check-replies',
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ contactIds }),
+    }
+  );
+}
+
+/** Mute/unmute notifications for a contact */
+async muteContactNotifications(contactId: string, muted: boolean): Promise<{ success: boolean; muted: boolean } | ErrorResponse> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<{ success: boolean; muted: boolean } | ErrorResponse>(
+    `/contacts/${contactId}/mute-notifications`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ muted }),
+    }
+  );
+}
+
+/** Generate a reply draft for a contact's message */
+async generateReplyDraft(contactId: string): Promise<GenerateReplyResult | ErrorResponse> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<GenerateReplyResult | ErrorResponse>(`/contacts/${contactId}/generate-reply`, {
+    method: 'POST',
+    headers,
+  });
+}
+
 
   /** Helper to download CSV blob as file */
   downloadCsv(blob: Blob, filename: string = 'contacts.csv') {

@@ -8,7 +8,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyCxcZbNwbh09DFw70tBQUSoqBIDaXNwZdE",
   authDomain: "offerloop-native.firebaseapp.com",
   projectId: "offerloop-native",
-  storageBucket: "offerloop-native.firebasestorage.app",
+  storageBucket: "offerloop-native.appspot.com",
   messagingSenderId: "184607281467",
   appId: "1:184607281467:web:eab1b0e8be341aa8c5271e"
 };
