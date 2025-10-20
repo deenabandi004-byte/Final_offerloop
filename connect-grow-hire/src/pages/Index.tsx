@@ -116,12 +116,12 @@ const ClosedBetaStrip: React.FC = () => {
           <div className="relative mx-auto my-12 h-px w-full bg-gradient-to-r from-transparent via-white/15 to-transparent" />
 
           {/* --- How it works --- */}
-          <div className="relative w-full px-6">  // REMOVED mx-auto and max-w
+          <div className="relative w-full px-6">  
             <h4 className="text-center text-[28px] md:text-3xl font-extrabold tracking-tight text-slate-50">
               How it works
             </h4>
 
-            <ol className="mt-8 space-y-6 max-w-7xl mx-auto">  // Keep content centered but allow full width
+            <ol className="mt-8 space-y-6 max-w-7xl mx-auto">  
               {[
                 {
                   title: "Request Access",
@@ -168,7 +168,7 @@ const ClosedBetaStrip: React.FC = () => {
           </div>
 
           {/* --- Benefits --- */}
-          <div className="relative mt-12 grid w-full gap-8 px-6 max-w-7xl mx-auto">  // Keep content centered
+          <div className="relative mt-12 grid w-full gap-8 px-6 max-w-7xl mx-auto">   
             {/* What you'll get */}
             <div className="rounded-3xl p-[1.5px] bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500">
               <div className="rounded-3xl bg-slate-900/70 backdrop-blur border border-white/10 p-7 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.6)]">
