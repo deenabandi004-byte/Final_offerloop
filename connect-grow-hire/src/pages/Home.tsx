@@ -1,8 +1,7 @@
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import React from "react";
-import { Upload, Download, Crown, ChevronRight, ChevronLeft, Loader2, Clock, CheckCircle, XCircle, Trash2 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Upload, Download, Crown, ChevronRight, ChevronLeft, Loader2, Clock, CheckCircle, XCircle, Trash2, Search, Coffee, Briefcase } from "lucide-react";import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -36,7 +35,7 @@ const TIER_CONFIGS = {
   free: {
     maxContacts: 3,
     minContacts: 1,
-    name: "Free",
+    name: "Search Free Plan Tier",
     credits: 120,
     description: "Try out platform risk free - up to 3 contacts + Email drafts",
     coffeeChat: true,
@@ -47,7 +46,7 @@ const TIER_CONFIGS = {
   pro: {
     maxContacts: 8,
     minContacts: 1,
-    name: "Pro",
+    name: "Search Pro Plan Tier",
     credits: 840,
     description: "Everything in free plus advanced features - up to 8 contacts + Resume matching",
     coffeeChat: true,
@@ -855,9 +854,8 @@ const Home = () => {
           <header className="h-16 flex items-center justify-between border-b border-gray-800 px-6 bg-gray-900/80 backdrop-blur-sm">
             <div className="flex items-center gap-4">
               <SidebarTrigger className="text-white hover:bg-gray-800/50" />
-              <h1 className="text-xl font-semibold flex items-center gap-2">
-                AI-Powered Candidate Search
-                <BetaBadge size="xs" variant="subtle" />
+                <h1 className="text-xl font-semibold">
+                  {userTier === "pro" ? "Pro Plan Tier" : "Free Plan Tier"}
               </h1>
             </div>
 
@@ -876,103 +874,43 @@ const Home = () => {
             </div>
           </header>
 
-          <div className="px-8 pt-4">
-            <div className="max-w-7xl mx-auto">
-              <div
-                onClick={() => setIsScoutChatOpen(!isScoutChatOpen)}
-                className="group cursor-pointer bg-gradient-to-r from-blue-500/10 to-purple-500/10 hover:from-blue-500/20 hover:to-purple-500/20 border border-blue-500/30 hover:border-blue-400/50 rounded-xl p-4 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg hover:shadow-blue-500/20"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div
-                      className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden animate-pulse"
-                      style={{ backgroundColor: "#fff6e2" }}
-                    >
-                      <img
-                        src="/scout-mascot.png"
-                        alt="Scout AI"
-                        className="w-10 h-10 object-contain group-hover:scale-110 transition-transform duration-300"
-                        style={{
-                          animation: "wave 2.5s ease-in-out infinite",
-                          transformOrigin: "center bottom",
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-white group-hover:text-blue-300 transition-colors">
-                        Talk to Scout
-                      </h3>
-                      <p className="text-sm text-gray-400 group-hover:text-gray-300 transition-colors">
-                        Get help with job titles and search
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <div className="text-xs text-gray-400 group-hover:text-gray-300 transition-colors">
-                      {isScoutChatOpen ? "Close" : "Open"}
-                    </div>
-                    <div className="bg-gradient-to-r from-blue-500 to-purple-500 rounded-full p-2 group-hover:from-blue-400 group-hover:to-purple-400 transition-all duration-300 group-hover:scale-110">
-                      {isScoutChatOpen ? (
-                        <ChevronRight className="h-5 w-5 text-white" />
-                      ) : (
-                        <ChevronLeft className="h-5 w-5 text-white" />
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          
 
           <main className="p-8">
             <div className="max-w-7xl mx-auto">
-              <div className="mb-6">
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="flex items-center gap-2">
-                    {userTier === "pro" && <Crown className="h-5 w-5 text-yellow-400" />}
-                    <h2 className="text-2xl font-bold text-white">{currentTierConfig.name}</h2>
-                  </div>
+              
 
-                  <CreditPill
-                    credits={effectiveUser.credits ?? 0}
-                    max={effectiveUser.maxCredits ?? 120}
-                  />
-                </div>
-
-                <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
-                  <p className="text-sm text-gray-400">{currentTierConfig.description}</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Estimated time saved: {currentTierConfig.timeSavedMinutes} minutes
-                  </p>
-                </div>
-              </div>
-
-              <Tabs defaultValue="find-candidates" className="mb-8">
-                <TabsList className="grid w-full grid-cols-3 bg-gray-800/50 border border-gray-700">
+              <Tabs defaultValue="find-candidates" className="mb-8 mt-4">
+                <TabsList className="grid w-full grid-cols-3 bg-gray-800/50 border border-gray-700 h-16">
                   <TabsTrigger
                     value="find-candidates"
-                    className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-purple-500 data-[state=active]:text-white text-gray-300 hover:text-white transition-all"
+                    className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-purple-500 data-[state=active]:text-white text-gray-300 hover:text-white transition-all text-base"
                   >
+                    <Search className="h-5 w-5 mr-2" />
                     Professional Search
                   </TabsTrigger>
                   <TabsTrigger
                     value="coffee-chat"
-                    className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-green-500 data-[state=active]:to-blue-500 data-[state=active]:text-white text-gray-300 hover:text-white transition-all"
+                    className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-green-500 data-[state=active]:to-blue-500 data-[state=active]:text-white text-gray-300 hover:text-white transition-all text-base"
                   >
-                    Coffee Chat Prep
-                  </TabsTrigger>
+                  <Coffee className="h-5 w-5 mr-2" />
+                  Coffee Chat Prep
+                 </TabsTrigger>
                   <TabsTrigger
                     value="interview-prep"
-                    className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:to-pink-500 data-[state=active]:text-white text-gray-300 hover:text-white transition-all"
+                   className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:to-pink-500 data-[state=active]:text-white text-gray-300 hover:text-white transition-all text-base"
                   >
-                    Interview Prep
+                  <Briefcase className="h-5 w-5 mr-2" />
+                  Interview Prep
                   </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="find-candidates" className="mt-6">
                   <Card className="bg-gray-800/50 backdrop-blur-sm border-gray-700">
                     <CardHeader className="border-b border-gray-700">
-                      <CardTitle className="text-xl text-white">Professional Search</CardTitle>
+                      <CardTitle className="text-xl text-white">
+                        Professional Search <span className="text-sm text-gray-400">- I want to network with...</span>
+                      </CardTitle>
                     </CardHeader>
                     <CardContent className="p-6">
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
@@ -983,7 +921,7 @@ const Home = () => {
                           <AutocompleteInput
                             value={jobTitle}
                             onChange={setJobTitle}
-                            placeholder="e.g., Software Engineer"
+                            placeholder="e.g. Analyst, unsure of exact title in company? Ask Scout"
                             dataType="job_title"
                             disabled={isSearching}
                             className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400 focus:border-pink-500 hover:border-purple-400 transition-colors"
@@ -995,7 +933,7 @@ const Home = () => {
                           <AutocompleteInput
                             value={company}
                             onChange={setCompany}
-                            placeholder="e.g., Google (optional)"
+                            placeholder="e.g. Google, Meta, or any preferred firm"
                             dataType="company"
                             disabled={isSearching}
                             className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400 focus:border-pink-500 hover:border-purple-400 transition-colors"
@@ -1009,7 +947,7 @@ const Home = () => {
                           <AutocompleteInput
                             value={location}
                             onChange={setLocation}
-                            placeholder="e.g., San Francisco, CA"
+                            placeholder="e.g. Los Angeles, CA, New York, NY, city of office"
                             dataType="location"
                             disabled={isSearching}
                             className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400 focus:border-pink-500 hover:border-purple-400 transition-colors"
@@ -1023,7 +961,7 @@ const Home = () => {
                           <AutocompleteInput
                             value={collegeAlumni}
                             onChange={setCollegeAlumni}
-                            placeholder="e.g., Stanford University (optional)"
+                            placeholder="e.g. Stanford, USC, preferred college they attended"
                             dataType="school"
                             disabled={isSearching}
                             className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400 focus:border-pink-500 hover:border-purple-400 transition-colors"
@@ -1032,9 +970,14 @@ const Home = () => {
                       </div>
 
                       <div className="col-span-1 lg:col-span-2 mt-4">
-                        <label className="block text-sm font-medium mb-4 text-white">
-                          Batch Size
-                        </label>
+                        <div className="flex items-center gap-2 mb-4">
+                          <label className="text-sm font-medium text-white">
+                            Email Batch Size
+                          </label>
+                          <span className="text-sm text-gray-400">
+                        - Choose how many contacts to generate per search
+                          </span>
+                        </div>
 
                         <div className="bg-gray-800/30 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 shadow-lg">
                           <div className="flex items-center gap-6">
@@ -1099,18 +1042,7 @@ const Home = () => {
                         )}
                       </div>
 
-                      <div className="col-span-1 lg:col-span-2 mt-6 mb-8">
-                        <div className="bg-gray-800/30 rounded-lg p-4 border border-gray-700">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-gray-300">
-                              Will use: <span className="font-semibold text-white">{batchSize}</span> contact{batchSize !== 1 ? 's' : ''}
-                            </span>
-                            <span className="text-sm text-purple-400 font-semibold">
-                              {batchSize * 15} credits
-                            </span>
-                          </div>
-                        </div>
-                      </div>
+                      
 
                       {userTier === "pro" && (
                         <div className="mb-6">
@@ -1145,7 +1077,7 @@ const Home = () => {
                         </div>
                       )}
 
-                      <div className="space-y-4">
+                      <div className="space-y-4 mt-8">
                         <Button
                           onClick={handleSearch}
                           disabled={
@@ -1158,7 +1090,7 @@ const Home = () => {
                           size="lg"
                           className="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white font-medium px-8 transition-all hover:scale-105"
                         >
-                          {isSearching ? "Searching..." : `Search ${currentTierConfig.name} Tier`}
+                          {isSearching ? "Searching..." : "Find Contacts"}
                         </Button>
 
                         <div className="flex items-center gap-4 text-sm text-gray-400">
@@ -1362,6 +1294,49 @@ const Home = () => {
           </div>
         )}
       </div>
+       {/* Floating Scout Chat Bubble */}
+        {!isScoutChatOpen && (
+          <div 
+            onClick={() => setIsScoutChatOpen(true)}
+            className="fixed bottom-6 right-6 z-50 cursor-pointer group"
+          >
+            <div className="relative">
+              
+              
+              {/* Main bubble */}
+              <div className="relative bg-gradient-to-r from-blue-500 to-purple-500 rounded-full p-1 shadow-2xl hover:shadow-blue-500/50 transition-all duration-300 hover:scale-110">
+                <div className="bg-gray-900 rounded-full p-3">
+                  <div className="flex items-center gap-3 px-2">
+                    <div
+                      className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden"
+                      style={{ backgroundColor: "#fff6e2" }}
+                    >
+                      <img
+                        src="/scout-mascot.png"
+                        alt="Scout AI"
+                        className="w-8 h-8 object-contain group-hover:scale-110 transition-transform duration-300"
+                        style={{
+                          animation: "wave 2.5s ease-in-out infinite",
+                          transformOrigin: "center bottom",
+                        }}
+                      />
+                    </div>
+                    <div className="pr-2">
+                      <p className="text-sm font-semibold text-white whitespace-nowrap">
+                        Need help finding people?
+                      </p>
+                      <p className="text-xs text-gray-300 whitespace-nowrap">
+                        Ask Scout! →
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+    
     </SidebarProvider>
   );
 };

@@ -305,6 +305,54 @@ const TermsOfService = () => {
             <a href="mailto:support@offerloop.ai">support@offerloop.ai</a> (general support)<br />
             <a href="mailto:privacy@offerloop.ai">privacy@offerloop.ai</a> (privacy and data protection inquiries)
           </p>
+          <h2>34. Google User Data and Gmail Integration</h2>
+          <p>
+            Offerloop integrates with Google services to provide enhanced functionality for our users. By connecting your Google account, you authorize us to access certain Google user data as described below. Our use of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements.
+          </p>
+
+          <h2>35. Data We Access</h2>
+          <p>When you connect your Google account to Offerloop, we request permission to:</p>
+          <p>
+            View your email messages and settings: We access your Gmail messages to help you manage professional communications and prepare for networking interactions.
+          </p>
+          <p>
+            Send email on your behalf: We send emails directly from your Gmail account when you use our email generation and outreach features.
+          </p>
+          <p>
+            Manage drafts and send emails: We create, edit, and manage email drafts in your Gmail account to streamline your professional communication workflow.
+          </p>
+          <p>
+            See your personal info: We access publicly available personal information associated with your Google account to personalize your experience.
+          </p>
+          <p>
+            See your primary Google Account email address: We use your primary email address for account identification and communication purposes.
+          </p>
+          <p>
+            Associate you with your personal info on Google: We link your Offerloop account with your Google profile information to provide integrated services.
+          </p>
+
+          <h2>36. How We Use This Data</h2>
+          <p>We use the Google user data described above solely to:</p>
+          <p>Generate personalized email drafts for professional networking and outreach</p>
+          <p>Facilitate coffee chat preparation and interview preparation features</p>
+          <p>Send emails on your behalf when you explicitly request this action</p>
+          <p>Analyze your communication patterns to provide relevant networking insights</p>
+          <p>Maintain and improve the functionality of our Gmail integration features</p>
+
+          <h2>37. Data Storage and Security</h2>
+          <p>
+            We store Gmail data temporarily and only as necessary to provide our services. Email content is processed to generate insights and drafts but is not permanently stored on our servers unless required for feature functionality. We implement industry-standard security measures to protect your Google user data.
+          </p>
+
+          <h2>38. Limited Use Disclosure</h2>
+          <p>
+            Offerloop's use and transfer to any other app of information received from Google APIs will adhere to Google API Services User Data Policy, including the Limited Use requirements. We do not use Google user data for serving advertisements or any purposes unrelated to providing and improving our core networking and professional development features.
+          </p>
+
+          <h2>39. Revoking Access</h2>
+          <p>
+            You may revoke Offerloop's access to your Google account at any time by visiting your Google Account Permissions page or by disconnecting your Google account in your Offerloop account settings. Revoking access will disable Gmail integration features but will not delete your Offerloop account.
+          </p>
         </div>
       </div>
       <Footer />

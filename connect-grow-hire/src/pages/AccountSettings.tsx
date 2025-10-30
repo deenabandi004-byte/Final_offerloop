@@ -8,6 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { doc, updateDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '@/lib/firebase';
  
 
 
@@ -43,7 +46,8 @@ export default function AccountSettings() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [resumeFile, setResumeFile] = useState<string | null>(null);
-
+  const [resumeData, setResumeData] = useState<any>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const parseName = (fullName: string | undefined) => {
     if (!fullName || typeof fullName !== 'string') {
       return { firstName: "", lastName: "" };
@@ -61,93 +65,97 @@ export default function AccountSettings() {
     }
   };
 
-const handleResumeUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-  const file = event.target.files?.[0];
-  if (!file) return;
+    const handleResumeUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-  if (!file.name.toLowerCase().endsWith('.pdf')) {
-    setUploadError("Please upload a PDF file");
-    return;
-  }
-
-  setIsUploading(true);
-  setUploadError(null);
-
-  try {
-    // Convert file to base64 for storage
-    const fileReader = new FileReader();
-    
-    const readFilePromise = new Promise<string>((resolve, reject) => {
-      fileReader.onload = () => resolve(fileReader.result as string);
-      fileReader.onerror = reject;
-      fileReader.readAsDataURL(file);
-    });
-
-    const base64File = await readFilePromise;
-    
-    const formData = new FormData();
-    formData.append('resume', file);
-
-    const API_URL = window.location.hostname === 'localhost' 
-      ? 'http://localhost:5001' 
-      : 'https://www.offerloop.ai';
-
-    // Get Firebase auth token
-    const { auth } = await import('../lib/firebase');
-    const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
-
-    const response = await fetch(`${API_URL}/api/parse-resume`, {
-      method: 'POST',
-      headers: token ? {
-        'Authorization': `Bearer ${token}`
-      } : {},
-      body: formData,
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.error || 'Failed to parse resume');
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      setUploadError("Please upload a PDF file");
+      return;
     }
 
-    // Store both the parsed data and the file
-    const resumeData = {
-      name: result.data.name || '',
-      year: result.data.year || '',
-      major: result.data.major || '',
-      university: result.data.university || '',
-      fileName: file.name,
-      uploadDate: new Date().toISOString()
-    };
-    
-    localStorage.setItem('resumeData', JSON.stringify(resumeData));
-    localStorage.setItem('resumeFile', base64File.split(',')[1]);
-    
-    // Update the personal info with the new data
-    const { firstName, lastName } = parseName(resumeData.name);
-    setPersonalInfo(prev => ({
-      ...prev,
-      firstName: firstName || prev.firstName,
-      lastName: lastName || prev.lastName,
-      university: resumeData.university || prev.university,
-    }));
+    setIsUploading(true);
+    setUploadError(null);
 
-    setAcademicInfo(prev => ({
-      ...prev,
-      fieldOfStudy: resumeData.major || prev.fieldOfStudy,
-      graduationYear: resumeData.year || prev.graduationYear,
-    }));
+    try {
+      // Convert file to base64 for storage
+      const fileReader = new FileReader();
+      
+      const readFilePromise = new Promise<string>((resolve, reject) => {
+        fileReader.onload = () => resolve(fileReader.result as string);
+        fileReader.onerror = reject;
+        fileReader.readAsDataURL(file);
+      });
 
-    setResumeFile(base64File.split(',')[1]);
-    event.target.value = '';
-    
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
-    setUploadError(errorMessage);
-  } finally {
-    setIsUploading(false);
-  }
-};
+      const base64File = await readFilePromise;
+      
+      const formData = new FormData();
+      formData.append('resume', file);
+
+      const API_URL = window.location.hostname === 'localhost' 
+        ? 'http://localhost:5001' 
+        : 'https://www.offerloop.ai';
+
+      // Get Firebase auth token
+      const { auth } = await import('../lib/firebase');
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+
+      const response = await fetch(`${API_URL}/api/parse-resume`, {
+        method: 'POST',
+        headers: token ? {
+          'Authorization': `Bearer ${token}`
+        } : {},
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to parse resume');
+      }
+
+      // Store both the parsed data and the file
+      const resumeData = {
+        name: result.data.name || '',
+        year: result.data.year || '',
+        major: result.data.major || '',
+        university: result.data.university || '',
+        fileName: file.name,
+        uploadDate: new Date().toISOString()
+      };
+      
+      // Keep localStorage for backward compatibility
+      localStorage.setItem('resumeData', JSON.stringify(resumeData));
+      localStorage.setItem('resumeFile', base64File.split(',')[1]);
+      
+      // Update state to trigger re-render
+      setResumeData({...resumeData});
+      
+      // Update the personal info with the new data
+      const { firstName, lastName } = parseName(resumeData.name);
+      setPersonalInfo(prev => ({
+        ...prev,
+        firstName: firstName || prev.firstName,
+        lastName: lastName || prev.lastName,
+        university: resumeData.university || prev.university,
+      }));
+
+      setAcademicInfo(prev => ({
+        ...prev,
+        fieldOfStudy: resumeData.major || prev.fieldOfStudy,
+        graduationYear: resumeData.year || prev.graduationYear,
+      }));
+
+      setResumeFile(base64File.split(',')[1]);
+      event.target.value = '';
+      
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
+      setUploadError(errorMessage);
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const getUserInitials = () => {
     if (personalInfo.firstName && personalInfo.lastName) {
@@ -187,7 +195,8 @@ const handleResumeUpload = async (event: React.ChangeEvent<HTMLInputElement>) =>
       
       // Get resume data if available
       const resumeDataStr = localStorage.getItem('resumeData');
-      const resumeData = resumeDataStr ? JSON.parse(resumeDataStr) : null;
+      const loadedResumeData = resumeDataStr ? JSON.parse(resumeDataStr) : null;
+      setResumeData(loadedResumeData);
       
       // Get resume file if available
       const storedResumeFile = localStorage.getItem('resumeFile');
@@ -195,19 +204,19 @@ const handleResumeUpload = async (event: React.ChangeEvent<HTMLInputElement>) =>
         setResumeFile(storedResumeFile);
       }
 
-      const { firstName, lastName } = parseName(resumeData?.name);
+      const { firstName, lastName } = parseName(loadedResumeData?.name);
 
       setPersonalInfo({
         firstName: firstName || professionalInfo.firstName || "",
         lastName: lastName || professionalInfo.lastName || "",
         email: user?.email || "",
-        university: resumeData?.university || professionalInfo.university || "",
+        university: loadedResumeData?.university || professionalInfo.university || "",
       });
 
       setAcademicInfo({
         graduationMonth: professionalInfo.graduationMonth || "May",
-        graduationYear: professionalInfo.graduationYear || resumeData?.year || "2027",
-        fieldOfStudy: professionalInfo.fieldOfStudy || resumeData?.major || "Finance",
+        graduationYear: professionalInfo.graduationYear || loadedResumeData?.year || "2027",
+        fieldOfStudy: professionalInfo.fieldOfStudy || loadedResumeData?.major || "Finance",
         currentDegree: professionalInfo.currentDegree || "BA",
       });
 
@@ -226,7 +235,7 @@ const handleResumeUpload = async (event: React.ChangeEvent<HTMLInputElement>) =>
     } catch (e) {
       console.error('Failed to load onboarding data', e);
     }
-  }, []);
+  }, [user?.email]);
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -431,89 +440,10 @@ const handleResumeUpload = async (event: React.ChangeEvent<HTMLInputElement>) =>
                 <div className="space-y-4">
                   <Label className="text-sm font-medium text-foreground">Resume</Label>
                   {(() => {
-                    const resumeDataStr = localStorage.getItem('resumeData');
-                    const hasResume = resumeDataStr && resumeDataStr !== '{}' && resumeDataStr !== 'null' && resumeDataStr !== 'undefined';
+                    const parsedResume = resumeData;
+                    const hasResume = parsedResume && Object.keys(parsedResume).length > 0;
                     
                     if (hasResume) {
-                      let parsedResume;
-                      try {
-                        parsedResume = JSON.parse(resumeDataStr);
-                      } catch (e) {
-                        console.error('Error parsing resume data:', e);
-                        return (
-                          <div className="h-48 bg-muted/30 rounded-lg border-2 border-dashed border-muted-foreground/25 flex flex-col items-center justify-center p-6">
-                            <FileText className="h-12 w-12 text-muted-foreground mb-4" />
-                            <p className="text-sm text-muted-foreground text-center mb-3">
-                              {isUploading ? "Processing resume..." : "No resume uploaded"}
-                            </p>
-                            {uploadError && (
-                              <p className="text-xs text-destructive mb-3">{uploadError}</p>
-                            )}
-                            <label htmlFor="resume-upload" className="cursor-pointer">
-                              <Button variant="outline" size="sm" disabled={isUploading} asChild>
-                                <span>
-                                  <Upload className="h-4 w-4 mr-2" />
-                                  {isUploading ? "Uploading..." : "Upload Resume"}
-                                </span>
-                              </Button>
-                              <input
-                                id="resume-upload"
-                                type="file"
-                                accept=".pdf"
-                                onChange={handleResumeUpload}
-                                className="hidden"
-                                disabled={isUploading}
-                              />
-                            </label>
-                            {user?.tier === 'pro' && (
-                              <p className="text-xs text-green-600 mt-2">✓ Resume analysis available</p>
-                            )}
-                          </div>
-                        );
-                      }
-                      
-                      // Check if the parsed resume actually has meaningful data
-                      const hasValidData = parsedResume && (
-                        parsedResume.name || 
-                        parsedResume.university || 
-                        parsedResume.major || 
-                        parsedResume.year
-                      );
-                      
-                      if (!hasValidData) {
-                        // Show upload prompt if no valid data
-                        return (
-                          <div className="h-48 bg-muted/30 rounded-lg border-2 border-dashed border-muted-foreground/25 flex flex-col items-center justify-center p-6">
-                            <FileText className="h-12 w-12 text-muted-foreground mb-4" />
-                            <p className="text-sm text-muted-foreground text-center mb-3">
-                              {isUploading ? "Processing resume..." : "No resume uploaded"}
-                            </p>
-                            {uploadError && (
-                              <p className="text-xs text-destructive mb-3">{uploadError}</p>
-                            )}
-                            <label htmlFor="resume-upload" className="cursor-pointer">
-                              <Button variant="outline" size="sm" disabled={isUploading} asChild>
-                                <span>
-                                  <Upload className="h-4 w-4 mr-2" />
-                                  {isUploading ? "Uploading..." : "Upload Resume"}
-                                </span>
-                              </Button>
-                              <input
-                                id="resume-upload"
-                                type="file"
-                                accept=".pdf"
-                                onChange={handleResumeUpload}
-                                className="hidden"
-                                disabled={isUploading}
-                              />
-                            </label>
-                            {user?.tier === 'pro' && (
-                              <p className="text-xs text-green-600 mt-2">✓ Resume analysis available</p>
-                            )}
-                          </div>
-                        );
-                      }
-                      
                       return (
                         <div className="h-48 bg-background rounded-lg border border-input p-4 overflow-auto">
                           <div className="space-y-2">

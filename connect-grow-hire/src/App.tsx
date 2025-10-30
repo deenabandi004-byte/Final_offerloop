@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { FirebaseAuthProvider, useFirebaseAuth } from "./contexts/FirebaseAuthContext";
-
+import UscBeta from "@/pages/UscBeta";
 
 // Pages
 import Index from "./pages/Index";
@@ -23,17 +23,15 @@ import TermsOfService from "./pages/TermsOfService";
 import TermsOfServiceSettings from "./pages/TermsOfServiceSettings";
 import AccountSettings from "./pages/AccountSettings";
 import Pricing from "./pages/Pricing";
-import News from "./pages/News";
 import Dashboard from "./pages/Dashboard";
 import NotFound from "./pages/NotFound";
 import PaymentSuccess from "./pages/PaymentSuccess";
-
 // New Lovable Onboarding Flow
 import { OnboardingFlow } from "./pages/OnboardingFlow";
 
 const queryClient = new QueryClient();
 
-// ---------- Route Guards ----------
+/* ---------------- Route Guards ---------------- */
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useFirebaseAuth();
   const loc = useLocation();
@@ -52,13 +50,10 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   }
 
   if (user.needsOnboarding) {
-  // Don't redirect if already on onboarding page
-    if (loc.pathname === '/onboarding') {
-      return <>{children}</>;
-    }
+    if (loc.pathname === "/onboarding") return <>{children}</>;
     const returnTo = encodeURIComponent(loc.pathname + loc.search + loc.hash);
     return <Navigate to={`/onboarding?returnTo=${returnTo}`} replace />;
-  } 
+  }
 
   return <>{children}</>;
 };
@@ -67,24 +62,23 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useFirebaseAuth();
   if (isLoading) return null;
 
-  // If user is signed in, redirect appropriately
   if (user) {
-    if (user.needsOnboarding) {
-      return <Navigate to="/onboarding" replace />;
-    } else {
-      return <Navigate to="/home" replace />;
-    }
+    return user.needsOnboarding ? (
+      <Navigate to="/onboarding" replace />
+    ) : (
+      <Navigate to="/home" replace />
+    );
   }
-
   return <>{children}</>;
 };
 
-// ---------- App Routes ----------
+/* ---------------- Routes ---------------- */
 const AppRoutes: React.FC = () => {
   return (
     <Routes>
-      {/* Public Landing Page */}
+      {/* Public Landing */}
       <Route path="/" element={<PublicRoute><Index /></PublicRoute>} />
+      <Route path="/usc-beta" element={<UscBeta />} />
 
       {/* Auth */}
       <Route path="/signin" element={<PublicRoute><SignIn /></PublicRoute>} />
@@ -106,38 +100,32 @@ const AppRoutes: React.FC = () => {
       <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/contact-directory" element={<ProtectedRoute><ContactDirectory /></ProtectedRoute>} />
-      {/* Protected App Pages */}
-      <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
-      <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/contact-directory" element={<ProtectedRoute><ContactDirectory /></ProtectedRoute>} />
-      <Route path="/coffee-chat-library" element={<ProtectedRoute><CoffeeChatLibrary /></ProtectedRoute>} /> {/* ADD THIS LINE */}
-      <Route path="/account-settings" element={<ProtectedRoute><AccountSettings /></ProtectedRoute>} />
-      <Route path="/pricing" element={<ProtectedRoute><Pricing /></ProtectedRoute>} />
+      <Route path="/coffee-chat-library" element={<ProtectedRoute><CoffeeChatLibrary /></ProtectedRoute>} />
       <Route path="/account-settings" element={<ProtectedRoute><AccountSettings /></ProtectedRoute>} />
       <Route path="/pricing" element={<ProtectedRoute><Pricing /></ProtectedRoute>} />
       <Route path="/payment-success" element={<ProtectedRoute><PaymentSuccess /></ProtectedRoute>} />
 
       {/* Public informational pages */}
-      <Route path="/about" element={<PublicRoute><AboutUs /></PublicRoute>} />
-      <Route path="/contact" element={<PublicRoute><Contact /></PublicRoute>} />
-      <Route path="/contact-us" element={<PublicRoute><ContactUs /></PublicRoute>} />
+      <Route path="/about" element={<AboutUs />} />
+      <Route path="/contact" element={<Contact />} />
+      <Route path="/contact-us" element={<ContactUs />} />
 
-      {/* Legal pages (short + long paths both supported) */}
-      <Route path="/privacy" element={<PublicRoute><PrivacyPolicy /></PublicRoute>} />
+      {/* Legal pages + canonical redirects */}
+      <Route path="/privacy" element={<PrivacyPolicy />} />
       <Route path="/privacy-policy" element={<Navigate to="/privacy" replace />} />
+      <Route path="/terms-of-service" element={<TermsOfService />} />
+      <Route path="/terms" element={<Navigate to="/terms-of-service" replace />} />
 
-      <Route path="/terms" element={<PublicRoute><TermsOfService /></PublicRoute>} />
-      <Route path="/terms-of-service" element={<Navigate to="/terms" replace />} />
-
-      {/* Settings version of Terms */}
+      {/* Settings-specific Terms (kept public like in your file) */}
       <Route path="/terms-of-service-settings" element={<PublicRoute><TermsOfServiceSettings /></PublicRoute>} />
 
-      {/* Catch-all */}
+      {/* 404 */}
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
 };
 
+/* ---------------- App Root ---------------- */
 const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>

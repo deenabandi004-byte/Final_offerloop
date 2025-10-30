@@ -8,7 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, ArrowLeft, MapPin, ChevronsUpDown, Check, X } from "lucide-react";
+import { ArrowRight, ArrowLeft, MapPin, ChevronsUpDown, Check, X, Loader2 } from "lucide-react"; // ← ADDED Loader2
 import careerIllustration from "@/assets/career-illustration.png";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +25,7 @@ interface OnboardingLocationPreferencesProps {
   onNext: (data: LocationPreferences) => void;
   onBack: () => void;
   initialData?: LocationPreferences;
+  isSubmitting?: boolean; // ← ADDED THIS
 }
 
 const interests = [
@@ -90,7 +91,12 @@ const locations = [
   "Winston-Salem, NC", "Worcester, MA", "Ypsilanti, MI", "San Bernardino, CA", "Glendale, AZ", "Alexandria, LA"
 ];
 
-export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: OnboardingLocationPreferencesProps) => {
+export const OnboardingLocationPreferences = ({ 
+  onNext, 
+  onBack, 
+  initialData,
+  isSubmitting = false // ← ADDED THIS with default value
+}: OnboardingLocationPreferencesProps) => {
   const [preferences, setPreferences] = useState<LocationPreferences>({
     country: initialData?.country || "",
     state: initialData?.state || "",
@@ -156,7 +162,7 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
           </div>
 
           <div className="space-y-4">
-            <Label className="text-foreground font-medium">Industry Interests</Label>
+            <Label className="text-foreground font-medium">Career Interests</Label>
             <Popover open={open} onOpenChange={setOpen}>
               <PopoverTrigger asChild>
                 <Button
@@ -167,8 +173,8 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
                 >
                   <span className="text-left">
                     {preferences.interests.length > 0 
-                      ? `${preferences.interests.length} industry interest${preferences.interests.length === 1 ? '' : 's'} selected`
-                      : "Start typing to find industries of interest"
+                      ? `${preferences.interests.length} interest${preferences.interests.length === 1 ? '' : 's'} selected`
+                      : "Select your career interests"
                     }
                   </span>
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -176,9 +182,9 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
               </PopoverTrigger>
               <PopoverContent className="w-full p-0" align="start">
                 <Command>
-                  <CommandInput placeholder="Start typing to find industries of interest" className="h-9" />
+                  <CommandInput placeholder="Search interests..." className="h-9" />
                   <CommandList className="max-h-[200px]">
-                    <CommandEmpty>No industries found.</CommandEmpty>
+                    <CommandEmpty>No interests found.</CommandEmpty>
                     <CommandGroup>
                       {interests.map((interest) => (
                         <CommandItem
@@ -346,6 +352,7 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
               variant="outline"
               onClick={onBack}
               className="px-8 py-3 rounded-full font-semibold"
+              disabled={isSubmitting} // ← DISABLE BACK BUTTON WHILE SUBMITTING
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back
@@ -353,11 +360,21 @@ export const OnboardingLocationPreferences = ({ onNext, onBack, initialData }: O
             
             <Button
               type="submit"
-              variant="gradient"
-              className="px-12 py-3 rounded-full font-bold group"
+              variant="default"
+              className="px-12 py-3 rounded-full font-bold group bg-gradient-to-r from-primary to-secondary hover:opacity-90"
+              disabled={isSubmitting} // ← DISABLE SUBMIT BUTTON WHILE SUBMITTING
             >
-              Continue
-              <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Completing...
+                </>
+              ) : (
+                <>
+                  Continue
+                  <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                </>
+              )}
             </Button>
           </div>
         </form>

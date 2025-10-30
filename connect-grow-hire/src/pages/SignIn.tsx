@@ -4,6 +4,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+ 
+
 
 type Tab = "signin" | "signup";
 
@@ -20,6 +22,10 @@ const SignIn: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [submitting, setSubmitting] = useState(false);
+
+  // === NEW: Backend base URL + Connect Gmail helper ===
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
+  
 
   const forceNavigate = (dest: string) => {
     navigate(dest, { replace: true });
@@ -46,8 +52,8 @@ const SignIn: React.FC = () => {
     if (submitting || isLoading) return;
     setSubmitting(true);
     try {
-      console.log('🔐 Initiating Google Sign-In with Gmail permissions...');
-      const next = await signIn({ prompt: "consent" }); // Force consent to show Gmail permissions
+      console.log("🔐 Initiating Google Sign-In (app auth only)...");
+      const next = await signIn({ prompt: "consent" });
       const dest = next === "onboarding" ? "/onboarding" : "/home";
       console.log("[signin] signIn returned:", next, "→", dest);
       forceNavigate(dest);
@@ -100,6 +106,7 @@ const SignIn: React.FC = () => {
           </div>
 
           <div className="space-y-3">
+            {/* App Sign-In (Firebase Auth) */}
             <button
               onClick={handleGoogleAuth}
               disabled={submitting || isLoading}
@@ -126,11 +133,14 @@ const SignIn: React.FC = () => {
               {activeTab === "signup" ? "Continue with Google" : "Sign in with Google"}
             </button>
 
+            {/* NEW: Connect Gmail (server-side OAuth for drafts) */}
+             
+
             <div className="text-xs text-zinc-400 space-y-2">
               <p>
                 {activeTab === "signup"
-                  ? "By continuing, you'll be asked to grant Gmail permissions to create drafts on your behalf."
-                  : "You'll be asked to grant Gmail permissions to create drafts in your account."}
+                  ? "Step 1: Sign in to RecruitEdge. Step 2: Connect Gmail to allow draft creation."
+                  : "Sign in, then click Connect Gmail to allow draft creation in your account."}
               </p>
               <p className="text-zinc-500">
                 ✓ We'll never send emails without your permission<br />

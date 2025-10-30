@@ -35,7 +35,7 @@ const Contact = () => {
     // Here you would typically send the form data to your backend
     toast({
       title: "Message sent successfully!",
-      description: "We'll get back to you within 1 business day.",
+      description: "We'll get back to you within 3 business days.",
     });
     
     // Reset form
@@ -64,11 +64,13 @@ const Contact = () => {
 
           {/* Hero Section */}
           <div className="text-center space-y-6">
-            <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
+            
+            <h2 className="text-5xl font-extrabold text-center bg-gradient-to-r from-blue-800 via-blue-400 to-purple-900 bg-clip-text text-transparent mb-6">
               Contact Us
-            </h1>
+            </h2>
+
             <p className="text-xl text-muted-foreground leading-relaxed max-w-3xl mx-auto">
-              Have questions about Offerloop.ai? We'd love to hear from you. Send us a message and we'll respond within 1 business day.
+              Have questions about Offerloop.ai? We'd love to hear from you. Send us a message and we'll respond within 3 business days.
             </p>
           </div>
 
@@ -150,23 +152,17 @@ const Contact = () => {
                     <Mail className="h-5 w-5 text-primary" />
                     <div>
                       <p className="font-medium">Support</p>
-                      <p className="text-sm text-muted-foreground">support@pipelinepath.io</p>
+                      <p className="text-sm text-muted-foreground">support@offerloop.ai</p>
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-3">
-                    <Mail className="h-5 w-5 text-primary" />
-                    <div>
-                      <p className="font-medium">Partnerships</p>
-                      <p className="text-sm text-muted-foreground">partnerships@pipelinepath.io</p>
-                    </div>
-                  </div>
+              
 
                   <div className="flex items-center gap-3">
                     <Phone className="h-5 w-5 text-primary" />
                     <div>
                       <p className="font-medium">Phone</p>
-                      <p className="text-sm text-muted-foreground">(555) 123-4567</p>
+                      <p className="text-sm text-muted-foreground">(503) 616-1981</p>
                     </div>
                   </div>
                 </CardContent>
@@ -179,7 +175,7 @@ const Contact = () => {
                     <Clock className="h-5 w-5 text-primary" />
                     <div>
                       <p className="font-medium">Response Time</p>
-                      <p className="text-sm text-muted-foreground">We typically reply within 1 business day</p>
+                      <p className="text-sm text-muted-foreground">We typically reply within 3 business days</p>
                     </div>
                   </div>
                 </CardContent>
@@ -197,11 +193,7 @@ const Contact = () => {
                         <Linkedin className="h-4 w-4" />
                       </a>
                     </Button>
-                    <Button variant="outline" size="icon" asChild>
-                      <a href="#" target="_blank" rel="noopener noreferrer">
-                        <Twitter className="h-4 w-4" />
-                      </a>
-                    </Button>
+                   
                   </div>
                   <p className="text-sm text-muted-foreground mt-4">
                     Follow us for updates and insights about recruiting and career development.

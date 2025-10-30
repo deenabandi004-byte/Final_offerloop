@@ -13,6 +13,9 @@ import {
   Coffee,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import OfferloopLogo from "../assets/Offerloop-topleft.jpeg";
+import OfferloopIcon from "../assets/icon.png";
+import LightningIcon from "../assets/Lightning.png";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 
 import {
@@ -34,9 +37,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-
-// IMPORTANT: Correct casing for the component file
-import { CreditMeter } from "@/components/credits";
 
 const navigationItems = [
   { title: "Home", url: "/home", icon: Home },
@@ -67,13 +67,13 @@ export function AppSidebar() {
 
   const getNavClass = ({ isActive }: { isActive: boolean }) =>
     isActive
-      ? "bg-primary text-primary-foreground font-medium"
-      : "hover:bg-muted/50 text-muted-foreground hover:text-foreground";
+      ? "bg-gradient-to-r from-blue-600/20 via-purple-600/20 to-purple-700/20 text-white font-medium"
+      : "hover:bg-gradient-to-r hover:from-blue-600/10 hover:via-purple-600/10 hover:to-purple-700/10 text-muted-foreground hover:text-foreground";
 
   const getSettingsClass = () =>
     isSettingsActive || settingsExpanded
       ? "bg-primary text-primary-foreground font-medium"
-      : "hover:bg-muted/50 text-muted-foreground hover:text-foreground";
+      : "hover:bg-gradient-to-r hover:from-blue-600/10 hover:via-purple-600/10 hover:to-purple-700/10 text-muted-foreground hover:text-foreground";
 
   // Status message for collapsed tooltip
   const getCreditStatus = () => {
@@ -103,17 +103,17 @@ export function AppSidebar() {
 
   return (
     <TooltipProvider>
-      <Sidebar className={state === "collapsed" ? "w-14" : "w-60"} collapsible="icon">
+      <Sidebar className={state === "collapsed" ? "w-20" : "w-60"} collapsible="icon">
         <SidebarContent className="bg-background border-r">
           {/* Brand */}
           <div className="p-3 border-b">
             {state !== "collapsed" ? (
-              <div className="flex items-center justify-center">
-                <span className="font-bold text-xl text-foreground">Offerloop.ai</span>
+              <div className="flex items-center justify-center gap-2">
+                <img src={OfferloopLogo} alt="Offerloop" className="h-8" />
               </div>
             ) : (
-              <div className="flex items-center justify-center">
-                <span className="font-bold text-lg text-foreground">O</span>
+              <div className="flex items-center justify-center p-1">
+                <img src={OfferloopIcon} alt="Offerloop" className="h-14 w-14 object-contain" />
               </div>
             )}
           </div>
@@ -133,8 +133,8 @@ export function AppSidebar() {
                           })}`
                         }
                       >
-                        <item.icon className="h-4 w-4" />
-                        {state !== "collapsed" && <span>{item.title}</span>}
+                        <item.icon className="h-6 w-6" />
+                        {state !== "collapsed" && <span className="text-lg">{item.title}</span>}
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -148,14 +148,14 @@ export function AppSidebar() {
                       className={`flex items-center justify-between w-full gap-3 px-3 py-2 rounded-md transition-colors ${getSettingsClass()}`}
                     >
                       <div className="flex items-center gap-3">
-                        <Settings className="h-4 w-4" />
-                        {state !== "collapsed" && <span>Settings</span>}
+                        <Settings className="h-6 w-6" />
+                        {state !== "collapsed" && <span className="text-lg">Settings</span>}
                       </div>
                       {state !== "collapsed" &&
                         (settingsExpanded ? (
-                          <ChevronDown className="h-4 w-4" />
+                          <ChevronDown className="h-6 w-6" />
                         ) : (
-                          <ChevronRight className="h-4 w-4" />
+                          <ChevronRight className="h-6 w-6" />
                         ))}
                     </button>
                   </SidebarMenuButton>
@@ -171,12 +171,12 @@ export function AppSidebar() {
                             to={item.url}
                             end
                             className={({ isActive }) =>
-                              `flex items-center gap-3 px-3 py-2 rounded-md transition-colors text-sm ${getNavClass({
+                              `flex items-center gap-3 px-3 py-2 rounded-md transition-colors text-lg ${getNavClass({
                                 isActive,
                               })}`
                             }
                           >
-                            <span>{item.title}</span>
+                            <span className="text-lg">{item.title}</span>
                           </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
@@ -191,37 +191,46 @@ export function AppSidebar() {
         <SidebarFooter className="border-t bg-background">
           {/* Credits */}
           <div className="p-4">
-            <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-4">
-              {state !== "collapsed" ? (
-                <>
-                  <p className="text-sm font-medium mb-2">Credits</p>
-                  <CreditMeter credits={user?.credits ?? 0} max={user?.maxCredits ?? 120} />
-                  <Button
-                    size="sm"
-                    className={`w-full mt-3 ${user?.credits === 0 ? "animate-pulse" : ""}`}
-                    onClick={() => navigate("/pricing")}
-                  >
-                    <Zap className="w-4 h-4 mr-2" />
-                    {user?.credits === 0 ? "Upgrade Now" : "Upgrade Plan"}
-                  </Button>
-                </>
-              ) : (
-                // Collapsed view - icon with tooltip
+            {state !== "collapsed" ? (
+              <>
+                {/* Credits Display */}
+                <div className="text-lg font-medium mb-2 text-white">
+                  {user?.credits ?? 0}/{user?.maxCredits ?? 120} credits
+                </div>
+
+                {/* Progress Bar */}
+                <div className="mb-4 w-full h-2 bg-transparent border border-white rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-blue-600 via-purple-600 to-purple-700 transition-all duration-300"
+                    style={{ width: `${((user?.credits ?? 0) / (user?.maxCredits ?? 120)) * 100}%` }}
+                  />
+                </div>
+
+                {/* Gradient Upgrade Button */}
+                <button
+                  onClick={() => navigate("/pricing")}
+                  className="w-full bg-gradient-to-r from-blue-600 via-purple-600 to-purple-700 rounded-xl py-3 px-4 mb-4 text-white hover:opacity-90 transition-opacity"
+                >
+                  <div className="flex items-center justify-center gap-2">
+                    <Zap className="w-5 h-5 text-white" />
+                    <span className="font-semibold">Upgrade Plan</span>
+                  </div>
+                </button>
+              </>
+            ) : (
+              // Collapsed view - icon with tooltip
+              <div className="mb-4">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="w-full p-2"
+                    <button
                       onClick={() => navigate("/pricing")}
+                      className="w-full bg-gradient-to-r from-blue-600 via-purple-600 to-purple-700 rounded-xl p-2 text-white hover:opacity-90 transition-opacity flex items-center justify-center"
                     >
-                      <div className="relative">
-                        <Zap className={`w-4 h-4 ${creditStatus.color}`} />
-                        {user?.credits === 0 && (
-                          <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                        )}
-                      </div>
-                    </Button>
+                      <img src={LightningIcon} alt="Upgrade" className="h-10 w-10 object-contain brightness-0 invert" />
+                      {user?.credits === 0 && (
+                        <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                      )}
+                    </button>
                   </TooltipTrigger>
                   <TooltipContent side="right">
                     <div className="text-xs">
@@ -233,12 +242,12 @@ export function AppSidebar() {
                     </div>
                   </TooltipContent>
                 </Tooltip>
-              )}
-            </div>
+              </div>
+            )}
 
             {/* User Profile */}
-            <div className="flex items-center gap-3">
-              <Avatar className="h-8 w-8">
+            <div className="flex items-center justify-center">
+              <Avatar className="h-10 w-10">
                 {user?.picture ? (
                   <img
                     src={user.picture}
@@ -251,7 +260,7 @@ export function AppSidebar() {
               </Avatar>
               {state !== "collapsed" && (
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{user?.name || "User"}</p>
+                  <p className="text-lg font-medium truncate">{user?.name || "User"}</p>
                   <p className="text-xs text-muted-foreground truncate">
                     {user?.tier === "pro" ? "Pro Member" : "Free Tier"}
                   </p>

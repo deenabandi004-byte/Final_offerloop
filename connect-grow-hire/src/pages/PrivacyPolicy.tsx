@@ -212,7 +212,7 @@ const PrivacyPolicy = () => {
             <ul>
               <li>We only access Gmail data with your explicit consent through Google OAuth.</li>
               <li>
-                Requested scopes (e.g., gmail.readonly, gmail.compose, gmail.modify, gmail.metadata, gmail.insert)
+                Requested scopes (e.g., gmail.readonly, gmail.compose, gmail.modify, gmail.metadata, gmail.insert, gmail.send, openid, userinfo.email, userinfo.profile)
                 are used to:
                 <ul>
                   <li>Save outreach emails into your Gmail Drafts folder at your request.</li>

@@ -130,3 +130,89 @@ All colors MUST be HSL.
     box-shadow: var(--shadow-soft);
   }
 }
+@keyframes gradient {
+  0%, 100% {
+    background-position: 0% center;
+  }
+  50% {
+    background-position: 100% center;
+  }
+}
+
+.animate-gradient {
+  animation: gradient 3s ease infinite;
+}
+/* Realistic Water Ripple Effect */
+.water-gradient {
+  background: linear-gradient(
+    135deg,
+    rgba(99, 102, 241, 0.5),
+    rgba(168, 85, 247, 0.6),
+    rgba(236, 72, 153, 0.5),
+    rgba(99, 102, 241, 0.5)
+  ) !important;
+  background-size: 400% 400% !important;
+  animation: water-gradient 8s ease infinite !important;
+  position: relative;
+  overflow: hidden;
+}
+
+@keyframes water-gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* Rippling gradient animation */
+@keyframes ripple-gradient {
+  0% {
+    background-position: 0% 50%;
+    background-size: 200% 200%;
+  }
+  25% {
+    background-position: 100% 50%;
+    background-size: 250% 250%;
+  }
+  50% {
+    background-position: 100% 100%;
+    background-size: 200% 200%;
+  }
+  75% {
+    background-position: 50% 100%;
+    background-size: 250% 250%;
+  }
+  100% {
+    background-position: 0% 50%;
+    background-size: 200% 200%;
+  }
+}
+
+.ripple-gradient {
+  background: linear-gradient(
+    135deg,
+    #6366f1,
+    #a855f7,
+    #ec4899,
+    #8b5cf6,
+    #6366f1
+  );
+  background-size: 200% 200%;
+  animation: ripple-gradient 8s ease infinite;
+}
+@keyframes ripple-gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}

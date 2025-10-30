@@ -2,6 +2,7 @@
 
 "use client";
 
+
 import React, { createContext, useContext, useState, useEffect } from "react";
 import {
   User as FirebaseUser,
@@ -37,8 +38,7 @@ interface User {
   emailsUsedThisMonth?: number;
   emailsMonthKey?: string;
   needsOnboarding?: boolean;
-  gmailAccessToken?: string;
-  gmailRefreshToken?: string;
+
 }
 
 type SignInOptions = {
@@ -113,8 +113,7 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
           emailsMonthKey: d.emailsMonthKey || getMonthKey(),
           emailsUsedThisMonth: d.emailsUsedThisMonth ?? 0,
           needsOnboarding: d.needsOnboarding ?? false,
-          gmailAccessToken: d.gmailAccessToken,
-          gmailRefreshToken: d.gmailRefreshToken,
+          
         });
       } else {
         const newUser: User = {
@@ -138,83 +137,59 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
     }
   };
 
-  const signIn = async (opts?: SignInOptions): Promise<NextRoute> => {
-    try {
-      setIsLoading(true);
-      const provider = new GoogleAuthProvider();
-      
-      // ✅ ADD ONLY THE THREE GMAIL SCOPES YOU'RE USING
-      provider.addScope('https://www.googleapis.com/auth/gmail.readonly');
-      provider.addScope('https://www.googleapis.com/auth/gmail.compose');
-      provider.addScope('https://www.googleapis.com/auth/gmail.send');
-      
-      // Set custom parameters for OAuth
-      const customParams: any = {
-        access_type: 'offline', // Request refresh token
-        prompt: opts?.prompt || 'consent', // Force consent screen to show
-      };
-      
-      provider.setCustomParameters(customParams);
+const signIn = async (opts?: SignInOptions): Promise<NextRoute> => {
+  try {
+    setIsLoading(true);
+    const provider = new GoogleAuthProvider();
 
-      console.log('🔐 Starting sign-in with Gmail scopes...');
-      const result = await signInWithPopup(auth, provider);
-      const info = getAdditionalUserInfo(result);
-      
-      // ✅ GET OAUTH CREDENTIALS
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      const accessToken = credential?.accessToken;
-      
-      console.log('✅ OAuth Access Token:', accessToken ? 'Received ✓' : '❌ Not received');
-      console.log('📧 User email:', result.user.email);
-
-      const uid = result.user.uid;
-      const ref = doc(db, "users", uid);
-      const snap = await getDoc(ref);
-
-      if (!snap.exists()) {
-        // New user - create document
-        console.log('🆕 Creating new user document with Gmail token');
-        await setDoc(ref, {
-          uid,
-          email: result.user.email || "",
-          name: result.user.displayName || "",
-          picture: result.user.photoURL || undefined,
-          tier: "free",
-          credits: 120,
-          maxCredits: 120,
-          emailsMonthKey: getMonthKey(),
-          emailsUsedThisMonth: 0,
-          needsOnboarding: true,
-          createdAt: new Date().toISOString(),
-          gmailAccessToken: accessToken, // Store access token
-          lastSignIn: new Date().toISOString(),
-        });
-        return "onboarding";
-      }
-
-      // Existing user - update with new access token
-      console.log('🔄 Updating existing user with new Gmail token');
-      if (accessToken) {
-        await updateDoc(ref, {
-          gmailAccessToken: accessToken,
-          lastSignIn: new Date().toISOString(),
-        });
-      }
-
-      const data = snap.data() as Partial<User>;
-      const needs = data.needsOnboarding ?? !!info?.isNewUser;
-      
-      console.log('✅ Sign-in complete. Needs onboarding:', needs);
-      return needs ? "onboarding" : "home";
-    } catch (error: any) {
-      console.error("❌ Authentication failed:", error);
-      console.error("Error code:", error.code);
-      console.error("Error message:", error.message);
-      throw error;
-    } finally {
-      setIsLoading(false);
+    // ✅ No Gmail scopes here anymore. We only sign the user into your app.
+    if (opts?.prompt) {
+      provider.setCustomParameters({ prompt: opts.prompt });
     }
-  };
+
+    console.log('🔐 Starting basic Google sign-in (no Gmail scopes)');
+    const result = await signInWithPopup(auth, provider);
+    const info = getAdditionalUserInfo(result);
+
+    // Ensure user doc exists (without storing Gmail tokens)
+    const uid = result.user.uid;
+    const ref = doc(db, "users", uid);
+    const snap = await getDoc(ref);
+
+    if (!snap.exists()) {
+      await setDoc(ref, {
+        uid,
+        email: result.user.email || "",
+        name: result.user.displayName || "",
+        picture: result.user.photoURL || undefined,
+        tier: "free",
+        credits: 120,
+        maxCredits: 120,
+        emailsMonthKey: getMonthKey(),
+        emailsUsedThisMonth: 0,
+        needsOnboarding: true,
+        createdAt: new Date().toISOString(),
+        lastSignIn: new Date().toISOString(),
+      });
+      return "onboarding";
+    } else {
+      await updateDoc(ref, { lastSignIn: new Date().toISOString() });
+    }
+
+    const data = snap.data() as Partial<User>;
+    const needs = data.needsOnboarding ?? !!info?.isNewUser;
+    console.log('✅ Sign-in complete. Needs onboarding:', needs);
+    return needs ? "onboarding" : "home";
+  } catch (error: any) {
+    console.error("❌ Authentication failed:", error);
+    console.error("Error code:", error.code);
+    console.error("Error message:", error.message);
+    throw error;
+  } finally {
+    setIsLoading(false);
+  }
+};
+
 
   const signOut = async () => {
     try {
@@ -290,7 +265,7 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
       emailsUsedThisMonth: 0,
       createdAt: new Date().toISOString(),
       needsOnboarding: false,
-      gmailAccessToken: user.gmailAccessToken, // Preserve Gmail token
+       
     };
 
     await setDoc(ref, payload);

@@ -6,6 +6,7 @@ import { OnboardingProfile } from "./OnboardingProfile";
 import { OnboardingAcademics } from "./OnboardingAcademics";
 import { User, GraduationCap, MapPin } from "lucide-react";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { toast } from "sonner"; // Make sure you have sonner installed for toast notifications
 
 type OnboardingStep = "welcome" | "profile" | "academics" | "location";
 
@@ -22,12 +23,13 @@ interface OnboardingFlowProps {
 export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { completeOnboarding, user } = useFirebaseAuth();
+  const { completeOnboarding, refreshUser, user } = useFirebaseAuth(); // ← ADD refreshUser here
 
   const sp = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const returnTo = useMemo(() => sp.get("returnTo") || "", [sp]);
 
   const [currentStep, setCurrentStep] = useState<OnboardingStep>("welcome");
+  const [isSubmitting, setIsSubmitting] = useState(false); // ← ADD THIS
   const [onboardingData, setOnboardingData] = useState<OnboardingData>({
     location: {},
     profile: {},
@@ -45,40 +47,97 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
   };
 
   const handleLocationData = async (locationData: any) => {
-    const finalData = { ...onboardingData, location: locationData };
+    // Prevent double submission
+    if (isSubmitting) return;
+    setIsSubmitting(true);
 
-    // Persist onboarding to Firestore via context (authoritative)
     try {
+      console.log('🎯 Starting onboarding completion...');
+      
+      // 1. Transform data to match backend expectations
+      const finalData = {
+        profile: {
+          fullName: `${onboardingData.profile.firstName} ${onboardingData.profile.lastName}`,
+          firstName: onboardingData.profile.firstName,
+          lastName: onboardingData.profile.lastName,
+          email: onboardingData.profile.email,
+          phone: onboardingData.profile.phone,
+          resumeData: onboardingData.profile.resumeData,
+          resumeName: onboardingData.profile.resumeName,
+        },
+        academics: {
+          university: onboardingData.academics.university,
+          college: onboardingData.academics.university, // Backend fallback
+          degree: onboardingData.academics.degree,
+          major: onboardingData.academics.major,
+          graduationMonth: onboardingData.academics.graduationMonth,
+          graduationYear: onboardingData.academics.graduationYear,
+        },
+        location: {
+          country: locationData.country,
+          state: locationData.state,
+          city: locationData.city,
+          jobTypes: locationData.jobTypes,
+          interests: locationData.interests,
+          careerInterests: locationData.interests, // Backend expects this
+          career_interests: locationData.interests, // Alternative
+          preferredLocation: locationData.preferredLocation,
+        },
+      };
+
+      // 2. Persist onboarding to Firestore via context
+      console.log('💾 Calling completeOnboarding...');
       await completeOnboarding(finalData);
-    } catch (e) {
-      // optional: toast error here
-    }
+      console.log('✅ Onboarding saved to Firestore');
+      
+      // 3. Set a session flag to bypass route guard temporarily
+      sessionStorage.setItem('onboarding_just_completed', 'true');
+      console.log('✅ Session flag set');
+      
+      // 4. Give time for state to propagate
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('✅ State propagation delay complete');
+      
+      // 5. Refresh user data from Firestore to ensure we have latest state
+      console.log('🔄 Refreshing user data...');
+      await refreshUser();
+      console.log('✅ User data refreshed');
 
-    // Optional: analytics callback
-    try {
-      onComplete(finalData);
-    } catch {}
-
-    // Go to where the user intended to go, or /home
-    // Decode and validate the returnTo parameter
-    let destination = "/home";
-    if (returnTo) {
+      // 6. Optional: analytics callback
       try {
-        // Decode the URL (it may be encoded multiple times)
-        let decoded = returnTo;
-        while (decoded !== decodeURIComponent(decoded)) {
-          decoded = decodeURIComponent(decoded);
-        }
-        // Don't redirect back to onboarding or signin pages
-        if (!decoded.includes("/onboarding") && !decoded.includes("/signin")) {
-          destination = decoded;
-        }
+        onComplete(finalData);
       } catch (e) {
-        // If decoding fails, just go to home
-        console.error("Failed to decode returnTo:", e);
+        console.error('Analytics error:', e);
       }
+
+      // 7. Determine destination
+      let destination = "/home";
+      if (returnTo) {
+        try {
+          // Decode the URL (it may be encoded multiple times)
+          let decoded = returnTo;
+          while (decoded !== decodeURIComponent(decoded)) {
+            decoded = decodeURIComponent(decoded);
+          }
+          // Don't redirect back to onboarding or signin pages
+          if (!decoded.includes("/onboarding") && !decoded.includes("/signin")) {
+            destination = decoded;
+          }
+        } catch (e) {
+          // If decoding fails, just go to home
+          console.error("Failed to decode returnTo:", e);
+        }
+      }
+      
+      console.log('🧭 Navigating to:', destination);
+      navigate(destination, { replace: true });
+      
+    } catch (e) {
+      console.error("❌ Onboarding failed:", e);
+      toast.error("Failed to complete onboarding. Please try again.");
+      setIsSubmitting(false);
+      // Don't navigate if onboarding failed!
     }
-    navigate(destination, { replace: true });
   };
 
   const handleBack = () => {
@@ -120,7 +179,7 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
           </span>
         </div>
 
-        {/* Steps (no outer grid — let steps own their 50/50 layout) */}
+        {/* Steps */}
         <div className="mt-8">
           {currentStep === "welcome" && (
             <OnboardingWelcome onNext={() => setCurrentStep("profile")} userName={user?.name || "there"} />
@@ -147,6 +206,7 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
               onNext={handleLocationData}
               onBack={handleBack}
               initialData={onboardingData.location}
+              isSubmitting={isSubmitting}
             />
           )}
         </div>

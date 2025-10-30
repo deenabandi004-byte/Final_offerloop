@@ -47,7 +47,30 @@ from reportlab.pdfgen import canvas
 from serpapi import GoogleSearch
 from datetime import datetime
 from google_auth_oauthlib.flow import Flow
- 
+from google.cloud.firestore_v1 import FieldFilter
+from urllib.parse import urlencode
+from flask import jsonify
+from firebase_admin import storage
+
+RESUME_LINE = "For context, I've attached my resume below."
+
+def ensure_resume_line(body: str) -> str:
+    """
+    Appends the resume line once, with clean spacing.
+    Works for both plain text and HTML conversion.
+    """
+    text = (body or "").strip()
+    normalized = " ".join(text.lower().split())
+    if "for context, i've attached my resume below." not in normalized:
+        if text and not text.endswith("\n"):
+            text += "\n"
+        text += "\n" + RESUME_LINE
+    return text.strip()
+
+
+if (os.environ.get("OAUTH_REDIRECT_URI") or "").startswith("http://localhost"):
+    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+
 def require_firebase_auth(fn):
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
@@ -175,6 +198,214 @@ def _contact_has_school_alias(c: dict, aliases: list[str]) -> bool:
     return any(a in blob for a in aliases)
 # === end alumni helpers ===
 
+# ============================================
+# EMAIL TEMPLATE HELPER FUNCTIONS
+# Added for structured email templates
+# ============================================
+
+def get_university_shorthand(university):
+    """Convert university name to shorthand."""
+    if not university:
+        return university
+    shortcuts = {
+        'University of Southern California': 'USC',
+        'University of California, Los Angeles': 'UCLA',
+        'University of California, Berkeley': 'UC Berkeley',
+        'Stanford University': 'Stanford',
+        'Harvard University': 'Harvard',
+        'Yale University': 'Yale',
+        'Princeton University': 'Princeton',
+        'Columbia University': 'Columbia',
+        'University of Pennsylvania': 'Penn',
+        'Cornell University': 'Cornell',
+        'Dartmouth College': 'Dartmouth',
+        'Brown University': 'Brown',
+        'Duke University': 'Duke',
+        'Northwestern University': 'Northwestern',
+        'University of Chicago': 'UChicago',
+        'New York University': 'NYU',
+        'University of Michigan': 'Michigan',
+        'University of Virginia': 'UVA',
+        'University of North Carolina': 'UNC',
+        'Georgetown University': 'Georgetown',
+        'University of Texas': 'UT',
+        'University of Notre Dame': 'Notre Dame',
+    }
+    return shortcuts.get(university, university)
+
+def get_university_mascot(university):
+    """Get university mascot for alumni emails."""
+    if not university:
+        return ''
+    mascots = {
+        'University of Southern California': 'Trojan',
+        'University of California, Los Angeles': 'Bruin',
+        'University of California, Berkeley': 'Golden Bear',
+        'Stanford University': 'Cardinal',
+        'Harvard University': 'Crimson',
+        'Yale University': 'Bulldog',
+        'University of Michigan': 'Wolverine',
+        'Duke University': 'Blue Devil',
+        'Northwestern University': 'Wildcat',
+        'University of Notre Dame': 'Fighting Irish',
+        'University of Texas': 'Longhorn',
+        'University of North Carolina': 'Tar Heel',
+    }
+    return mascots.get(university, '')
+
+def get_current_season():
+    """Get current season based on date."""
+    month = datetime.now().month
+    if month in [12, 1, 2]:
+        return "winter"
+    elif month in [3, 4, 5]:
+        return "spring"
+    elif month in [6, 7, 8]:
+        return "summer"
+    else:
+        return "fall"
+
+def determine_industry(company, title):
+    """Determine industry from company and title."""
+    if not company and not title:
+        return "this field"
+    
+    company_lower = (company or '').lower()
+    title_lower = (title or '').lower()
+    
+    # Investment Banking
+    if any(word in company_lower or word in title_lower for word in [
+        'bank', 'goldman', 'morgan', 'jp', 'jpmorgan', 'credit', 'wells fargo', 
+        'citigroup', 'barclays', 'deutsche bank', 'ubs', 'merrill'
+    ]):
+        return "Investment Banking"
+    
+    # Consulting
+    elif any(word in company_lower or word in title_lower for word in [
+        'mckinsey', 'bain', 'bcg', 'consult', 'deloitte', 'pwc', 'kpmg', 
+        'ey', 'accenture', 'booz'
+    ]):
+        return "Consulting"
+    
+    # Tech
+    elif any(word in company_lower for word in [
+        'tech', 'google', 'meta', 'amazon', 'microsoft', 'apple', 'facebook',
+        'netflix', 'tesla', 'uber', 'airbnb', 'salesforce'
+    ]):
+        return "Tech"
+    
+    # Private Equity / Venture Capital
+    elif any(word in company_lower or word in title_lower for word in [
+        'private equity', 'venture', 'vc', 'capital', 'blackstone', 'kkr', 
+        'carlyle', 'apollo'
+    ]):
+        return "Private Equity"
+    
+    else:
+        return "this field"
+
+def extract_experience_summary(resume_text):
+    """Extract a one-sentence summary of experience from resume."""
+    if not resume_text:
+        return "I've been working on developing my skills"
+    
+    # Look for lines with action verbs
+    action_verbs = ['led', 'managed', 'developed', 'created', 'analyzed', 'designed', 
+                    'built', 'launched', 'implemented', 'coordinated', 'conducted']
+    
+    lines = resume_text.split('\n')
+    for line in lines:
+        line_lower = line.lower()
+        if any(verb in line_lower for verb in action_verbs):
+            # Clean up and return first relevant sentence
+            sentence = line.strip()
+            if len(sentence) > 20 and len(sentence) < 150:
+                # Make it flow naturally
+                if not sentence.lower().startswith('i '):
+                    sentence = f"I {sentence.lower()}"
+                return sentence[:120]  # Max 120 chars
+    
+    return "I've been working on data analysis and business projects"
+
+def extract_hometown_from_resume(resume_text):
+    """Extract hometown from resume text."""
+    if not resume_text:
+        return None
+    
+    patterns = [
+        r'[Ff]rom\s+([A-Z][a-zA-Z\s]+,\s*[A-Z]{2})',
+        r'[Hh]ometown:\s*([A-Z][a-zA-Z\s]+)',
+        r'[Bb]ased in\s+([A-Z][a-zA-Z\s]+,\s*[A-Z]{2})',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, resume_text)
+        if match:
+            return match.group(1).strip()
+    return None
+
+def extract_companies_from_resume(resume_text):
+    """Extract company names from resume."""
+    if not resume_text:
+        return []
+    
+    companies = []
+    # Look for common patterns
+    lines = resume_text.split('\n')
+    for line in lines:
+        if any(word in line.lower() for word in ['intern', 'analyst', 'associate', 'consultant', 'manager']):
+            # Extract capitalized sequences (likely company names)
+            words = re.findall(r'[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}', line)
+            companies.extend(words)
+    
+    # Return unique companies, max 5
+    return list(set(companies))[:5]
+
+def detect_commonality(user_info, contact, resume_text):
+    """
+    Detect strongest commonality between user and contact.
+    Returns: (commonality_type, details_dict)
+    """
+    user_university = (user_info.get('university', '') or '').lower()
+    contact_education = (
+        (contact.get('College', '') or '') + ' ' + 
+        (contact.get('EducationTop', '') or '')
+    ).lower()
+    contact_company = (contact.get('Company', '') or '').lower()
+    
+    # 1. Check same university (STRONGEST commonality)
+    if user_university and user_university in contact_education:
+        university = user_info.get('university', '')
+        return ('university', {
+            'university': university,
+            'university_short': get_university_shorthand(university),
+            'mascot': get_university_mascot(university)
+        })
+    
+    # 2. Check same hometown
+    user_hometown = extract_hometown_from_resume(resume_text or '')
+    contact_city = (contact.get('City', '') or '').lower()
+    if user_hometown and user_hometown.lower() in contact_city:
+        return ('hometown', {
+            'hometown': user_hometown
+        })
+    
+    # 3. Check same company/internship
+    user_companies = extract_companies_from_resume(resume_text or '')
+    if contact_company and any(uc.lower() in contact_company for uc in user_companies if uc):
+        connection_type = 'interned' if 'intern' in (resume_text or '').lower() else 'worked'
+        role_type = 'Intern' if 'intern' in (resume_text or '').lower() else 'Team Member'
+        return ('company', {
+            'company': contact.get('Company', ''),
+            'connection_type': connection_type,
+            'role_type': role_type
+        })
+    
+    # 4. No strong commonality - use general template
+    return ('general', {})
+
+# ============================================
+# END EMAIL TEMPLATE HELPER FUNCTIONS
+# ============================================
 
 
 app = Flask(__name__, static_folder="connect-grow-hire/dist", static_url_path="")
@@ -231,13 +462,22 @@ load_dotenv()
 
 # Grab API key
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+print("OAUTH_REDIRECT_URI =", os.environ.get("OAUTH_REDIRECT_URI"))
+
 
 # Initialize OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
 from openai import AsyncOpenAI
 async_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 # === Gmail OAuth config & helpers ===
-GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.compose"]
+GMAIL_SCOPES = [
+    "https://www.googleapis.com/auth/gmail.compose",
+    "https://www.googleapis.com/auth/gmail.readonly", 
+    "https://www.googleapis.com/auth/gmail.send",
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",      # ← Fixed
+    "https://www.googleapis.com/auth/userinfo.profile"     # ← Fixed
+]
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
@@ -249,7 +489,7 @@ def _gmail_client_config():
         "web": {
             "client_id": GOOGLE_CLIENT_ID,
             "project_id": "offerloop-native",
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "auth_uri": "https://accounts.google.com/o/oauth2/v2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
             "client_secret": GOOGLE_CLIENT_SECRET,
             "redirect_uris": [OAUTH_REDIRECT_URI],
@@ -271,6 +511,7 @@ def _save_user_gmail_creds(uid, creds):
 
 def _load_user_gmail_creds(uid):
     snap = db.collection("users").document(uid).collection("integrations").document("gmail").get()
+    print(f"🔍 DEBUG: Checking integrations/gmail for uid={uid}, exists={snap.exists}")  # ADD THIS LINE
     if not snap.exists:
         return None
     data = snap.to_dict() or {}
@@ -337,7 +578,6 @@ def check_for_replies(gmail_service, thread_id, sent_to_email):
         return {'hasReply': False, 'isUnread': False}
 
 # Add these API endpoints
-
 @app.route('/api/contacts/<contact_id>/check-replies', methods=['GET'])
 @require_firebase_auth
 def check_contact_replies(contact_id):
@@ -587,7 +827,8 @@ else:
 # Initialize Firebase
 try:
     if os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
-        firebase_admin.initialize_app()
+        firebase_admin.initialize_app(options={
+            'storageBucket': 'offerloop-native.firebasestorage.app'})
     else:
         # Try different possible paths for credentials
         cred_paths = [
@@ -604,12 +845,14 @@ try:
         if cred:
             # Explicitly specify the correct project ID
             firebase_admin.initialize_app(cred, {
-                'projectId': 'offerloop-native'
+                'projectId': 'offerloop-native',
+                'storageBucket': 'offerloop-native.firebasestorage.app'
             })
         else:
             print("âš ï¸ No Firebase credentials found, initializing with explicit project ID")
             firebase_admin.initialize_app(options={
-                'projectId': 'offerloop-native'
+                'projectId': 'offerloop-native',
+                'storageBucket': 'offerloop-native.firebasestorage.app'
             })
     
     db = firestore.client()
@@ -637,50 +880,251 @@ def spa_fallback(path):
 # Initialize Flask app
 # === Gmail OAuth routes ===
 @app.get("/api/google/oauth/start")
-@require_firebase_auth
 def google_oauth_start():
-    flow = Flow.from_client_config(_gmail_client_config(), scopes=GMAIL_SCOPES)
-    flow.redirect_uri = OAUTH_REDIRECT_URI
-    auth_url, state = flow.authorization_url(
-        access_type="offline",
-        include_granted_scopes=True,
-        prompt="consent"
-    )
-    uid = request.firebase_user["uid"]
-    db.collection("oauth_state").document(state).set({"uid": uid, "createdAt": datetime.utcnow()})
+    CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
+    REDIRECT_URI = os.environ["OAUTH_REDIRECT_URI"]  # e.g. http://localhost:5001/api/google/oauth/callback
+
+    AUTH_BASE = "https://accounts.google.com/o/oauth2/v2/auth"
+    params = {
+        "client_id": CLIENT_ID,
+        "redirect_uri": REDIRECT_URI,  # must EXACTLY match Google Console
+        "response_type": "code",
+        "scope": "https://www.googleapis.com/auth/gmail.compose openid email profile",
+        "access_type": "offline",
+        "include_granted_scopes": "true",
+        "prompt": "consent",
+        "state": state,
+        "login_hint": request.firebase_user.get("email"), 
+    }
+    auth_url = f"{AUTH_BASE}?{urlencode(params)}"
     return jsonify({"authUrl": auth_url})
 @app.get("/api/gmail/status")
 @require_firebase_auth
 def gmail_status():
+    """Return whether Gmail is connected for the signed-in user."""
     uid = request.firebase_user["uid"]
-    creds = _load_user_gmail_creds(uid)
-    return jsonify({
-        "connected": bool(creds and creds.valid),
-        "scopes": list(creds.scopes) if creds else []
-    })
+
+    # Make sure a creds doc exists first (fast path)
+    doc = db.collection("users").document(uid).collection("integrations").document("gmail").get()
+    if not doc.exists:
+        return jsonify({"connected": False, "reason": "no_credentials"}), 200
+
+    try:
+        # Load creds (your existing helper should reconstruct google.oauth2.credentials.Credentials)
+        creds = _load_user_gmail_creds(uid)
+        if not creds:
+            return jsonify({"connected": False, "reason": "creds_load_failed"}), 200
+
+        # Refresh if expired and we have a refresh token
+        if not creds.valid and getattr(creds, "refresh_token", None):
+            from google.auth.transport.requests import Request
+            creds.refresh(Request())
+            # persist refreshed access token
+            db.collection("users").document(uid).collection("integrations").document("gmail").set(
+                {"token": creds.token, "updatedAt": datetime.utcnow()}, merge=True
+            )
+
+        if not creds.valid:
+            return jsonify({"connected": False, "reason": "invalid_or_no_refresh"}), 200
+
+        # Live check against Gmail
+        service = _gmail_service(creds)  # your existing helper
+        profile = service.users().getProfile(userId="me").execute()
+
+        return jsonify({
+            "connected": True,
+            "gmail_address": profile.get("emailAddress"),
+            "scopes": list(getattr(creds, "scopes", []) or []),
+        }), 200
+
+    except Exception as e:
+        # Avoid leaking internal errors; return a stable shape
+        return jsonify({"connected": False, "reason": "api_error"}), 200
+
 
 @app.get("/api/google/oauth/callback")
 def google_oauth_callback():
     state = request.args.get("state")
     code  = request.args.get("code")
-    if not state or not code:
-        return jsonify({"error":"Missing state or code"}), 400
+    
+    print(f"🔍 OAuth Callback - State: {state}, Code: {'present' if code else 'missing'}")
+    print(f"🔍 Full callback URL: {request.url}")
+    print(f"🔍 Configured redirect URI: {OAUTH_REDIRECT_URI}")
+    
+    if not code:
+        return jsonify({"error":"Missing authorization code"}), 400
+    
+    # Extract UID from state
+    uid = None
+    if state:
+        try:
+            sdoc = db.collection("oauth_state").document(state).get()
+            if not sdoc.exists:
+                print(f"❌ State document not found: {state}")
+                return jsonify({"error":"Invalid state parameter"}), 400
+            uid = sdoc.to_dict().get("uid")
+            print(f"✅ Found UID from state: {uid}")
+        except Exception as e:
+            print(f"❌ Error retrieving state: {e}")
+            return jsonify({"error":"State lookup failed"}), 400
+    else:
+    # no state because start URL didn't include it — allow during local testing
+        print("⚠️ No state parameter - using fallback UID")
+        uid = (getattr(request, "firebase_user", {}) or {}).get("uid") or "local_test"
 
-    sdoc = db.collection("oauth_state").document(state).get()
-    if not sdoc.exists:
-        return jsonify({"error":"Invalid state"}), 400
-    uid = sdoc.to_dict().get("uid")
+    if not uid:
+        return jsonify({"error":"Could not identify user"}), 400
 
-    flow = Flow.from_client_config(_gmail_client_config(), scopes=GMAIL_SCOPES, state=state)
-    flow.redirect_uri = OAUTH_REDIRECT_URI
-    flow.fetch_token(authorization_response=request.url)
-
-    creds = flow.credentials
-    _save_user_gmail_creds(uid, creds)
-    db.collection("oauth_state").document(state).delete()
-
-    return redirect("https://www.offerloop.ai/settings?connected=gmail")
+    try:
+        # ✅ FIX: Create flow WITHOUT state parameter for token exchange
+        flow = Flow.from_client_config(_gmail_client_config(), scopes=GMAIL_SCOPES)
+        flow.redirect_uri = OAUTH_REDIRECT_URI
+        
+        # ✅ FIX: Use code parameter instead of authorization_response
+        flow.fetch_token(code=code)
+        
+        creds = flow.credentials
+        _save_user_gmail_creds(uid, creds)
+        print(f"✅ Gmail credentials saved for user: {uid}")
+        print(f"✅ Granted scopes: {creds.scopes}")
+        
+        # Clean up state document
+        if state:
+            db.collection("oauth_state").document(state).delete()
+        
+        return redirect("https://www.offerloop.ai/settings?connected=gmail")
+        
+    except Exception as e:
+        print(f"❌ OAuth token exchange failed: {e}")
+        traceback.print_exc()
+        return jsonify({"error": f"Token exchange failed: {str(e)}"}), 500
 # === end Gmail OAuth routes ===
+@app.post("/api/emails/generate-and-draft")
+@require_firebase_auth
+def generate_and_draft():
+    uid = request.firebase_user["uid"]
+    payload = request.get_json() or {}
+    contacts        = payload.get("contacts", [])
+    resume_text     = payload.get("resumeText", "")
+    user_profile    = payload.get("userProfile", {})
+    career_interest = payload.get("careerInterests")
+
+    # If Gmail not connected, return authUrl (first-time only)
+    creds = _load_user_gmail_creds(uid)
+    if not creds:
+        # Generate a unique state token for CSRF protection
+        import secrets
+        state = secrets.token_urlsafe(32)
+        
+        # Store state in Firestore with the user's UID
+        db.collection("oauth_state").document(state).set({
+            "uid": uid,
+            "created": datetime.utcnow(),
+            "expires": datetime.utcnow() + timedelta(minutes=10)
+        })
+        
+        # Use the GMAIL_SCOPES constant to ensure consistency
+        scope_string = " ".join(GMAIL_SCOPES)
+        
+        AUTH_BASE = "https://accounts.google.com/o/oauth2/v2/auth"
+        params = {
+            "client_id": GOOGLE_CLIENT_ID,
+            "redirect_uri": OAUTH_REDIRECT_URI,
+            "response_type": "code",
+            "scope": scope_string,  # Now using GMAIL_SCOPES
+            "access_type": "offline",
+            "include_granted_scopes": "true",
+            "prompt": "consent",
+            "state": state,  # ✅ FIX: Include state
+        }
+        auth_url = f"{AUTH_BASE}?{urlencode(params)}"
+        print(f"🔐 Generated OAuth URL with state: {state}")
+        print(f"🔐 Requesting scopes: {scope_string}")
+        return jsonify({"needsAuth": True, "authUrl": auth_url}), 401
+
+    # 1) Generate emails using your existing function
+    results = batch_generate_emails(contacts, resume_text, user_profile, career_interest)
+
+    # 2) Create drafts
+    # 2) Create drafts with resume and formatted body
+    gmail = _gmail_service(creds)
+    created = []
+
+    # Fetch user's resume info from Firestore
+    user_doc = db.collection("users").document(uid).get()
+    user_data = user_doc.to_dict() or {}
+    resume_url = user_data.get("resumeUrl")
+    resume_filename = user_data.get("resumeFileName") or "Resume.pdf"
+
+    for i, c in enumerate(contacts):
+        key = str(i)
+        r = results.get(key)
+        if not r:
+            continue
+
+        to_addr = c.get("Email") or c.get("WorkEmail") or c.get("PersonalEmail")
+        if not to_addr:
+            continue
+
+        # --- Format email content ---
+        body = r["body"].strip()
+        if "for context, i've attached my resume below" not in body.lower():
+            body += "\n\nFor context, I've attached my resume below."
+
+        # Convert to simple HTML (paragraph spacing)
+        html_body = "".join([
+            f'<p style="margin:12px 0; line-height:1.6;">{p.strip()}</p>'
+            for p in body.split("\n") if p.strip()
+        ])
+        html_body += """
+            <br><p>Warm regards,<br><b>Nicholas Wittig</b><br>
+            USC Marshall School of Business<br>
+            <a href='mailto:nwittig@usc.edu'>nwittig@usc.edu</a></p>
+        """
+
+        # --- Build MIME message ---
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        from email.mime.base import MIMEBase
+        from email import encoders
+        import requests, base64
+
+        msg = MIMEMultipart("mixed")
+        msg["to"] = to_addr
+        msg["subject"] = r["subject"]
+
+        alt = MIMEMultipart("alternative")
+        alt.attach(MIMEText(body, "plain", "utf-8"))
+        alt.attach(MIMEText(html_body, "html", "utf-8"))
+        msg.attach(alt)
+
+        # --- Attach resume if available ---
+        if resume_url:
+            try:
+                res = requests.get(resume_url, timeout=15)
+                res.raise_for_status()
+                part = MIMEBase("application", "pdf")
+                part.set_payload(res.content)
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", f'attachment; filename="{resume_filename}"')
+                msg.attach(part)
+                print("✅ Attached resume successfully")
+            except Exception as e:
+                print(f"⚠️ Could not attach resume: {e}")
+
+        # --- Create Gmail draft ---
+        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+        draft = gmail.users().drafts().create(userId="me", body={"message": {"raw": raw}}).execute()
+
+        created.append({
+            "index": i,
+            "to": to_addr,
+            "draftId": draft["id"],
+            "gmailUrl": f"https://mail.google.com/mail/u/0/#drafts/{draft['id']}"
+        })
+
+    return jsonify({"success": True, "drafts": created})
+
 
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'contacts.db')
@@ -696,6 +1140,49 @@ def add_caching(resp):
         # Let hashed assets cache hard
         resp.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
     return resp
+@app.after_request
+def add_security_headers(response):
+    """Add security headers to all responses"""
+    
+    # Clickjacking protection
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    
+    # Additional security headers (recommended)
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    
+    # Content Security Policy (adjust as needed for your app)
+    response.headers['Content-Security-Policy'] = "frame-ancestors 'self'"
+    
+    return response
+@app.before_request
+def block_dangerous_methods():
+    """Block TRACE and TRACK HTTP methods"""
+    if request.method in ['TRACE', 'TRACK']:
+        abort(405)  # Method Not Allowed
+@app.after_request
+def add_security_headers(response):
+    """Add security headers to all responses"""
+    
+    # Clickjacking protection
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    
+    # Additional security headers (recommended)
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    
+    # Content Security Policy
+    response.headers['Content-Security-Policy'] = "frame-ancestors 'self'"
+    
+    # Hide server information (fixes proxy disclosure)
+    response.headers['Server'] = 'Offerloop'
+    
+    # Remove X-Powered-By if present
+    response.headers.pop('X-Powered-By', None)
+    
+    return response
 
 @contextmanager
 def get_db():
@@ -1755,8 +2242,16 @@ def clean_email_text(text):
     
     text = ''.join(cleaned)
     
-    # Clean up extra spaces
-    text = ' '.join(text.split())
+    # Clean up extra spaces but PRESERVE newlines
+    # Split by newlines, clean each line, then rejoin with newlines
+    lines = text.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        # Clean extra spaces within each line, but keep the line
+        cleaned_line = ' '.join(line.split())
+        cleaned_lines.append(cleaned_line)
+    
+    text = '\n'.join(cleaned_lines)
     
     return text
 
@@ -1793,59 +2288,141 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests)
             contact_info_lines.append(user_linkedin)
         contact_info_str = " | ".join(contact_info_lines) if contact_info_lines else ""
         
-        # Generate individual prompts for each contact
+        # === UPDATED: Generate individual prompts with template-based personalization ===
         email_prompts = []
         for i, contact in enumerate(contacts):
-            # Generate conversation hook based on contact details
+            # Detect commonality for this contact
+            commonality_type, commonality_details = detect_commonality(user_info, contact, resume_text)
+            
             company = contact.get('Company', '')
             title = contact.get('Title', '')
+            firstname = contact.get('FirstName', '')
+            # Capitalize first name properly
+            firstname_capitalized = firstname.capitalize() if firstname else 'there'
             
-            # Create specific hooks
-            if 'intern' in title.lower():
-                hook = f"your internship experience at {company} and transition to full-time"
-            elif 'medical' in company.lower() or 'health' in company.lower() or 'jude' in company.lower():
-                hook = "how data analytics shapes medical device innovation"
-            elif 'data' in title.lower() or 'analyst' in title.lower():
-                hook = "the unique data challenges you're solving"
-            elif any(word in company.lower() for word in ['tech', 'software', 'digital']):
-                hook = f"the technical innovation happening at {company}"
+            # Determine industry
+            industry = determine_industry(company, title)
+            
+            # Get user info for template
+            sender_firstname = user_info.get('name', '').split()[0] if user_info.get('name') else ''
+            sender_university = user_info.get('university', '')
+            sender_university_short = get_university_shorthand(sender_university)
+            sender_major = user_info.get('major', '')
+            sender_year = user_info.get('year', '')
+            
+            # Get season and experience
+            season = get_current_season()
+            experience_summary = extract_experience_summary(resume_text)
+            
+            # Build template instructions based on commonality
+            if commonality_type == 'university':
+                mascot = commonality_details.get('mascot', '')
+                mascot_text = f" {mascot}" if mascot else ""
+                template_instructions = f"""TEMPLATE TYPE: ALUMNI EMAIL
+Subject: Fellow {sender_university_short}{mascot_text} Interested in {industry}
+
+Format:
+Hi {firstname_capitalized},
+
+I saw that you are a {sender_university_short} alum. I'm {sender_firstname}, a {sender_year} studying {sender_major}. This {season} {experience_summary}.
+
+I'm interested in {industry} and was wondering if you would be available for a short call to speak about your experience at {company}?
+
+For context, I've attached my resume below.
+
+Best regards,
+[Sender Name]
+{sender_university_short} | Class of [Year]"""
+                
+            elif commonality_type == 'hometown':
+                hometown = commonality_details.get('hometown', '')
+                template_instructions = f"""TEMPLATE TYPE: HOMETOWN EMAIL
+Subject: From {hometown} to {company} — Would Love to Connect
+
+Format:
+Hi {firstname_capitalized},
+
+I saw we're both from {hometown}. I'm {sender_firstname}, a {sender_year} at {sender_university_short} studying {sender_major}. This {season} {experience_summary}.
+
+I'd love to hear about your journey to {company} and get your perspective. Would you be open to a quick 15-minute chat?
+
+For context, I've attached my resume below.
+
+Best regards,
+[Sender Name]"""
+                
+            elif commonality_type == 'company':
+                shared_company = commonality_details.get('company', '')
+                role_type = commonality_details.get('role_type', 'Team Member')
+                connection = commonality_details.get('connection_type', 'worked')
+                template_instructions = f"""TEMPLATE TYPE: COMPANY EMAIL
+Subject: Fellow {shared_company} {role_type} — Quick Chat?
+
+Format:
+Hi {firstname_capitalized},
+
+I noticed we both {connection} at {shared_company}. I'm {sender_firstname}, a {sender_year} at {sender_university_short} studying {sender_major}. This {season} {experience_summary}.
+
+I'd really appreciate hearing about your time there and how that experience shaped your next steps. Would you be open to a quick chat?
+
+For context, I've attached my resume below.
+
+Best regards,
+[Sender Name]"""
+                
             else:
-                hook = f"your journey to {company}"
+                # General template
+                template_instructions = f"""TEMPLATE TYPE: GENERAL EMAIL
+Subject: {sender_university_short} Student Interested in {industry}
+
+Format:
+Hi {firstname_capitalized},
+
+I'm {sender_firstname}, a {sender_year} at {sender_university_short} studying {sender_major}. This {season} {experience_summary}.
+
+I'm hoping to pursue a career in {industry}, and I was wondering if you would be available in the coming weeks for a short call to speak about your experience at {company}?
+
+For context, I've attached my resume below.
+
+Best regards,
+[Sender Name]
+{sender_university_short} | Class of [Year]"""
             
-            recipient_desc = f"{contact.get('FirstName', '')} {contact.get('LastName', '')} - {contact.get('Title', '')} at {contact.get('Company', '')}"
-            location = f"{contact.get('City', '')}, {contact.get('State', '')}"
-            background = contact.get('WorkSummary', '') or f"Professional at {contact.get('Company', '')}"
+            recipient_desc = f"{firstname_capitalized} {contact.get('LastName', '')} at {company}"
             
             email_prompts.append(f"""Contact {i}:
-SENDER: {sender_desc}
 RECIPIENT: {recipient_desc}
-PRIMARY CONVERSATION HOOK: {hook}
-ADDITIONAL CONTEXT:
-- Location: {location}
-- Background: {background[:100]}""")
+{template_instructions}""")
         
-        # Build the complete prompt - FIX THE FORMATTING HERE
-        prompt = f"""Write {len(contacts)} short, compelling and punchy networking emails that feel genuine and create immediate interest.
+        # Build the complete prompt with template guidance
+        prompt = f"""Write {len(contacts)} professional networking emails using the specified template type for each contact.
+
+SENDER INFO:
+- Name: {user_info.get('name', '')}
+- University: {sender_university_short}
+- Major: {sender_major}
+- Year: {sender_year}
 
 {chr(10).join(email_prompts)}
 
-For EACH contact, follow these EMAIL REQUIREMENTS:
-1. Start with "Hi [FirstName],"
-2. Naturally weave the conversation hook into the first or second sentence
-3. Show you've done light research by asking one curiosity-driven question about their work/experience (not obvious from LinkedIn)
-4. Highlight any relevant similarities or shared connections between sender and recipient to create immediate rapport
-5. Keep tone conversational, interesting, and concise—not stiff or templated
-6. Use one vivid or unexpected word/phrase that makes the note memorable
-7. End with a warm, low-friction ask for a 15-20 min chat
-8. Keep it ~50 words (shorter > longer)
-9. Close with "Thank you," then {user_info.get('name', '[Name]')}
-10. After signature, add: "I've attached my resume in case helpful for context." followed by: {contact_info_str}
+CRITICAL FORMATTING RULES FOR ALL EMAILS (MUST FOLLOW EXACTLY):
+1. Line 1: "Hi [FirstName]," THEN press Enter twice (create blank line) 
+2. DO NOT put any text on the same line as "Hi [FirstName]," - greeting must be on its own line
+3. Line 3: Start the email body after the blank line
+4. Each paragraph separated by blank lines (use \\n\\n in JSON)
+5. Signature format: "Best regards," on one line, THEN press Enter, THEN sender name on next line
+6. Signature name should be PLAIN TEXT (no bold, no formatting, normal size)
+7. Keep emails SHORT (60-80 words max)
+8. Use \\n\\n for paragraph breaks in the JSON body field
+9. DO NOT mention resume or attachments - those are added separately
 
-CRITICAL: Each email must be unique and conversational. Use actual names, not placeholders.
-IMPORTANT: Use standard ASCII characters only. Use straight quotes ("), hyphens (-), and apostrophes ('). Do not use smart quotes, em dashes, or other special characters.
+EXAMPLE FORMAT IN JSON:
+"body": "Hi Sarah,\\n\\nI saw that you are a USC alum. I'm Deena, a Junior studying Data Science. This fall I have focused on data-driven storytelling.\\n\\nI'm interested in Investment Banking and was wondering if you would be available for a short call?\\n\\nFor context, I've attached my resume below.\\n\\nBest regards,\\nDeena Siddharth Bandi\\nUSC | Class of 2025"
 
-Return ONLY valid JSON:
-{{"0": {{"subject": "6-8 word intriguing subject", "body": "complete email with all elements"}}, "1": {{"subject": "...", "body": "..."}}, ...}}"""
+CRITICAL: For alumni/hometown/company emails, MUST use the opening line specified in the template.
+
+Return ONLY valid JSON with \\n\\n for line breaks:
+{{"0": {{"subject": "...", "body": "..."}}, "1": {{"subject": "...", "body": "..."}}, ...}}"""
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -2552,49 +3129,122 @@ Best regards,
 {user_info.get('name', '')}"""
 
 def generate_template_based_email_system(contact, resume_text=None, user_profile=None):
-    """Core function: unified email generation for both tiers using 5 templates."""
-    user_info = extract_user_info_from_resume_priority(resume_text, user_profile)
-    prompt = build_template_prompt(user_info, contact, resume_text or '')
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role":"user","content": prompt}],
-            temperature=0.4,
-            max_tokens=500
-        )
-        raw = response.choices[0].message.content
-        parsed = parse_openai_email_response(raw)
-        subject = parsed.get('subject') or 'Quick question about your work'
-        body = parsed.get('body') or ''
+    """V4.1: Generates personalized emails with or without resume"""
+    import random
+    
+    # Extract user info
+    user_info = {
+        'name': user_profile.get('name', '[Your Name]') if user_profile else '[Your Name]',
+        'email': user_profile.get('email', '') if user_profile else '',
+        'phone': user_profile.get('phone', '') if user_profile else '',
+        'linkedin': user_profile.get('linkedin', '') if user_profile else '',
+        'year': user_profile.get('year', '') if user_profile else '',
+        'major': user_profile.get('major', '') if user_profile else '',
+        'university': user_profile.get('university', '') if user_profile else '',
+        'location': user_profile.get('location', '') if user_profile else '',
+        'careerInterests': user_profile.get('careerInterests', []) if user_profile else []
+    }
+    
+    # Determine if we have resume
+    has_resume = bool(resume_text and len(resume_text.strip()) > 10)
+    
+    # Generate personalized subject
+    company = contact.get('Company', 'your company')
+    
+    # Check alumni connection
+    user_school = user_info.get('university', '').lower()
+    contact_college = contact.get('College', '').lower()
+    
+    if user_school and user_school in contact_college:
+        school_name = user_info.get('university', '')
+        if 'university of' in school_name.lower():
+            school_short = ''.join([word[0].upper() for word in school_name.split() 
+                                   if word.lower() not in ['university', 'of', 'the']])
+        else:
+            school_short = school_name.split()[0]
         
-        # FIRST: Apply the main placeholder sanitization with user data
-        body = sanitize_placeholders(
-            body,
-            user_name=user_info.get('name', ''),
-            user_year=user_info.get('year', ''),
-            user_major=user_info.get('major', ''),
-            user_university=user_info.get('university', ''),
-            career_interests=user_info.get('career_interests', [])
-        )
+        subjects = [
+            f"Fellow {school_short} alum - quick question",
+            f"{school_short} alum interested in {company}",
+            f"Quick chat? ({school_short} connection)",
+        ]
+        subject = random.choice(subjects)
+    else:
+        # Check location connection
+        user_location = user_info.get('location', '').lower()
+        contact_location = contact.get('Location', '').lower()
         
-        # SECOND: Apply additional email-specific cleanup
-        body = sanitize_email_placeholders(body, contact, user_info)
-        
-        body = enforce_networking_prompt_rules(body)
-        # Also clean the subject line
-        subject = sanitize_placeholders(
-            subject,
-            user_name=user_info.get('name', ''),
-            user_year=user_info.get('year', ''),
-            user_major=user_info.get('major', ''),
-            user_university=user_info.get('university', ''),
-            career_interests=user_info.get('career_interests', [])
-        )
-        
-        return subject, body
-    except Exception as e:
-        print(f"Email generation failed: {e}")
-        return generate_enhanced_fallback_email(contact, user_info)
+        if user_location and contact_location:
+            user_city = user_location.split(',')[0].strip() if ',' in user_location else user_location
+            if user_city.lower() in contact_location:
+                subjects = [
+                    f"Fellow {user_city.title()} professional - quick chat?",
+                    f"{user_city.title()} connection - {company} question",
+                ]
+                subject = random.choice(subjects)
+            else:
+                # Generic subjects
+                subjects = [
+                    f"Quick chat about {company}?",
+                    f"Brief chat about your work?",
+                    f"Quick question about {company}",
+                ]
+                subject = random.choice(subjects)
+        else:
+            # Generic subjects
+            subjects = [
+                f"Quick chat about {company}?",
+                f"Brief chat about your work?",
+                f"Quick question about {company}",
+            ]
+            subject = random.choice(subjects)
+    
+    # Generate email body
+    first_name = contact.get('FirstName', '')
+    user_name = user_info.get('name', '[Your Name]')
+    user_year = user_info.get('year', '')
+    user_major = user_info.get('major', '')
+    user_university = user_info.get('university', '')
+    
+    # Opening variations
+    openings = [
+        f"Hi {first_name},\n\nI'm {user_name}, a {user_year} {user_major} student at {user_university}. Your work at {company} caught my eye.",
+        f"Hi {first_name},\n\nI'm {user_name}, studying {user_major} at {user_university}. I came across your profile and was intrigued by your role at {company}.",
+        f"Hi {first_name},\n\nI'm {user_name} at {user_university}. Your path to {contact.get('Title', 'your role')} at {company} really stands out.",
+    ]
+    opening = random.choice(openings)
+    
+    # Connection if exists
+    connection = ""
+    if user_school and user_school in contact_college:
+        school_name = user_info.get('university', '')
+        if 'university of' in school_name.lower():
+            school_short = ''.join([word[0].upper() for word in school_name.split() 
+                                   if word.lower() not in ['university', 'of', 'the']])
+        else:
+            school_short = school_name.split()[0]
+        connection = f" Fellow {school_short} alum!"
+    else:
+        user_location = user_info.get('location', '').lower()
+        contact_location = contact.get('Location', '').lower()
+        if user_location and contact_location:
+            user_city = user_location.split(',')[0].strip() if ',' in user_location else user_location
+            if user_city.lower() in contact_location:
+                connection = f" Both in {user_city.title()}."
+    
+    # Ask - CHANGES based on resume
+    if has_resume:
+        ask = "Would you be open to a quick 15-20 minute call over the next week or two? I'd love to hear about your career path and any advice you might have. I've attached my resume for context."
+    else:
+        ask = "Would you be open to a quick 15-20 minute call over the next week or two? I'd love to hear about your career path and any advice you might have."
+    
+    # Assemble
+    if connection:
+        body = f"{opening}{connection}\n\n{ask}"
+    else:
+        body = f"{opening}\n\n{ask}"
+    
+    return subject, body
 
 def extract_comprehensive_user_info(resume_text=None, user_profile=None):
     """Extract comprehensive user information from all available sources"""
@@ -2688,6 +3338,46 @@ def extract_text_from_pdf(pdf_file):
     except Exception as e:
         print(f"PDF text extraction failed: {e}")
         return None
+# --- Email helpers (inserted between RESUME PROCESSING and COFFEE CHAT sections) ---
+RESUME_LINE = "For context, I've attached my resume below."
+
+def ensure_resume_line(body: str) -> str:
+    """
+    Appends the resume line once, with clean spacing.
+    Works for both plain text and HTML conversion.
+    """
+    text = (body or "").strip()
+    normalized = " ".join(text.lower().split())
+    if "for context, i've attached my resume below." not in normalized:
+        if text and not text.endswith("\n"):
+            text += "\n"
+        text += "\n" + RESUME_LINE
+    return text.strip()
+
+def attach_resume_if_available(message, resume_url, resume_filename="Resume.pdf"):
+    """
+    Downloads the user's resume from Firebase Storage and attaches it to the MIME message.
+    """
+    if not resume_url:
+        print("No resume URL found — skipping attachment.")
+        return
+
+    from email.mime.base import MIMEBase
+    from email import encoders
+    import requests
+
+    try:
+        res = requests.get(resume_url, timeout=15)
+        res.raise_for_status()
+        part = MIMEBase("application", "pdf")
+        part.set_payload(res.content)
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", f'attachment; filename="{resume_filename}"')
+        message.attach(part)
+        print("✅ Attached resume successfully.")
+    except Exception as e:
+        print(f"⚠️ Could not attach resume: {e}")
+
     
 # ========================================
 # COFFEE CHAT HELPER FUNCTIONS
@@ -3154,29 +3844,107 @@ Keep each field concise - 1-2 words per item maximum.
     except Exception as e:
         print(f"Detailed resume insights extraction failed: {e}")
         return {'experiences': [], 'skills': [], 'interests': [], 'projects': [], 'leadership': []}
-def save_resume_to_firebase(user_id, resume_text):
-    """Save resume text to Firebase for later use"""
+def save_resume_to_firebase(user_id, resume_text, resume_url=None):
+    """
+    Save resume text AND URL to Firebase
+    
+    Args:
+        user_id: Firebase user ID
+        resume_text: Extracted text from resume
+        resume_url: Public URL of uploaded resume file (optional)
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
     try:
         if not db or not user_id:
             print("ERROR: DB or user_id missing")
             return False
         
-        print(f"DEBUG: Saving resume for user {user_id}")
-        print(f"DEBUG: Resume text length: {len(resume_text)} characters")
+        print(f"💾 Saving resume data for user {user_id}")
         
+        # Save resume text to subcollection (for searching/parsing)
         profile_ref = db.collection('users').document(user_id).collection('profile').document('resume')
         profile_ref.set({
             'resumeText': resume_text,
             'updatedAt': datetime.now().isoformat()
         }, merge=True)
         
-        print(f"SUCCESS: Resume saved for user {user_id}")
+        # Save resume URL to main user document (for easy access)
+        if resume_url:
+            user_ref = db.collection('users').document(user_id)
+            user_ref.update({
+                'resumeUrl': resume_url,
+                'resumeUpdatedAt': datetime.now().isoformat()
+            })
+            print(f"✅ Resume URL saved to user document")
+        
+        print(f"✅ Resume data saved successfully")
         return True
+        
     except Exception as e:
-        print(f"ERROR saving resume: {e}")
+        print(f"❌ Error saving resume: {e}")
         import traceback
         traceback.print_exc()
         return False
+def upload_resume_to_firebase_storage(user_id, file):
+    """
+    Upload resume PDF to Firebase Storage and return public URL
+    
+    Args:
+        user_id: Firebase user ID
+        file: FileStorage object from Flask request.files
+    
+    Returns:
+        str: Public URL of uploaded resume, or None if failed
+    """
+    try:
+        import uuid
+        from datetime import timedelta
+        
+        print(f"📤 Uploading resume for user {user_id}")
+        
+        # Get Firebase Storage bucket
+        bucket = storage.bucket()
+        
+        # Create unique filename with timestamp
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        unique_id = str(uuid.uuid4())[:8]
+        filename = f"resumes/{user_id}/{timestamp}_{unique_id}.pdf"
+        
+        print(f"   Filename: {filename}")
+        
+        # Create blob reference
+        blob = bucket.blob(filename)
+        
+        # Reset file pointer to beginning
+        file.seek(0)
+        
+        # Upload file with proper content type
+        blob.upload_from_file(
+            file,
+            content_type='application/pdf',
+            timeout=30
+        )
+        
+        print(f"   Upload complete, generating URL...")
+        
+        # Make blob publicly accessible
+        blob.make_public()
+        
+        # Get public URL
+        public_url = blob.public_url
+        
+        print(f"✅ Resume uploaded successfully!")
+        print(f"   URL: {public_url}")
+        
+        return public_url
+        
+    except Exception as e:
+        print(f"❌ Resume upload failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 async def generate_similarity_async(resume_text, contact):
     """Async version of similarity generation for parallel processing with timeout"""
     try:
@@ -3440,18 +4208,52 @@ def get_gmail_service():
         return None
 
 def get_gmail_service_for_user(user_email):
-    """Get Gmail API service for a specific user"""
+    """Get Gmail service using credentials from integrations subcollection"""
+    from googleapiclient.discovery import build
+    
     try:
-        # For now, use the existing service - in production you'd want per-user tokens
-        print(f"Getting Gmail service for user: {user_email}")
-        return get_gmail_service()
+        if not user_email or not db:
+            return None
+        
+        print(f"🔍 Getting Gmail service for user: {user_email}")
+        
+        # Find user ID
+        users_ref = db.collection('users')
+        query = users_ref.where(filter=FieldFilter('email', '==', user_email)).limit(1)
+        
+        user_id = None
+        for doc in query.stream():
+            user_id = doc.id
+            break
+        
+        if not user_id:
+            print(f"❌ No user found")
+            return None
+        
+        # ✅ FIX: Use the existing _load_user_gmail_creds function
+        # It loads from the CORRECT location with refresh_token!
+        creds = _load_user_gmail_creds(user_id)
+        
+        if not creds:
+            print(f"❌ No credentials")
+            return None
+        
+        service = build('gmail', 'v1', credentials=creds)
+        print(f"✅ Gmail service created successfully")
+        return service
         
     except Exception as e:
-        print(f"Gmail service failed for {user_email}: {e}")
+        print(f"❌ Error: {e}")
         return None
 
-def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free', user_email=None):
-    """Create Gmail draft in the user's account with proper encoding"""
+def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free', user_email=None, resume_url=None, user_info=None):
+    """V4.1: Create Gmail draft in the user's account with optional resume attachment and HTML formatting"""
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email import encoders
+    import requests
+    
     try:
         # Clean the email subject and body FIRST
         email_subject = clean_email_text(email_subject)
@@ -3463,6 +4265,8 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
             return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}_user_{user_email}"
         
         print(f"Creating {tier.capitalize()} Gmail draft for {user_email} -> {contact.get('FirstName', 'Unknown')}")
+        if resume_url:
+            print(f"   With resume attachment")
         
         # Get the best available email address
         recipient_email = None
@@ -3480,14 +4284,96 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         
         print(f"User {user_email} drafting to: {recipient_email}")
         
-        # Create message with explicit UTF-8 encoding
-        message = MIMEText(email_body, 'plain', 'utf-8')
+        # Create multipart message
+        message = MIMEMultipart('mixed')
         message['to'] = recipient_email
         message['subject'] = email_subject
         safe_from = user_email or os.getenv("DEFAULT_FROM_EMAIL", "noreply@offerloop.ai")
         message['from'] = safe_from
         
-        # Ensure proper encoding when creating the raw message
+        # Add body (HTML if user_info provided, plain text otherwise)
+        if user_info:
+            # Create HTML email with professional signature
+            user_name = user_info.get('name', '[Your Name]')
+            user_email_addr = user_info.get('email', '')
+            user_phone = user_info.get('phone', '')
+            user_linkedin = user_info.get('linkedin', '')
+            
+            # Build contact signature FIRST
+            contact_parts = []
+            if user_email_addr:
+                contact_parts.append(f'<a href="mailto:{user_email_addr}" style="color: #2563eb; text-decoration: none;">{user_email_addr}</a>')
+            if user_phone:
+                contact_parts.append(f'<span>{user_phone}</span>')
+            if user_linkedin:
+                linkedin_clean = user_linkedin.replace('https://', '').replace('http://', '').replace('www.', '')
+                contact_parts.append(f'<a href="{user_linkedin}" style="color: #2563eb; text-decoration: none;">{linkedin_clean}</a>')
+            
+            contact_html = ' · '.join(contact_parts) if contact_parts else ''
+            
+            # NUCLEAR FIX: Convert line breaks to <br> tags for Gmail
+            # Strip leading/trailing whitespace first to avoid extra blank lines
+            email_body = email_body.strip()
+            # Replace double newlines with <br><br> to force blank lines
+            email_body_html = email_body.replace('\n\n', '<br><br>').replace('\n', '<br>')
+            
+            # Simple HTML wrapper - NO duplicate signature since email body already has it!
+            html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+* {{ margin: 0 !important; padding: 0 !important; text-indent: 0 !important; }}
+</style>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+             line-height: 1.6; color: #1f2937; margin-left: -8px !important;">
+<div style="white-space: pre-wrap; margin: 0 !important; padding: 0 !important;">
+{email_body_html}
+</div>
+</body>
+</html>"""
+            message.attach(MIMEText(html_content, 'html', 'utf-8'))
+        else:
+            # Plain text fallback
+            message.attach(MIMEText(email_body, 'plain', 'utf-8'))
+        
+        # Attach resume if available
+        if resume_url:
+            try:
+                print(f"📎 Downloading resume from {resume_url}")
+                response = requests.get(resume_url, timeout=10)
+                response.raise_for_status()
+                
+                # Get filename from URL or headers
+                filename = "resume.pdf"
+                if 'Content-Disposition' in response.headers:
+                    content_disp = response.headers['Content-Disposition']
+                    if 'filename=' in content_disp:
+                        filename = content_disp.split('filename=')[1].strip('"')
+                else:
+                    # Try to extract from URL
+                    for part in reversed(resume_url.split('/')):
+                        if '.pdf' in part.lower() or '.docx' in part.lower():
+                            filename = part.split('?')[0]
+                            break
+                
+                resume_content = response.content
+                print(f"✅ Downloaded: {filename} ({len(resume_content)} bytes)")
+                
+                # Attach resume to email
+                attachment = MIMEBase('application', 'octet-stream')
+                attachment.set_payload(resume_content)
+                encoders.encode_base64(attachment)
+                attachment.add_header('Content-Disposition', f'attachment; filename="{filename}"')
+                message.attach(attachment)
+                print(f"✅ Resume attached successfully")
+                
+            except Exception as resume_error:
+                print(f"⚠️ Could not attach resume: {resume_error}")
+                # Continue without resume - don't fail the entire draft
+        
+        # Create the draft
         raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
         
         draft_body = {
@@ -3499,13 +4385,8 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         draft_result = gmail_service.users().drafts().create(userId='me', body=draft_body).execute()
         draft_id = draft_result['id']
         
-        print(f"Created {tier.capitalize()} Gmail draft {draft_id} in {user_email}'s account")
+        print(f"✅ Created {tier.capitalize()} Gmail draft {draft_id} in {user_email}'s account")
         
-        # Apply appropriate label
-        try:
-            apply_recruitedge_label_for_user(gmail_service, draft_result['message']['id'], tier, user_email)
-        except Exception as label_error:
-            print(f"Could not apply {tier} label for {user_email}: {label_error}")
         
         return draft_id
         
@@ -3514,148 +4395,9 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         import traceback
         traceback.print_exc()
         return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}_user_{user_email}"
+ 
 
-def apply_recruitedge_label_for_user(gmail_service, message_id, tier, user_email):
-    """Apply appropriate RecruitEdge label for specific user"""
-    try:
-        if tier == 'free':
-            label_name = f"RecruitEdge Free - {user_email.split('@')[0]}"
-        elif tier == 'pro':
-            label_name = f"RecruitEdge Pro - {user_email.split('@')[0]}"
-        else:
-            label_name = f"RecruitEdge {tier.capitalize()} - {user_email.split('@')[0]}"
-        
-        labels_result = gmail_service.users().labels().list(userId='me').execute()
-        labels = labels_result.get('labels', [])
-        
-        label_id = None
-        for label in labels:
-            if label['name'] == label_name:
-                label_id = label['id']
-                break
-        
-        if not label_id:
-            label_body = {
-                'name': label_name,
-                'labelListVisibility': 'labelShow',
-                'messageListVisibility': 'show'
-            }
-            label_result = gmail_service.users().labels().create(userId='me', body=label_body).execute()
-            label_id = label_result['id']
-            print(f"Created '{label_name}' label for {user_email}")
-        
-        gmail_service.users().messages().modify(
-            userId='me',
-            id=message_id,
-            body={'addLabelIds': [label_id]}
-        ).execute()
-        
-        print(f"Applied {label_name} label for {user_email}")
-        
-    except Exception as e:
-        print(f"Label application failed for {user_email}: {e}")
-
-def create_gmail_draft(contact, email_subject, email_body, tier='free'):
-    """Create Gmail draft with appropriate RecruitEdge label"""
-    try:
-        gmail_service = get_gmail_service()
-        if not gmail_service:
-            print(f"Gmail unavailable - creating mock draft for {contact.get('FirstName', 'Unknown')}")
-            return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
-        
-        print(f"Creating {tier.capitalize()} Gmail draft for {contact.get('FirstName', 'Unknown')}")
-        
-        # Get the best available email address
-        recipient_email = None
-        
-        # Try personal email first (recommended_personal_email)
-        if contact.get('PersonalEmail') and contact['PersonalEmail'] != 'Not available' and '@' in contact['PersonalEmail']:
-            recipient_email = contact['PersonalEmail']
-        # Try work email next
-        elif contact.get('WorkEmail') and contact['WorkEmail'] != 'Not available' and '@' in contact['WorkEmail']:
-            recipient_email = contact['WorkEmail']
-        # Try general email field
-        elif contact.get('Email') and '@' in contact['Email'] and not contact['Email'].endswith('@domain.com'):
-            recipient_email = contact['Email']
-        
-        # If no valid email found, create a mock draft
-        if not recipient_email:
-            print(f"No valid email found for {contact.get('FirstName', 'Unknown')} - creating mock draft")
-            return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}_no_email"
-        
-        print(f"Using email: {recipient_email}")
-        
-        message = MIMEText(email_body)
-        message['to'] = recipient_email
-        message['subject'] = email_subject
-        
-        raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
-        
-        draft_body = {
-            'message': {
-                'raw': raw_message
-            }
-        }
-        
-        draft_result = gmail_service.users().drafts().create(userId='me', body=draft_body).execute()
-        draft_id = draft_result['id']
-        
-        print(f"Created {tier.capitalize()} Gmail draft {draft_id}")
-        
-        # Apply RecruitEdge label
-        try:
-            apply_recruitedge_label(gmail_service, draft_result['message']['id'], tier)
-        except Exception as label_error:
-            print(f"Could not apply {tier} label: {label_error}")
-        
-        return draft_id
-        
-    except Exception as e:
-        print(f"{tier.capitalize()} Gmail draft creation failed: {e}")
-        return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
-
-def apply_recruitedge_label(gmail_service, message_id, tier):
-    """Apply appropriate RecruitEdge label"""
-    try:
-        # Updated label naming convention for two tiers
-        if tier == 'free':
-            label_name = "RecruitEdge Free"
-        elif tier == 'pro':
-            label_name = "RecruitEdge Pro"
-        else:
-            label_name = f"RecruitEdge {tier.capitalize()}"
-        
-        labels_result = gmail_service.users().labels().list(userId='me').execute()
-        labels = labels_result.get('labels', [])
-        
-        label_id = None
-        for label in labels:
-            if label['name'] == label_name:
-                label_id = label['id']
-                break
-        
-        if not label_id:
-            label_body = {
-                'name': label_name,
-                'labelListVisibility': 'labelShow',
-                'messageListVisibility': 'show'
-            }
-            label_result = gmail_service.users().labels().create(userId='me', body=label_body).execute()
-            label_id = label_result['id']
-            print(f"Created '{label_name}' label")
-        
-        gmail_service.users().messages().modify(
-            userId='me',
-            id=message_id,
-            body={'addLabelIds': [label_id]}
-        ).execute()
-        
-        print(f"Applied {label_name} label")
-        
-    except Exception as e:
-        print(f"Label application failed: {e}")
-        
-# ========================================
+ # ========================================
 # ENHANCED TEMPLATE EMAIL GENERATION SYSTEM
 # ========================================
 
@@ -3867,69 +4609,96 @@ def generate_value_proposition(user_info, contact, template_type):
 def craft_template_email(user_info, contact, template_type, content):
     """Craft the actual email using the enhanced template"""
     
+    first_name = contact.get('FirstName', '').capitalize()
+    user_name = user_info.get('name', '[Your Name]')
+    university = user_info.get('university', '')
+    year = user_info.get('year', '')
+    major = user_info.get('major', '')
+    
     templates = {
-        'straightforward_enhanced': f"""Hi {contact.get('FirstName', '')},
+        'straightforward_enhanced': f"""Hi {first_name},
 
-My name is {user_info.get('name', '[Your Name]')}, and I'm a {user_info.get('year', '')} {user_info.get('major', '')} at {user_info.get('university', '')} pursuing a career in {extract_field_from_title(contact.get('Title', ''))}. I came across your profile while researching professionals at {contact.get('Company', '')}, and I was particularly interested in {content['personalization_hook']}.
+I'm {user_name}, a {year} at {university} studying {major}. I was particularly interested in {content['personalization_hook']} at {contact.get('Company', '')}.
 
 I'd be grateful for the chance to hear more about {content['specific_interest']}. Would you be open to a 15-20 minute call in the next couple of weeks?
 
-Best,
-{user_info.get('name', '[Your Name]')}""",
-
-        'common_background': f"""Hi {contact.get('FirstName', '')},
-
-I'm {user_info.get('name', '[Your Name]')}, a {user_info.get('year', '')} at {user_info.get('university', '')} studying {user_info.get('major', '')}. {content.get('connection_point', '')} and I also saw that you {content['personalization_hook']}. Since I'm exploring a similar path, I'd love to learn more about {content['specific_interest']}.
-
-Would you have 15-20 minutes for a call or Zoom in the coming weeks? I'll keep it focused and respect your time.
+For context, I've attached my resume below.
 
 Best regards,
-{user_info.get('name', '[Your Name]')}""",
+{user_name}
+{university} | Class of {year}""",
 
-        'research_acknowledgment': f"""Dear {contact.get('FirstName', '')},
+        'common_background': f"""Hi {first_name},
 
-I hope this note finds you well. My name is {user_info.get('name', '[Your Name]')}, and I am a {user_info.get('year', '')} at {user_info.get('university', '')} majoring in {user_info.get('major', '')}. While researching {contact.get('Company', '')}, I was particularly impressed by {content['personalization_hook']}.
+I'm {user_name}, a {year} at {university} studying {major}. {content.get('connection_point', '')} I also saw that {content['personalization_hook']}.
 
-Would you be open to a short call or Zoom meeting at your convenience? I'd greatly value hearing about {content['specific_interest']} and any advice you might offer to someone preparing to enter the industry.
+Since I'm exploring a similar path, I'd love to learn more about {content['specific_interest']}. Would you have 15-20 minutes for a call in the coming weeks?
 
-Warm regards,
-{user_info.get('name', '[Your Name]')}""",
-
-        'resume_context': f"""Hi {contact.get('FirstName', '')},
-
-My name is {user_info.get('name', '[Your Name]')}, and I'm a {user_info.get('year', '')} student at {user_info.get('university', '')} majoring in {user_info.get('major', '')}. I was particularly interested to see {content['personalization_hook']}, and I'd love to hear how those experiences shaped your career.
-
-{content['value_prop']}. Would you be open to a short conversation (15-20 minutes) in the next couple of weeks?
-
-Thank you,
-{user_info.get('name', '[Your Name]')}""",
-
-        'aspirational': f"""Hi {contact.get('FirstName', '')},
-
-I'm {user_info.get('name', '[Your Name]')}, a {user_info.get('year', '')} at {user_info.get('university', '')} majoring in {user_info.get('major', '')}. Your career path at {contact.get('Company', '')} stood out to meâ€”especially {content['personalization_hook']}. I admire how you've built your trajectory and would be grateful for the chance to hear about {content['specific_interest']}.
-
-If you're available, I'd appreciate a brief 15-20 minute conversation in the next couple of weeks.
-
-Sincerely,
-{user_info.get('name', '[Your Name]')}""",
-
-        'values_cultural': f"""Hi {contact.get('FirstName', '')},
-
-I'm {user_info.get('name', '[Your Name]')}, a {user_info.get('year', '')} at {user_info.get('university', '')} studying {user_info.get('major', '')}. In looking into {contact.get('Company', '')}, I've been drawn to its reputation for innovation and impact. {content['personalization_hook']} really caught my attention.
-
-I'd be grateful if you'd be open to a short call (15-20 minutes) in the next couple of weeks to hear more about {content['specific_interest']}.
+For context, I've attached my resume below.
 
 Best regards,
-{user_info.get('name', '[Your Name]')}""",
+{user_name}
+{university} | Class of {year}""",
 
-        'mutual_affiliation': f"""Hi {contact.get('FirstName', '')},
+        'research_acknowledgment': f"""Hi {first_name},
 
-I'm {user_info.get('name', '[Your Name]')}, a {user_info.get('year', '')} studying {user_info.get('major', '')} at {user_info.get('university', '')}. {content.get('connection_point', '')} and I was particularly interested in {content['personalization_hook']}.
+I'm {user_name}, a {year} at {university} majoring in {major}. While researching {contact.get('Company', '')}, I was particularly impressed by {content['personalization_hook']}.
 
-I'd love to learn how your experiences shaped your career path and what drew you to {contact.get('Company', '')}. Would you be open to a 15-20 minute chat in the next couple of weeks?
+Would you be open to a short call at your convenience? I'd greatly value hearing about {content['specific_interest']} and any advice you might offer.
 
-Thank you,
-{user_info.get('name', '[Your Name]')}"""
+For context, I've attached my resume below.
+
+Best regards,
+{user_name}
+{university} | Class of {year}""",
+
+        'resume_context': f"""Hi {first_name},
+
+I'm {user_name}, a {year} student at {university} majoring in {major}. I was particularly interested to see {content['personalization_hook']}, and I'd love to hear how those experiences shaped your career.
+
+{content['value_prop']} Would you be open to a short conversation (15-20 minutes)?
+
+For context, I've attached my resume below.
+
+Best regards,
+{user_name}
+{university} | Class of {year}""",
+
+        'aspirational': f"""Hi {first_name},
+
+I'm {user_name}, a {year} at {university} majoring in {major}. Your career path at {contact.get('Company', '')} stood out to meâ€”especially {content['personalization_hook']}.
+
+I admire how you've built your trajectory and would be grateful for the chance to hear about {content['specific_interest']}. If you're available, I'd appreciate a brief 15-20 minute conversation.
+
+For context, I've attached my resume below.
+
+Best regards,
+{user_name}
+{university} | Class of {year}""",
+
+        'values_cultural': f"""Hi {first_name},
+
+I'm {user_name}, a {year} at {university} studying {major}. In looking into {contact.get('Company', '')}, I've been drawn to its reputation for innovation. {content['personalization_hook']} really caught my attention.
+
+I'd be grateful if you'd be open to a short call (15-20 minutes) to hear more about {content['specific_interest']}.
+
+For context, I've attached my resume below.
+
+Best regards,
+{user_name}
+{university} | Class of {year}""",
+
+        'mutual_affiliation': f"""Hi {first_name},
+
+I'm {user_name}, a {year} studying {major} at {university}. {content.get('connection_point', '')} I was particularly interested in {content['personalization_hook']}.
+
+I'd love to learn how your experiences shaped your career path and what drew you to {contact.get('Company', '')}. Would you be open to a 15-20 minute chat?
+
+For context, I've attached my resume below.
+
+Best regards,
+{user_name}
+{university} | Class of {year}"""
     }
     
     return templates.get(template_type, templates['straightforward_enhanced'])
@@ -4143,10 +4912,44 @@ def run_free_tier_enhanced_final(job_title, company, location, user_email=None, 
             contact['email_body'] = email_body
             
             # Create Gmail draft
-            draft_id = create_gmail_draft_for_user(contact, email_subject, email_body, tier='free', user_email=user_email)
-            contact['draft_id'] = draft_id
-            if not str(draft_id).startswith('mock_'):
-                successful_drafts += 1
+            # Get resume URL from Firebase
+    # Get resume URL from Firebase for attachment
+            resume_url = None
+            if db and user_id:
+                try:
+                    user_doc = db.collection('users').document(user_id).get()
+                    if user_doc.exists:
+                        user_data = user_doc.to_dict()
+                        resume_url = user_data.get('resumeUrl') or user_data.get('resume_url')
+                        if resume_url:
+                            print(f"📎 Found resume URL for attachments")
+                except Exception as e:
+                    print(f"Could not get resume URL: {e}")
+            
+            # Create Gmail drafts
+            successful_drafts = 0
+            for contact in contacts:
+                # Create user_info for HTML email
+                user_info_for_email = {
+                    'name': user_profile.get('name') if user_profile else '',
+                    'email': user_email,
+                    'phone': user_profile.get('phone', '') if user_profile else '',
+                    'linkedin': user_profile.get('linkedin', '') if user_profile else '',
+                }
+                
+                # Use updated function with resume and HTML
+                draft_id = create_gmail_draft_for_user(
+                    contact, 
+                    contact['email_subject'], 
+                    contact['email_body'], 
+                    tier='pro',
+                    user_email=user_email,
+                    resume_url=resume_url,
+                    user_info=user_info_for_email
+                )
+                contact['draft_id'] = draft_id
+                if not str(draft_id).startswith('mock_'):
+                    successful_drafts += 1
         
         # Filter to Free fields only (including email data)
         free_contacts = []
@@ -4259,10 +5062,39 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
 
         print(f"Emails generated in {time.time() - email_start:.2f} seconds")
         
-        # Create drafts (keep simple for now)
+        # Extract user_info and get resume_url BEFORE creating drafts
+        print("Extracting user info for email signatures...")
+        user_info = extract_user_info_from_resume_priority(resume_text, user_profile)
+        
+        # Get resume URL from Firebase if available
+        resume_url = None
+        if db and user_id:
+            try:
+                user_ref = db.collection('users').document(user_id)
+                user_doc = user_ref.get()
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+                    resume_url = user_data.get('resumeUrl')
+                    if resume_url:
+                        print(f"✅ Resume URL retrieved: {resume_url}")
+                    else:
+                        print("⚠️ No resume URL found in Firebase")
+            except Exception as e:
+                print(f"⚠️ Could not retrieve resume URL: {e}")
+        
+        # Create drafts with resume attachment and HTML formatting
+        print(f"Creating Gmail drafts with {'resume attachment' if resume_url else 'no attachment'}...")
         successful_drafts = 0
         for contact in contacts:
-            draft_id = create_gmail_draft_for_user(contact, contact['email_subject'], contact['email_body'], tier='free', user_email=user_email)
+            draft_id = create_gmail_draft_for_user(
+                contact, 
+                contact['email_subject'], 
+                contact['email_body'], 
+                tier='free', 
+                user_email=user_email,
+                resume_url=resume_url,
+                user_info=user_info
+            )
             contact['draft_id'] = draft_id
             if not str(draft_id).startswith('mock_'):
                 successful_drafts += 1
@@ -5418,7 +6250,28 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         
         print(f"✅ Parallel processing completed in {time.time() - process_start:.2f} seconds")
         
-        # Create Gmail drafts (this part is fast, keep sequential)
+        # Extract user_info and get resume_url BEFORE creating drafts
+        print("Extracting user info for email signatures...")
+        user_info = extract_user_info_from_resume_priority(resume_text, user_profile)
+        
+        # Get resume URL from Firebase if available
+        resume_url = None
+        if db and user_id:
+            try:
+                user_ref = db.collection('users').document(user_id)
+                user_doc = user_ref.get()
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+                    resume_url = user_data.get('resumeUrl')
+                    if resume_url:
+                        print(f"✅ Resume URL retrieved: {resume_url}")
+                    else:
+                        print("⚠️ No resume URL found in Firebase")
+            except Exception as e:
+                print(f"⚠️ Could not retrieve resume URL: {e}")
+        
+        # Create Gmail drafts with HTML formatting and resume attachment
+        print(f"Creating Gmail drafts with {'resume attachment' if resume_url else 'no attachment'}...")
         successful_drafts = 0
         for contact in contacts:
             draft_id = create_gmail_draft_for_user(
@@ -5426,11 +6279,16 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                 contact['email_subject'], 
                 contact['email_body'], 
                 tier='pro', 
-                user_email=user_email
+                user_email=user_email,
+                resume_url=resume_url,
+                user_info=user_info
             )
             contact['draft_id'] = draft_id
             if not str(draft_id).startswith('mock_'):
                 successful_drafts += 1
+        
+        print(f"✅ Created {successful_drafts} Gmail drafts successfully")
+                # Create Gmail drafts (this part is fast, keep sequential)
         
         # Filter to Pro fields
         pro_contacts = []
@@ -5619,83 +6477,104 @@ def enrich_job_title_api():
 
 @app.route('/api/parse-resume', methods=['POST'])
 def parse_resume():
-    """Parse uploaded resume and extract user information"""
+    """Parse uploaded resume, upload to storage, and extract user information"""
     try:
-        print("=== RESUME UPLOAD DEBUG ===")
-        print(f"Request files: {request.files}")
-        print(f"Request headers: {dict(request.headers)}")
+        print("=" * 60)
+        print("📋 RESUME UPLOAD & PARSING")
+        print("=" * 60)
         
+        # Validate file exists
         if 'resume' not in request.files:
-            print("ERROR: No resume file in request")
+            print("❌ No resume file in request")
             return jsonify({'error': 'No resume file provided'}), 400
         
         file = request.files['resume']
-        print(f"File received: {file.filename}")
+        print(f"📄 File: {file.filename}")
         
         if file.filename == '':
-            print("ERROR: Empty filename")
+            print("❌ Empty filename")
             return jsonify({'error': 'No file selected'}), 400
         
         if not file.filename.lower().endswith('.pdf'):
-            print(f"ERROR: Invalid file type: {file.filename}")
+            print(f"❌ Invalid file type: {file.filename}")
             return jsonify({'error': 'Only PDF files are supported'}), 400
         
         # Extract text from PDF
-        print("Extracting text from PDF...")
+        print("📖 Extracting text from PDF...")
         resume_text = extract_text_from_pdf(file)
+        
         if not resume_text:
-            print("ERROR: Could not extract text from PDF")
+            print("❌ Could not extract text from PDF")
             return jsonify({'error': 'Could not extract text from PDF'}), 400
         
-        print(f"Extracted {len(resume_text)} characters from PDF")
+        print(f"✅ Extracted {len(resume_text)} characters")
         
-        # Parse the resume
-        print("Parsing resume...")
+        # Parse user info
+        print("🔍 Parsing resume info...")
         parsed_info = parse_resume_info(resume_text)
-        print(f"Parsed info: {parsed_info}")
+        print(f"✅ Parsed: {parsed_info.get('name', 'Unknown')}")
         
-        # Save to Firebase if user is authenticated
+        # Get user ID from auth token
         user_id = None
+        resume_url = None
+        
         try:
             auth_header = request.headers.get('Authorization', '')
-            print(f"Auth header present: {bool(auth_header)}")
             
             if auth_header.startswith('Bearer '):
                 id_token = auth_header.split(' ', 1)[1].strip()
+                
                 try:
                     decoded = fb_auth.verify_id_token(id_token)
                     user_id = decoded.get('uid')
-                    print(f"User ID from token: {user_id}")
+                    print(f"👤 User ID: {user_id}")
                     
-                    if user_id:
-                        print("Attempting to save resume to Firebase...")
-                        save_result = save_resume_to_firebase(user_id, resume_text)
-                        print(f"Save result: {save_result}")
+                    if user_id and db:
+                        # STEP 4A: Upload file to Firebase Storage
+                        print("\n📤 Uploading to Firebase Storage...")
+                        file.seek(0)  # Reset file pointer for re-reading
+                        resume_url = upload_resume_to_firebase_storage(user_id, file)
                         
-                        if not save_result:
-                            print("WARNING: Resume save returned False")
+                        if not resume_url:
+                            print("⚠️  File upload failed, continuing without URL")
+                        
+                        # STEP 4B: Save both text and URL to Firebase
+                        print("\n💾 Saving to Firestore...")
+                        file.seek(0)  # Reset again for text extraction
+                        save_result = save_resume_to_firebase(
+                            user_id, 
+                            resume_text,
+                            resume_url
+                        )
+                        
+                        if save_result:
+                            print("✅ All data saved successfully")
                         else:
-                            print("✅ Resume saved successfully")
-                            
+                            print("⚠️  Save returned False")
+                    
                 except Exception as e:
-                    print(f"ERROR: Token verification failed: {e}")
+                    print(f"❌ Token verification failed: {e}")
                     import traceback
                     traceback.print_exc()
+                    
         except Exception as e:
-            print(f"ERROR: Auth check failed: {e}")
+            print(f"❌ Auth check failed: {e}")
             import traceback
             traceback.print_exc()
         
-        print("=== RESUME UPLOAD COMPLETE ===")
+        print("=" * 60)
+        print("✅ RESUME PROCESSING COMPLETE")
+        print("=" * 60)
         
         return jsonify({
             'success': True,
             'data': parsed_info,
-            'savedToFirebase': bool(user_id)
+            'savedToFirebase': bool(user_id),
+            'resumeUrl': resume_url  # Return URL to frontend
         })
         
     except Exception as e:
-        print(f"FATAL ERROR in resume parsing: {e}")
+        print(f"💥 FATAL ERROR: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': 'Failed to parse resume'}), 500
@@ -5853,10 +6732,10 @@ def bulk_create_contacts():
 
             is_dup = False
             if email:
-                dup_q = contacts_ref.where('email', '==', email).limit(1).stream()
+                dup_q = contacts_ref.where(filter=FieldFilter('email', '==', email)).limit(1).stream()
                 is_dup = any(True for _ in dup_q)
             if not is_dup and linkedin:
-                dup_q2 = contacts_ref.where('linkedinUrl', '==', linkedin).limit(1).stream()
+                dup_q2 = contacts_ref.where(filter=FieldFilter('linkedinUrl', '==', linkedin)).limit(1).stream()
                 is_dup = any(True for _ in dup_q2)
 
             if is_dup:
@@ -5893,74 +6772,7 @@ def bulk_create_contacts():
         print(f"Bulk create error: {e}")
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-# === Gmail Drafts ===
-@app.post("/api/gmail/drafts")
-@require_firebase_auth
-def create_gmail_draft(contact, email_subject, email_body, tier='free'):
-    """Create Gmail draft with appropriate RecruitEdge label and proper encoding"""
-    try:
-        # Clean the email text first
-        email_subject = clean_email_text(email_subject)
-        email_body = clean_email_text(email_body)
-        
-        gmail_service = get_gmail_service()
-        if not gmail_service:
-            print(f"Gmail unavailable - creating mock draft for {contact.get('FirstName', 'Unknown')}")
-            return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
-        
-        print(f"Creating {tier.capitalize()} Gmail draft for {contact.get('FirstName', 'Unknown')}")
-        
-        # Get the best available email address
-        recipient_email = None
-        
-        # Try personal email first (recommended_personal_email)
-        if contact.get('PersonalEmail') and contact['PersonalEmail'] != 'Not available' and '@' in contact['PersonalEmail']:
-            recipient_email = contact['PersonalEmail']
-        # Try work email next
-        elif contact.get('WorkEmail') and contact['WorkEmail'] != 'Not available' and '@' in contact['WorkEmail']:
-            recipient_email = contact['WorkEmail']
-        # Try general email field
-        elif contact.get('Email') and '@' in contact['Email'] and not contact['Email'].endswith('@domain.com'):
-            recipient_email = contact['Email']
-        
-        # If no valid email found, create a mock draft
-        if not recipient_email:
-            print(f"No valid email found for {contact.get('FirstName', 'Unknown')} - creating mock draft")
-            return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}_no_email"
-        
-        print(f"Using email: {recipient_email}")
-        
-        # Create message with UTF-8 encoding
-        message = MIMEText(email_body, 'plain', 'utf-8')
-        message['to'] = recipient_email
-        message['subject'] = email_subject
-        
-        raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
-        
-        draft_body = {
-            'message': {
-                'raw': raw_message
-            }
-        }
-        
-        draft_result = gmail_service.users().drafts().create(userId='me', body=draft_body).execute()
-        draft_id = draft_result['id']
-        
-        print(f"Created {tier.capitalize()} Gmail draft {draft_id}")
-        
-        # Apply RecruitEdge label
-        try:
-            apply_recruitedge_label(gmail_service, draft_result['message']['id'], tier)
-        except Exception as label_error:
-            print(f"Could not apply {tier} label: {label_error}")
-        
-        return draft_id
-        
-    except Exception as e:
-        print(f"{tier.capitalize()} Gmail draft creation failed: {e}")
-        return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
-
-
+ 
 @app.route('/api/user/update-tier', methods=['POST'])
 def update_user_tier():
     """Update user tier and credits"""
@@ -6337,7 +7149,7 @@ def handle_subscription_updated(subscription):
             return
         
         users_ref = db.collection('users')
-        query = users_ref.where('stripeCustomerId', '==', customer_id).limit(1)
+        query = users_ref.where(filter=FieldFilter('stripeCustomerId', '==', customer_id)).limit(1)
         docs = list(query.stream())
         
         if not docs:
@@ -6377,7 +7189,7 @@ def handle_subscription_deleted(subscription):
             return
         
         users_ref = db.collection('users')
-        query = users_ref.where('stripeCustomerId', '==', customer_id).limit(1)
+        query = users_ref.where(filter=FieldFilter('stripeCustomerId', '==', customer_id)).limit(1)
         docs = list(query.stream())
         
         if not docs:
@@ -6411,7 +7223,7 @@ def handle_payment_succeeded(invoice):
             return
         
         users_ref = db.collection('users')
-        query = users_ref.where('stripeCustomerId', '==', customer_id).limit(1)
+        query = users_ref.where(filter=FieldFilter('stripeCustomerId', '==', customer_id)).limit(1)
         docs = list(query.stream())
         
         if not docs:
@@ -6441,7 +7253,7 @@ def handle_payment_failed(invoice):
             return
         
         users_ref = db.collection('users')
-        query = users_ref.where('stripeCustomerId', '==', customer_id).limit(1)
+        query = users_ref.where(filter=FieldFilter('stripeCustomerId', '==', customer_id)).limit(1)
         docs = list(query.stream())
         
         if not docs:
@@ -6618,39 +7430,39 @@ def extract_user_info_from_resume_priority(resume_text, profile):
         return {}
 
 def build_template_prompt(user_info, contact, resume_text):
-    """Build the prompt for generating short, punchy networking emails."""
+    """Build the prompt for generating FREE TIER emails using structured template."""
     import json as _json
     
-    # Get actual values, not placeholders
-    name = user_info.get('name', '') or 'John Smith'
-    university = user_info.get('university', '') or 'University'
-    major = user_info.get('major', '') or 'student'
-    year = user_info.get('year', '') or ''
-    degree = user_info.get('degree', '') or ''
-    career_interests = user_info.get('career_interests', [])
+    # === UPDATED: Use structured template approach ===
     
-    # Build sender description
-    sender_desc = f"{name}"
-    if year:
-        sender_desc += f" - {year}"
-    if major:
-        sender_desc += f" {major}"
-    if university:
-        sender_desc += f" at {university}"
+    # Extract user info
+    sender_name = user_info.get('name', '') or 'John Smith'
+    sender_firstname = sender_name.split()[0] if sender_name else 'John'
+    sender_university = user_info.get('university', '') or 'University'
+    sender_university_short = get_university_shorthand(sender_university)
+    sender_major = user_info.get('major', '') or 'student'
+    sender_year = user_info.get('year', '') or 'Junior'
     
-    # Build recipient description
-    recipient_desc = f"{contact.get('FirstName', '')} {contact.get('LastName', '')} - {contact.get('Title', '')} at {contact.get('Company', '')}"
+    # Get graduation year
+    grad_year = sender_year if sender_year and sender_year.isdigit() else '202X'
     
-    # Generate conversation hook based on available information
-    hook = generate_conversation_hook(contact, user_info, resume_text)
+    # Extract recipient info
+    recipient_firstname = contact.get('FirstName', '') or 'there'
+    # Capitalize first letter of first name
+    recipient_firstname = recipient_firstname.capitalize() if recipient_firstname else 'there'
+    recipient_company = contact.get('Company', '') or 'your company'
+    recipient_title = contact.get('Title', '') or ''
     
-    # Location info
-    location = f"{contact.get('City', '')}, {contact.get('State', '')}"
+    # Get current season
+    season = get_current_season()
     
-    # Background/Work summary
-    background = contact.get('WorkSummary', '') or f"Professional at {contact.get('Company', '')}"
+    # Extract experience summary from resume
+    experience_summary = extract_experience_summary(resume_text)
     
-    # User contact info for signature
+    # Determine industry based on company/title
+    industry = determine_industry(recipient_company, recipient_title)
+    
+    # User contact info for signature (optional)
     user_email = user_info.get('email', '')
     user_phone = user_info.get('phone', '')
     user_linkedin = user_info.get('linkedin', '')
@@ -6664,32 +7476,40 @@ def build_template_prompt(user_info, contact, resume_text):
         contact_info_lines.append(user_linkedin)
     contact_info_str = " | ".join(contact_info_lines) if contact_info_lines else ""
     
-    return f"""Write a short, compelling and punchy networking email that feels genuine and creates immediate interest.
+    # Build template-based prompt
+    return f"""Write a professional networking email following this EXACT template structure with precise formatting:
 
-SENDER: {sender_desc}
-RECIPIENT: {recipient_desc}
-PRIMARY CONVERSATION HOOK: {hook}
-ADDITIONAL CONTEXT:
-- Location: {location}
-- Background: {background}
+TEMPLATE FORMAT (follow this EXACTLY):
 
-EMAIL REQUIREMENTS:
-1. Start with "Hi {contact.get('FirstName', '')},"
-2. Naturally weave the conversation hook into the first or second sentence.
-3. Show you've done light research by asking one curiosity-driven question about their work/experience (not obvious from LinkedIn).
-4. It's important to highlight any relevant similarities or shared connections between the sender and the recipient, if present, to create immediate rapport.
-5. Keep tone conversational, interesting, and concise—not stiff or templated.
-6. Use one vivid or unexpected word/phrase that makes the note memorable.
-7. End with a warm, low-friction ask for a 15–20 min chat.
-8. Keep it ~50 words (shorter > longer).
-9. Close with "Thank you," then {name}.
-10. After the signature, add: "I've attached my resume in case helpful for context." followed by: {contact_info_str}
+Subject: {sender_university_short} Student Interested in {industry}
 
-Return ONLY valid JSON with these exact keys:
-{{
-    "subject": "6-8 word intriguing subject line",
-    "body": "the complete email body including all elements above"
-}}
+Email Body Format:
+Hi {recipient_firstname},
+
+I'm {sender_firstname}, a {sender_year} at {sender_university_short} studying {sender_major}. This {season} {experience_summary}.
+
+I'm hoping to pursue a career in {industry}, and I was wondering if you would be available in the coming weeks for a short call to speak about your experience at {recipient_company}?
+
+For context, I've attached my resume below.
+
+Best regards,
+{sender_name}
+{sender_university} | Class of {grad_year}
+
+CRITICAL FORMATTING REQUIREMENTS (MUST FOLLOW EXACTLY):
+1. Line 1: "Hi {recipient_firstname}," THEN press Enter twice (create blank line)
+2. Line 3: Start the first paragraph of email body (intro sentence)
+3. Blank line between each paragraph
+4. Signature: "Best regards," on one line, THEN press Enter, THEN "{sender_name}" on next line
+5. The signature name should be PLAIN TEXT (no bold, no formatting, normal size)
+6. DO NOT put any text on the same line as "Hi {recipient_firstname}," - it must be on its own line
+7. Use \\n\\n for paragraph breaks in the JSON body field
+
+EXAMPLE OF EXACT OUTPUT FORMAT IN JSON:
+{{"subject": "{sender_university_short} Student Interested in {industry}", "body": "Hi {recipient_firstname},\\n\\nI'm {sender_firstname}, a {sender_year} at {sender_university_short} studying {sender_major}. This {season} {experience_summary}.\\n\\nI'm hoping to pursue a career in {industry}, and I was wondering if you would be available in the coming weeks for a short call to speak about your experience at {recipient_company}?\\n\\nFor context, I've attached my resume below.\\n\\nBest regards,\\n{sender_name}\\n{sender_university} | Class of {grad_year}"}}
+
+Return ONLY valid JSON with \\n\\n for line breaks:
+{{"subject": "...", "body": "..."}}
 """
 def generate_conversation_hook(contact, user_info, resume_text):
     """Generate a compelling conversation hook based on contact and user data."""
@@ -6865,40 +7685,7 @@ Thank you,
 {user_info.get('name','[Your Name]')}"""
     return subject, body
 
-def generate_template_based_email_system(contact, resume_text=None, user_profile=None):
-    """Core function: unified email generation using new punchy format."""
-    user_info = extract_user_info_from_resume_priority(resume_text, user_profile)
-    
-    # Extract additional user contact info if available
-    user_info['email'] = user_profile.get('email', '') if user_profile else ''
-    user_info['phone'] = user_profile.get('phone', '') if user_profile else ''
-    user_info['linkedin'] = user_profile.get('linkedin', '') if user_profile else ''
-    
-    prompt = build_template_prompt(user_info, contact, resume_text or '')
-    
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are an expert at writing short, punchy networking emails that create immediate interest. Keep emails to ~50 words. Always return valid JSON."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,  # Slightly higher for more creative/memorable language
-            max_tokens=500
-        )
-        raw = response.choices[0].message.content
-        parsed = parse_openai_email_response_updated(raw)
-        subject = parsed.get('subject') or 'Quick question about your work'
-        body = parsed.get('body') or ''
-        
-        # Light sanitization only - preserve the punchy style
-        body = sanitize_email_placeholders(body, contact, user_info)
-        body = enforce_networking_prompt_rules(body)
-        
-        return subject, body
-    except Exception as e:
-        print(f"Email generation error: {e}")
-        return generate_enhanced_fallback_email_updated(contact, user_info)
+ 
 
 def generate_email_for_both_tiers(contact, resume_text=None, user_profile=None, career_interests=None):
     """Public entrypoint used by FREE and PRO tier pipelines, identical email quality."""
@@ -6961,5 +7748,3 @@ if __name__ == '__main__':
     print("=" * 50 + "\n")
     port = int(os.environ.get('PORT', 5001))
     app.run(host='0.0.0.0', port=port, debug=True)
-
- 
