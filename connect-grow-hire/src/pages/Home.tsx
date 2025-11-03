@@ -268,6 +268,11 @@ const Home = () => {
     Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as T;
 
   const autoSaveToDirectory = async (contacts: any[]) => {
+    console.log('🔍 DEBUG: Starting save...');
+    console.log('🔍 Current user:', currentUser);
+    console.log('🔍 User UID:', currentUser?.uid);
+    console.log('🔍 Contacts to save:', contacts.length);
+    console.log('🔍 Sample contact:', contacts[0]);
     if (!currentUser) return;
 
     try {
@@ -300,12 +305,18 @@ const Home = () => {
         })
       );
 
+      console.log('💾 Calling firebaseApi.bulkCreateContacts...');
+      console.log('📋 Mapped contacts:', mapped);
       await firebaseApi.bulkCreateContacts(currentUser.uid, mapped);
+      console.log('✅ Successfully saved contacts to Firestore!');
     } catch (error) {
-      console.error('Auto-save failed:', error);
+      console.error('❌ Error in autoSaveToDirectory:', error);
+      console.error('Error type:', error instanceof Error ? error.constructor.name : typeof error);
+      console.error('Error message:', error instanceof Error ? error.message : String(error));
+      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack');
       throw error;
     }
-  };
+};
 
   useEffect(() => {
     fetch(`${BACKEND_URL}/health`)
@@ -640,10 +651,12 @@ const Home = () => {
             description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.${draftMessage}`,
             duration: 5000,
           });
-        } catch {
+        } catch (error) {
+          console.error('❌ [FREE TIER] Failed to save contacts:', error);
+          console.error('Error details:', error instanceof Error ? error.message : String(error));
           toast({
             title: "Search Complete!",
-            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. (Warning: Failed to save to Contact Library)`,
+            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. (Warning: Failed to save - check console)`,
             variant: "destructive",
             duration: 5000,
           });
@@ -708,10 +721,12 @@ const Home = () => {
             description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.${draftMessage}`,
             duration: 5000,
           });
-        } catch {
+        } catch (error) {
+          console.error('❌ [PRO TIER] Failed to save contacts:', error);
+          console.error('Error details:', error instanceof Error ? error.message : String(error));
           toast({
             title: "Search Complete!",
-            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. (Warning: Failed to save to Contact Library)`,
+            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. (Warning: Failed to save - check console)`,
             variant: "destructive",
             duration: 5000,
           });
