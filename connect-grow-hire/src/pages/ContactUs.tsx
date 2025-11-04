@@ -2,49 +2,10 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Mail, Phone, Linkedin, Twitter, Clock } from "lucide-react";
-import { useState } from "react";
-import { useToast } from "@/hooks/use-toast";
 
 const ContactUs = () => {
-  const [formData, setFormData] = useState({
-    name: "",
-    email: "",
-    reason: "",
-    message: ""
-  });
-  const { toast } = useToast();
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Basic validation
-    if (!formData.name || !formData.email || !formData.message) {
-      toast({
-        title: "Please fill in all required fields",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Here you would typically send the form data to your backend
-    toast({
-      title: "Message sent successfully!",
-      description: "We'll get back to you within 1 business day.",
-    });
-    
-    // Reset form
-    setFormData({ name: "", email: "", reason: "", message: "" });
-  };
-
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -72,74 +33,7 @@ const ContactUs = () => {
             </p>
           </div>
 
-          <div className="grid lg:grid-cols-2 gap-8">
-            {/* Contact Form */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Send us a message</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleSubmit} className="space-y-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Name *</Label>
-                    <Input
-                      id="name"
-                      value={formData.name}
-                      onChange={(e) => handleInputChange("name", e.target.value)}
-                      placeholder="Your full name"
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email Address *</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      value={formData.email}
-                      onChange={(e) => handleInputChange("email", e.target.value)}
-                      placeholder="your.email@example.com"
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="reason">Reason for Contact</Label>
-                    <Select value={formData.reason} onValueChange={(value) => handleInputChange("reason", value)}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a reason (optional)" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="support">Support</SelectItem>
-                        <SelectItem value="partnerships">Partnerships</SelectItem>
-                        <SelectItem value="media">Media</SelectItem>
-                        <SelectItem value="feedback">Feedback</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="message">Message *</Label>
-                    <Textarea
-                      id="message"
-                      value={formData.message}
-                      onChange={(e) => handleInputChange("message", e.target.value)}
-                      placeholder="Tell us about your inquiry, feedback, or questions..."
-                      className="min-h-[120px]"
-                      required
-                    />
-                  </div>
-
-                  <Button type="submit" className="w-full">
-                    Send Message
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
-
-            {/* Contact Information */}
-            <div className="space-y-6">
+          <div className="max-w-2xl mx-auto space-y-6">
               {/* Direct Contact Info */}
               <Card>
                 <CardHeader>
@@ -150,15 +44,12 @@ const ContactUs = () => {
                     <Mail className="h-5 w-5 text-primary" />
                     <div>
                       <p className="font-medium">Support</p>
-                      <p className="text-sm text-muted-foreground">support@pipelinepath.io</p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-3">
-                    <Mail className="h-5 w-5 text-primary" />
-                    <div>
-                      <p className="font-medium">Partnerships</p>
-                      <p className="text-sm text-muted-foreground">partnerships@pipelinepath.io</p>
+                      <a 
+                        href="mailto:support@pipelinepath.io"
+                        className="text-sm text-muted-foreground hover:text-primary transition-colors"
+                      >
+                        support@pipelinepath.io
+                      </a>
                     </div>
                   </div>
 
@@ -209,7 +100,6 @@ const ContactUs = () => {
                 </CardContent>
               </Card>
             </div>
-          </div>
         </div>
       </main>
 

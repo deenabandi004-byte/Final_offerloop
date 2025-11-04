@@ -10,9 +10,9 @@ import analyticsImage from '@/assets/Analytics.jpeg';
 import lockImg from "@/assets/lock.png";
 import { Sparkles } from 'lucide-react';
 import { BetaBadge } from '@/components/BetaBadges';
-import DylanRoby from "@/assets/Dylan Roby.jpeg";
-import SaraUcuzoglu from "@/assets/Sara U.jpeg";
-import JacksonLeck from "@/assets/Jackson Leck.jpeg";
+import DylanRoby from "@/assets/DylanRoby.png";
+import SaraUcuzoglu from "@/assets/SaraU.png";
+import JacksonLeck from "@/assets/JacksonLeck.png";
 import FiveStarReview from "@/assets/5StarReview.png";
 import MiaSanders from "@/assets/MiaSanders.png";
 import LucasTurcuato from "@/assets/LucasTurcuato.png";
@@ -31,6 +31,7 @@ import BlackstoneLogo from "@/assets/Blackstone.png";
 import PwCLogo from "@/assets/PwC.png";
 import McKinseyLogo from "@/assets/McKinsey.png";
 import BainLogo from "@/assets/McKinsey.png";
+console.log({ DylanRoby, SaraUcuzoglu, JacksonLeck });
 
 
 /** Reusable, professional CTA buttons for header + hero */
@@ -70,7 +71,7 @@ const ClosedBetaStrip: React.FC = () => {
   return (
     <section
       id="beta"
-      className="mt-8 px-6"  // REMOVED mx-auto and max-w-7xl
+      className="mt-8 px-6 max-w-5xl mx-auto"
     >
       {/* Outer gradient border wrapper */}
       <div 
@@ -238,7 +239,7 @@ const Index = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <div className="min-h-screen bg-gray-[#0a0d1a] text-white">
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-gray-900/90 backdrop-blur-md border-b border-gray-800">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
@@ -296,9 +297,10 @@ const Index = () => {
         </div>
       </header>
  
+ 
       {/* Hero Section */}
-      <section className="relative min-h-screen flex items-center justify-center px-6 overflow-hidden bg-[#0a0d1a]">
-        <div className="max-w-7xl mx-auto text-center">
+      <section className="relative min-h-screen flex flex-col items-center justify-center px-6 overflow-hidden bg-[#0a0d1a]">
+        <div className="w-full mx-auto text-center">
           <div className="max-w-4xl mx-auto mb-8">
               <h1 className="text-8xl md:text-[7rem] font-bold mb-12 leading-tight mt-32">
               Recruiting On <span className="bg-gradient-to-r from-blue-400 via-purple-400 to-blue-400 bg-[length:200%_auto] bg-clip-text text-transparent animate-gradient">Autopilot</span>
@@ -313,47 +315,48 @@ const Index = () => {
               Try it out
               <ArrowRight className="ml-2 h-5 w-5" />
             </button>
-      {/* Demo videos, right below the CTA */}
-      <div className="mx-auto mt-6 max-w-6xl">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <figure className="relative overflow-hidden rounded-2xl border border-white/10 bg-black/40">
-            <video
-              controls
-              playsInline
-              preload="metadata"
-              className="w-full"
-              style={{ aspectRatio: "16 / 9" }}
-            >
-              <source src={proSearchVideo} type="video/mp4" />
-            </video>
-            <figcaption className="px-4 py-3 text-sm text-slate-300 border-t border-white/10">
-              Offerloop — Professional Search
-            </figcaption>
-          </figure>
-
-          <figure className="relative overflow-hidden rounded-2xl border border-white/10 bg-black/40">
-            <video
-              controls
-              playsInline
-              preload="metadata"
-              className="w-full"
-              style={{ aspectRatio: "16 / 9" }}
-            >
-              <source src={directoryVideo} type="video/mp4" />
-            </video>
-            <figcaption className="px-4 py-3 text-sm text-slate-300 border-t border-white/10">
-              Contact Directory & Emails
-            </figcaption>
-          </figure>
+          </div>
         </div>
-      </div>
+        
+        {/* Demo videos */}
+        <div className="w-full mt-16 px-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 max-w-[1800px] mx-auto">
+            <figure className="relative overflow-hidden rounded-2xl border border-white/10 bg-black/40 shadow-2xl transform hover:scale-[1.02] transition-transform">
+              <video
+                autoPlay
+                loop
+                muted
+                playsInline
+                className="w-full pointer-events-none"
+                style={{ aspectRatio: "16 / 9" }}
+              >
+                <source src={proSearchVideo} type="video/mp4" />
+              </video>
+              <figcaption className="px-6 py-5 text-center text-xl font-semibold text-slate-200 border-t border-white/10">
+                Offerloop — Professional Search
+              </figcaption>
+            </figure>
 
-            {/* Hero CTAs */}
-           
-            <ClosedBetaStrip />
+            <figure className="relative overflow-hidden rounded-2xl border border-white/10 bg-black/40 shadow-2xl transform hover:scale-[1.02] transition-transform">
+              <video
+                autoPlay
+                loop
+                muted
+                playsInline
+                className="w-full pointer-events-none"
+                style={{ aspectRatio: "16 / 9" }}
+              >
+                <source src={directoryVideo} type="video/mp4" />
+              </video>
+              <figcaption className="px-6 py-5 text-center text-xl font-semibold text-slate-200 border-t border-white/10">
+                Contact Directory & Emails
+              </figcaption>
+            </figure>
           </div>
         </div>
       </section>
+      
+      <ClosedBetaStrip />
 {/* Why Choose Section */}
       <section className="py-24 px-6 bg-[#0a0d1a]">
         <div className="max-w-7xl mx-auto">
@@ -636,7 +639,7 @@ const Index = () => {
             pauseOnHover={true}
           >
             {/* Review 1 - Dylan Roby */}
-            <div className="flex flex-col justify-between bg-black/50 backdrop-blur-sm rounded-2xl p-10 border border-gray-700 mx-4 w-[480px] h-[460px]">
+            <div className="flex flex-col justify-between bg-black/50 backdrop-blur-sm rounded-2xl p-10 border border-gray-700 mx-4 w-[480px] h-[500px]">
               <div>
                 <div className="flex items-start mb-8">
                   <img
@@ -663,7 +666,7 @@ const Index = () => {
             </div>
 
             {/* Review 2 - Sarah Ucuzoglu */}
-            <div className="flex flex-col justify-between bg-black/50 backdrop-blur-sm rounded-2xl p-10 border border-gray-700 mx-4 w-[480px] h-[460px]">
+            <div className="flex flex-col justify-between bg-black/50 backdrop-blur-sm rounded-2xl p-10 border border-gray-700 mx-4 w-[480px] h-[500px]">
               <div>
                 <div className="flex items-start mb-8">
                   <img
@@ -690,7 +693,7 @@ const Index = () => {
             </div>
 
             {/* Review 3 - Jackson Leck */}
-            <div className="flex flex-col justify-between bg-black/50 backdrop-blur-sm rounded-2xl p-10 border border-gray-700 mx-4 w-[480px] h-[460px]">
+            <div className="flex flex-col justify-between bg-black/50 backdrop-blur-sm rounded-2xl p-10 border border-gray-700 mx-4 w-[480px] h-[500px]">
               <div>
                 <div className="flex items-start mb-8">
                   <img
@@ -717,7 +720,7 @@ const Index = () => {
             </div>
 
             {/* Review 4 - Mia Sanders */}
-            <div className="flex flex-col justify-between bg-black/50 backdrop-blur-sm rounded-2xl p-10 border border-gray-700 mx-4 w-[480px] h-[460px]">
+            <div className="flex flex-col justify-between bg-black/50 backdrop-blur-sm rounded-2xl p-10 border border-gray-700 mx-4 w-[480px] h-[500px]">
               <div>
                 <div className="flex items-start mb-8">
                   <img
@@ -744,7 +747,7 @@ const Index = () => {
             </div>
 
             {/* Review 5 - Lucas Turcuato */}
-            <div className="flex flex-col justify-between bg-black/50 backdrop-blur-sm rounded-2xl p-10 border border-gray-700 mx-4 w-[480px] h-[460px]">
+            <div className="flex flex-col justify-between bg-black/50 backdrop-blur-sm rounded-2xl p-10 border border-gray-700 mx-4 w-[480px] h-[500px]">
               <div>
                 <div className="flex items-start mb-8">
                   <img
@@ -778,7 +781,7 @@ const Index = () => {
         <div className="max-w-6xl mx-auto">
            <div className="text-center mb-24">
             <h2 className="text-5xl lg:text-7xl font-bold mb-6">
-              Start <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">Connecting</span> Today
+              Start <span className="bg-gradient-to-r from-blue-400 via-purple-400 to-blue-400 bg-[length:200%_auto] bg-clip-text text-transparent animate-gradient">Connecting</span> Today
             </h2>
           </div>
 
@@ -795,11 +798,11 @@ const Index = () => {
                 <div className="space-y-4 mb-8">
                   <div className="flex items-center gap-3">
                     <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300">120 credits (8 emails)</span>
+                    <span className="text-gray-300">150 credits (10 emails)</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300">Estimated time saved: 200 minutes</span>
+                    <span className="text-gray-300">Estimated time saved: 250 minutes</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
@@ -831,20 +834,20 @@ const Index = () => {
                   <h3 className="text-3xl font-bold mb-3 text-blue-400">Pro</h3>
                   <div className="mb-2">
                     <span className="text-gray-500 text-xl line-through mr-2">$34.99</span>
-                    <span className="text-3xl font-bold text-white">$14.99</span>
+                    <span className="text-3xl font-bold text-white">$8.99</span>
                     <span className="text-gray-400 text-lg ml-1">/month</span>
                   </div>
-                  <p className="text-gray-300">840 credits</p>
+                  <p className="text-gray-300">1800 credits</p>
                 </div>
 
                 <div className="space-y-4 mb-8">
                   <div className="flex items-center gap-3">
                     <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300">840 credits (56 emails) </span>
+                    <span className="text-gray-300">1800 credits (120 emails) </span>
                   </div>
                   <div className="flex items-center gap-3">
                     <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300">Estimated time saved: 1200 minutes</span>
+                    <span className="text-gray-300">Estimated time saved: 2500 minutes</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />

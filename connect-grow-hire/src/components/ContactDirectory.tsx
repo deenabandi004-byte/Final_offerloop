@@ -466,6 +466,9 @@ const SpreadsheetContactDirectory: React.FC = () => {
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-200 min-w-[150px]">
                       Role
                     </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-200 min-w-[180px]">
+                      Location
+                    </th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-200 min-w-[150px]">
                       Status
                     </th>
@@ -579,6 +582,25 @@ const SpreadsheetContactDirectory: React.FC = () => {
                               className="cursor-text hover:bg-gray-800 rounded px-2 py-1 text-sm text-gray-300"
                             >
                               {contact.jobTitle || <span className="text-gray-500">-</span>}
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="border-r border-gray-700 px-4 py-3">
+                          {editingCell?.row === index && editingCell?.col === 'location' ? (
+                            <Input
+                              value={contact.location}
+                              onChange={(e) => handleCellEdit(contact.id!, 'location', e.target.value)}
+                              onBlur={handleCellBlur}
+                              className="text-sm h-6 bg-gray-800 border-gray-600 text-white"
+                              autoFocus
+                            />
+                          ) : (
+                            <div
+                              onClick={() => handleCellClick(index, 'location')}
+                              className="cursor-text hover:bg-gray-800 rounded px-2 py-1 text-sm text-gray-300"
+                            >
+                              {contact.location || <span className="text-gray-500">-</span>}
                             </div>
                           )}
                         </td>

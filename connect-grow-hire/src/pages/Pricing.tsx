@@ -173,8 +173,8 @@ const Pricing = () => {
       if (planType === 'free') {
         await updateUser({ 
           tier: 'free',
-          credits: 120,
-          maxCredits: 120
+          credits: 150,
+          maxCredits: 150
         }); 
         navigate("/home");
       } 
@@ -228,8 +228,8 @@ const Pricing = () => {
               <span className="text-sm font-medium text-blue-400 uppercase tracking-wide">Our Pricing</span>
             </div>
           </div>
-          <h1 className="text-5xl lg:text-6xl font-bold mb-6 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-            Choose a plan to match your needs
+          <h1 className="text-5xl lg:text-6xl font-bold mb-6">
+            Choose <span className="bg-gradient-to-r from-blue-400 via-purple-400 to-blue-400 bg-[length:200%_auto] bg-clip-text text-transparent animate-gradient">your plan</span> today
           </h1>
           <p className="text-gray-400 text-lg mb-8">
             15 credits per contact. When you run out of credits, no more contacts.
@@ -237,9 +237,9 @@ const Pricing = () => {
         </div>
 
         <div className="flex justify-center">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl w-full">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-10 max-w-6xl w-full">
             {/* Free Plan */}
-            <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-8 backdrop-blur-sm">
+            <div className="bg-slate-900/50 border border-slate-700 rounded-2xl p-10 backdrop-blur-sm transform transition-all hover:scale-[1.02]">
               <div className="text-center mb-8">
                 <h3 className="text-3xl font-bold mb-3 text-white">Free</h3>
                 <p className="text-gray-400">Try out platform risk free</p>
@@ -248,11 +248,11 @@ const Pricing = () => {
               <div className="space-y-4 mb-8">
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300">120 credits</span>
+                  <span className="text-gray-300">150 credits (10 emails) </span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300">Estimated time saved: 200 minutes</span>
+                  <span className="text-gray-300">Estimated time saved: 250 minutes</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
@@ -274,7 +274,7 @@ const Pricing = () => {
             </div>
 
             {/* Pro Plan */}
-            <div className="relative bg-gradient-to-br from-blue-600/20 to-purple-600/20 border-2 border-blue-500/50 rounded-xl p-8 backdrop-blur-sm">
+            <div className="relative bg-gradient-to-br from-blue-600/20 to-purple-600/20 border-2 border-blue-500/50 rounded-2xl p-10 backdrop-blur-sm transform transition-all hover:scale-[1.02]">
               <div className="absolute top-4 right-4">
                 <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded-full font-medium">
                   {isProUser ? 'ACTIVE' : 'RECOMMENDED'}
@@ -285,20 +285,20 @@ const Pricing = () => {
                 <h3 className="text-3xl font-bold mb-3 text-blue-400">Pro</h3>
                 <div className="mb-2">
                   <span className="text-gray-500 text-xl line-through mr-2">$34.99</span>
-                  <span className="text-3xl font-bold text-white">$14.99</span>
+                  <span className="text-3xl font-bold text-white">$8.99</span>
                   <span className="text-gray-400 text-lg ml-1">/month</span>
                 </div>
-                <p className="text-gray-300">840 credits</p>
+                <p className="text-gray-300">1800 credits</p>
               </div>
 
               <div className="space-y-4 mb-8">
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300">840 credits</span>
+                  <span className="text-gray-300">1800 credits (120 emails) </span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300">Estimated time saved: 1200 minutes</span>
+                  <span className="text-gray-300">Estimated time saved: 2500 minutes</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
@@ -319,7 +319,7 @@ const Pricing = () => {
               </div>
 
               <Button 
-                className="w-full py-4 px-6 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 transition-all shadow-lg"
+                className="w-full py-6 px-6 rounded-xl text-lg font-semibold text-white bg-gradient-to-r from-blue-500 via-purple-500 to-blue-500 bg-[length:200%_auto] hover:from-blue-600 hover:to-purple-600 transition-all shadow-lg animate-gradient"
                 onClick={isProUser ? handleManageSubscription : () => handleUpgrade('pro')}
                 disabled={isLoading}
               >

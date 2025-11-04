@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { getAuth } from "firebase/auth";
  
 
 
@@ -38,24 +39,122 @@ const SignIn: React.FC = () => {
     }, 600);
   };
 
-  useEffect(() => setActiveTab(initialTab), [initialTab]);
+  // ✅ MOVED: Define functions BEFORE useEffects so they can be called
+  const checkNeedsGmailConnection = async (): Promise<boolean> => {
+    try {
+      if (!user) return false;
+      const auth = getAuth();
+      const firebaseUser = auth.currentUser;
+      if (!firebaseUser) return false;
+      const token = await firebaseUser.getIdToken();
+      const response = await fetch(`${API_BASE_URL}/api/gmail/status`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      console.log("📧 Gmail status:", data);
+      return !data.connected;
+    } catch (error) {
+      console.error("Error checking Gmail status:", error);
+      return true;
+    }
+  };
 
-  useEffect(() => {
-    if (!isLoading && user) {
-      const dest = user.needsOnboarding ? "/onboarding" : "/home";
-      console.log("[signin] auto redirect ->", dest, { needsOnboarding: user.needsOnboarding });
+  const initiateGmailOAuth = async () => {
+    try {
+      if (!user) return;
+      const auth = getAuth();
+      const firebaseUser = auth.currentUser;
+      if (!firebaseUser) return;
+      const token = await firebaseUser.getIdToken();
+      const response = await fetch(`${API_BASE_URL}/api/google/oauth/start`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      
+      if (data.authUrl) {
+        localStorage.setItem('post_gmail_destination', 
+          user.needsOnboarding ? '/onboarding' : '/home'
+        );
+        console.log("📧 Redirecting to Gmail OAuth...");
+        window.location.href = data.authUrl;
+      }
+    } catch (error) {
+      console.error("Error starting Gmail OAuth:", error);
+      const dest = user?.needsOnboarding ? "/onboarding" : "/home";
       forceNavigate(dest);
     }
-  }, [user, isLoading]);
+  };
 
+  // ✅ useEffects come AFTER function definitions
+  useEffect(() => setActiveTab(initialTab), [initialTab]);
+
+  // ✅ AUTO-CHECK Gmail when signed-in user loads page
+  useEffect(() => {
+    const autoCheckGmail = async () => {
+      if (isLoading || !user) return;
+      
+      // Check if returning from Gmail OAuth
+      const params = new URLSearchParams(location.search);
+      const justConnectedGmail = params.get('connected') === 'gmail';
+      
+      if (justConnectedGmail) {
+        console.log("📧 Returned from Gmail OAuth!");
+        const dest = localStorage.getItem('post_gmail_destination') || '/home';
+        localStorage.removeItem('post_gmail_destination');
+        
+        toast({
+          title: "Gmail Connected! 🎉",
+          description: "You can now create drafts directly in Gmail.",
+        });
+        
+        forceNavigate(dest);
+        return;
+      }
+      
+      console.log('🔍 Auto-checking Gmail for:', user.email);
+      
+      const needsGmail = await checkNeedsGmailConnection();
+      
+      if (needsGmail) {
+        console.log('📧 Gmail not connected, starting OAuth...');
+        await initiateGmailOAuth();
+      } else {
+        console.log('✅ Gmail already connected');
+        // Navigate to home AFTER confirming Gmail is connected
+        const dest = user.needsOnboarding ? "/onboarding" : "/home";
+        console.log('🏠 Navigating to:', dest);
+        forceNavigate(dest);
+      }
+    };
+  
+    // Auto-check 1 second after user loads
+    if (!isLoading && user) {
+      const timer = setTimeout(autoCheckGmail, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [user, isLoading, location.search, toast]);  
   const handleGoogleAuth = async () => {
     if (submitting || isLoading) return;
     setSubmitting(true);
     try {
-      console.log("🔐 Initiating Google Sign-In (app auth only)...");
+      console.log("🔐 Initiating Google Sign-In...");
       const next = await signIn({ prompt: "consent" });
+      
+      // ✅ Wait for user state to update
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // ✅ Check if Gmail needs to be connected
+      const needsGmail = await checkNeedsGmailConnection();
+      
+      if (needsGmail) {
+        console.log("📧 Gmail not connected, starting OAuth flow...");
+        await initiateGmailOAuth();
+        return; // OAuth redirects, stop here
+      }
+      
+      // Gmail already connected
       const dest = next === "onboarding" ? "/onboarding" : "/home";
-      console.log("[signin] signIn returned:", next, "→", dest);
+      console.log("[signin] signIn returned:", next, "→", dest, "(Gmail already connected)");
       forceNavigate(dest);
     } catch (err: any) {
       console.error("[signin] failed:", err);

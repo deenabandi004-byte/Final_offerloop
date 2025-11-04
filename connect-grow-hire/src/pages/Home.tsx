@@ -30,13 +30,15 @@ const BACKEND_URL =
     : "https://www.offerloop.ai";
 
 const COFFEE_CHAT_CREDITS = 30;
+const ENABLE_HOME_GMAIL_AUTOCONNECT = false;
+
 
 const TIER_CONFIGS = {
   free: {
     maxContacts: 3,
     minContacts: 1,
     name: "Search Free Plan Tier",
-    credits: 120,
+    credits: 150,
     description: "Try out platform risk free - up to 3 contacts + Email drafts",
     coffeeChat: true,
     interviewPrep: false,
@@ -47,7 +49,7 @@ const TIER_CONFIGS = {
     maxContacts: 8,
     minContacts: 1,
     name: "Search Pro Plan Tier",
-    credits: 840,
+    credits: 1800,
     description: "Everything in free plus advanced features - up to 8 contacts + Resume matching",
     coffeeChat: true,
     interviewPrep: true,
@@ -78,7 +80,7 @@ const Home = () => {
 
   const navigate = useNavigate();
   const { toast } = useToast();
-
+  const [gmailCheckComplete, setGmailCheckComplete] = useState(false);
   const effectiveUser =
     currentUser || ({
       credits: 0,
@@ -132,9 +134,13 @@ const Home = () => {
     if (effectiveUser?.tier === "pro") return "pro";
     const max = Number(effectiveUser?.maxCredits ?? 0);
     const credits = Number(effectiveUser?.credits ?? 0);
-    if (max >= 840 || credits > 120) return "pro";
+    if (max >= 1800 || credits > 150) return "pro";
     return "free";
   }, [effectiveUser?.tier, effectiveUser?.maxCredits, effectiveUser?.credits]);
+  function isSearchResult(x: any): x is { contacts: any[]; successful_drafts?: number } {
+    return x && Array.isArray(x.contacts);
+  }
+
 
   // Form state
   const [jobTitle, setJobTitle] = useState("");
@@ -267,19 +273,27 @@ const Home = () => {
   const stripUndefined = <T extends Record<string, any>>(obj: T) =>
     Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as T;
 
-  const autoSaveToDirectory = async (contacts: any[]) => {
+  const autoSaveToDirectory = async (contacts: any[], searchLocation?: string) => {
     console.log('🔍 DEBUG: Starting save...');
     console.log('🔍 Current user:', currentUser);
     console.log('🔍 User UID:', currentUser?.uid);
     console.log('🔍 Contacts to save:', contacts.length);
     console.log('🔍 Sample contact:', contacts[0]);
+    console.log('🔍 Search location passed:', searchLocation);
     if (!currentUser) return;
 
     try {
       const today = new Date().toLocaleDateString('en-US');
 
-      const mapped: Omit<ContactApi, 'id'>[] = contacts.map((c: any) =>
-        stripUndefined({
+      const mapped: Omit<ContactApi, 'id'>[] = contacts.map((c: any) => {
+        const derivedLocation = [c.City ?? '', c.State ?? ''].filter(Boolean).join(', ') || c.location || searchLocation || '';
+        console.log(`📍 Contact ${c.FirstName} ${c.LastName} location:`, {
+          fromAPI: c.City || c.State ? `${c.City}, ${c.State}` : null,
+          fallback: derivedLocation,
+          searchLocation
+        });
+        
+        return stripUndefined({
           firstName: c.FirstName ?? c.firstName ?? '',
           lastName: c.LastName ?? c.lastName ?? '',
           linkedinUrl: c.LinkedIn ?? c.linkedinUrl ?? '',
@@ -287,7 +301,7 @@ const Home = () => {
           company: c.Company ?? c.company ?? '',
           jobTitle: c.Title ?? c.jobTitle ?? '',
           college: c.College ?? c.college ?? '',
-          location: [c.City ?? '', c.State ?? ''].filter(Boolean).join(', ') || c.location || '',
+          location: derivedLocation,
 
           // required
           firstContactDate: today,
@@ -302,8 +316,8 @@ const Home = () => {
           hasUnreadReply: false,
           notificationsMuted: false,
           // DO NOT set createdAt/updatedAt; backend adds them
-        })
-      );
+        });
+      });
 
       console.log('💾 Calling firebaseApi.bulkCreateContacts...');
       console.log('📋 Mapped contacts:', mapped);
@@ -317,6 +331,139 @@ const Home = () => {
       throw error;
     }
 };
+// ✅ Check if Gmail needs connection
+const checkNeedsGmailConnection = async (): Promise<boolean> => {
+  try {
+    if (!currentUser) return false;
+    
+    const { auth } = await import('../lib/firebase');
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) return false;
+    
+    const token = await firebaseUser.getIdToken(true);
+    const API_BASE_URL = window.location.hostname === 'localhost' 
+      ? 'http://localhost:5001' 
+      : 'https://www.offerloop.ai';
+    
+    const response = await fetch(`${API_BASE_URL}/api/gmail/status`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    
+    if (!response.ok) {
+      console.error("Gmail status check failed:", response.status);
+      return true; // Assume needs connection if check fails
+    }
+    
+    const data = await response.json();
+    console.log("📧 Gmail status:", data);
+    return !data.connected;
+  } catch (error) {
+    console.error("Error checking Gmail status:", error);
+    return true; // Assume needs connection on error
+  }
+};
+
+// ✅ Trigger Gmail OAuth
+const initiateGmailOAuth = async () => {
+  try {
+    console.log("📧 [DEBUG] Starting initiateGmailOAuth");
+    
+    const { auth } = await import('../lib/firebase');
+    console.log("📧 [DEBUG] Auth imported:", !!auth);
+    
+    const firebaseUser = auth.currentUser;
+    console.log("📧 [DEBUG] Firebase user:", firebaseUser?.email);
+    
+    if (!firebaseUser) {
+      console.log("📧 [DEBUG] No Firebase user for OAuth");
+      return;
+    }
+    
+    console.log("📧 [DEBUG] Getting token...");
+    const token = await firebaseUser.getIdToken(true);
+    console.log("📧 [DEBUG] Token:", token.substring(0, 30) + '...');
+    
+    const API_BASE_URL = window.location.hostname === 'localhost' 
+      ? 'http://localhost:5001' 
+      : 'https://www.offerloop.ai';
+    
+    console.log("📧 [DEBUG] API URL:", API_BASE_URL);
+    console.log("📧 [DEBUG] Calling OAuth start...");
+    
+    const response = await fetch(`${API_BASE_URL}/api/google/oauth/start`, {
+      method: 'GET',
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log("📧 [DEBUG] Response status:", response.status);
+    console.log("📧 [DEBUG] Response OK:", response.ok);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("📧 [DEBUG] Error response:", errorText);
+      return;
+    }
+    
+    const data = await response.json();
+    console.log("📧 [DEBUG] OAuth data:", data);
+    
+    if (data.authUrl) {
+      sessionStorage.setItem('gmail_oauth_return', window.location.pathname);
+      console.log("📧 [DEBUG] Redirecting to:", data.authUrl);
+      window.location.href = data.authUrl;
+    } else {
+      console.error("📧 [DEBUG] No authUrl in response");
+    }
+  } catch (error: unknown) {
+  if (error instanceof Error) {
+    console.error("🔴 Exception:", error.message);
+    if (error.stack) console.error("🔴 Stack:", error.stack);
+  } else {
+    console.error("🔴 Exception (non-Error):", String(error));
+  }
+}
+
+};
+// === CREATE REAL GMAIL DRAFTS (batch) =========================
+async function generateAndDraftEmailsBatch(contacts: any[]) {
+  const { auth } = await import("../lib/firebase");
+  const idToken = await auth.currentUser?.getIdToken(true);
+  const API_BASE_URL =
+    window.location.hostname === "localhost"
+      ? "http://localhost:5001"
+      : "https://www.offerloop.ai";
+
+  const userProfile = await getUserProfileData();
+
+  const res = await fetch(`${API_BASE_URL}/api/emails/generate-and-draft`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({
+      contacts,
+      resumeText: "", // optional: add your real resume text here
+      userProfile,
+      careerInterests: userProfile?.careerInterests || [],
+    }),
+  });
+
+  // If Gmail isn't connected, backend tells us to go do OAuth
+  if (res.status === 401) {
+    const data = await res.json().catch(() => ({}));
+    if (data?.needsAuth && data?.authUrl) {
+      window.location.href = data.authUrl; // kick off Gmail OAuth
+      return null; // stop here; you'll return after consent
+    }
+  }
+
+  // Otherwise drafts were created successfully
+  return res.json();
+}
 
   useEffect(() => {
     fetch(`${BACKEND_URL}/health`)
@@ -350,7 +497,51 @@ const Home = () => {
       setShowCompletionUI(true);
     }
   }, [coffeeChatStatus, coffeeChatPrepId, coffeeChatLoading]);
+  // ✅ Auto-check Gmail on page load (ONE TIME ONLY)
+// ✅ Auto-check Gmail on page load
+useEffect(() => {
+  if (!ENABLE_HOME_GMAIL_AUTOCONNECT) return;
+  const autoCheckGmail = async () => {
+    if (!currentUser || gmailCheckComplete) return;
+    
+    console.log('🔍 Auto-checking Gmail for:', currentUser.email);
+    
+    const needsGmail = await checkNeedsGmailConnection();
+    
+    if (needsGmail) {
+      console.log('📧 Gmail not connected, starting OAuth...');
+      await initiateGmailOAuth();
+    } else {
+      console.log('✅ Gmail already connected');
+    }
+    
+    setGmailCheckComplete(true);
+  };
+  
+  if (currentUser && !gmailCheckComplete) {
+    const timer = setTimeout(autoCheckGmail, 2000);
+    return () => clearTimeout(timer);
+  }
+}, [currentUser, gmailCheckComplete]);
 
+// ✅ Handle OAuth return
+// ✅ Handle OAuth return
+useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
+  const gmailConnected = params.get('connected') === 'gmail';
+  
+  if (gmailConnected) {
+    // Clean up URL
+    window.history.replaceState({}, '', window.location.pathname);
+    
+    toast({
+      title: "Gmail Connected! 🎉",
+      description: "You can now create drafts directly in Gmail.",
+    });
+    
+    setGmailCheckComplete(true);
+  }
+}, [toast]); // Only depend on toast
   const handleCoffeeChatSubmit = async () => {
     if (!linkedinUrl.trim()) {
       toast({
@@ -584,6 +775,9 @@ const Home = () => {
     setIsSearching(true);
     setProgressValue(0);
     setSearchComplete(false);
+    // ✅ Create Gmail drafts for these contacts (handles OAuth if needed)
+  
+
 
     try {
       [15, 35, 60, 85, 90].forEach((value, index) => {
@@ -605,50 +799,67 @@ const Home = () => {
         };
 
         const result = await apiService.runFreeSearch(searchRequest);
-        if (isErrorResponse(result)) {
-          if (result.error?.includes("Insufficient credits")) {
+        // --- Narrow the union safely ---
+          if (!isSearchResult(result)) {
             toast({
-              title: "Insufficient Credits",
-              description: result.error,
+              title: "Search Failed",
+              description: (result as any)?.error || "Please try again.",
               variant: "destructive",
             });
-            await checkCredits();
             return;
           }
-          toast({
-            title: "Search Failed",
-            description: result.error || "Please try again.",
-            variant: "destructive",
+
+          // Now it's safe to use result.contacts
+          const creditsUsed = result.contacts.length * 15;
+          const newCredits  = Math.max(0, currentCredits - creditsUsed);
+          await updateCredits(newCredits).catch(() => { /* swallow UI-only failure */ });
+
+          setLastResults(result.contacts);
+          setLastResultsTier(userTier);
+          setLastSearchStats({
+            successful_drafts: result.successful_drafts ?? 0, // may be missing
+            total_contacts: result.contacts.length,
           });
-          return;
-        }
 
-        const creditsUsed = result.contacts.length * 15;
-        const newCredits = Math.max(0, currentCredits - creditsUsed);
-        await updateCredits(newCredits);
+          setProgressValue(100);
+          setSearchComplete(true);
 
-        setLastResults(result.contacts);
-        setLastResultsTier("free");
-        setLastSearchStats({
-          successful_drafts: result.successful_drafts,
-          total_contacts: result.contacts.length,
-        });
+          // ❌ REMOVE this (the backend already created drafts):
+          // const draftRes = await generateAndDraftEmailsBatch(result.contacts);
+
+          // Save to Contact Library (non-blocking UX is fine)
+          try {
+            await autoSaveToDirectory(result.contacts, location.trim());
+            toast({
+              title: "Search Complete!",
+              description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.`,
+              duration: 5000,
+            });
+          } catch (error: unknown) {
+            console.error("❌ [FREE TIER] Failed to save contacts:", error);
+            toast({
+              title: "Search Complete!",
+              description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits.`,
+              variant: "destructive",
+              duration: 5000,
+            });
+          }
+
 
         setProgressValue(100);
         setSearchComplete(true);
+        // ✅ Create Gmail drafts for these contacts (handles OAuth if needed)
+        const draftRes = await generateAndDraftEmailsBatch(result.contacts);
+        if (!draftRes) return; // we were redirected to Gmail OAuth; come back and click again
 
         try {
-          await autoSaveToDirectory(result.contacts);
+          await autoSaveToDirectory(result.contacts, location.trim());
 
-          const draftResults = await saveContactsToGmailDrafts(result.contacts);
-
-          const draftMessage = draftResults.successful > 0
-            ? ` ${draftResults.successful} Gmail drafts created.`
-            : '';
+          
 
           toast({
             title: "Search Complete!",
-            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.${draftMessage}`,
+            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.`,
             duration: 5000,
           });
         } catch (error) {
@@ -706,19 +917,14 @@ const Home = () => {
 
         setProgressValue(100);
         setSearchComplete(true);
+        const draftRes = await generateAndDraftEmailsBatch(result.contacts);
 
         try {
-          await autoSaveToDirectory(result.contacts);
-
-          const draftResults = await saveContactsToGmailDrafts(result.contacts);
-
-          const draftMessage = draftResults.successful > 0
-            ? ` ${draftResults.successful} Gmail drafts created.`
-            : '';
+          await autoSaveToDirectory(result.contacts, location.trim());
 
           toast({
             title: "Search Complete!",
-            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.${draftMessage}`,
+            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.`,
             duration: 5000,
           });
         } catch (error) {
@@ -759,8 +965,7 @@ const Home = () => {
       const status = await apiService.gmailStatus();
 
       if (!status.connected) {
-        console.log('Gmail not connected, skipping draft creation');
-        return { successful: 0, failed: 0 };
+        console.log('Gmail not connected - backend will handle this');
       }
 
       let successful = 0;
@@ -877,7 +1082,7 @@ const Home = () => {
             <div className="flex items-center gap-4">
               <CreditPill
                 credits={effectiveUser.credits ?? 0}
-                max={effectiveUser.maxCredits ?? 120}
+                max={effectiveUser.maxCredits ?? 150}
               />
               <Button
                 size="sm"

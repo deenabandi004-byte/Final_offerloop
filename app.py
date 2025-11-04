@@ -481,7 +481,33 @@ GMAIL_SCOPES = [
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-OAUTH_REDIRECT_URI = os.getenv("OAUTH_REDIRECT_URI")
+
+# ✅ Make redirect URI environment-aware
+def get_oauth_redirect_uri():
+    """Get the appropriate OAuth redirect URI based on environment"""
+    env_uri = os.getenv("OAUTH_REDIRECT_URI")
+    if env_uri:
+        return env_uri
+    # Auto-detect based on Flask environment
+    # In production, use offerloop.ai; in dev, use localhost
+    is_production = os.getenv("FLASK_ENV") == "production" or os.getenv("RENDER")
+    return (
+        "https://www.offerloop.ai/api/google/oauth/callback"
+        if is_production
+        else "http://localhost:5001/api/google/oauth/callback"
+    )
+
+def get_frontend_redirect_uri():
+    """Get the appropriate frontend redirect URI based on environment"""
+    is_production = os.getenv("FLASK_ENV") == "production" or os.getenv("RENDER")
+    return (
+        "https://www.offerloop.ai/signin?connected=gmail"
+        if is_production
+        else "http://localhost:8080/signin?connected=gmail"
+    )
+
+
+OAUTH_REDIRECT_URI = get_oauth_redirect_uri()
 app.secret_key = os.getenv("FLASK_SECRET", "dev")
 
 def _gmail_client_config():
@@ -880,24 +906,58 @@ def spa_fallback(path):
 # Initialize Flask app
 # === Gmail OAuth routes ===
 @app.get("/api/google/oauth/start")
+@require_firebase_auth  # ✅ ADD: Require authentication
 def google_oauth_start():
+    """Initiate Gmail OAuth flow with proper state management"""
+    import secrets
+    
+    # Get authenticated user
+    uid = request.firebase_user["uid"]
+    user_email = request.firebase_user.get("email")
+    
+    # Generate secure state token for CSRF protection
+    state = secrets.token_urlsafe(32)
+    
+    # Store state in Firestore with user context
+    db.collection("oauth_state").document(state).set({
+        "uid": uid,
+        "email": user_email,
+        "created": datetime.utcnow(),
+        "expires": datetime.utcnow() + timedelta(minutes=10)
+    })
+    
+    print(f"🔐 Creating OAuth flow for user: {user_email} (uid: {uid})")
+    print(f"🔐 State token: {state}")
+    
+    # Build OAuth URL with all required scopes
     CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
-    REDIRECT_URI = os.environ["OAUTH_REDIRECT_URI"]  # e.g. http://localhost:5001/api/google/oauth/callback
-
+    REDIRECT_URI = os.environ["OAUTH_REDIRECT_URI"]
     AUTH_BASE = "https://accounts.google.com/o/oauth2/v2/auth"
+    
+    # Use GMAIL_SCOPES constant for consistency
+    scope_string = " ".join(GMAIL_SCOPES)
+    
     params = {
         "client_id": CLIENT_ID,
-        "redirect_uri": REDIRECT_URI,  # must EXACTLY match Google Console
+        "redirect_uri": REDIRECT_URI,
         "response_type": "code",
-        "scope": "https://www.googleapis.com/auth/gmail.compose openid email profile",
-        "access_type": "offline",
+        "scope": scope_string,  # ✅ FIX: All Gmail scopes
+        "access_type": "offline",  # Request refresh token
         "include_granted_scopes": "true",
-        "prompt": "consent",
-        "state": state,
-        "login_hint": request.firebase_user.get("email"), 
+        "prompt": "consent",  # Force consent screen
+        "state": state,  # ✅ FIX: Now properly defined
+        "login_hint": user_email,  # Pre-fill email
     }
+    
     auth_url = f"{AUTH_BASE}?{urlencode(params)}"
-    return jsonify({"authUrl": auth_url})
+    
+    print(f"🔐 OAuth URL: {auth_url}")
+    print(f"🔐 Requesting scopes: {scope_string}")
+    
+    return jsonify({
+        "authUrl": auth_url,
+        "state": state  # Return state to frontend for tracking
+    })
 @app.get("/api/gmail/status")
 @require_firebase_auth
 def gmail_status():
@@ -992,7 +1052,10 @@ def google_oauth_callback():
         if state:
             db.collection("oauth_state").document(state).delete()
         
-        return redirect("https://www.offerloop.ai/settings?connected=gmail")
+        # ✅ Redirect to appropriate frontend based on environment
+        frontend_url = get_frontend_redirect_uri()
+        print(f"🔗 Redirecting to frontend: {frontend_url}")
+        return redirect(frontend_url)
         
     except Exception as e:
         print(f"❌ OAuth token exchange failed: {e}")
@@ -1307,12 +1370,12 @@ TIER_CONFIGS = {
         'uses_pdl': True,
         'uses_email_drafting': True,
         'uses_resume': False,
-        'credits': 120,
+        'credits': 150,
         'time_saved_minutes': 200,  # 8 emails * 25 minutes each
         'description': 'Try out platform risk free'
     },
     'pro': {
-        'max_contacts': 8,  # 56 emails = 840 credits (15 credits per email)
+        'max_contacts': 8,  # 56 emails = 1800 credits (15 credits per email)
         'min_contacts': 1, 
         'fields': ['FirstName', 'LastName', 'LinkedIn', 'Email', 'Title', 'Company', 'City', 'State', 'College',
                   'Phone', 'PersonalEmail', 'WorkEmail', 'SocialProfiles', 'EducationTop', 'VolunteerHistory',
@@ -1320,7 +1383,7 @@ TIER_CONFIGS = {
         'uses_pdl': True,
         'uses_email_drafting': True,
         'uses_resume': True,
-        'credits': 840,
+        'credits': 1800,
         'time_saved_minutes': 1200,  # 56 emails * ~21 minutes each (more efficient at scale)
         'description': 'Everything in free plus advanced features'
     }
@@ -4813,7 +4876,7 @@ def run_free_tier_enhanced_final(job_title, company, location, user_email=None, 
             print(f"Using Firebase user ID: {user_id}")
         
         # CHECK USER CREDITS BEFORE SEARCHING
-        credits_available = 120  # Default for free tier
+        credits_available = 150 # Default for free tier
         if db and user_id:
             try:
                 # Use user ID for document reference
@@ -4841,13 +4904,13 @@ def run_free_tier_enhanced_final(job_title, company, location, user_email=None, 
                     user_ref.set({
                         'uid': user_id,
                         'email': user_email,
-                        'credits': 120,
-                        'maxCredits': 120,
+                        'credits': 150,
+                        'maxCredits': 150,
                         'tier': 'free',
                         'created_at': datetime.now(),
                         'lastCreditReset': datetime.now()
                     })
-                    print(f"Created new user document with ID {user_id} and 120 credits")
+                    print(f"Created new user document with ID {user_id} and 150credits")
             except Exception as credit_check_error:
                 print(f"Credit check error: {credit_check_error}")
                 # Continue without credit checking if Firebase fails
@@ -5373,7 +5436,7 @@ def check_credits():
             if user_doc.exists:
                 user_data = user_doc.to_dict()
                 credits = check_and_reset_credits(user_ref, user_data)
-                max_credits = user_data.get('maxCredits', 120)
+                max_credits = user_data.get('maxCredits', 150)
                 tier = user_data.get('tier', 'free')
                 
                 # Calculate searches remaining
@@ -5389,8 +5452,8 @@ def check_credits():
             else:
                 # User doesn't exist yet - return default free tier credits
                 return jsonify({
-                    'credits': 120,
-                    'max_credits': 120,
+                    'credits': 150,
+                    'max_credits': 150,
                     'searches_remaining': 8,
                     'tier': 'free',
                     'user_email': user_email
@@ -5399,7 +5462,7 @@ def check_credits():
         # If no Firebase, return defaults
         return jsonify({
             'credits': 0,
-            'max_credits': 120,
+            'max_credits': 150,
             'searches_remaining': 0,
             'tier': 'free',
             'user_email': user_email
@@ -6111,7 +6174,7 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
             print(f"Using Firebase user ID: {user_id}")
         
         # CHECK USER CREDITS BEFORE SEARCHING
-        credits_available = 840  # Default for pro tier
+        credits_available = 1800  # Default for pro tier
         if db and user_id:
             try:
                 user_ref = db.collection('users').document(user_id)
@@ -6119,7 +6182,7 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                 
                 if user_doc.exists:
                     user_data = user_doc.to_dict()
-                    credits_available = user_data.get('credits', 840)
+                    credits_available = user_data.get('credits', 1800)
                     tier = user_data.get('tier', 'free')
                     
                     # Verify user is Pro tier
@@ -6902,8 +6965,8 @@ def complete_upgrade():
         
         update_data = {
             'tier': 'pro',
-            'credits': 840,
-            'maxCredits': 840,
+            'credits': 1800,
+            'maxCredits': 1800,
             'subscriptionStatus': 'active',
             'upgraded_at': datetime.now().isoformat(),
             'lastCreditReset': datetime.now().isoformat()
@@ -6922,7 +6985,7 @@ def complete_upgrade():
             'success': True,
             'message': 'Successfully upgraded to Pro',
             'tier': 'pro',
-            'credits': 840
+            'credits': 1800
         })
         
     except Exception as e:
@@ -7034,8 +7097,8 @@ def handle_checkout_completed(session):
                 'uid': user_id,
                 'email': user_email,
                 'tier': 'free',
-                'credits': 120,
-                'maxCredits': 120,
+                'credits': 150,
+                'maxCredits': 150,
                 'created_at': datetime.now().isoformat(),
                 'lastCreditReset': datetime.now().isoformat()
             })
@@ -7057,8 +7120,8 @@ def handle_checkout_completed(session):
         print(f"\n📝 Preparing user upgrade to Pro tier...")
         update_data = {
             'tier': 'pro',
-            'credits': 840,
-            'maxCredits': 840,
+            'credits': 1800,
+            'maxCredits': 1800,
             'stripeCustomerId': customer_id,
             'stripeSubscriptionId': subscription_id,
             'subscriptionStatus': subscription.get('status', 'active'),
@@ -7171,7 +7234,7 @@ def handle_subscription_updated(subscription):
             update_data['tier'] = 'pro'
             user_data = user_doc.to_dict()
             if user_data.get('credits', 0) < 100:
-                update_data['credits'] = 840
+                update_data['credits'] = 1800
         
         user_ref.update(update_data)
         print(f"Updated subscription for user {user_doc.id}")
@@ -7201,8 +7264,8 @@ def handle_subscription_deleted(subscription):
         
         user_ref.update({
             'tier': 'free',
-            'credits': 120,
-            'maxCredits': 120,
+            'credits': 150,
+            'maxCredits': 150,
             'subscriptionStatus': 'canceled',
             'downgraded_at': datetime.now().isoformat()
         })
@@ -7233,7 +7296,7 @@ def handle_payment_succeeded(invoice):
         user_ref = users_ref.document(user_doc.id)
         
         user_ref.update({
-            'credits': 840,
+            'credits': 1800,
             'lastCreditReset': datetime.now(),
             'last_payment_date': datetime.now().isoformat(),
             'subscriptionStatus': 'active'
@@ -7739,8 +7802,8 @@ if __name__ == '__main__':
     print("Access the API at: http://localhost:5001")
     print("Health check: http://localhost:5001/health")
     print("Available Tiers:")
-    print("- FREE: 8 emails, 120 credits, 200 minutes saved")
-    print("- PRO: 56 emails, 840 credits, 1200 minutes saved")
+    print("- FREE: 8 emails, 150credits, 200 minutes saved")
+    print("- PRO: 56 emails, 1800 credits, 1200 minutes saved")
     print("New endpoints:")
     print("- /api/free-run (replaces basic-run)")
     print("- /api/pro-run (enhanced with resume)")
