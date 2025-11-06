@@ -1,8 +1,7 @@
 // src/pages/Index.tsx
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronDown, Check, Send, Calendar, Handshake, BarChart, Users, Target, MessageSquare, TrendingUp, Zap, ArrowRight } from 'lucide-react';
-import twoBillionImage from '@/assets/twobillion.jpeg';
+import { ChevronDown, Check, Send, Calendar, Handshake, BarChart, Users, Target, MessageSquare, TrendingUp, Zap, ArrowRight, Lightbulb, Heart } from 'lucide-react';import twoBillionImage from '@/assets/twobillion.jpeg';
 import aiPersonalImage from '@/assets/Ai_Personal.jpeg';
 import smartMatchingImage from '@/assets/SmartMatching.jpeg';
 import topTierImage from '@/assets/TopTier.jpeg';
@@ -894,42 +893,43 @@ const Index = () => {
             <div className="mb-16">
               <h3 className="text-3xl font-bold mb-8 text-white">Our Mission</h3>
               <p className="text-xl text-gray-300 leading-relaxed max-w-5xl mx-auto">
-                To give students a competitive edge in recruiting—helping them land the best opportunities while saving time for 
-                what matters most. By combining advanced technology with human insight, we make it easy to cut through the 
-                noise, focus on real connections, and build a career you're excited about.
+                To make it easier for students and young professionals to connect, stand out and land better opportunities. By cutting down the time to send emails and prep for calls by <strong>90%</strong>, we save our users hundreds of hours of work and stress, giving them back time to focus on what matters: learning, growing and enjoying your best years
               </p>
             </div>
           </div>
 
           {/* Value Proposition Cards */}
-          <div className="grid md:grid-cols-3 gap-8 mb-20">
-            <div className="bg-black/50 backdrop-blur-sm rounded-2xl p-8 border border-gray-700 text-center">
-              <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center mb-6 mx-auto">
-                <Users className="w-8 h-8 text-white" />
+          <div className="grid md:grid-cols-3 gap-6 mb-20">
+            {/* High-Impact Connections */}
+            <div className="text-center border-none shadow-lg bg-gradient-to-br from-blue-500 to-purple-600 text-white hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 rounded-2xl p-8">
+              <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-6">
+                <Users className="h-7 w-7 text-white" strokeWidth={2} />
               </div>
-              <h3 className="text-xl font-bold mb-4 text-white">High-Impact Connections</h3>
-              <p className="text-gray-300 leading-relaxed">
-                We connect you directly with the professionals who matter, so every conversation moves you closer to your goals.
+              <h3 className="font-bold text-xl mb-3">High-Impact Connections</h3>
+              <p className="text-sm text-white/90 leading-relaxed">
+                We make it easier to reach the people that can move you forward.
               </p>
             </div>
-            
-            <div className="bg-black/50 backdrop-blur-sm rounded-2xl p-8 border border-gray-700 text-center">
-              <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center mb-6 mx-auto">
-                <Zap className="w-8 h-8 text-white" />
+
+            {/* Innovation First */}
+            <div className="text-center border-none shadow-lg bg-gradient-to-br from-pink-500 to-orange-500 text-white hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 rounded-2xl p-8">
+              <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-6">
+                <Lightbulb className="h-7 w-7 text-white" strokeWidth={2} />
               </div>
-              <h3 className="text-xl font-bold mb-4 text-white">Innovation First</h3>
-              <p className="text-gray-300 leading-relaxed">
-                We continuously evolve our platform with the latest technology and industry insights.
+              <h3 className="font-bold text-xl mb-3">Innovation First</h3>
+              <p className="text-sm text-white/90 leading-relaxed">
+                We're constantly building and refining Offerloop with feedback from students and recruiters to make networking faster, smarter, and more personal.
               </p>
             </div>
-            
-            <div className="bg-black/50 backdrop-blur-sm rounded-2xl p-8 border border-gray-700 text-center">
-              <div className="w-16 h-16 bg-gradient-to-r from-green-500 to-emerald-500 rounded-2xl flex items-center justify-center mb-6 mx-auto">
-                <Handshake className="w-8 h-8 text-white" />
+
+            {/* Human Connection */}
+            <div className="text-center border-none shadow-lg bg-gradient-to-br from-teal-500 to-green-500 text-white hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 rounded-2xl p-8">
+              <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-6">
+                <Heart className="h-7 w-7 text-white" strokeWidth={2} />
               </div>
-              <h3 className="text-xl font-bold mb-4 text-white">Human Connection</h3>
-              <p className="text-gray-300 leading-relaxed">
-                Technology enhances, but human relationships remain at the heart of what we do.
+              <h3 className="font-bold text-xl mb-3">Human Connection</h3>
+              <p className="text-sm text-white/90 leading-relaxed">
+                AI makes things easier, but people make them meaningful. We keep human connection at the center of everything we create.
               </p>
             </div>
           </div>
@@ -939,20 +939,16 @@ const Index = () => {
             <h3 className="text-3xl font-bold mb-8 text-center text-white">Our Story</h3>
             <div className="space-y-6 text-lg text-gray-300 leading-relaxed">
               <p>
-                Offerloop.ai started as a simple idea between three college friends who felt the pain of recruiting firsthand. After 
-                watching our classmates spend countless hours on applications—and coming up short ourselves—we realized the 
-                process was broken. With hundreds of applicants for every role, we saw that the only real way in was through 
-                genuine connections with people inside the companies.
+                Offerloop is a platform built by students, for students and young professionals, with one goal: to make it easier to connect with professionals, stand out, and land great opportunities.
+
               </p>
               <p>
-                Like many students, we struggled to land internships, felt discouraged, and asked ourselves: why does recruiting 
-                have to take so much time and effort? We wanted to make things better, not just for ourselves, but for everyone in 
-                our shoes. So we started building a tool to automate the outreach process, helping students spend less time on 
-                tedious tasks and more time on meaningful conversations.
+                At USC, we saw countless students spending hours filling out spreadsheets and sending emails, and we went through the same thing ourselves. With so many applicants for every competitive role, networking is essential but the process is slow, stressful, and exhausting. Worst of all it takes away from what’s supposed to be the most exciting time of your life.
+
               </p>
               <p>
-                That's how Offerloop.ai was born: a platform built by students, for students, with 
-                one goal—make it easier to connect, stand out, and land great opportunities.
+                We built Offerloop to fix that. Our platform automates the outreach process, helping students spend less time on tedious work and more time building real connections and preparing for what truly matters in their careers.
+
               </p>
             </div>
           </div>

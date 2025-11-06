@@ -264,29 +264,6 @@ export default function AccountSettings() {
               <CardTitle>Personal Details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Profile Picture */}
-              <div className="flex items-center gap-6">
-                <Avatar className="h-20 w-20">
-                  <AvatarFallback className="text-xl font-semibold bg-primary text-primary-foreground">
-                    {getUserInitials()}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    <h3 className="font-medium text-foreground">Profile Picture</h3>
-                  </div>
-                  <p className="text-sm text-muted-foreground mb-4">PNGs, JPEGs under 10MB</p>
-                  <div className="flex gap-3">
-                    <Button size="sm" className="bg-primary hover:bg-primary/90">
-                      <Upload className="h-4 w-4 mr-2" />
-                      Upload Photo
-                    </Button>
-                    <Button variant="outline" size="sm">
-                      Remove
-                    </Button>
-                  </div>
-                </div>
-              </div>
 
               <Separator />
 

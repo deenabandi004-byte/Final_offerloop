@@ -3,8 +3,7 @@ import Footer from "@/components/Footer";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Mail, Phone, Linkedin, Twitter, Clock } from "lucide-react";
-
+import { ArrowLeft, Mail, Phone, Linkedin, Instagram, Clock } from "lucide-react";
 const ContactUs = () => {
 
   return (
@@ -57,7 +56,7 @@ const ContactUs = () => {
                     <Phone className="h-5 w-5 text-primary" />
                     <div>
                       <p className="font-medium">Phone</p>
-                      <p className="text-sm text-muted-foreground">(555) 123-4567</p>
+                      <p className="text-sm text-muted-foreground">(503) 616-1981</p>
                     </div>
                   </div>
                 </CardContent>
@@ -90,7 +89,7 @@ const ContactUs = () => {
                     </Button>
                     <Button variant="outline" size="icon" asChild>
                       <a href="#" target="_blank" rel="noopener noreferrer">
-                        <Twitter className="h-4 w-4" />
+                        <Instagram className="h-4 w-4" />
                       </a>
                     </Button>
                   </div>
