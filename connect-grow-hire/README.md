@@ -1,73 +1,458 @@
-# Welcome to your Lovable project
+# Frontend Application Documentation
 
-## Project info
+## Overview
 
-**URL**: https://lovable.dev/projects/146e4352-f928-4964-9adb-cee8bdcfbf54
+This is a React-based single-page application (SPA) built with Vite, TypeScript, and Tailwind CSS. The frontend provides a user interface for the Offerloop platform, including contact search, email management, coffee chat preparation, billing, and user account management.
 
-## How can I edit this code?
+## Technology Stack
 
-There are several ways of editing your application.
+- **Vite** - Build tool and dev server
+- **React 18** - UI framework
+- **TypeScript** - Type safety
+- **React Router** - Client-side routing
+- **Firebase** - Authentication and data storage
+- **TanStack Query** - Data fetching and caching
+- **Tailwind CSS** - Styling
+- **shadcn/ui** - UI component library
+- **Radix UI** - Accessible component primitives
+- **React Hook Form** - Form management
+- **Zod** - Schema validation
+- **Stripe.js** - Payment processing
 
-**Use Lovable**
+## Getting Started
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/146e4352-f928-4964-9adb-cee8bdcfbf54) and start prompting.
+### Prerequisites
 
-Changes made via Lovable will be committed automatically to this repo.
+- Node.js 18+ and npm
+- Firebase project configured
+- Backend API running (see backend README)
 
-**Use your preferred IDE**
+### Installation
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+1. Navigate to the frontend directory:
+```bash
+cd connect-grow-hire
+```
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+2. Install dependencies:
+```bash
+npm install
+```
 
-Follow these steps:
+3. Set up environment variables (create `.env` file):
+```bash
+VITE_API_BASE_URL=http://localhost:5001/api
+VITE_FIREBASE_API_KEY=your_firebase_api_key
+VITE_FIREBASE_AUTH_DOMAIN=your_firebase_auth_domain
+VITE_FIREBASE_PROJECT_ID=your_firebase_project_id
+VITE_FIREBASE_STORAGE_BUCKET=your_firebase_storage_bucket
+VITE_FIREBASE_MESSAGING_SENDER_ID=your_firebase_messaging_sender_id
+VITE_FIREBASE_APP_ID=your_firebase_app_id
+```
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+4. Start the development server:
+```bash
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+The application will be available at `http://localhost:8080`
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+### Build for Production
 
-**Use GitHub Codespaces**
+```bash
+npm run build
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+The built files will be in the `dist/` directory.
 
-## What technologies are used for this project?
+### Preview Production Build
 
-This project is built with:
+```bash
+npm run preview
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Project Structure
 
-## How can I deploy this project?
+```
+connect-grow-hire/
+├── src/
+│   ├── components/        # Reusable React components
+│   │   ├── ui/           # shadcn/ui components
+│   │   └── ...           # Feature components
+│   ├── contexts/         # React contexts
+│   ├── hooks/            # Custom React hooks
+│   ├── lib/              # Utility libraries
+│   ├── pages/            # Page components (routes)
+│   ├── services/         # API and service integrations
+│   ├── App.tsx           # Main app component with routing
+│   └── main.tsx          # Application entry point
+├── public/               # Static assets
+├── dist/                 # Production build output
+└── vite.config.ts        # Vite configuration
+```
 
-Simply open [Lovable](https://lovable.dev/projects/146e4352-f928-4964-9adb-cee8bdcfbf54) and click on Share -> Publish.
+## Key Features
 
-## Can I connect a custom domain to my Lovable project?
+### Authentication
 
-Yes, you can!
+Firebase Authentication is used for user management:
+- Email/password authentication
+- Google OAuth
+- Protected routes
+- Session management
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+**Context**: `src/contexts/FirebaseAuthContext.tsx`
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+### Routing
+
+React Router handles client-side routing:
+
+**Public Routes:**
+- `/` - Landing page
+- `/signin` - Sign in page
+- `/about` - About us
+- `/contact` - Contact us
+- `/pricing` - Pricing page
+- `/privacy` - Privacy policy
+- `/terms` - Terms of service
+
+**Protected Routes** (require authentication):
+- `/home` - Main dashboard
+- `/contact-directory` - Contact management
+- `/coffee-chat-library` - Coffee chat preps
+- `/account-settings` - User settings
+- `/dashboard` - Analytics dashboard
+- `/onboarding` - User onboarding flow
+
+**Route Guards**: Implemented in `App.tsx` with `ProtectedRoute` component
+
+### Pages
+
+#### Home (`pages/Home.tsx`)
+- Main dashboard after login
+- Contact search functionality
+- Quick actions
+- Coffee chat history
+
+#### Contact Directory (`pages/ContactDirectory.tsx`)
+- View all contacts
+- Contact management
+- Email tracking
+- Contact statistics
+
+#### Coffee Chat Library (`pages/CoffeeChatLibrary.tsx`)
+- View coffee chat preparations
+- Download PDFs
+- Create new preps
+
+#### Account Settings (`pages/AccountSettings.tsx`)
+- Profile management
+- Resume upload
+- Tier management
+- Gmail connection
+
+#### Onboarding Flow (`pages/OnboardingFlow.tsx`)
+- Multi-step user onboarding
+- Profile setup
+- Location preferences
+- Academic information
+
+### Components
+
+#### UI Components (`components/ui/`)
+shadcn/ui components including:
+- Buttons, Inputs, Forms
+- Dialogs, Modals
+- Cards, Badges
+- Tables, Tabs
+- Toast notifications
+- And more...
+
+#### Feature Components
+
+**ContactSearchForm** (`components/ContactSearchForm.tsx`)
+- Contact search interface
+- Job title, company, location inputs
+- Tier-based search options
+
+**ContactDirectory** (`components/ContactDirectory.tsx`)
+- Contact list display
+- Filtering and sorting
+- Contact actions
+
+**ScoutChatbot** (`components/ScoutChatbot.tsx`)
+- AI assistant chatbot
+- User guidance
+
+**NotificationBell** (`components/NotificationBell.tsx`)
+- Notification system
+- User alerts
+
+### Services
+
+#### API Service (`services/api.ts`)
+Centralized API client with:
+- Base URL configuration
+- Request/response types
+- Error handling
+- Authentication headers
+
+**Key Functions:**
+- `searchContacts()` - Free tier search
+- `searchContactsPro()` - Pro tier search
+- `getContacts()` - Fetch user contacts
+- `createContact()` - Create new contact
+- `generateAndDraftEmails()` - Email generation
+- `createCoffeeChatPrep()` - Coffee chat prep
+- `uploadResume()` - Resume upload
+- `checkCredits()` - Credit checking
+- `createCheckoutSession()` - Stripe checkout
+
+#### Firebase API (`services/firebaseApi.ts`)
+Firebase-specific operations:
+- Firestore data operations
+- User data management
+- Contact CRUD operations
+
+### State Management
+
+#### React Query (`@tanstack/react-query`)
+- Server state management
+- Caching and synchronization
+- Background updates
+- Optimistic updates
+
+#### React Context
+- `FirebaseAuthContext` - Authentication state
+- Global UI state
+
+### Styling
+
+#### Tailwind CSS
+- Utility-first CSS framework
+- Responsive design
+- Custom theme configuration
+
+#### CSS Variables
+Defined in `src/index.css` for theming:
+- Colors
+- Spacing
+- Typography
+- Border radius
+
+## API Integration
+
+### Base URL Configuration
+
+The API base URL is configured in `services/api.ts`:
+- Development: `http://localhost:5001/api`
+- Production: `https://www.offerloop.ai/api`
+- Configurable via `VITE_API_BASE_URL` environment variable
+
+### Authentication
+
+All authenticated requests include Firebase ID token:
+```typescript
+const idToken = await auth.currentUser?.getIdToken();
+fetch('/api/endpoint', {
+  headers: {
+    'Authorization': `Bearer ${idToken}`
+  }
+});
+```
+
+### Error Handling
+
+API errors are handled consistently:
+- Network errors
+- Authentication errors (401)
+- Validation errors (400)
+- Server errors (500)
+
+## Development
+
+### Vite Configuration
+
+The Vite config (`vite.config.ts`) includes:
+- React plugin with SWC
+- Path aliases (`@/` for `src/`)
+- Dev server on port 8080
+- Build configuration
+- HMR (Hot Module Replacement) support
+
+### TypeScript Configuration
+
+- Strict mode enabled
+- Path aliases configured
+- React types included
+
+### Code Organization
+
+- **Components**: Reusable UI components
+- **Pages**: Route-level components
+- **Hooks**: Custom React hooks
+- **Services**: API and external service integrations
+- **Utils**: Helper functions
+- **Types**: TypeScript type definitions
+
+## Features
+
+### Contact Search
+
+**Free Tier:**
+- Basic contact search
+- Limited fields
+- 3 contacts per search
+
+**Pro Tier:**
+- Enhanced search with resume
+- More contact fields
+- 8 contacts per search
+- Personalized results
+
+### Email Management
+
+- Email generation
+- Gmail integration
+- Draft creation
+- Reply tracking
+- Email templates
+
+### Coffee Chat Preparation
+
+- LinkedIn profile analysis
+- Similarity detection
+- Question generation
+- PDF export
+- Company news integration
+
+### Billing
+
+- Stripe integration
+- Tier management
+- Credit system
+- Subscription handling
+- Payment success flow
+
+### User Management
+
+- Profile management
+- Resume upload and parsing
+- Account settings
+- Onboarding flow
+- Gmail OAuth connection
+
+## Environment Variables
+
+Required environment variables:
+
+```bash
+# API Configuration
+VITE_API_BASE_URL=http://localhost:5001/api
+
+# Firebase Configuration
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+```
+
+## Build and Deployment
+
+### Development Build
+
+```bash
+npm run dev
+```
+
+### Production Build
+
+```bash
+npm run build
+```
+
+Output: `dist/` directory with optimized assets
+
+### Static Hosting
+
+The `dist/` folder can be served by:
+- Netlify
+- Vercel
+- AWS S3 + CloudFront
+- Any static file server
+
+### Backend Integration
+
+The built frontend is served by the Flask backend:
+- Static files in `connect-grow-hire/dist/`
+- Backend serves SPA for all non-API routes
+- API routes handled by Flask
+
+## Performance
+
+### Optimizations
+
+- Code splitting by route
+- Lazy loading components
+- Image optimization
+- Tree shaking
+- Minification in production
+
+### Caching
+
+- React Query caching
+- Browser caching for static assets
+- Service worker (if implemented)
+
+## Browser Support
+
+- Chrome (latest)
+- Firefox (latest)
+- Safari (latest)
+- Edge (latest)
+
+## Troubleshooting
+
+### Common Issues
+
+1. **API Connection Errors**
+   - Verify backend is running
+   - Check `VITE_API_BASE_URL` configuration
+   - Check CORS settings on backend
+
+2. **Firebase Errors**
+   - Verify Firebase config in `.env`
+   - Check Firebase project settings
+   - Verify authentication rules
+
+3. **Build Errors**
+   - Clear `node_modules` and reinstall
+   - Check TypeScript errors
+   - Verify all dependencies installed
+
+4. **Routing Issues**
+   - Verify React Router configuration
+   - Check route guards
+   - Verify protected routes
+
+## Development Workflow
+
+1. Start backend server (port 5001)
+2. Start frontend dev server (port 8080)
+3. Make changes - HMR will update automatically
+4. Test in browser
+5. Build for production when ready
+
+## Testing
+
+[Add testing information if tests are implemented]
+
+## Contributing
+
+[Add contribution guidelines]
+
+## License
+
+[Your License Here]

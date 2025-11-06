@@ -1,73 +1,250 @@
-# Welcome to your Lovable project
+# Offerloop Platform
 
-## Project info
+A comprehensive platform for professional networking, contact management, and email outreach automation.
 
-**URL**: https://lovable.dev/projects/61c92f16-063f-4de7-99a9-503214de8149
+## Project Overview
 
-## How can I edit this code?
+Offerloop is a full-stack application that helps users:
+- Search and discover professional contacts
+- Generate personalized outreach emails
+- Manage contact directories
+- Prepare for coffee chats and networking events
+- Manage subscriptions and billing
 
-There are several ways of editing your application.
+## Architecture
 
-**Use Lovable**
+This project consists of:
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/61c92f16-063f-4de7-99a9-503214de8149) and start prompting.
+1. **Backend API** (`backend/`) - Flask-based REST API
+2. **Frontend Application** (`connect-grow-hire/`) - React SPA with Vite
 
-Changes made via Lovable will be committed automatically to this repo.
+## Quick Start
 
-**Use your preferred IDE**
+### Prerequisites
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+- Python 3.8+ (for backend)
+- Node.js 18+ and npm (for frontend)
+- Firebase project configured
+- Environment variables configured (see below)
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+### Setup
 
-Follow these steps:
+1. **Clone the repository**
+```bash
+git clone <repository-url>
+cd Final_offerloop
+```
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+2. **Backend Setup**
+```bash
+# Install Python dependencies
+cd backend
+pip install -r requirements.txt
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+# Set up environment variables (create .env in project root)
+# See backend/README.md for required variables
 
-# Step 3: Install the necessary dependencies.
-npm i
+# Start backend server
+cd ..
+python3 app.py
+```
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+Backend will run on `http://localhost:5001`
+
+3. **Frontend Setup**
+```bash
+# Install Node dependencies
+cd connect-grow-hire
+npm install
+
+# Set up environment variables (create .env file)
+# See connect-grow-hire/README.md for required variables
+
+# Start development server
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+Frontend will run on `http://localhost:8080`
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Documentation
 
-**Use GitHub Codespaces**
+- **[Backend Documentation](./backend/README.md)** - Complete API documentation, architecture, and setup guide
+- **[Frontend Documentation](./connect-grow-hire/README.md)** - Frontend architecture, components, and development guide
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Project Structure
 
-## What technologies are used for this project?
+```
+Final_offerloop/
+├── backend/                 # Flask backend API
+│   ├── app/
+│   │   ├── routes/         # API endpoints
+│   │   ├── services/       # Business logic
+│   │   ├── models/         # Data models
+│   │   └── utils/          # Utilities
+│   ├── wsgi.py             # WSGI entry point
+│   └── README.md           # Backend documentation
+├── connect-grow-hire/       # React frontend
+│   ├── src/
+│   │   ├── components/     # React components
+│   │   ├── pages/          # Page components
+│   │   ├── services/       # API clients
+│   │   └── ...
+│   ├── dist/               # Production build
+│   └── README.md           # Frontend documentation
+├── app.py                  # Backend entry point (shim)
+└── README.md               # This file
+```
 
-This project is built with:
+## Environment Variables
 
-- Vite
+Create a `.env` file in the project root with:
+
+### Backend Variables
+```bash
+# API Keys
+OPENAI_API_KEY=your_key
+PEOPLE_DATA_LABS_API_KEY=your_key
+STRIPE_SECRET_KEY=your_key
+STRIPE_PUBLISHABLE_KEY=your_key
+STRIPE_WEBHOOK_SECRET=your_key
+SERPAPI_KEY=your_key
+
+# Google OAuth
+GOOGLE_CLIENT_ID=your_id
+GOOGLE_CLIENT_SECRET=your_secret
+
+# Firebase
+GOOGLE_APPLICATION_CREDENTIALS=path/to/firebase-credentials.json
+
+# Flask
+FLASK_SECRET=your_secret
+FLASK_ENV=development
+```
+
+### Frontend Variables
+Create `.env` in `connect-grow-hire/`:
+```bash
+VITE_API_BASE_URL=http://localhost:5001/api
+VITE_FIREBASE_API_KEY=your_key
+VITE_FIREBASE_AUTH_DOMAIN=your_domain
+VITE_FIREBASE_PROJECT_ID=your_project_id
+VITE_FIREBASE_STORAGE_BUCKET=your_bucket
+VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+VITE_FIREBASE_APP_ID=your_app_id
+```
+
+## Development Workflow
+
+1. **Start Backend** (Terminal 1)
+```bash
+python3 app.py
+```
+
+2. **Start Frontend** (Terminal 2)
+```bash
+cd connect-grow-hire
+npm run dev
+```
+
+3. **Access Application**
+- Frontend: http://localhost:8080
+- Backend API: http://localhost:5001
+- Health Check: http://localhost:5001/health
+
+## Key Features
+
+### Contact Management
+- Search contacts by job title, company, location
+- Free tier (3 contacts) and Pro tier (8 contacts)
+- Contact directory with email tracking
+- Resume-based personalization (Pro tier)
+
+### Email Generation
+- AI-powered email generation
+- Gmail integration
+- Draft creation
+- Reply tracking
+
+### Coffee Chat Preparation
+- LinkedIn profile analysis
+- Similarity detection
+- Question generation
+- PDF export
+
+### Billing & Subscriptions
+- Stripe integration
+- Free and Pro tiers
+- Credit system
+- Subscription management
+
+## Technology Stack
+
+### Backend
+- Flask (Python web framework)
+- Firebase/Firestore (Database & Auth)
+- OpenAI (AI features)
+- People Data Labs (Contact enrichment)
+- Stripe (Payments)
+- Gmail API (Email)
+
+### Frontend
+- React 18
 - TypeScript
-- React
-- shadcn-ui
+- Vite
+- React Router
+- Firebase SDK
+- TanStack Query
 - Tailwind CSS
+- shadcn/ui
 
-## How can I deploy this project?
+## API Endpoints
 
-Simply open [Lovable](https://lovable.dev/projects/61c92f16-063f-4de7-99a9-503214de8149) and click on Share -> Publish.
+See [Backend README](./backend/README.md) for complete API documentation.
 
-## Can I connect a custom domain to my Lovable project?
+Key endpoints:
+- `GET /health` - Health check
+- `POST /api/free-run` - Free tier contact search
+- `POST /api/pro-run` - Pro tier contact search
+- `GET /api/contacts` - Get user contacts
+- `POST /api/coffee-chat-prep` - Create coffee chat prep
+- `POST /api/create-checkout-session` - Stripe checkout
 
-Yes, you can!
+## Deployment
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+### Backend
+- WSGI server (Gunicorn, uWSGI, etc.)
+- Environment variables configured
+- Firebase credentials set up
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+### Frontend
+- Build: `npm run build` in `connect-grow-hire/`
+- Serve `dist/` folder (or let backend serve it)
+- Configure production API URL
+
+## Troubleshooting
+
+### Backend Issues
+- Check environment variables are loaded
+- Verify Firebase credentials path
+- Check CORS configuration matches frontend origin
+- See [Backend README](./backend/README.md)
+
+### Frontend Issues
+- Verify backend is running
+- Check API base URL configuration
+- Verify Firebase configuration
+- See [Frontend README](./connect-grow-hire/README.md)
+
+## Contributing
+
+[Add contribution guidelines]
+
+## License
+
+[Your License Here]
+
+## Support
+
+For detailed documentation:
+- Backend: See [backend/README.md](./backend/README.md)
+- Frontend: See [connect-grow-hire/README.md](./connect-grow-hire/README.md)
