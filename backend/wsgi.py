@@ -7,8 +7,16 @@ from dotenv import load_dotenv
 load_dotenv()  # Load .env from project root by default
 
 import os
+import sys
 from flask import Flask
 
+# Since this wsgi.py is in backend/, and app/ is also in backend/,
+# we need to make sure backend is in the path
+backend_dir = os.path.dirname(os.path.abspath(__file__))
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
+
+# Now import from app (which is backend/app/)
 from app.extensions import init_app_extensions
 from app.routes import (
     health_bp,
@@ -100,7 +108,7 @@ def create_app():
         """Log requests for debugging"""
         from flask import request
         if 'coffee-chat-prep' in request.path:
-            print(f"\n📨 {request.method} {request.path}")
+            print(f"\n🔨 {request.method} {request.path}")
             print(f"   Origin: {request.headers.get('Origin')}")
             if request.headers.get('Authorization'):
                 print(f"   Auth: {request.headers.get('Authorization')[:50]}...")
@@ -114,20 +122,16 @@ app = create_app()
 
 if __name__ == '__main__':
     print("=" * 50)
-    print("Initializing RecruitEdge server with TWO TIERS: Free and Pro...")
+    print("Initializing Offerloop server...")
     print("=" * 50)
     
     print("\n" + "=" * 50)
-    print("Starting RecruitEdge server on port 5001...")
+    print("Starting Offerloop server on port 5001...")
     print("Access the API at: http://localhost:5001")
     print("Health check: http://localhost:5001/health")
     print("Available Tiers:")
-    print("- FREE: 3 contacts, 150 credits, 200 minutes saved")
-    print("- PRO: 8 contacts, 1800 credits, 1200 minutes saved")
-    print("New endpoints:")
-    print("- /api/free-run (replaces basic-run)")
-    print("- /api/pro-run (enhanced with resume)")
-    print("- /api/tier-info (get tier information)")
+    print("- FREE: 120 credits")
+    print("- PRO: 840 credits")
     print("=" * 50 + "\n")
     
     port = int(os.environ.get('PORT', 5001))
