@@ -50,28 +50,77 @@ def _save_user_gmail_creds(uid, creds):
 
 
 def _load_user_gmail_creds(uid):
-    """Load user Gmail credentials from Firestore"""
+    """Load user Gmail credentials from Firestore with automatic token refresh"""
     db = get_db()
     if not db:
+        print("❌ Database not available")
         return None
     
     snap = db.collection("users").document(uid).collection("integrations").document("gmail").get()
     print(f"🔍 DEBUG: Checking integrations/gmail for uid={uid}, exists={snap.exists}")
+    
     if not snap.exists:
+        print(f"❌ No Gmail credentials found for user {uid}")
         return None
+    
     data = snap.to_dict() or {}
-    creds = Credentials.from_authorized_user_info({
-        "token": data.get("token"),
-        "refresh_token": data.get("refresh_token"),
-        "token_uri": data.get("token_uri") or "https://oauth2.googleapis.com/token",
-        "client_id": data.get("client_id") or GOOGLE_CLIENT_ID,
-        "client_secret": data.get("client_secret") or GOOGLE_CLIENT_SECRET,
-        "scopes": data.get("scopes") or GMAIL_SCOPES,
-    })
-    if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-        _save_user_gmail_creds(uid, creds)
-    return creds
+    
+    # Check if we have required data
+    if not data.get("token"):
+        print(f"❌ No access token found for user {uid}")
+        return None
+    
+    if not data.get("refresh_token"):
+        print(f"⚠️ WARNING: No refresh token found for user {uid} - token cannot be refreshed!")
+        print(f"   User will need to reconnect Gmail when token expires")
+    
+    # Create credentials object
+    try:
+        creds = Credentials.from_authorized_user_info({
+            "token": data.get("token"),
+            "refresh_token": data.get("refresh_token"),
+            "token_uri": data.get("token_uri") or "https://oauth2.googleapis.com/token",
+            "client_id": data.get("client_id") or GOOGLE_CLIENT_ID,
+            "client_secret": data.get("client_secret") or GOOGLE_CLIENT_SECRET,
+            "scopes": data.get("scopes") or GMAIL_SCOPES,
+        })
+        
+        # Check if credentials are valid
+        if creds.expired:
+            print(f"⚠️ Gmail token expired for user {uid}")
+            
+            if creds.refresh_token:
+                print(f"🔄 Attempting to refresh token...")
+                try:
+                    creds.refresh(Request())
+                    print(f"✅ Token refreshed successfully for user {uid}")
+                    
+                    # Save the refreshed credentials
+                    _save_user_gmail_creds(uid, creds)
+                    print(f"✅ Refreshed token saved to Firestore")
+                    
+                except Exception as refresh_error:
+                    error_msg = str(refresh_error).lower()
+                    if 'invalid_grant' in error_msg:
+                        print(f"❌ Refresh token is invalid or revoked for user {uid}")
+                        print(f"   User needs to reconnect Gmail")
+                        raise Exception("Gmail refresh token invalid - user needs to reconnect")
+                    else:
+                        print(f"❌ Token refresh failed: {refresh_error}")
+                        raise
+            else:
+                print(f"❌ No refresh token available for user {uid}")
+                raise Exception("Gmail token expired and no refresh token available")
+        else:
+            print(f"✅ Gmail token is valid for user {uid}")
+        
+        return creds
+        
+    except Exception as e:
+        print(f"❌ Error loading/refreshing Gmail credentials for user {uid}: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
 
 
 def _gmail_service(creds):
@@ -208,6 +257,14 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         email_body = clean_email_text(email_body)
         
         gmail_service = get_gmail_service_for_user(user_email)
+        print(f"📧 Connected Gmail account: {gmail_service.users().getProfile(userId='me').execute().get('emailAddress')}")
+
+        # (Optional but recommended) after creating the draft, log details too:
+        draft_result = gmail_service.users().drafts().create(
+            userId='me', body={'message': message_dict}
+        ).execute()
+
+        print(f"📤 Draft created: {draft_result}") 
         if not gmail_service:
             print(f"Gmail unavailable for {user_email} - creating mock draft")
             return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}_user_{user_email}"
@@ -331,7 +388,9 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         draft_result = gmail_service.users().drafts().create(userId='me', body=draft_body).execute()
         draft_id = draft_result['id']
         
+        
         print(f"✅ Created {tier.capitalize()} Gmail draft {draft_id} in {user_email}'s account")
+        print(f"📤 Draft details: {draft_result}")
         
         return draft_id
         

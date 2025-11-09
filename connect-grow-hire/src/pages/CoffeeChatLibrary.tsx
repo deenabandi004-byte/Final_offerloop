@@ -1,15 +1,104 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Coffee, Sparkles, Rocket, Star, ArrowLeft, Calendar, Building2, Download, FileText } from "lucide-react";
+import {
+  Coffee,
+  Download,
+  Trash2,
+  ArrowLeft,
+  Loader2,
+  BadgeCheck,
+  MapPin,
+  Calendar,
+  FileText,
+} from "lucide-react";
 import { CreditPill } from "@/components/credits";
+import { apiService } from "@/services/api";
+import type { CoffeeChatPrep } from "@/services/api";
+import { toast } from "@/hooks/use-toast";
 
 const CoffeeChatLibrary: React.FC = () => {
   const { user } = useFirebaseAuth();
   const navigate = useNavigate();
+  const [preps, setPreps] = useState<CoffeeChatPrep[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadPreps = async () => {
+      try {
+        const result = await apiService.getAllCoffeeChatPreps();
+        if ("error" in result) {
+          throw new Error(result.error);
+        }
+        setPreps(result.preps || []);
+      } catch (error) {
+        console.error("Failed to load coffee chat preps:", error);
+        toast({
+          title: "Unable to load library",
+          description: error instanceof Error ? error.message : "Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPreps();
+  }, []);
+
+  const handleDownload = async (prep: CoffeeChatPrep) => {
+    try {
+      if (prep.pdfUrl) {
+        window.open(prep.pdfUrl, "_blank", "noopener");
+        return;
+      }
+      const { pdfUrl } = await apiService.downloadCoffeeChatPDF(prep.id);
+      if (pdfUrl) {
+        window.open(pdfUrl, "_blank", "noopener");
+      } else {
+        throw new Error("PDF URL not available yet");
+      }
+    } catch (error) {
+      toast({
+        title: "Download failed",
+        description: "Could not open the PDF. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDelete = async (prepId: string) => {
+    setDeletingId(prepId);
+    try {
+      const result = await apiService.deleteCoffeeChatPrep(prepId);
+      if ("error" in result) {
+        throw new Error(result.error);
+      }
+      setPreps((prev) => prev.filter((prep) => prep.id !== prepId));
+      toast({
+        title: "Prep deleted",
+        description: "Removed from your Coffee Chat Library.",
+      });
+    } catch (error) {
+      toast({
+        title: "Delete failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const groupedPreps = useMemo(() => {
+    const completed = preps.filter((p) => p.status === "completed");
+    const inProgress = preps.filter((p) => p.status !== "completed");
+    return { completed, inProgress };
+  }, [preps]);
 
   return (
     <SidebarProvider>
@@ -24,10 +113,7 @@ const CoffeeChatLibrary: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-4">
-              <CreditPill
-                credits={user?.credits ?? 0}
-                max={user?.maxCredits ?? 120}
-              />
+              <CreditPill credits={user?.credits ?? 0} max={user?.maxCredits ?? 120} />
               <Button
                 size="sm"
                 onClick={() => navigate("/home")}
@@ -41,128 +127,139 @@ const CoffeeChatLibrary: React.FC = () => {
           </header>
 
           <main className="p-8">
-            <div className="max-w-5xl mx-auto">
-              {/* Coming Soon Hero Section */}
-              <div className="text-center mb-12">
-                <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-green-500 to-blue-500 mb-8 animate-pulse">
-                  <Coffee className="h-12 w-12 text-white" />
+            <div className="max-w-6xl mx-auto space-y-8">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-semibold text-white flex items-center gap-2">
+                    <Coffee className="h-5 w-5 text-green-400" />
+                    Saved Coffee Chat Preps
+                  </h2>
+                  <p className="text-sm text-gray-400 mt-1">
+                    Review, download, or delete the one-pagers you’ve generated.
+                  </p>
                 </div>
-                
-                <div className="mb-6">
-                  <span className="inline-flex items-center gap-2 bg-gradient-to-r from-green-500 to-blue-500 text-white border-none px-6 py-2 text-lg font-semibold rounded-full mb-6">
-                    <Sparkles className="h-5 w-5" />
-                    Coming Soon
-                  </span>
-                </div>
-                
-                <h1 className="text-5xl font-bold mb-6 bg-gradient-to-r from-green-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
-                  Coffee Chat Library
-                </h1>
-                
-                <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto leading-relaxed">
-                  Your personal archive of networking prep materials. Access all your coffee chat one-pagers, 
-                  company research, and conversation guides in one organized place.
-                </p>
-                
-                <div className="flex items-center justify-center gap-3 text-gray-400 mb-12">
-                  <Rocket className="h-5 w-5 text-blue-400" />
-                  <span className="text-lg">Launching soon - get ready to network smarter!</span>
-                </div>
-
-                {/* Star Rating */}
-                <div className="flex justify-center gap-2 mb-12">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="h-6 w-6 text-yellow-400 fill-yellow-400" />
-                  ))}
-                </div>
+                <Button onClick={() => navigate("/home?tab=coffee-chat")} className="bg-green-500/80 hover:bg-green-500 text-white">
+                  <FileText className="h-4 w-4 mr-2" />
+                  Create New Prep
+                </Button>
               </div>
 
-              {/* Feature Preview Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-                <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 hover:border-green-500/50 transition-all hover:shadow-lg hover:shadow-green-500/10">
-                  <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-green-500/20 to-blue-500/20 border border-green-500/30 flex items-center justify-center mb-4">
-                    <FileText className="h-6 w-6 text-green-400" />
+              {loading ? (
+                <div className="flex items-center justify-center h-48 rounded-xl border border-gray-800 bg-gray-900/80">
+                  <div className="flex items-center gap-3 text-gray-300">
+                    <Loader2 className="h-5 w-5 animate-spin text-blue-400" />
+                    Loading your library...
                   </div>
-                  <h3 className="text-lg font-semibold text-white mb-2">Organized Archive</h3>
+                </div>
+              ) : preps.length === 0 ? (
+                <div className="rounded-xl border border-gray-800 bg-gray-900/80 p-10 text-center space-y-4">
+                  <Coffee className="h-10 w-10 mx-auto text-green-400" />
+                  <h3 className="text-lg font-semibold text-white">No preps yet</h3>
                   <p className="text-sm text-gray-400">
-                    All your coffee chat preps in one place, beautifully organized and easy to find.
+                    Generate your first coffee chat prep to see it appear here.
                   </p>
-                </div>
-
-                <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 hover:border-blue-500/50 transition-all hover:shadow-lg hover:shadow-blue-500/10">
-                  <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/30 flex items-center justify-center mb-4">
-                    <Download className="h-6 w-6 text-blue-400" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-white mb-2">Quick Access</h3>
-                  <p className="text-sm text-gray-400">
-                    Download any prep material instantly before your networking calls.
-                  </p>
-                </div>
-
-                <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 hover:border-purple-500/50 transition-all hover:shadow-lg hover:shadow-purple-500/10">
-                  <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30 flex items-center justify-center mb-4">
-                    <Calendar className="h-6 w-6 text-purple-400" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-white mb-2">Track History</h3>
-                  <p className="text-sm text-gray-400">
-                    Review past preps and see who you've connected with over time.
-                  </p>
-                </div>
-              </div>
-
-              {/* Preview Mock Cards */}
-              <div className="space-y-4 opacity-30 blur-sm pointer-events-none">
-                <h3 className="text-lg font-semibold text-gray-400 mb-4">Preview</h3>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="bg-gray-800/50 border border-gray-700 rounded-lg p-6">
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="space-y-2 flex-1">
-                          <div className="h-4 bg-gray-700 rounded w-3/4"></div>
-                          <div className="h-3 bg-gray-700 rounded w-1/2"></div>
-                        </div>
-                        <div className="h-6 w-20 bg-green-500/20 rounded-full"></div>
-                      </div>
-                      
-                      <div className="space-y-3 mb-4">
-                        <div className="flex items-center gap-2">
-                          <Building2 className="h-4 w-4 text-gray-500" />
-                          <div className="h-3 bg-gray-700 rounded w-2/3"></div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Calendar className="h-4 w-4 text-gray-500" />
-                          <div className="h-3 bg-gray-700 rounded w-1/3"></div>
-                        </div>
-                      </div>
-                      
-                      <div className="h-9 bg-blue-500/20 rounded"></div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* CTA Section */}
-              {/* CTA Section */}
-              <div className="mt-16 text-center">
-                <div className="bg-gradient-to-r from-green-500/10 to-blue-500/10 border border-green-500/30 rounded-2xl p-8">
-                  <h3 className="text-2xl font-bold text-white mb-4">
-                    Ready to Network Smarter?
-                  </h3>
-                  <p className="text-gray-300 mb-6 max-w-xl mx-auto">
-                    When Coffee Chat Library launches, you'll have instant access to all your networking prep materials. 
-                    Start building your network today!
-                  </p>
-                  <Button
-                    onClick={() => navigate("/home")}
-                    size="lg"
-                    className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-semibold px-8 py-6 text-lg"
-                  >
-                    <Coffee className="h-5 w-5 mr-2" />
-                    Start Networking Now
+                  <Button onClick={() => navigate("/home?tab=coffee-chat")} className="bg-green-500/80 hover:bg-green-500 text-white">
+                    Create Coffee Chat Prep
                   </Button>
                 </div>
-              </div>
+              ) : (
+                <div className="space-y-6">
+                  {groupedPreps.inProgress.length > 0 && (
+                    <section>
+                      <h3 className="text-sm font-semibold text-gray-400 uppercase mb-3">
+                        In Progress
+                      </h3>
+                      <div className="grid gap-4">
+                        {groupedPreps.inProgress.map((prep) => (
+                          <div
+                            key={prep.id}
+                            className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-5 py-4 flex items-center justify-between"
+                          >
+                            <div>
+                              <p className="text-sm text-gray-200 font-medium">{prep.contactName}</p>
+                              <p className="text-xs text-gray-400">
+                                {prep.jobTitle} @ {prep.company}
+                              </p>
+                              <p className="text-xs text-gray-500 mt-1">
+                                Requested {prep.createdAt ? new Date(prep.createdAt).toLocaleString() : ""}
+                              </p>
+                            </div>
+                            <div className="text-xs uppercase text-yellow-300">Processing...</div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {groupedPreps.completed.length > 0 && (
+                    <section className="space-y-3">
+                      <h3 className="text-sm font-semibold text-gray-400 uppercase">
+                        Completed ({groupedPreps.completed.length})
+                      </h3>
+                      <div className="grid gap-4">
+                        {groupedPreps.completed.map((prep) => (
+                          <div
+                            key={prep.id}
+                            className="rounded-xl border border-gray-800 bg-gray-900/80 p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4"
+                          >
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2 text-sm text-white font-medium">
+                                <BadgeCheck className="h-4 w-4 text-green-400" />
+                                {prep.contactName}
+                              </div>
+                              <div className="text-sm text-gray-300">
+                                {prep.jobTitle} @ {prep.company}
+                              </div>
+                              <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="h-3 w-3" />
+                                  {prep.createdAt ? new Date(prep.createdAt).toLocaleDateString() : "—"}
+                                </span>
+                                {prep.hometown && (
+                                  <span className="flex items-center gap-1">
+                                    <MapPin className="h-3 w-3" />
+                                    {prep.hometown}
+                                  </span>
+                                )}
+                              </div>
+                              {prep.industrySummary && (
+                                <p className="text-xs text-gray-400">
+                                  {prep.industrySummary}
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="border-blue-500/60 text-blue-200 hover:bg-blue-500/10"
+                                onClick={() => handleDownload(prep)}
+                              >
+                                <Download className="h-4 w-4 mr-2" />
+                                PDF
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-red-300 hover:text-red-200"
+                                disabled={deletingId === prep.id}
+                                onClick={() => handleDelete(prep.id)}
+                              >
+                                {deletingId === prep.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </div>
+              )}
             </div>
           </main>
         </div>

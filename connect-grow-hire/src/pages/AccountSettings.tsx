@@ -8,10 +8,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
-import { doc, updateDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '@/lib/firebase';
- 
+import { doc, updateDoc, getDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+
 
 
 export default function AccountSettings() {
@@ -47,7 +47,11 @@ export default function AccountSettings() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [resumeFile, setResumeFile] = useState<string | null>(null);
   const [resumeData, setResumeData] = useState<any>(null);
+  const [resumeUrl, setResumeUrl] = useState<string | null>(null);
+  const [resumeFileName, setResumeFileName] = useState<string | null>(null);
+
   const [refreshKey, setRefreshKey] = useState(0);
+  
   const parseName = (fullName: string | undefined) => {
     if (!fullName || typeof fullName !== 'string') {
       return { firstName: "", lastName: "" };
@@ -65,7 +69,46 @@ export default function AccountSettings() {
     }
   };
 
-    const handleResumeUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  // Load resume from Firestore
+  const loadResumeFromFirestore = async () => {
+    try {
+      const { auth } = await import('../lib/firebase');
+      const uid = auth.currentUser?.uid;
+      if (!uid) return;
+      const userRef = doc(db, 'users', uid);
+      const snap = await getDoc(userRef);
+      if (snap.exists()) {
+        const data = snap.data() as any;
+        setResumeUrl(data.resumeUrl || null);
+        setResumeFileName(data.resumeFileName || null);
+
+        // Keep your current localStorage-based UI in sync (optional)
+        if (data.resumeParsed) {
+          localStorage.setItem('resumeData', JSON.stringify({
+            name: data.resumeParsed.name || '',
+            year: data.resumeParsed.year || '',
+            major: data.resumeParsed.major || '',
+            university: data.resumeParsed.university || '',
+            fileName: data.resumeFileName || 'Resume.pdf',
+            uploadDate: data.resumeUpdatedAt || new Date().toISOString(),
+          }));
+          setResumeData(JSON.parse(localStorage.getItem('resumeData') || '{}'));
+        } else {
+          // Clear local state if no resume in Firestore
+          setResumeData(null);
+          localStorage.removeItem('resumeData');
+        }
+      } else {
+        setResumeUrl(null);
+        setResumeFileName(null);
+        setResumeData(null);
+      }
+    } catch (e) {
+      console.error('Failed to load resume from Firestore', e);
+    }
+  };
+
+  const handleResumeUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -78,409 +121,474 @@ export default function AccountSettings() {
     setUploadError(null);
 
     try {
-      // Convert file to base64 for storage
+      // 1) Parse resume via backend (keeps your existing logic)
       const fileReader = new FileReader();
-      
       const readFilePromise = new Promise<string>((resolve, reject) => {
         fileReader.onload = () => resolve(fileReader.result as string);
         fileReader.onerror = reject;
         fileReader.readAsDataURL(file);
       });
-
       const base64File = await readFilePromise;
-      
+
       const formData = new FormData();
       formData.append('resume', file);
 
-      const API_URL = window.location.hostname === 'localhost' 
-        ? 'http://localhost:5001' 
+      const API_URL = window.location.hostname === 'localhost'
+        ? 'http://localhost:5001'
         : 'https://www.offerloop.ai';
 
-      // Get Firebase auth token
       const { auth } = await import('../lib/firebase');
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
 
       const response = await fetch(`${API_URL}/api/parse-resume`, {
         method: 'POST',
-        headers: token ? {
-          'Authorization': `Bearer ${token}`
-        } : {},
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
         body: formData,
       });
-
       const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Failed to parse resume');
 
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to parse resume');
-      }
+      // 2) Upload the PDF to Firebase Storage
+      const uid = auth.currentUser?.uid;
+      if (!uid) throw new Error('Not signed in');
 
-      // Store both the parsed data and the file
-      const resumeData = {
+      const ts = Date.now();
+      const storagePath = `resumes/${uid}/${ts}-${file.name}`;
+      const storageRef = ref(storage, storagePath);
+      await uploadBytes(storageRef, file);
+
+      // 3) Get a download URL and write to Firestore
+      const downloadUrl = await getDownloadURL(storageRef);
+      const userRef = doc(db, 'users', uid);
+      await updateDoc(userRef, {
+        resumeUrl: downloadUrl,
+        resumeFileName: file.name,
+        resumeUpdatedAt: new Date().toISOString(),
+        resumeParsed: {
+          name: result.data.name || '',
+          university: result.data.university || '',
+          major: result.data.major || '',
+          year: result.data.year || '',
+        },
+      });
+
+      // 4) Update local state immediately
+      setResumeUrl(downloadUrl);
+      setResumeFileName(file.name);
+
+      // 5) Keep your current local state/localStorage (backward-compat)
+      const parsed = {
         name: result.data.name || '',
         year: result.data.year || '',
         major: result.data.major || '',
         university: result.data.university || '',
         fileName: file.name,
-        uploadDate: new Date().toISOString()
+        uploadDate: new Date().toISOString(),
       };
-      
-      // Keep localStorage for backward compatibility
-      localStorage.setItem('resumeData', JSON.stringify(resumeData));
+      localStorage.setItem('resumeData', JSON.stringify(parsed));
       localStorage.setItem('resumeFile', base64File.split(',')[1]);
-      
-      // Update state to trigger re-render
-      setResumeData({...resumeData});
-      
-      // Update the personal info with the new data
-      const { firstName, lastName } = parseName(resumeData.name);
-      setPersonalInfo(prev => ({
-        ...prev,
-        firstName: firstName || prev.firstName,
-        lastName: lastName || prev.lastName,
-        university: resumeData.university || prev.university,
-      }));
-
-      setAcademicInfo(prev => ({
-        ...prev,
-        fieldOfStudy: resumeData.major || prev.fieldOfStudy,
-        graduationYear: resumeData.year || prev.graduationYear,
-      }));
-
+      setResumeData({ ...parsed });
       setResumeFile(base64File.split(',')[1]);
       event.target.value = '';
+
+      // 6) Reload from Firestore to ensure UI is in sync
+      await loadResumeFromFirestore();
       
+      // Force a tiny refresh of the UI that shows resume details
+      setRefreshKey((k) => k + 1);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
-      setUploadError(errorMessage);
+      const msg = err instanceof Error ? err.message : 'An unexpected error occurred';
+      setUploadError(msg);
     } finally {
       setIsUploading(false);
     }
   };
 
-  const getUserInitials = () => {
-    if (personalInfo.firstName && personalInfo.lastName) {
-      return personalInfo.firstName.charAt(0) + personalInfo.lastName.charAt(0);
+  // Handle resume deletion
+  const handleResumeDelete = async () => {
+    try {
+      const { auth } = await import('../lib/firebase');
+      const uid = auth.currentUser?.uid;
+      if (!uid) throw new Error('Not signed in');
+
+      // If we have a storage URL, try deleting the file
+      if (resumeUrl) {
+        try {
+          const fileRef = ref(storage, resumeUrl);
+          await deleteObject(fileRef);
+        } catch (deleteErr) {
+          console.warn('Could not delete file from storage (may already be deleted):', deleteErr);
+        }
+      }
+
+      // Clear Firestore pointers
+      const userRef = doc(db, 'users', uid);
+      await updateDoc(userRef, {
+        resumeUrl: null,
+        resumeFileName: null,
+        resumeUpdatedAt: null,
+        resumeParsed: null,
+      });
+
+      // Clear local state & localStorage
+      setResumeUrl(null);
+      setResumeFileName(null);
+      setResumeData(null);
+      setResumeFile(null);
+      localStorage.removeItem('resumeData');
+      localStorage.removeItem('resumeFile');
+
+      await loadResumeFromFirestore();
+    } catch (e) {
+      console.error('Delete resume failed', e);
+      alert('Could not delete resume. Please try again.');
     }
-    return "N";
+  };
+
+  // Load user data on mount
+  useEffect(() => {
+    const loadUserData = async () => {
+      try {
+        const { auth } = await import('../lib/firebase');
+        const uid = auth.currentUser?.uid;
+        if (!uid) return;
+
+        const userRef = doc(db, 'users', uid);
+        const userSnap = await getDoc(userRef);
+
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+          
+          if (data) {
+            const { firstName, lastName } = parseName(data.name);
+            setPersonalInfo({
+              firstName: firstName || data.firstName || "",
+              lastName: lastName || data.lastName || "",
+              email: data.email || user?.email || "",
+              university: data.university || "",
+            });
+
+            setAcademicInfo({
+              graduationMonth: data.graduationMonth || "",
+              graduationYear: data.graduationYear || "",
+              fieldOfStudy: data.fieldOfStudy || data.major || "",
+              currentDegree: data.currentDegree || "",
+            });
+
+            setCareerInfo({
+              industriesOfInterest: data.industriesOfInterest || [],
+              preferredJobRole: data.preferredJobRole || "",
+              preferredLocations: data.preferredLocations || [],
+              jobTypes: data.jobTypes || [],
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Error loading user data:", error);
+      }
+    };
+
+    // Load resume data from localStorage
+    const storedResumeData = localStorage.getItem('resumeData');
+    const storedResumeFile = localStorage.getItem('resumeFile');
+    
+    if (storedResumeData) {
+      try {
+        setResumeData(JSON.parse(storedResumeData));
+      } catch (error) {
+        console.error('Error parsing stored resume data:', error);
+      }
+    }
+    
+    if (storedResumeFile) {
+      setResumeFile(storedResumeFile);
+    }
+
+    loadUserData();
+    loadResumeFromFirestore();
+  }, [user?.email]);
+
+  const handleManageSubscription = async () => {
+    try {
+      const API_URL = window.location.hostname === 'localhost'
+        ? 'http://localhost:5001'
+        : 'https://www.offerloop.ai';
+
+      const { auth } = await import('../lib/firebase');
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+
+      const response = await fetch(`${API_URL}/api/create-portal-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create portal session');
+      }
+
+      const { url } = await response.json();
+      window.location.href = url;
+    } catch (error) {
+      console.error('Error creating portal session:', error);
+      alert('Unable to open billing portal. Please try again.');
+    }
   };
 
   const handleSignOut = async () => {
-  try {
-    await signOut();                 // <-- actually sign out of Firebase
-    // Optional: local clean-up if you want
-    // localStorage.removeItem('resumeData');
-    // localStorage.removeItem('resumeFile');
-    navigate('/', { replace: true }); // land on marketing; guards will treat you as signed out
-  } catch (e) {
-    console.error('Sign out failed', e);
-  }
-};
-
-  const handleManageSubscription = () => {
-    navigate('/pricing');
-  };
-
-  const getMaxEmailsForTier = (tierName: string) => {
-    if (tierName === 'pro') return 56;
-    return 8;
-  };
-
-  const maxEmails = getMaxEmailsForTier(user?.tier || 'free');
-
-  useEffect(() => {
-    // Load data from localStorage that was saved during onboarding
     try {
-      // Get professional info from onboarding
-      const professionalInfo = JSON.parse(localStorage.getItem('professionalInfo') || '{}');
-      
-      // Get resume data if available
-      const resumeDataStr = localStorage.getItem('resumeData');
-      const loadedResumeData = resumeDataStr ? JSON.parse(resumeDataStr) : null;
-      setResumeData(loadedResumeData);
-      
-      // Get resume file if available
-      const storedResumeFile = localStorage.getItem('resumeFile');
-      if (storedResumeFile) {
-        setResumeFile(storedResumeFile);
-      }
-
-      const { firstName, lastName } = parseName(loadedResumeData?.name);
-
-      setPersonalInfo({
-        firstName: firstName || professionalInfo.firstName || "",
-        lastName: lastName || professionalInfo.lastName || "",
-        email: user?.email || "",
-        university: loadedResumeData?.university || professionalInfo.university || "",
-      });
-
-      setAcademicInfo({
-        graduationMonth: professionalInfo.graduationMonth || "May",
-        graduationYear: professionalInfo.graduationYear || loadedResumeData?.year || "2027",
-        fieldOfStudy: professionalInfo.fieldOfStudy || loadedResumeData?.major || "Finance",
-        currentDegree: professionalInfo.currentDegree || "BA",
-      });
-
-      setCareerInfo({
-        industriesOfInterest: Array.isArray(professionalInfo.industriesOfInterest) 
-          ? professionalInfo.industriesOfInterest 
-          : ["Investment Banking", "Management Consulting"],
-        preferredJobRole: professionalInfo.preferredJobRole || "Associate Consulting and Investment Banking Analyst",
-        preferredLocations: Array.isArray(professionalInfo.preferredLocations) 
-          ? professionalInfo.preferredLocations 
-          : ["Los Angeles", "New York"],
-        jobTypes: Array.isArray(professionalInfo.jobTypes) 
-          ? professionalInfo.jobTypes 
-          : ["Full-time"],
-      });
-    } catch (e) {
-      console.error('Failed to load onboarding data', e);
+      await signOut();
+      navigate('/login');
+    } catch (error) {
+      console.error("Error signing out:", error);
     }
-  }, [user?.email]);
+  };
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="max-w-4xl mx-auto">
-        {/* Header with Back Button */}
-        <div className="flex items-center gap-4 mb-8">
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={() => navigate('/home')}
-            className="flex items-center gap-2"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">Profile</h1>
-            <p className="text-muted-foreground">Manage your account settings and credits</p>
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <div className="border-b bg-card">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/')}
+                className="gap-2"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </Button>
+              <div>
+                <h1 className="text-2xl font-semibold text-foreground">Account Settings</h1>
+                <p className="text-sm text-muted-foreground">Manage your account and preferences</p>
+              </div>
+            </div>
+            <Avatar className="h-12 w-12">
+              <AvatarFallback className="bg-primary/10 text-primary">
+                {personalInfo.firstName && personalInfo.lastName
+                  ? `${personalInfo.firstName[0]}${personalInfo.lastName[0]}`
+                  : user?.email?.[0]?.toUpperCase() || "U"}
+              </AvatarFallback>
+            </Avatar>
           </div>
         </div>
+      </div>
 
-        <div className="space-y-8">
-          {/* Personal Details Section */}
+      {/* Main Content */}
+      <div className="container mx-auto px-4 py-8">
+        <div className="max-w-4xl mx-auto space-y-6">
+          {/* Personal Information Card */}
           <Card>
             <CardHeader>
-              <CardTitle>Personal Details</CardTitle>
+              <CardTitle>Personal Information</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-
-              <Separator />
-
-              {/* Full Name */}
-              <div className="space-y-4">
-                <Label className="text-sm font-medium text-foreground">Full Name</Label>
-                <p className="text-sm text-muted-foreground">Your first and last name, as visible to others.</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <Input 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="firstName">First Name</Label>
+                  <Input
+                    id="firstName"
                     value={personalInfo.firstName}
-                    onChange={(e) => setPersonalInfo(prev => ({ ...prev, firstName: e.target.value }))}
-                    placeholder="First name"
-                    className="bg-background border-input"
+                    readOnly
+                    className="bg-muted/30"
                   />
-                  <Input 
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="lastName">Last Name</Label>
+                  <Input
+                    id="lastName"
                     value={personalInfo.lastName}
-                    onChange={(e) => setPersonalInfo(prev => ({ ...prev, lastName: e.target.value }))}
-                    placeholder="Last name"
-                    className="bg-background border-input"
+                    readOnly
+                    className="bg-muted/30"
                   />
                 </div>
               </div>
-
-              <Separator />
-
-              {/* Email */}
-              <div className="space-y-4">
-                <Label className="text-sm font-medium text-foreground">Email</Label>
-                <div className="flex items-center gap-4">
-                  <Input 
-                    value={personalInfo.email}
-                    onChange={(e) => setPersonalInfo(prev => ({ ...prev, email: e.target.value }))}
-                    placeholder="Email address"
-                    type="email"
-                    className="bg-background border-input flex-1"
-                  />
-                  <div className="flex gap-3">
-                    <Button variant="outline" size="sm">
-                      Reset Password
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Graduation Date */}
-              <div className="space-y-4">
-                <Label className="text-sm font-medium text-foreground">Graduation Date</Label>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Month</Label>
-                    <Input 
-                      value={academicInfo.graduationMonth}
-                      onChange={(e) => setAcademicInfo(prev => ({ ...prev, graduationMonth: e.target.value }))}
-                      placeholder="Month"
-                      className="bg-background border-input"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Year</Label>
-                    <Input 
-                      value={academicInfo.graduationYear}
-                      onChange={(e) => setAcademicInfo(prev => ({ ...prev, graduationYear: e.target.value }))}
-                      placeholder="Year"
-                      className="bg-background border-input"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Field of Study */}
-              <div className="space-y-4">
-                <Label className="text-sm font-medium text-foreground">Field of Study</Label>
-                <Input 
-                  value={academicInfo.fieldOfStudy}
-                  onChange={(e) => setAcademicInfo(prev => ({ ...prev, fieldOfStudy: e.target.value }))}
-                  placeholder="Field of Study"
-                  className="bg-background border-input"
+              
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={personalInfo.email}
+                  readOnly
+                  className="bg-muted/30"
                 />
               </div>
 
-              <Separator />
-
-              {/* Current Degree */}
-              <div className="space-y-4">
-                <Label className="text-sm font-medium text-foreground">Current Degree</Label>
-                <Input 
-                  value={academicInfo.currentDegree}
-                  onChange={(e) => setAcademicInfo(prev => ({ ...prev, currentDegree: e.target.value }))}
-                  placeholder="Current Degree"
-                  className="bg-background border-input"
+              <div className="space-y-2">
+                <Label htmlFor="university">University</Label>
+                <Input
+                  id="university"
+                  value={personalInfo.university}
+                  readOnly
+                  className="bg-muted/30"
                 />
               </div>
             </CardContent>
           </Card>
 
-          {/* Credit Usage Section */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>Credit Usage Jul-Aug 2025</CardTitle>
-                <p className="text-2xl font-bold text-foreground mt-2">
-                  {user ? `${user.credits ?? 0},${user.maxCredits ?? 0} credits` : "12,127 credits"}
-                </p>
-                {user && (
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">
-                      Emails this month: {(user.emailsUsedThisMonth || 0)} / {maxEmails}
-                    </p>
-                    <p className="text-xs text-muted-foreground capitalize">
-                      Current tier: {user.tier || 'free'} 
-                      {user.tier === 'free' && ' (8 emails, 120 credits)'}
-                      {user.tier === 'pro' && ' (56 emails, 840 credits)'}
-                    </p>
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-4">
-                <Button variant="outline" size="sm" className="flex items-center gap-2">
-                  Billing Period
-                </Button>
-                <Button variant="outline" size="sm" className="flex items-center gap-2">
-                  ← Jul-Aug 2025 →
-                </Button>
-                <Button className="bg-primary hover:bg-primary/90" size="sm">
-                  Refresh
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="h-64 bg-muted/30 rounded-lg flex items-center justify-center">
-                <div className="text-center">
-                  <p className="text-muted-foreground">Credit usage chart</p>
-                  <p className="text-sm text-muted-foreground">Chart visualization would go here</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Resume and Career Interests Section */}
+          {/* Academic Information Card */}
           <Card>
             <CardHeader>
-              <CardTitle>Resume and Career Interests</CardTitle>
+              <CardTitle>Academic Information</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* Resume Section */}
-                <div className="space-y-4">
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="graduationMonth">Graduation Month</Label>
+                  <Input
+                    id="graduationMonth"
+                    value={academicInfo.graduationMonth}
+                    readOnly
+                    className="bg-muted/30"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="graduationYear">Graduation Year</Label>
+                  <Input
+                    id="graduationYear"
+                    value={academicInfo.graduationYear}
+                    readOnly
+                    className="bg-muted/30"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="fieldOfStudy">Field of Study</Label>
+                <Input
+                  id="fieldOfStudy"
+                  value={academicInfo.fieldOfStudy}
+                  readOnly
+                  className="bg-muted/30"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="currentDegree">Current Degree</Label>
+                <Input
+                  id="currentDegree"
+                  value={academicInfo.currentDegree}
+                  readOnly
+                  className="bg-muted/30"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Professional Profile Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Professional Profile</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-4">
+                {/* Resume Upload Section */}
+                <div className="space-y-2">
                   <Label className="text-sm font-medium text-foreground">Resume</Label>
                   {(() => {
-                    const parsedResume = resumeData;
-                    const hasResume = parsedResume && Object.keys(parsedResume).length > 0;
-                    
-                    if (hasResume) {
+                    if (resumeData) {
                       return (
-                        <div className="h-48 bg-background rounded-lg border border-input p-4 overflow-auto">
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2 mb-3">
-                              <FileText className="h-5 w-5 text-primary" />
-                              <span className="font-medium text-sm">
-                                {parsedResume.fileName || "Resume.pdf"}
-                              </span>
-                            </div>
-                            <div className="text-xs text-muted-foreground space-y-1">
-                              <p><strong>Name:</strong> {parsedResume.name || `${personalInfo.firstName} ${personalInfo.lastName}`}</p>
-                              <p><strong>University:</strong> {parsedResume.university || personalInfo.university}</p>
-                              <p><strong>Major:</strong> {parsedResume.major || academicInfo.fieldOfStudy}</p>
-                              <p><strong>Graduation:</strong> {parsedResume.year || academicInfo.graduationYear}</p>
-                              {parsedResume.uploadDate && (
-                                <p><strong>Uploaded:</strong> {new Date(parsedResume.uploadDate).toLocaleDateString()}</p>
-                              )}
-                            </div>
-                            <div className="flex gap-2 mt-3">
-                              <Button 
-                                variant="outline" 
-                                size="sm"
-                                onClick={() => {
-                                  if (resumeFile) {
-                                    try {
-                                      const byteCharacters = atob(resumeFile);
-                                      const byteNumbers = new Array(byteCharacters.length);
-                                      for (let i = 0; i < byteCharacters.length; i++) {
-                                        byteNumbers[i] = byteCharacters.charCodeAt(i);
-                                      }
-                                      const byteArray = new Uint8Array(byteNumbers);
-                                      const blob = new Blob([byteArray], { type: 'application/pdf' });
-                                      const url = URL.createObjectURL(blob);
-                                      window.open(url, '_blank');
-                                      setTimeout(() => URL.revokeObjectURL(url), 1000);
-                                    } catch (error) {
-                                      console.error('Error opening resume:', error);
-                                      alert('Error opening resume file. Please try re-uploading.');
+                        <div className="relative bg-muted/30 rounded-lg border p-4">
+                          <div className="flex items-start gap-4">
+                            <FileText className="h-10 w-10 text-primary flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-medium text-foreground truncate">
+                                {resumeData.fileName || 'Resume.pdf'}
+                              </h4>
+                              <div className="text-sm text-muted-foreground space-y-1 mt-2">
+                                {resumeData.name && (
+                                  <p className="flex items-center gap-2">
+                                    <span className="font-medium">Name:</span>
+                                    <span>{resumeData.name}</span>
+                                  </p>
+                                )}
+                                {resumeData.university && (
+                                  <p className="flex items-center gap-2">
+                                    <span className="font-medium">University:</span>
+                                    <span>{resumeData.university}</span>
+                                  </p>
+                                )}
+                                {resumeData.major && (
+                                  <p className="flex items-center gap-2">
+                                    <span className="font-medium">Major:</span>
+                                    <span>{resumeData.major}</span>
+                                  </p>
+                                )}
+                                {resumeData.year && (
+                                  <p className="flex items-center gap-2">
+                                    <span className="font-medium">Year:</span>
+                                    <span>{resumeData.year}</span>
+                                  </p>
+                                )}
+                                {resumeData.uploadDate && (
+                                  <p className="text-xs mt-2">
+                                    Uploaded: {new Date(resumeData.uploadDate).toLocaleDateString()}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex gap-2 mt-4">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    if (resumeUrl) {
+                                      // Use Firestore URL with cache-busting
+                                      const bust = `${resumeUrl}${resumeUrl.includes('?') ? '&' : '?'}cb=${Date.now()}`;
+                                      window.open(bust, '_blank');
+                                      return;
                                     }
-                                  } else {
-                                    alert('Resume file not available. Please re-upload your resume.');
-                                  }
-                                }}
-                                disabled={!resumeFile}
-                              >
-                                View Full Resume
-                              </Button>
-                              <label htmlFor="resume-replace" className="cursor-pointer">
-                                <Button variant="outline" size="sm" asChild>
-                                  <span>Replace Resume</span>
+                                    // Fallback to base64 if resumeUrl not available
+                                    if (resumeFile) {
+                                      try {
+                                        const byteCharacters = atob(resumeFile);
+                                        const byteNumbers = new Array(byteCharacters.length);
+                                        for (let i = 0; i < byteCharacters.length; i++) {
+                                          byteNumbers[i] = byteCharacters.charCodeAt(i);
+                                        }
+                                        const byteArray = new Uint8Array(byteNumbers);
+                                        const blob = new Blob([byteArray], { type: 'application/pdf' });
+                                        const url = URL.createObjectURL(blob);
+                                        window.open(url, '_blank');
+                                        setTimeout(() => URL.revokeObjectURL(url), 1000);
+                                      } catch (error) {
+                                        console.error('Error opening resume:', error);
+                                        alert('Error opening resume file. Please try re-uploading.');
+                                      }
+                                    } else {
+                                      alert('Resume file not available. Please upload your resume.');
+                                    }
+                                  }}
+                                  disabled={!resumeUrl && !resumeFile}
+                                >
+                                  View Full Resume
                                 </Button>
-                                <input
-                                  id="resume-replace"
-                                  type="file"
-                                  accept=".pdf"
-                                  onChange={handleResumeUpload}
-                                  className="hidden"
-                                  disabled={isUploading}
-                                />
-                              </label>
+                                <label htmlFor="resume-replace" className="cursor-pointer">
+                                  <Button variant="outline" size="sm" asChild>
+                                    <span>Replace Resume</span>
+                                  </Button>
+                                  <input
+                                    id="resume-replace"
+                                    type="file"
+                                    accept=".pdf"
+                                    onChange={handleResumeUpload}
+                                    className="hidden"
+                                    disabled={isUploading}
+                                  />
+                                </label>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={handleResumeDelete}
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Delete Resume
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         </div>

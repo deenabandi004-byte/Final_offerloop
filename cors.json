@@ -1,0 +1,22 @@
+[
+  {
+    "origin": [
+      "http://localhost:8080",
+      "https://www.offerloop.ai"
+    ],
+    "method": [
+      "GET",
+      "HEAD",
+      "POST",
+      "PUT",
+      "OPTIONS"
+    ],
+    "responseHeader": [
+      "Authorization",
+      "Content-Type",
+      "x-goog-meta-*"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]
+

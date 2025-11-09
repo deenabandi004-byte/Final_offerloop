@@ -118,6 +118,16 @@ export interface CoffeeChatPrepResponse {
   message: string;
 }
 
+export interface CoffeeChatNewsItem {
+  title: string;
+  url: string;
+  source: string;
+  published_at?: string;
+  summary: string;
+  relevance_tag: 'division' | 'office' | 'industry';
+  confidence?: string;
+}
+
 export interface CoffeeChatPrepStatus {
   id?: string;  // ✅ ADD THIS - backend uses 'id'
   prepId?: string;  // Keep for backwards compatibility
@@ -131,11 +141,14 @@ export interface CoffeeChatPrepStatus {
     | 'completed'
     | 'failed';
   contactData?: any;
-  companyNews?: any[];
+  companyNews?: CoffeeChatNewsItem[];
   similaritySummary?: string;
   coffeeQuestions?: string[];
   pdfUrl?: string;
-  pdfPath?: string;  // ✅ ADD THIS - backend uses this
+  pdfStoragePath?: string;
+  industrySummary?: string;
+  hometown?: string | null;
+  context?: Record<string, any>;
   error?: string;
   completedAt?: string;  // ✅ ADD THIS
   createdAt?: string;  // ✅ ADD THIS
@@ -149,11 +162,13 @@ export interface CoffeeChatPrep {
   contactName: string;
   company: string;
   jobTitle: string;
-  linkedinUrl: string;
+  linkedinUrl?: string;
   status: string;
   createdAt: string;
   pdfUrl?: string;
   error?: string;
+  industrySummary?: string;
+  hometown?: string | null;
 }
 
 // ================================
@@ -190,41 +205,41 @@ class ApiService {
 
   // ---- Request helper ----
   private async makeRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const url = `${API_BASE_URL}${endpoint}`;
+  const url = `${API_BASE_URL}${endpoint}`;
 
-    console.log(`Making request to: ${url}`);
-    console.log(`Request options:`, options);
+  console.log(`Making request to: ${url}`);
+  console.log(`Request options:`, options);
 
-    const response = await fetch(url, options);
+  const response = await fetch(url, options);
+  console.log(`Response status: ${response.status}`);
 
-    console.log(`Response status: ${response.status}`);
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error(`API Error:`, errorData);
-
-      // Return error response instead of throwing (so callers can use union types)
-      if (errorData.error) {
-        return errorData as T;
-      }
-
-      throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    // CSV or attachment: return Blob
-    const ct = response.headers.get('content-type') || '';
-    const cd = response.headers.get('content-disposition') || '';
-    if (ct.includes('text/csv') || cd.includes('attachment')) {
-      console.log(`Returning Blob`);
-      return (await response.blob()) as unknown as T;
-    }
-
-    if (ct.includes('application/pdf')) {
-      return (await response.blob()) as unknown as T;
-    }
-
-    return response.json();
+  // Check for binary/attachments first (read only once)
+  const ct = response.headers.get('content-type') || '';
+  const cd = response.headers.get('content-disposition') || '';
+  if (ct.includes('text/csv') || ct.includes('application/pdf') || cd.includes('attachment')) {
+    const blob = await response.blob();
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    return blob as unknown as T;
   }
+
+  // For JSON/text responses, read once
+  const bodyText = await response.text();
+  let data: any = {};
+  if (bodyText) {
+    try { data = JSON.parse(bodyText); }
+    catch { data = { raw: bodyText }; }
+  }
+
+  if (!response.ok) {
+    const message =
+      (data && (data.error || data.message || data.detail)) ||
+      `HTTP ${response.status}: ${response.statusText}`;
+    throw new Error(message);
+  }
+
+  return (data as T) ?? ({} as T);
+}
+
 
   // ================================
   // Contact Search Endpoints
@@ -389,10 +404,10 @@ class ApiService {
     });
   }
 
-  /** Download Coffee Chat PDF */
-  async downloadCoffeeChatPDF(prepId: string): Promise<Blob> {
+  /** Get Coffee Chat PDF download URL */
+  async downloadCoffeeChatPDF(prepId: string): Promise<{ pdfUrl: string }> {
     const headers = await this.getAuthHeaders();
-    return this.makeRequest<Blob>(`/coffee-chat-prep/${prepId}/download`, {
+    return this.makeRequest<{ pdfUrl: string }>(`/coffee-chat-prep/${prepId}/download`, {
       method: 'GET',
       headers,
     });
@@ -415,6 +430,8 @@ class ApiService {
       headers,
     });
   }
+
+ 
 
     // ================================
   // Gmail Integration Endpoints

@@ -61,7 +61,7 @@ OAUTH_REDIRECT_URI = get_oauth_redirect_uri()
 # Constants
 # ========================================
 RESUME_LINE = "For context, I've attached my resume below."
-COFFEE_CHAT_CREDITS = 5
+COFFEE_CHAT_CREDITS = 30
 CACHE_DURATION = timedelta(days=365)
 CREATE_GMAIL_DRAFTS = False  # Set True to create Gmail drafts; False to only return subject/body and compose links
 

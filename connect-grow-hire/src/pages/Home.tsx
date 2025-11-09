@@ -1,5 +1,5 @@
 import { useToast } from "@/hooks/use-toast";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import React from "react";
 import { Upload, Download, Crown, ChevronRight, ChevronLeft, Loader2, Clock, CheckCircle, XCircle, Trash2, Search, Coffee, Briefcase } from "lucide-react";import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { firebaseApi } from "../services/firebaseApi";
 import { useFirebaseMigration } from "../hooks/useFirebaseMigration";
 import { apiService, isErrorResponse } from "@/services/api";
+import type { CoffeeChatPrepStatus, CoffeeChatPrep } from "@/services/api";
 import { CreditPill } from "../components/credits";
 import type { Contact as ContactApi } from '@/services/firebaseApi';
 import { BetaBadge } from "@/components/BetaBadges";
@@ -31,6 +32,17 @@ const BACKEND_URL =
 
 const COFFEE_CHAT_CREDITS = 30;
 const ENABLE_HOME_GMAIL_AUTOCONNECT = false;
+
+type CoffeeChatHistoryItem = {
+  id: string;
+  contactName: string;
+  company: string;
+  jobTitle: string;
+  status: string;
+  createdAt: string;
+  pdfUrl?: string;
+  error?: string;
+};
 
 
 const TIER_CONFIGS = {
@@ -77,6 +89,23 @@ const Home = () => {
       if (document.head.contains(style)) document.head.removeChild(style);
     };
   }, [waveKeyframes]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const initialTab = params.get('tab');
+    if (initialTab && ['find-candidates', 'coffee-chat', 'interview-prep'].includes(initialTab)) {
+      setActiveTab(initialTab);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (coffeeChatPollTimeoutRef.current) {
+        clearTimeout(coffeeChatPollTimeoutRef.current);
+        coffeeChatPollTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -157,15 +186,20 @@ const Home = () => {
   const [coffeeChatLoading, setCoffeeChatLoading] = useState(false);
   const [coffeeChatProgress, setCoffeeChatProgress] = useState<string>("");
   const [coffeeChatPrepId, setCoffeeChatPrepId] = useState<string | null>(null);
+  const [coffeeChatResult, setCoffeeChatResult] = useState<CoffeeChatPrepStatus | null>(null);
   const [renderKey, setRenderKey] = useState(0);
   const [coffeeChatStatus, setCoffeeChatStatus] = useState<'idle' | 'processing' | 'completed' | 'failed'>('idle');
-  const [coffeeChatHistory, setCoffeeChatHistory] = useState<any[]>([]);
+  const [coffeeChatHistory, setCoffeeChatHistory] = useState<CoffeeChatHistoryItem[]>([]);
+  const [historyRenderKey, setHistoryRenderKey] = useState(0);
   const [showHistory, setShowHistory] = useState(false);
   // (kept) Explicit completion UI toggle
   const [showCompletionUI, setShowCompletionUI] = useState(false);
 
   // Batch size state
   const [batchSize, setBatchSize] = useState<number>(1);
+  const [activeTab, setActiveTab] = useState<string>("find-candidates");
+  const activeCoffeeChatIdRef = useRef<string | null>(null);
+  const coffeeChatPollTimeoutRef = useRef<number | null>(null);
 
   const maxBatchSize = React.useMemo(() => {
     const tierMax = userTier === 'free' ? 3 : 8;
@@ -217,7 +251,17 @@ const Home = () => {
       if (!firebaseUser) return;
       const result = await apiService.getCoffeeChatHistory(5);
       if ('history' in result && result.history) {
-        setCoffeeChatHistory(result.history);
+        setCoffeeChatHistory((current) => {
+          const combined = new Map<string, CoffeeChatHistoryItem>();
+          result.history.forEach((item) => combined.set(item.id, item));
+          current.forEach((item) => {
+            if (!combined.has(item.id)) {
+              combined.set(item.id, item);
+            }
+          });
+          return Array.from(combined.values()).slice(0, 5);
+        });
+        setHistoryRenderKey((prev) => prev + 1);
       } else if ('error' in result) {
         console.error('Failed to load history:', result.error);
       }
@@ -452,18 +496,33 @@ async function generateAndDraftEmailsBatch(contacts: any[]) {
     }),
   });
 
-  // If Gmail isn't connected, backend tells us to go do OAuth
+  // ✅ Read body ONCE
+  const ct  = res.headers.get("content-type") || "";
+  const raw = await res.text();
+  const data = raw
+    ? (ct.includes("application/json") ? JSON.parse(raw) : { raw })
+    : {};
+
+  // Handle Gmail not connected/expired
   if (res.status === 401) {
-    const data = await res.json().catch(() => ({}));
-    if (data?.needsAuth && data?.authUrl) {
-      window.location.href = data.authUrl; // kick off Gmail OAuth
-      return null; // stop here; you'll return after consent
+    // If your backend returns an authUrl to kick off OAuth:
+    if ((data as any)?.needsAuth && (data as any)?.authUrl) {
+      window.location.href = (data as any).authUrl;
+      return null;
     }
+    // Otherwise show a reconnect banner/toast
+    throw new Error((data as any).error || "Gmail session expired — please reconnect.");
   }
 
-  // Otherwise drafts were created successfully
-  return res.json();
-}
+  // Other errors
+  if (!res.ok) {
+    throw new Error((data as any).error || `HTTP ${res.status}: ${res.statusText}`);
+  }
+
+  // ✅ Success: data already parsed
+  return data;
+
+  }
 
   useEffect(() => {
     fetch(`${BACKEND_URL}/health`)
@@ -564,7 +623,12 @@ useEffect(() => {
     setCoffeeChatLoading(true);
     setCoffeeChatStatus('processing');
     setCoffeeChatProgress('Starting Coffee Chat Prep...');
+    setCoffeeChatResult(null);
     setShowCompletionUI(false); // reset completion UI
+    if (coffeeChatPollTimeoutRef.current) {
+      clearTimeout(coffeeChatPollTimeoutRef.current);
+      coffeeChatPollTimeoutRef.current = null;
+    }
 
     try {
       const result = await apiService.createCoffeeChatPrep({ linkedinUrl });
@@ -574,18 +638,23 @@ useEffect(() => {
 
       const prepId = result.prepId;
       setCoffeeChatPrepId(prepId);
+      activeCoffeeChatIdRef.current = prepId;
       console.log('✅ Prep created, starting polling...');
 
       // ✅ NEW: tie the poller to THIS prep only
       const activePrepId = prepId;
 
       let pollCount = 0;
-      const maxPolls = 60; // 3 minutes total
+      const maxPolls = 200; // ~10 minutes total (adjusted to avoid premature timeout)
 
       const pollStatus = async () => {
         try {
           // ✅ stale-poll guard: if a newer run started, stop
-          if (coffeeChatPrepId !== activePrepId) {
+          if (activeCoffeeChatIdRef.current !== activePrepId) {
+            if (coffeeChatPollTimeoutRef.current) {
+              clearTimeout(coffeeChatPollTimeoutRef.current);
+              coffeeChatPollTimeoutRef.current = null;
+            }
             return;
           }
 
@@ -594,11 +663,16 @@ useEffect(() => {
             setCoffeeChatStatus('failed');
             setCoffeeChatProgress('Generation timed out');
             setCoffeeChatLoading(false);
+            activeCoffeeChatIdRef.current = null;
             toast({
               title: "Timeout",
               description: "Coffee Chat Prep generation timed out. Please try again.",
               variant: "destructive",
             });
+            if (coffeeChatPollTimeoutRef.current) {
+              clearTimeout(coffeeChatPollTimeoutRef.current);
+              coffeeChatPollTimeoutRef.current = null;
+            }
             return;
           }
 
@@ -612,17 +686,25 @@ useEffect(() => {
             setCoffeeChatStatus('failed');
             setCoffeeChatProgress(statusResult.error);
             setCoffeeChatLoading(false);
+            activeCoffeeChatIdRef.current = null;
             toast({
               title: "Error",
               description: statusResult.error,
               variant: "destructive",
             });
+            if (coffeeChatPollTimeoutRef.current) {
+              clearTimeout(coffeeChatPollTimeoutRef.current);
+              coffeeChatPollTimeoutRef.current = null;
+            }
             return;
           }
 
           if (!statusResult.status) {
             console.warn('⚠️ No status in response, continuing...');
-            setTimeout(pollStatus, 3000);
+            if (coffeeChatPollTimeoutRef.current) {
+              clearTimeout(coffeeChatPollTimeoutRef.current);
+            }
+            coffeeChatPollTimeoutRef.current = window.setTimeout(pollStatus, 3000);
             return;
           }
 
@@ -631,7 +713,8 @@ useEffect(() => {
 
           const progressMessages: Record<string, string> = {
             'enriching_profile': 'Enriching LinkedIn profile...',
-            'fetching_news': 'Researching company news...',
+            'fetching_news': 'Researching division and office news...',
+            'extracting_hometown': 'Inferring hometown and background...',
             'generating_content': 'Generating personalized content...',
             'generating_pdf': 'Creating your PDF...',
             'completed': 'Coffee Chat Prep ready!',
@@ -650,13 +733,34 @@ useEffect(() => {
               setCoffeeChatStatus('completed');
               setCoffeeChatLoading(false);
               setCoffeeChatProgress('Coffee Chat Prep ready!');
+              setCoffeeChatResult(statusResult as CoffeeChatPrepStatus);
               setShowCompletionUI(true);
               setRenderKey(prev => prev + 1);
             });
 
             Promise.all([
               checkCredits(),
-              loadCoffeeChatHistory()
+              loadCoffeeChatHistory().finally(() => {
+                setCoffeeChatHistory((current) => {
+                  if (!statusResult || typeof statusResult !== 'object') {
+                    return current;
+                  }
+                  const newEntry: CoffeeChatHistoryItem = {
+                    id: (statusResult as any).id || prepId,
+                    contactName: `${statusResult?.contactData?.firstName || ''} ${statusResult?.contactData?.lastName || ''}`.trim() || 'Unknown',
+                    company: statusResult?.contactData?.company || '',
+                    jobTitle: statusResult?.contactData?.jobTitle || '',
+                    status: statusResult?.status || 'completed',
+                    createdAt: statusResult?.createdAt || new Date().toISOString(),
+                    pdfUrl: statusResult?.pdfUrl,
+                    error: statusResult?.error || ''
+                  };
+                  const filtered = current.filter((item) => item.id !== newEntry.id);
+                  const updated = [newEntry, ...filtered].slice(0, 5);
+                  return updated;
+                });
+                setHistoryRenderKey((prev) => prev + 1);
+              })
             ]).then(() => {
               toast({
                 title: "Coffee Chat Prep Ready!",
@@ -665,6 +769,11 @@ useEffect(() => {
               });
             });
 
+            activeCoffeeChatIdRef.current = null;
+            if (coffeeChatPollTimeoutRef.current) {
+              clearTimeout(coffeeChatPollTimeoutRef.current);
+              coffeeChatPollTimeoutRef.current = null;
+            }
             return; // stop polling
           } else if (status === 'failed') {
             console.log('❌ FAILED! Stopping polling...');
@@ -677,15 +786,28 @@ useEffect(() => {
               description: errorMsg || "Please try again.",
               variant: "destructive",
             });
+            activeCoffeeChatIdRef.current = null;
+            if (coffeeChatPollTimeoutRef.current) {
+              clearTimeout(coffeeChatPollTimeoutRef.current);
+              coffeeChatPollTimeoutRef.current = null;
+            }
             return;
           }
 
           console.log(`⏳ Will poll again in 3 seconds...`);
-          setTimeout(pollStatus, 3000);
+          if (coffeeChatPollTimeoutRef.current) {
+            clearTimeout(coffeeChatPollTimeoutRef.current);
+          }
+          coffeeChatPollTimeoutRef.current = window.setTimeout(pollStatus, 3000);
         } catch (error) {
           console.error('💥 Polling error:', error);
           setCoffeeChatStatus('failed');
           setCoffeeChatLoading(false);
+          activeCoffeeChatIdRef.current = null;
+          if (coffeeChatPollTimeoutRef.current) {
+            clearTimeout(coffeeChatPollTimeoutRef.current);
+            coffeeChatPollTimeoutRef.current = null;
+          }
           toast({
             title: "Error",
             description: "Failed to check status. Please try again.",
@@ -694,11 +816,16 @@ useEffect(() => {
         }
       };
 
-      setTimeout(pollStatus, 3000); // first poll
+      pollStatus();
     } catch (error) {
       console.error('Coffee chat prep failed:', error);
       setCoffeeChatLoading(false);
       setCoffeeChatStatus('failed');
+      activeCoffeeChatIdRef.current = null;
+      if (coffeeChatPollTimeoutRef.current) {
+        clearTimeout(coffeeChatPollTimeoutRef.current);
+        coffeeChatPollTimeoutRef.current = null;
+      }
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to generate Coffee Chat Prep",
@@ -707,31 +834,88 @@ useEffect(() => {
     }
   };
 
-  const downloadCoffeeChatPDF = async (prepId?: string) => {
-    const id = prepId || coffeeChatPrepId;
-    if (!id || !firebaseUser) return;
+  // ⬇️ Replace your existing downloadCoffeeChatPDF with this version
+// Replace your existing downloadCoffeeChatPDF with this version
+// Robust: gesture-safe + polling while PDF becomes available
+const downloadCoffeeChatPDF = async (prepId?: string) => {
+  const id = prepId || coffeeChatPrepId;
+  if (!id || !firebaseUser) return;
 
-    try {
-      const blob = await apiService.downloadCoffeeChatPDF(id);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `coffee_chat_${id}.pdf`;
-      a.click();
-      window.URL.revokeObjectURL(url);
+  // Open a same-origin tab immediately (keeps user gesture)
+  const tab = window.open("", "_blank");
+  const blocked = !tab;
 
-      toast({
-        title: "PDF Downloaded",
-        description: "Your Coffee Chat one-pager has been downloaded.",
-      });
-    } catch (error) {
-      toast({
-        title: "Download Failed",
-        description: "Could not download the PDF. Please try again.",
-        variant: "destructive",
-      });
+  try {
+    if (tab) {
+      // Lightweight holding page so the tab stays alive
+      tab.document.write(`
+        <!doctype html><meta charset="utf-8"/>
+        <title>Preparing PDF…</title>
+        <style>
+          html,body{height:100%;margin:0;background:#0b1020;color:#e6e9f2;
+            display:flex;align-items:center;justify-content:center;font:14px system-ui}
+          .bubble{padding:16px 20px;border:1px solid #384152;border-radius:10px}
+        </style>
+        <div class="bubble">Preparing your PDF…</div>
+        <script>
+          window.addEventListener("message", (e) => {
+            if (e.data && e.data.type === "OFFERLOOP_NAV" && e.data.href) {
+              location.replace(e.data.href);
+            }
+          });
+        </script>
+      `);
+      tab.document.close();
     }
-  };
+
+    // Poll your API until it returns a usable pdfUrl (handles storage/CDN delay)
+    const MAX_TRIES = 20; // ~20s
+    const DELAY_MS  = 1000;
+    let pdfUrl: string | undefined;
+
+    for (let i = 0; i < MAX_TRIES; i++) {
+      try {
+        const res = await apiService.downloadCoffeeChatPDF(id);
+        pdfUrl = res?.pdfUrl || undefined;
+        if (pdfUrl) break;
+      } catch { /* ignore transient errors while polling */ }
+      await new Promise(r => setTimeout(r, DELAY_MS));
+    }
+
+    if (!pdfUrl) {
+      throw new Error("PDF isn’t ready yet. Please try again in a moment.");
+    }
+
+    if (blocked) {
+      // Popup was blocked → open via an anchor click
+      const a = document.createElement("a");
+      a.href = pdfUrl;
+      a.target = "_blank";
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } else {
+      // Navigate the already-opened tab
+      tab!.postMessage({ type: "OFFERLOOP_NAV", href: pdfUrl }, "*");
+    }
+
+    toast({
+      title: "PDF Ready",
+      description: "Opened your Coffee Chat one-pager in a new tab.",
+    });
+  } catch (err) {
+    if (tab && !tab.closed) tab.close();
+    toast({
+      title: "Download Failed",
+      description: err instanceof Error ? err.message : "Could not download the PDF.",
+      variant: "destructive",
+    });
+  }
+};
+
+
+
 
   const handleSearch = async () => {
     if (!jobTitle.trim() || !location.trim()) {
@@ -846,32 +1030,8 @@ useEffect(() => {
           }
 
 
-        setProgressValue(100);
-        setSearchComplete(true);
-        // ✅ Create Gmail drafts for these contacts (handles OAuth if needed)
-        const draftRes = await generateAndDraftEmailsBatch(result.contacts);
-        if (!draftRes) return; // we were redirected to Gmail OAuth; come back and click again
-
-        try {
-          await autoSaveToDirectory(result.contacts, location.trim());
-
-          
-
-          toast({
-            title: "Search Complete!",
-            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.`,
-            duration: 5000,
-          });
-        } catch (error) {
-          console.error('❌ [FREE TIER] Failed to save contacts:', error);
-          console.error('Error details:', error instanceof Error ? error.message : String(error));
-          toast({
-            title: "Search Complete!",
-            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. (Warning: Failed to save - check console)`,
-            variant: "destructive",
-            duration: 5000,
-          });
-        }
+      
+      
       } else if (userTier === "pro") {
         const proRequest = {
           jobTitle: jobTitle.trim(),
@@ -1100,7 +1260,7 @@ useEffect(() => {
             <div className="max-w-7xl mx-auto">
               
 
-              <Tabs defaultValue="find-candidates" className="mb-8 mt-4">
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-8 mt-4">
                 <TabsList className="grid w-full grid-cols-3 bg-gray-800/50 border border-gray-700 h-16">
                   <TabsTrigger
                     value="find-candidates"
@@ -1366,34 +1526,203 @@ useEffect(() => {
                         </Badge>
                       </CardTitle>
                     </CardHeader>
-                    <CardContent className="p-6 relative">
-                      <ComingSoonOverlay 
-                        title="Coffee Chat One-Pager"
-                        description="Get AI-powered prep materials with company research, conversation starters, and personalized talking points for your networking calls."
-                        icon={Clock}
-                        gradient="from-green-500 to-blue-500"
-                      />
-                      
-                      {/* Placeholder content (blurred in background) */}
-                      <div className="space-y-4 opacity-30 blur-sm">
-                        <div>
-                          <label className="block text-sm font-medium mb-2 text-white">
-                            LinkedIn Profile URL
-                          </label>
-                          <Input
-                            placeholder="https://linkedin.com/in/username"
-                            className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400"
-                            disabled
-                          />
+                    <CardContent key={renderKey} className="p-6 space-y-8">
+                      <div className="grid gap-6 lg:grid-cols-2">
+                        <div className="space-y-5">
+                          <div>
+                            <label className="block text-sm font-medium mb-2 text-white">
+                              LinkedIn Profile URL
+                            </label>
+                            <Input
+                              value={linkedinUrl}
+                              onChange={(e) => setLinkedinUrl(e.target.value)}
+                              placeholder="https://linkedin.com/in/username"
+                              className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400"
+                              disabled={coffeeChatLoading}
+                            />
+                            <p className="text-xs text-gray-400 mt-2">
+                              Uses {COFFEE_CHAT_CREDITS} credits. Generates a PDF with recent division news, talking points, and similarities.
+                            </p>
+                          </div>
+
+                          <div className="flex flex-wrap gap-3">
+                            <Button
+                              onClick={handleCoffeeChatSubmit}
+                              disabled={coffeeChatLoading || !linkedinUrl.trim()}
+                              className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
+                            >
+                              {coffeeChatLoading ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  Generating...
+                                </>
+                              ) : (
+                                <>
+                                  <Coffee className="h-4 w-4 mr-2" />
+                                  Generate Prep
+                                </>
+                              )}
+                            </Button>
+
+                            {coffeeChatStatus === 'completed' && (coffeeChatPrepId || coffeeChatResult) && (
+                              <>
+                                {/* fragment ensures ONE parent inside the conditional */}
+                                <Button
+                                  variant="outline"
+                                  onClick={() => downloadCoffeeChatPDF()}
+                                  className="border-green-500/60 text-green-300 hover:bg-green-500/10"
+                                >
+                                  <Download className="h-4 w-4 mr-2" />
+                                  Download PDF
+                                </Button>
+                              </>
+                            )}
+                          </div>
+
+
+                          {coffeeChatStatus !== 'idle' && (
+                            <div className="rounded-lg border border-gray-700 bg-gray-800/70 p-4 shadow-inner text-sm text-gray-200">
+                              <div className="flex items-center gap-2">
+                                {coffeeChatLoading ? (
+                                  <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
+                                ) : coffeeChatStatus === 'completed' ? (
+                                  <CheckCircle className="h-4 w-4 text-green-400" />
+                                ) : coffeeChatStatus === 'failed' ? (
+                                  <XCircle className="h-4 w-4 text-red-400" />
+                                ) : (
+                                  <Clock className="h-4 w-4 text-blue-400" />
+                                )}
+                                <span>{coffeeChatProgress}</span>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                        <p className="text-sm text-gray-400">
-                          Generate a comprehensive one-pager with profile insights, company news, and 
-                          personalized coffee chat questions.
-                        </p>
-                        <Button className="w-full" disabled>
-                          <Download className="h-4 w-4 mr-2" />
-                          Generate Coffee Chat PDF
-                        </Button>
+
+                        <div className="space-y-4">
+                          {coffeeChatStatus === 'completed' && coffeeChatResult ? (
+                            <>
+                              <div className="rounded-xl border border-green-500/40 bg-green-500/10 p-5 space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <h3 className="text-sm font-semibold text-green-200 uppercase tracking-wide">
+                                    Contact Snapshot
+                                  </h3>
+                                  <span className="text-xs text-green-300/80">
+                                    Ready for coffee chat
+                                  </span>
+                                </div>
+                                <div className="space-y-1 text-sm text-gray-200">
+                                  <p><span className="text-gray-400">Name:</span> {coffeeChatResult.contactData?.firstName} {coffeeChatResult.contactData?.lastName}</p>
+                                  <p><span className="text-gray-400">Role:</span> {coffeeChatResult.contactData?.jobTitle}</p>
+                                  <p><span className="text-gray-400">Company:</span> {coffeeChatResult.contactData?.company}</p>
+                                  <p><span className="text-gray-400">Office:</span> {coffeeChatResult.contactData?.location || coffeeChatResult.context?.office}</p>
+                                  {coffeeChatResult.hometown && (
+                                    <p><span className="text-gray-400">Hometown:</span> {coffeeChatResult.hometown}</p>
+                                  )}
+                                </div>
+                              </div>
+
+                              {coffeeChatResult.similaritySummary && (
+                                <div className="rounded-xl border border-blue-500/40 bg-blue-500/10 p-4">
+                                  <h3 className="text-sm font-semibold text-blue-200 uppercase tracking-wide mb-2">
+                                    Common Ground
+                                  </h3>
+                                  <p className="text-sm text-gray-200 leading-relaxed">
+                                    {coffeeChatResult.similaritySummary}
+                                  </p>
+                                </div>
+                              )}
+
+                              {coffeeChatResult.industrySummary && (
+                                <div className="rounded-xl border border-purple-500/40 bg-purple-500/10 p-4">
+                                  <h3 className="text-sm font-semibold text-purple-200 uppercase tracking-wide mb-2">
+                                    Industry Pulse
+                                  </h3>
+                                  <p className="text-sm text-gray-200 leading-relaxed">
+                                    {coffeeChatResult.industrySummary}
+                                  </p>
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <div className="rounded-xl border border-gray-700 bg-gray-800/60 p-5 text-sm text-gray-300 space-y-3">
+                              <h3 className="text-sm font-semibold text-gray-200 uppercase tracking-wide">
+                                What you’ll receive
+                              </h3>
+                              <ul className="space-y-2 text-gray-300">
+                                <li className="flex items-start gap-2">
+                                  <CheckCircle className="h-4 w-4 text-green-400 mt-0.5" />
+                                  Curated headlines tied to the division and office
+                                </li>
+                                <li className="flex items-start gap-2">
+                                  <CheckCircle className="h-4 w-4 text-green-400 mt-0.5" />
+                                  40-second similarity summary & coffee chat questions
+                                </li>
+                                <li className="flex items-start gap-2">
+                                  <CheckCircle className="h-4 w-4 text-green-400 mt-0.5" />
+                                  PDF saved to your Coffee Chat Library
+                                </li>
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-semibold text-gray-200 uppercase tracking-wide">
+                            Recent Coffee Chats
+                          </h3>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-gray-400 hover:text-white"
+                            onClick={() => navigate('/coffee-chat-library')}
+                          >
+                            View Library
+                            <ChevronRight className="h-4 w-4 ml-1" />
+                          </Button>
+                        </div>
+
+                        {coffeeChatHistory.length === 0 ? (
+                          <div className="rounded-lg border border-gray-700 bg-gray-800/60 p-4 text-sm text-gray-400">
+                            No saved preps yet. Generate your first coffee chat to build your library.
+                          </div>
+                        ) : (
+                          <div key={historyRenderKey} className="space-y-3">
+                            {coffeeChatHistory.map((item) => (
+                              <div
+                                key={item.id}
+                                className="flex items-start justify-between rounded-lg border border-gray-700 bg-gray-800/70 p-4"
+                              >
+                                <div className="space-y-1 text-sm text-gray-200">
+                                  <p className="font-medium text-white">{item.contactName}</p>
+                                  <p className="text-gray-400">{item.jobTitle} @ {item.company}</p>
+                                  <p className="text-xs text-gray-500">
+                                    {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : ''}
+                                  </p>
+                                </div>
+                                <div className="flex flex-col items-end gap-2">
+                                  <Badge variant={item.status === 'completed' ? 'secondary' : 'outline'}>
+                                    {item.status}
+                                  </Badge>
+
+                                  {item.status === 'completed' && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="text-blue-300 hover:text-blue-200"
+                                      onClick={() => downloadCoffeeChatPDF(item.id)}
+                                    >
+                                      <Download className="h-4 w-4 mr-1" />
+                                      PDF
+                                    </Button>
+                                  )}
+                                </div>
+
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>

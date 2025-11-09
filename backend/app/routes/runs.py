@@ -81,18 +81,35 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                 'linkedin': user_profile.get('linkedin', '')
             }
         
-        creds = _load_user_gmail_creds(user_id) if user_id else None
-        if creds:
-            for i, contact in enumerate(contacts[:max_contacts]):
-                key = str(i)
-                email_result = email_results.get(key)
-                if email_result:
-                    draft_id = create_gmail_draft_for_user(
-                        contact, email_result['subject'], email_result['body'],
-                        tier='free', user_email=user_email, resume_url=None, user_info=user_info
-                    )
-                    if draft_id and not draft_id.startswith('mock_'):
-                        successful_drafts += 1
+        try:
+            creds = _load_user_gmail_creds(user_id) if user_id else None
+            if creds:
+                for i, contact in enumerate(contacts[:max_contacts]):
+                    key = str(i)
+                    email_result = email_results.get(key)
+                    if email_result:
+                        draft_id = create_gmail_draft_for_user(
+                            contact, email_result['subject'], email_result['body'],
+                            tier='free', user_email=user_email, resume_url=None, user_info=user_info
+                        )
+                        if draft_id and not draft_id.startswith('mock_'):
+                            successful_drafts += 1
+        except Exception as gmail_error:
+            # Token refresh happens automatically in _load_user_gmail_creds
+            # Only catch errors that indicate PERMANENT auth failure
+            error_str = str(gmail_error).lower()
+            if 'invalid_grant' in error_str or 'token has been expired or revoked' in error_str:
+                print(f"⚠️ Gmail token permanently invalid for user {user_id}")
+                return {
+                    'error': 'gmail_token_expired',
+                    'message': 'Your Gmail connection has expired. Please reconnect your Gmail account.',
+                    'require_reauth': True,
+                    'contacts': contacts
+                }
+            else:
+                print(f"⚠️ Gmail draft creation error (continuing without drafts): {gmail_error}")
+                # Continue without drafts if other Gmail error
+                pass
         
         # Deduct credits
         if db and user_id:
@@ -191,18 +208,35 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                 'linkedin': user_profile.get('linkedin', '')
             }
         
-        creds = _load_user_gmail_creds(user_id) if user_id else None
-        if creds:
-            for i, contact in enumerate(contacts[:max_contacts]):
-                key = str(i)
-                email_result = email_results.get(key)
-                if email_result:
-                    draft_id = create_gmail_draft_for_user(
-                        contact, email_result['subject'], email_result['body'],
-                        tier='pro', user_email=user_email, resume_url=resume_url, user_info=user_info
-                    )
-                    if draft_id and not draft_id.startswith('mock_'):
-                        successful_drafts += 1
+        try:
+            creds = _load_user_gmail_creds(user_id) if user_id else None
+            if creds:
+                for i, contact in enumerate(contacts[:max_contacts]):
+                    key = str(i)
+                    email_result = email_results.get(key)
+                    if email_result:
+                        draft_id = create_gmail_draft_for_user(
+                            contact, email_result['subject'], email_result['body'],
+                            tier='free', user_email=user_email, resume_url=None, user_info=user_info
+                        )
+                        if draft_id and not draft_id.startswith('mock_'):
+                            successful_drafts += 1
+        except Exception as gmail_error:
+            # Token refresh happens automatically in _load_user_gmail_creds
+            # Only catch errors that indicate PERMANENT auth failure
+            error_str = str(gmail_error).lower()
+            if 'invalid_grant' in error_str or 'token has been expired or revoked' in error_str:
+                print(f"⚠️ Gmail token permanently invalid for user {user_id}")
+                return {
+                    'error': 'gmail_token_expired',
+                    'message': 'Your Gmail connection has expired. Please reconnect your Gmail account.',
+                    'require_reauth': True,
+                    'contacts': contacts
+                }
+            else:
+                print(f"⚠️ Gmail draft creation error (continuing without drafts): {gmail_error}")
+                # Continue without drafts if other Gmail error
+                pass
         
         # Deduct credits
         if db and user_id:
@@ -281,6 +315,14 @@ def free_run():
         )
         
         if result.get("error"):
+            error_type = result.get("error")
+            if error_type == "gmail_token_expired":
+                return jsonify({
+                    "error": error_type,
+                    "message": result.get("message"),
+                    "require_reauth": True,
+                    "contacts": result.get("contacts", [])
+                }), 401  # 401 = Unauthorized (need to re-auth)
             return jsonify({"error": result["error"]}), 500
         
         response_data = {
@@ -444,6 +486,14 @@ def pro_run():
         )
         
         if result.get("error"):
+            error_type = result.get("error")
+            if error_type == "gmail_token_expired":
+                return jsonify({
+                    "error": error_type,
+                    "message": result.get("message"),
+                    "require_reauth": True,
+                    "contacts": result.get("contacts", [])
+                }), 401  # 401 = Unauthorized (need to re-auth)
             return jsonify({"error": result["error"]}), 500
         
         response_data = {

@@ -936,7 +936,7 @@ def search_contacts_with_smart_location_strategy(job_title, company, location, m
             )
             
             # If metro results are insufficient, add locality results
-            if len(contacts) < max_contacts // 2:
+            if len(contacts) < max_contacts:
                 print(f"Metro results insufficient ({len(contacts)}), adding locality results")
                 locality_contacts = try_locality_search_optimized(
                     primary_title, similar_titles, cleaned_company,
@@ -954,7 +954,7 @@ def search_contacts_with_smart_location_strategy(job_title, company, location, m
             )
             
             # If locality results are insufficient, try broader search
-            if len(contacts) < max_contacts // 2:
+            if len(contacts) < max_contacts:
                 print(f"Locality results insufficient ({len(contacts)}), trying broader search")
                 broader_contacts = try_job_title_levels_search_enhanced(
                     job_title_enrichment, cleaned_company,
@@ -1125,4 +1125,3 @@ def set_pdl_cache(linkedin_url, data):
         'data': data,
         'timestamp': datetime.now()
     }
-
