@@ -30,13 +30,21 @@ const CoffeeChatLibrary: React.FC = () => {
   useEffect(() => {
     const loadPreps = async () => {
       try {
+        console.log("🔍 Starting to load coffee chat preps...");
         const result = await apiService.getAllCoffeeChatPreps();
+        console.log("📦 Raw result from API:", result);
+        
         if ("error" in result) {
+          console.error("❌ Error in result:", result.error);
           throw new Error(result.error);
         }
+        
+        console.log("✅ Preps received:", result.preps);
+        console.log("📊 Number of preps:", result.preps?.length || 0);
+        
         setPreps(result.preps || []);
       } catch (error) {
-        console.error("Failed to load coffee chat preps:", error);
+        console.error("💥 Failed to load coffee chat preps:", error);
         toast({
           title: "Unable to load library",
           description: error instanceof Error ? error.message : "Please try again.",
@@ -44,6 +52,7 @@ const CoffeeChatLibrary: React.FC = () => {
         });
       } finally {
         setLoading(false);
+        console.log("🏁 Loading complete");
       }
     };
 

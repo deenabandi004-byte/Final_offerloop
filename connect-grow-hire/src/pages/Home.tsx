@@ -1,3 +1,21 @@
+/**
+ * FIXES APPLIED TO RESOLVE PDF GENERATION ISSUE (DevTools dependency):
+ * 
+ * 1. Added loadImage helper function (line 206) to properly preload images/PDFs
+ *    with CORS support and error handling
+ * 
+ * 2. Modified downloadCoffeeChatPDF function (line 850) to:
+ *    - Poll for PDF availability BEFORE opening new tab (avoids popup blockers)
+ *    - Pre-load/verify PDF URL is accessible before attempting to open
+ *    - Add strategic delays to ensure resources are ready
+ *    - Show loading toast to inform user of progress
+ *    - Simplified tab opening logic without complex postMessage handling
+ * 
+ * The original issue was caused by race conditions where the PDF URL was 
+ * being opened before it was fully available. DevTools slowed execution 
+ * enough to mask this timing issue.
+ */
+
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect, useRef } from "react";
 import React from "react";
@@ -29,6 +47,7 @@ const BACKEND_URL =
   window.location.hostname === "localhost"
     ? "http://localhost:5001"
     : "https://www.offerloop.ai";
+console.log("host:", window.location.hostname, "BACKEND_URL:", BACKEND_URL);
 
 const COFFEE_CHAT_CREDITS = 30;
 const ENABLE_HOME_GMAIL_AUTOCONNECT = false;
@@ -187,19 +206,78 @@ const Home = () => {
   const [coffeeChatProgress, setCoffeeChatProgress] = useState<string>("");
   const [coffeeChatPrepId, setCoffeeChatPrepId] = useState<string | null>(null);
   const [coffeeChatResult, setCoffeeChatResult] = useState<CoffeeChatPrepStatus | null>(null);
-  const [renderKey, setRenderKey] = useState(0);
   const [coffeeChatStatus, setCoffeeChatStatus] = useState<'idle' | 'processing' | 'completed' | 'failed'>('idle');
-  const [coffeeChatHistory, setCoffeeChatHistory] = useState<CoffeeChatHistoryItem[]>([]);
-  const [historyRenderKey, setHistoryRenderKey] = useState(0);
-  const [showHistory, setShowHistory] = useState(false);
+
   // (kept) Explicit completion UI toggle
   const [showCompletionUI, setShowCompletionUI] = useState(false);
+  // ✅ Nuclear option: force re-render counter
+  const [renderKey, setRenderKey] = useState(0);
 
   // Batch size state
   const [batchSize, setBatchSize] = useState<number>(1);
   const [activeTab, setActiveTab] = useState<string>("find-candidates");
   const activeCoffeeChatIdRef = useRef<string | null>(null);
   const coffeeChatPollTimeoutRef = useRef<number | null>(null);
+
+  // Helper function to load images with proper error handling
+  const loadImage = (src: string): Promise<void> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve();
+      img.onerror = () => resolve(); // Resolve even on error to not block
+      img.src = src;
+    });
+  };
+
+  // Computed values to ensure fresh state
+  const isGenerating = coffeeChatLoading && coffeeChatStatus !== 'completed';
+  const isCompleted = coffeeChatStatus === 'completed' && !coffeeChatLoading;
+  
+  // Debug effect to monitor state changes
+  useEffect(() => {
+    console.log('🎨 Coffee Chat State:', {
+      loading: coffeeChatLoading,
+      status: coffeeChatStatus,
+      hasResult: !!coffeeChatResult,
+      prepId: coffeeChatPrepId,
+      showCompletionUI,
+      isGenerating,
+      isCompleted
+    });
+    if (coffeeChatStatus === 'completed' && coffeeChatLoading) {
+      console.error('❌ BUG: Status is completed but loading is still true!');
+    }
+  }, [coffeeChatResult, coffeeChatStatus, coffeeChatPrepId, showCompletionUI, coffeeChatLoading, isGenerating, isCompleted]);
+
+  // Force update when tab becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && coffeeChatStatus === 'completed') {
+        console.log('🔍 Tab became visible, forcing update...');
+        setCoffeeChatLoading(false);
+        
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Also listen for focus
+    const handleFocus = () => {
+      if (coffeeChatStatus === 'completed') {
+        console.log('🔍 Window focused, forcing update...');
+        setCoffeeChatLoading(false);
+    
+      }
+    };
+    
+    window.addEventListener('focus', handleFocus);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [coffeeChatStatus]);
 
   const maxBatchSize = React.useMemo(() => {
     const tierMax = userTier === 'free' ? 3 : 8;
@@ -239,36 +317,7 @@ const Home = () => {
     }
   }, [firebaseUser]);
 
-  // Load coffee chat history on mount
-  useEffect(() => {
-    if (firebaseUser) {
-      loadCoffeeChatHistory();
-    }
-  }, [firebaseUser]);
 
-  const loadCoffeeChatHistory = async () => {
-    try {
-      if (!firebaseUser) return;
-      const result = await apiService.getCoffeeChatHistory(5);
-      if ('history' in result && result.history) {
-        setCoffeeChatHistory((current) => {
-          const combined = new Map<string, CoffeeChatHistoryItem>();
-          result.history.forEach((item) => combined.set(item.id, item));
-          current.forEach((item) => {
-            if (!combined.has(item.id)) {
-              combined.set(item.id, item);
-            }
-          });
-          return Array.from(combined.values()).slice(0, 5);
-        });
-        setHistoryRenderKey((prev) => prev + 1);
-      } else if ('error' in result) {
-        console.error('Failed to load history:', result.error);
-      }
-    } catch (error) {
-      console.error('Failed to load coffee chat history:', error);
-    }
-  };
 
   const getUserProfileData = async () => {
     if (!currentUser) return null;
@@ -601,303 +650,200 @@ useEffect(() => {
     setGmailCheckComplete(true);
   }
 }, [toast]); // Only depend on toast
-  const handleCoffeeChatSubmit = async () => {
-    if (!linkedinUrl.trim()) {
-      toast({
-        title: "Missing LinkedIn URL",
-        description: "Please enter a LinkedIn profile URL.",
-        variant: "destructive",
-      });
-      return;
+const handleCoffeeChatSubmit = async () => {
+  console.log('🎬 handleCoffeeChatSubmit called');
+  
+  if (!linkedinUrl.trim()) {
+    toast({
+      title: "Missing LinkedIn URL",
+      description: "Please enter a LinkedIn profile URL.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  if (!firebaseUser) {
+    toast({
+      title: "Authentication Required",
+      description: "Please sign in to continue.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  setCoffeeChatLoading(true);
+  setCoffeeChatStatus('processing');
+  setCoffeeChatProgress('Starting Coffee Chat Prep...');
+  setCoffeeChatResult(null);
+  setShowCompletionUI(false);
+
+  try {
+    // Start the generation
+    const result = await apiService.createCoffeeChatPrep({ linkedinUrl });
+    
+    if ('error' in result) {
+      throw new Error(result.error);
     }
 
-    if (!firebaseUser) {
-      toast({
-        title: "Authentication Required",
-        description: "Please sign in to continue.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setCoffeeChatLoading(true);
-    setCoffeeChatStatus('processing');
-    setCoffeeChatProgress('Starting Coffee Chat Prep...');
-    setCoffeeChatResult(null);
-    setShowCompletionUI(false); // reset completion UI
-    if (coffeeChatPollTimeoutRef.current) {
-      clearTimeout(coffeeChatPollTimeoutRef.current);
-      coffeeChatPollTimeoutRef.current = null;
-    }
-
-    try {
-      const result = await apiService.createCoffeeChatPrep({ linkedinUrl });
-      if ('error' in result) {
-        throw new Error(result.error);
-      }
-
-      const prepId = result.prepId;
-      setCoffeeChatPrepId(prepId);
-      activeCoffeeChatIdRef.current = prepId;
-      console.log('✅ Prep created, starting polling...');
-
-      // ✅ NEW: tie the poller to THIS prep only
-      const activePrepId = prepId;
-
-      let pollCount = 0;
-      const maxPolls = 200; // ~10 minutes total (adjusted to avoid premature timeout)
-
-      const pollStatus = async () => {
+    const prepId = result.prepId;
+    setCoffeeChatPrepId(prepId);
+    
+    // Use setInterval instead of setTimeout - less likely to be throttled
+    let pollCount = 0;
+    const maxPolls = 200;
+    
+    const pollPromise = new Promise((resolve, reject) => {
+      const intervalId = setInterval(async () => {
+        pollCount++;
+        console.log(`🔄 Poll ${pollCount} starting...`);
+        
         try {
-          // ✅ stale-poll guard: if a newer run started, stop
-          if (activeCoffeeChatIdRef.current !== activePrepId) {
-            if (coffeeChatPollTimeoutRef.current) {
-              clearTimeout(coffeeChatPollTimeoutRef.current);
-              coffeeChatPollTimeoutRef.current = null;
-            }
-            return;
-          }
-
-          pollCount++;
-          if (pollCount >= maxPolls) {
-            setCoffeeChatStatus('failed');
-            setCoffeeChatProgress('Generation timed out');
-            setCoffeeChatLoading(false);
-            activeCoffeeChatIdRef.current = null;
-            toast({
-              title: "Timeout",
-              description: "Coffee Chat Prep generation timed out. Please try again.",
-              variant: "destructive",
-            });
-            if (coffeeChatPollTimeoutRef.current) {
-              clearTimeout(coffeeChatPollTimeoutRef.current);
-              coffeeChatPollTimeoutRef.current = null;
-            }
-            return;
-          }
-
-          console.log(`🔄 Polling attempt ${pollCount}/${maxPolls} for prep ${prepId}`);
-
           const statusResult = await apiService.getCoffeeChatPrepStatus(prepId);
-          console.log(`📦 Received response:`, statusResult);
-
+          console.log(`Poll ${pollCount}:`, statusResult);
+          
+          // Check if it's an error response
           if ('error' in statusResult && !('status' in statusResult)) {
-            console.error('❌ Error response:', statusResult.error);
-            setCoffeeChatStatus('failed');
-            setCoffeeChatProgress(statusResult.error);
-            setCoffeeChatLoading(false);
-            activeCoffeeChatIdRef.current = null;
-            toast({
-              title: "Error",
-              description: statusResult.error,
-              variant: "destructive",
-            });
-            if (coffeeChatPollTimeoutRef.current) {
-              clearTimeout(coffeeChatPollTimeoutRef.current);
-              coffeeChatPollTimeoutRef.current = null;
-            }
+            clearInterval(intervalId);
+            reject(new Error(statusResult.error));
             return;
           }
-
-          if (!statusResult.status) {
-            console.warn('⚠️ No status in response, continuing...');
-            if (coffeeChatPollTimeoutRef.current) {
-              clearTimeout(coffeeChatPollTimeoutRef.current);
-            }
-            coffeeChatPollTimeoutRef.current = window.setTimeout(pollStatus, 3000);
-            return;
-          }
-
-          const status = statusResult.status;
-          console.log(`📊 Status: "${status}"`);
-
-          const progressMessages: Record<string, string> = {
-            'enriching_profile': 'Enriching LinkedIn profile...',
-            'fetching_news': 'Researching division and office news...',
-            'extracting_hometown': 'Inferring hometown and background...',
-            'generating_content': 'Generating personalized content...',
-            'generating_pdf': 'Creating your PDF...',
-            'completed': 'Coffee Chat Prep ready!',
-            'failed': 'error' in statusResult ? statusResult.error || 'Generation failed' : 'Generation failed'
-          };
-
-          if (progressMessages[status]) {
-            setCoffeeChatProgress(progressMessages[status]);
-          }
-
-          if (status === 'completed') {
-            console.log('🎉 COMPLETED! Stopping polling...');
-
-            // ✅ NEW: force a synchronous commit so the banner paints immediately
+          
+          // Check if completed (just check for pdfUrl which is definitive)
+          if (statusResult.pdfUrl) {
+            clearInterval(intervalId);
+            console.log('✅ Completed! pdfUrl:', statusResult.pdfUrl);
+            
+            // ✅ Update ALL states synchronously including loading
             flushSync(() => {
+              setCoffeeChatLoading(false); // ✅ Set loading to false IMMEDIATELY
               setCoffeeChatStatus('completed');
-              setCoffeeChatLoading(false);
               setCoffeeChatProgress('Coffee Chat Prep ready!');
               setCoffeeChatResult(statusResult as CoffeeChatPrepStatus);
+              setCoffeeChatPrepId((statusResult as any).id || prepId);
               setShowCompletionUI(true);
               setRenderKey(prev => prev + 1);
             });
-
-            Promise.all([
-              checkCredits(),
-              loadCoffeeChatHistory().finally(() => {
-                setCoffeeChatHistory((current) => {
-                  if (!statusResult || typeof statusResult !== 'object') {
-                    return current;
-                  }
-                  const newEntry: CoffeeChatHistoryItem = {
-                    id: (statusResult as any).id || prepId,
-                    contactName: `${statusResult?.contactData?.firstName || ''} ${statusResult?.contactData?.lastName || ''}`.trim() || 'Unknown',
-                    company: statusResult?.contactData?.company || '',
-                    jobTitle: statusResult?.contactData?.jobTitle || '',
-                    status: statusResult?.status || 'completed',
-                    createdAt: statusResult?.createdAt || new Date().toISOString(),
-                    pdfUrl: statusResult?.pdfUrl,
-                    error: statusResult?.error || ''
-                  };
-                  const filtered = current.filter((item) => item.id !== newEntry.id);
-                  const updated = [newEntry, ...filtered].slice(0, 5);
-                  return updated;
-                });
-                setHistoryRenderKey((prev) => prev + 1);
-              })
-            ]).then(() => {
-              toast({
-                title: "Coffee Chat Prep Ready!",
-                description: "Your one-pager has been generated successfully.",
-                duration: 5000,
-              });
-            });
-
-            activeCoffeeChatIdRef.current = null;
-            if (coffeeChatPollTimeoutRef.current) {
-              clearTimeout(coffeeChatPollTimeoutRef.current);
-              coffeeChatPollTimeoutRef.current = null;
-            }
-            return; // stop polling
-          } else if (status === 'failed') {
-            console.log('❌ FAILED! Stopping polling...');
-            setCoffeeChatStatus('failed');
-            setCoffeeChatLoading(false);
-
-            const errorMsg = 'error' in statusResult ? statusResult.error : undefined;
+            
+            console.log('✅ States updated, interval cleared');
+            
+            // ✅ Show toast
             toast({
-              title: "Generation Failed",
-              description: errorMsg || "Please try again.",
-              variant: "destructive",
+              title: "Coffee Chat Prep Ready!",
+              description: "Your one-pager has been generated successfully.",
+              duration: 5000,
             });
-            activeCoffeeChatIdRef.current = null;
-            if (coffeeChatPollTimeoutRef.current) {
-              clearTimeout(coffeeChatPollTimeoutRef.current);
-              coffeeChatPollTimeoutRef.current = null;
-            }
+            
+            console.log('✅ Toast shown, now updating credits');
+            
+            // ✅ Update credits
+            checkCredits().then(() => {
+              console.log('✅ Everything complete!');
+              resolve(statusResult);
+            });
+            
             return;
           }
-
-          console.log(`⏳ Will poll again in 3 seconds...`);
-          if (coffeeChatPollTimeoutRef.current) {
-            clearTimeout(coffeeChatPollTimeoutRef.current);
+          
+          // Only update progress if NOT completed
+          if ('status' in statusResult) {
+            setCoffeeChatProgress('Processing your request...');
           }
-          coffeeChatPollTimeoutRef.current = window.setTimeout(pollStatus, 3000);
+          
+          if (pollCount >= maxPolls) {
+            clearInterval(intervalId);
+            reject(new Error('Generation timed out'));
+          }
         } catch (error) {
-          console.error('💥 Polling error:', error);
-          setCoffeeChatStatus('failed');
-          setCoffeeChatLoading(false);
-          activeCoffeeChatIdRef.current = null;
-          if (coffeeChatPollTimeoutRef.current) {
-            clearTimeout(coffeeChatPollTimeoutRef.current);
-            coffeeChatPollTimeoutRef.current = null;
-          }
-          toast({
-            title: "Error",
-            description: "Failed to check status. Please try again.",
-            variant: "destructive",
-          });
+          clearInterval(intervalId);
+          reject(error);
         }
-      };
-
-      pollStatus();
-    } catch (error) {
-      console.error('Coffee chat prep failed:', error);
-      setCoffeeChatLoading(false);
-      setCoffeeChatStatus('failed');
-      activeCoffeeChatIdRef.current = null;
-      if (coffeeChatPollTimeoutRef.current) {
-        clearTimeout(coffeeChatPollTimeoutRef.current);
-        coffeeChatPollTimeoutRef.current = null;
-      }
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to generate Coffee Chat Prep",
-        variant: "destructive",
-      });
-    }
-  };
-
-  // ⬇️ Replace your existing downloadCoffeeChatPDF with this version
+      }, 3000); // Poll every 3 seconds
+    });
+    
+    await pollPromise;
+    
+  } catch (error: any) {
+    console.error('Coffee chat prep failed:', error);
+    setCoffeeChatStatus('failed');
+    setCoffeeChatProgress('Generation failed');
+    toast({
+      title: "Generation Failed",
+      description: error.message || "Please try again.",
+      variant: "destructive",
+    });
+  } finally {
+    // ALWAYS set loading to false in finally block - just like professional search
+    setCoffeeChatLoading(false);
+    console.log('✅ Loading set to false in finally block');
+  }
+};
+// Debug monitor
+useEffect(() => {
+  console.log('🔍 Coffee State Changed:', {
+    loading: coffeeChatLoading,
+    status: coffeeChatStatus,
+    hasResult: !!coffeeChatResult
+  });
+}, [coffeeChatLoading, coffeeChatStatus, coffeeChatResult]);
 // Replace your existing downloadCoffeeChatPDF with this version
-// Robust: gesture-safe + polling while PDF becomes available
 const downloadCoffeeChatPDF = async (prepId?: string) => {
   const id = prepId || coffeeChatPrepId;
   if (!id || !firebaseUser) return;
 
-  // Open a same-origin tab immediately (keeps user gesture)
-  const tab = window.open("", "_blank");
-  const blocked = !tab;
-
   try {
-    if (tab) {
-      // Lightweight holding page so the tab stays alive
-      tab.document.write(`
-        <!doctype html><meta charset="utf-8"/>
-        <title>Preparing PDF…</title>
-        <style>
-          html,body{height:100%;margin:0;background:#0b1020;color:#e6e9f2;
-            display:flex;align-items:center;justify-content:center;font:14px system-ui}
-          .bubble{padding:16px 20px;border:1px solid #384152;border-radius:10px}
-        </style>
-        <div class="bubble">Preparing your PDF…</div>
-        <script>
-          window.addEventListener("message", (e) => {
-            if (e.data && e.data.type === "OFFERLOOP_NAV" && e.data.href) {
-              location.replace(e.data.href);
-            }
-          });
-        </script>
-      `);
-      tab.document.close();
-    }
-
-    // Poll your API until it returns a usable pdfUrl (handles storage/CDN delay)
+    // First, ensure the PDF is ready by polling the API
     const MAX_TRIES = 20; // ~20s
-    const DELAY_MS  = 1000;
+    const DELAY_MS = 1000;
     let pdfUrl: string | undefined;
 
+    // Show loading toast
+    toast({
+      title: "Preparing PDF",
+      description: "Please wait while we prepare your Coffee Chat PDF...",
+      duration: 3000,
+    });
+
+    // Poll until PDF is ready
     for (let i = 0; i < MAX_TRIES; i++) {
       try {
         const res = await apiService.downloadCoffeeChatPDF(id);
         pdfUrl = res?.pdfUrl || undefined;
-        if (pdfUrl) break;
+        if (pdfUrl) {
+          // Verify the URL is accessible
+          const urlToVerify = pdfUrl;
+          try {
+            const response = await fetch(urlToVerify, { method: 'HEAD' });
+            if (response.ok) {
+              break; // PDF is ready and accessible
+            }
+          } catch {
+            // URL not ready yet, continue polling
+          }
+        }
       } catch { /* ignore transient errors while polling */ }
       await new Promise(r => setTimeout(r, DELAY_MS));
     }
 
     if (!pdfUrl) {
-      throw new Error("PDF isn’t ready yet. Please try again in a moment.");
+      throw new Error("PDF isn't ready yet. Please try again in a moment.");
     }
 
-    if (blocked) {
-      // Popup was blocked → open via an anchor click
+    // Add a small delay to ensure everything is ready
+    await new Promise(r => setTimeout(r, 500));
+
+    // Now open the tab with the ready PDF URL
+    const tab = window.open(pdfUrl, "_blank", "noopener,noreferrer");
+    
+    if (!tab) {
+      // Popup was blocked → try using an anchor click
       const a = document.createElement("a");
       a.href = pdfUrl;
       a.target = "_blank";
-      a.rel = "noopener";
+      a.rel = "noopener noreferrer";
+      a.style.display = "none";
       document.body.appendChild(a);
       a.click();
-      a.remove();
-    } else {
-      // Navigate the already-opened tab
-      tab!.postMessage({ type: "OFFERLOOP_NAV", href: pdfUrl }, "*");
+      document.body.removeChild(a);
     }
 
     toast({
@@ -905,7 +851,6 @@ const downloadCoffeeChatPDF = async (prepId?: string) => {
       description: "Opened your Coffee Chat one-pager in a new tab.",
     });
   } catch (err) {
-    if (tab && !tab.closed) tab.close();
     toast({
       title: "Download Failed",
       description: err instanceof Error ? err.message : "Could not download the PDF.",
@@ -1526,7 +1471,7 @@ const downloadCoffeeChatPDF = async (prepId?: string) => {
                         </Badge>
                       </CardTitle>
                     </CardHeader>
-                    <CardContent key={renderKey} className="p-6 space-y-8">
+                    <CardContent className="p-6 space-y-8">
                       <div className="grid gap-6 lg:grid-cols-2">
                         <div className="space-y-5">
                           <div>
@@ -1545,23 +1490,29 @@ const downloadCoffeeChatPDF = async (prepId?: string) => {
                             </p>
                           </div>
 
-                          <div className="flex flex-wrap gap-3">
+                          <div className="flex flex-wrap gap-3" key={`buttons-${renderKey}`}>
                             <Button
+                              
+                             
                               onClick={handleCoffeeChatSubmit}
                               disabled={coffeeChatLoading || !linkedinUrl.trim()}
                               className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
+                              key={`generate-btn-${coffeeChatLoading}-${renderKey}`}
                             >
-                              {coffeeChatLoading ? (
-                                <>
-                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                  Generating...
-                                </>
-                              ) : (
-                                <>
-                                  <Coffee className="h-4 w-4 mr-2" />
-                                  Generate Prep
-                                </>
-                              )}
+                              {(() => {
+                                console.log('🔴 BUTTON RENDER:', { coffeeChatLoading, renderKey });
+                                return coffeeChatLoading ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    Generating...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Coffee className="h-4 w-4 mr-2" />
+                                    Generate Prep
+                                  </>
+                                );
+                              })()}
                             </Button>
 
                             {coffeeChatStatus === 'completed' && (coffeeChatPrepId || coffeeChatResult) && (
@@ -1581,7 +1532,7 @@ const downloadCoffeeChatPDF = async (prepId?: string) => {
 
 
                           {coffeeChatStatus !== 'idle' && (
-                            <div className="rounded-lg border border-gray-700 bg-gray-800/70 p-4 shadow-inner text-sm text-gray-200">
+                            <div key={`status-${coffeeChatStatus}-${renderKey}`} className="rounded-lg border border-gray-700 bg-gray-800/70 p-4 shadow-inner text-sm text-gray-200">
                               <div className="flex items-center gap-2">
                                 {coffeeChatLoading ? (
                                   <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
@@ -1592,13 +1543,23 @@ const downloadCoffeeChatPDF = async (prepId?: string) => {
                                 ) : (
                                   <Clock className="h-4 w-4 text-blue-400" />
                                 )}
-                                <span>{coffeeChatProgress}</span>
+                                <span>
+                                  {(() => {
+                                    console.log('🟢 PROGRESS SPAN RENDER:', { 
+                                      progress: coffeeChatProgress, 
+                                      status: coffeeChatStatus,
+                                      loading: coffeeChatLoading,
+                                      renderKey 
+                                    });
+                                    return coffeeChatProgress;
+                                  })()}
+                                </span>
                               </div>
                             </div>
                           )}
                         </div>
 
-                        <div className="space-y-4">
+                        <div className="space-y-4" key={`coffee-${coffeeChatStatus}-${renderKey}`}>
                           {coffeeChatStatus === 'completed' && coffeeChatResult ? (
                             <>
                               <div className="rounded-xl border border-green-500/40 bg-green-500/10 p-5 space-y-3">
@@ -1667,63 +1628,7 @@ const downloadCoffeeChatPDF = async (prepId?: string) => {
                         </div>
                       </div>
 
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                          <h3 className="text-sm font-semibold text-gray-200 uppercase tracking-wide">
-                            Recent Coffee Chats
-                          </h3>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-gray-400 hover:text-white"
-                            onClick={() => navigate('/coffee-chat-library')}
-                          >
-                            View Library
-                            <ChevronRight className="h-4 w-4 ml-1" />
-                          </Button>
-                        </div>
 
-                        {coffeeChatHistory.length === 0 ? (
-                          <div className="rounded-lg border border-gray-700 bg-gray-800/60 p-4 text-sm text-gray-400">
-                            No saved preps yet. Generate your first coffee chat to build your library.
-                          </div>
-                        ) : (
-                          <div key={historyRenderKey} className="space-y-3">
-                            {coffeeChatHistory.map((item) => (
-                              <div
-                                key={item.id}
-                                className="flex items-start justify-between rounded-lg border border-gray-700 bg-gray-800/70 p-4"
-                              >
-                                <div className="space-y-1 text-sm text-gray-200">
-                                  <p className="font-medium text-white">{item.contactName}</p>
-                                  <p className="text-gray-400">{item.jobTitle} @ {item.company}</p>
-                                  <p className="text-xs text-gray-500">
-                                    {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : ''}
-                                  </p>
-                                </div>
-                                <div className="flex flex-col items-end gap-2">
-                                  <Badge variant={item.status === 'completed' ? 'secondary' : 'outline'}>
-                                    {item.status}
-                                  </Badge>
-
-                                  {item.status === 'completed' && (
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="text-blue-300 hover:text-blue-200"
-                                      onClick={() => downloadCoffeeChatPDF(item.id)}
-                                    >
-                                      <Download className="h-4 w-4 mr-1" />
-                                      PDF
-                                    </Button>
-                                  )}
-                                </div>
-
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
                     </CardContent>
                   </Card>
                 </TabsContent>

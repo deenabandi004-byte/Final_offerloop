@@ -503,14 +503,16 @@ class ApiService {
   async checkHealth(): Promise<{ status: string; tiers: string[]; services: Record<string, string> }> {
     return this.makeRequest('/health');
   }
+  
   /** Delete Coffee Chat Prep */
-async deleteCoffeeChatPrep(prepId: string): Promise<{ success: boolean; message: string } | ApiError> {
-  const headers = await this.getAuthHeaders();
-  return this.makeRequest<{ success: boolean; message: string } | ApiError>(`/coffee-chat-prep/${prepId}`, {
-    method: 'DELETE',
-    headers,
-  });
-}
+  async deleteCoffeeChatPrep(prepId: string): Promise<{ success: boolean; message: string } | ApiError> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ success: boolean; message: string } | ApiError>(`/coffee-chat-prep/${prepId}`, {
+      method: 'DELETE',
+      headers,
+    });
+  }
+  
 // ================================
 // NEW: Bell Notification Endpoints
 // ================================

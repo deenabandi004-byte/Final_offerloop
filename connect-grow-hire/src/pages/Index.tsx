@@ -13,7 +13,7 @@ import DylanRoby from "@/assets/DylanRoby.png";
 import SaraUcuzoglu from "@/assets/SaraU.png";
 import JacksonLeck from "@/assets/JacksonLeck.png";
 import FiveStarReview from "@/assets/5StarReview.png";
-import MiaSanders from "@/assets/MiaSanders.png";
+import EliHamou from "@/assets/EliHamou.png";
 import LucasTurcuato from "@/assets/LucasTurcuato.png";
 import Marquee from "react-fast-marquee";
 import proSearchVideo from "@/assets/Offerloop Professional Search.mp4";
@@ -88,7 +88,7 @@ const ClosedBetaStrip: React.FC = () => {
             <span className="inline-flex items-center rounded-full bg-white text-gray-900 px-3 py-1 text-xs font-semibold">
               Closed Beta
             </span>
-            <span className="text-xs text-slate-300">100 seats • 5 weeks</span>
+            <span className="text-xs text-slate-300">100 seats • 2 weeks</span>
             <span className="inline-flex items-center rounded-full border border-fuchsia-300/40 bg-fuchsia-400/10 px-3 py-1 text-xs font-semibold text-fuchsia-200">
               USC students prioritized
             </span>
@@ -659,7 +659,7 @@ const Index = () => {
                 />
                 <div>
                   <div className="font-semibold text-xl">Dylan Roby</div>
-                  <div className="text-gray-400 text-base">Evercore, Investment Analyst</div>
+                  <div className="text-gray-400 text-base">Evercore, Investment Banking Analyst</div>
                 </div>
               </div>
             </div>
@@ -718,7 +718,7 @@ const Index = () => {
               </div>
             </div>
 
-            {/* Review 4 - Mia Sanders */}
+            {/* Review 4 - Eli Hamou */}
             <div className="flex flex-col justify-between bg-black/50 backdrop-blur-sm rounded-2xl p-10 border border-gray-700 mx-4 w-[480px] h-[500px]">
               <div>
                 <div className="flex items-start mb-8">
@@ -734,13 +734,13 @@ const Index = () => {
               </div>
               <div className="flex items-center gap-5">
                 <img
-                  src={MiaSanders}
-                  alt="Mia Sanders"
+                  src={EliHamou}
+                  alt="Eli Hamou"
                   className="w-20 h-20 rounded-full object-cover border border-gray-600 shadow-md"
                 />
                 <div>
-                  <div className="font-semibold text-xl">Mia Sanders</div>
-                  <div className="text-gray-400 text-base">Goldman Sachs, DCM Asset Management Summer Analyst</div>
+                  <div className="font-semibold text-xl">Eli Hamou</div>
+                  <div className="text-gray-400 text-base">Deloitte, Audit Intern</div>
                 </div>
               </div>
             </div>
@@ -881,94 +881,59 @@ const Index = () => {
 
 
 
-      {/* About Us Section */}
-      <section id="about" className="py-20 px-6 bg-[#0a0d1a]">
+      {/* About & Mission Section Preview */}
+      <section id="about" className="py-24 px-6 bg-[#0a0d1a]">
         <div className="max-w-7xl mx-auto">
-          {/* Our Mission */}
-          <div className="text-center mb-20">
-            <h2 className="text-4xl md:text-6xl font-bold mb-8">
-              About <span className="bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">Offerloop.ai</span>
+          {/* Mission Section */}
+          <div className="mb-20">
+          {/* Centered Mission Text */}
+          <div className="text-center mx-auto max-w-4xl">
+            <h2 className="text-4xl md:text-6xl font-bold mb-6">
+              Our{" "}
+              <span className="bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                Mission
+              </span>
             </h2>
-            
-            <div className="mb-16">
-              <h3 className="text-3xl font-bold mb-8 text-white">Our Mission</h3>
-              <p className="text-xl text-gray-300 leading-relaxed max-w-5xl mx-auto">
-                To make it easier for students and young professionals to connect, stand out and land better opportunities. By cutting down the time to send emails and prep for calls by <strong>90%</strong>, we save our users hundreds of hours of work and stress, giving them back time to focus on what matters: learning, growing and enjoying your best years
-              </p>
-            </div>
-          </div>
+            <p className="text-lg md:text-xl text-gray-300 leading-relaxed mb-8">
+              To make it easier for students and young professionals to connect, stand out and land better opportunities.
 
-          {/* Value Proposition Cards */}
-          <div className="grid md:grid-cols-3 gap-6 mb-20">
-            {/* High-Impact Connections */}
-            <div className="text-center border-none shadow-lg bg-gradient-to-br from-blue-500 to-purple-600 text-white hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 rounded-2xl p-8">
-              <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-6">
-                <Users className="h-7 w-7 text-white" strokeWidth={2} />
-              </div>
-              <h3 className="font-bold text-xl mb-3">High-Impact Connections</h3>
-              <p className="text-sm text-white/90 leading-relaxed">
-                We make it easier to reach the people that can move you forward.
-              </p>
-            </div>
-
-            {/* Innovation First */}
-            <div className="text-center border-none shadow-lg bg-gradient-to-br from-pink-500 to-orange-500 text-white hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 rounded-2xl p-8">
-              <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-6">
-                <Lightbulb className="h-7 w-7 text-white" strokeWidth={2} />
-              </div>
-              <h3 className="font-bold text-xl mb-3">Innovation First</h3>
-              <p className="text-sm text-white/90 leading-relaxed">
-                We're constantly building and refining Offerloop with feedback from students and recruiters to make networking faster, smarter, and more personal.
-              </p>
-            </div>
-
-            {/* Human Connection */}
-            <div className="text-center border-none shadow-lg bg-gradient-to-br from-teal-500 to-green-500 text-white hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 rounded-2xl p-8">
-              <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-6">
-                <Heart className="h-7 w-7 text-white" strokeWidth={2} />
-              </div>
-              <h3 className="font-bold text-xl mb-3">Human Connection</h3>
-              <p className="text-sm text-white/90 leading-relaxed">
-                AI makes things easier, but people make them meaningful. We keep human connection at the center of everything we create.
-              </p>
-            </div>
-          </div>
-
-          {/* Our Story */}
-          <div className="max-w-5xl mx-auto">
-            <h3 className="text-3xl font-bold mb-8 text-center text-white">Our Story</h3>
-            <div className="space-y-6 text-lg text-gray-300 leading-relaxed">
-              <p>
-                Offerloop is a platform built by students, for students and young professionals, with one goal: to make it easier to connect with professionals, stand out, and land great opportunities.
-
-              </p>
-              <p>
-                At USC, we saw countless students spending hours filling out spreadsheets and sending emails, and we went through the same thing ourselves. With so many applicants for every competitive role, networking is essential but the process is slow, stressful, and exhausting. Worst of all it takes away from what’s supposed to be the most exciting time of your life.
-
-              </p>
-              <p>
-                We built Offerloop to fix that. Our platform automates the outreach process, helping students spend less time on tedious work and more time building real connections and preparing for what truly matters in their careers.
-
-              </p>
-            </div>
-          </div>
-
-          {/* CTA */}
-          <div className="text-center mt-16">
-            <h3 className="text-3xl font-bold mb-6 text-white">Ready to Transform Your Recruiting Journey?</h3>
-            <p className="text-xl text-gray-300 mb-8">
-              {""}
             </p>
-            <button 
-              onClick={() => navigate("/signin?mode=signup")}
-              className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white px-8 py-4 rounded-2xl font-semibold text-lg transition-all transform hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-400 focus-visible:ring-offset-gray-900 shadow-lg shadow-blue-900/30"
-            >
-              Get Started Today
-              <ArrowRight className="inline-block ml-2 h-5 w-5" />
-            </button>
+            <p className="text-lg md:text-xl text-gray-300 leading-relaxed mb-8">
+              By cutting down the time to send emails and prep for calls by 90%, we save our users hundreds of hours of work and stress, giving them back time to focus on what matters: learning, growing and enjoying your best years
+
+            </p>
+
+            
           </div>
-        </div>
-      </section>
+    </div>
+
+    {/* About / Our Story Section */}
+    <div className="max-w-5xl mx-auto text-center">
+      <h3 className="text-4xl md:text-5xl font-bold mb-6 text-white">
+        Our Story
+      </h3>
+      <p className="text-lg md:text-xl text-gray-300 leading-relaxed mb-6">
+        Offerloop is a platform built by students, for students and young professionals, with one goal: to make it easier to connect with professionals, stand out, and land great opportunities.
+      </p>
+      <p className="text-lg md:text-xl text-gray-300 leading-relaxed mb-6">
+        At USC, we saw countless students spending hours filling out spreadsheets and sending emails, and we went through the same thing ourselves. With so many applicants for every competitive role, networking is essential — but the process is slow, stressful, and exhausting. Worst of all, it takes away from what’s supposed to be the most exciting time of your life.
+      </p>
+      <p className="text-lg md:text-xl text-gray-300 leading-relaxed mb-6">
+        We built Offerloop to fix that. Our platform automates outreach and organizes your recruiting workflow, helping you spend less time on tedious work and more time building real connections and preparing for what truly matters in your career.
+      </p>
+
+
+      {/* Optional Call-to-Action */}
+      <div className="mt-10">
+        <button
+          className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white px-8 py-4 rounded-2xl font-semibold text-lg transition-all transform hover:scale-105 shadow-lg shadow-blue-900/30"
+        >
+          Get started today →
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
 
        
 

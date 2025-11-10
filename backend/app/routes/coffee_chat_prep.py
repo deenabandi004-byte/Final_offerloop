@@ -335,9 +335,8 @@ def create_coffee_chat_prep():
         }
 
         # Start background processing
-        thread = threading.Thread(
-            target=process_coffee_chat_prep_background,
-            args=(
+        try:
+            process_coffee_chat_prep_background(
                 prep_id,
                 linkedin_url,
                 user_id,
@@ -345,25 +344,27 @@ def create_coffee_chat_prep():
                 resume_text,
                 extra_context,
                 user_profile_data,
-            ),
-        )
-        thread.daemon = True
-        thread.start()
-
-        return (
-            jsonify(
-                {
-                    "prepId": prep_id,
-                    "status": "processing",
-                    "message": "Coffee Chat Prep is being generated...",
-                }
-            ),
-            200,
-        )
+            )
+            
+            # Fetch the completed prep data
+            prep_doc = prep_ref.get()
+            if prep_doc.exists:
+                prep_data = prep_doc.to_dict()
+                prep_data['id'] = prep_id
+                prep_data['prepId'] = prep_id
+                
+                return jsonify(prep_data), 200
+            else:
+                return jsonify({"error": "Prep processing failed"}), 500
+                
+        except Exception as processing_error:
+            print(f"❌ Processing error: {processing_error}")
+            return jsonify({"error": str(processing_error)}), 500
 
     except Exception as e:
         print(f"Error: {e}")
         return jsonify({"error": str(e)}), 500
+
 
 
 @coffee_chat_bp.route("/history", methods=["GET"])
@@ -516,6 +517,10 @@ def delete_coffee_chat_prep(prep_id):
     try:
         db = get_db()
         user_id = request.firebase_user.get("uid")
+        
+        print(f"🗑️ DELETE request for prep_id: {prep_id}")
+        print(f"🗑️ User ID: {user_id}")
+        
         prep_ref = (
             db.collection("users")
             .document(user_id)
@@ -524,8 +529,14 @@ def delete_coffee_chat_prep(prep_id):
         )
         prep_doc = prep_ref.get()
 
+        print(f"🗑️ Prep exists: {prep_doc.exists}")
+        
         if not prep_doc.exists:
-            return jsonify({"error": "Prep not found"}), 404
+            # List all preps for this user for debugging
+            all_preps = db.collection("users").document(user_id).collection("coffee-chat-preps").stream()
+            prep_ids = [p.id for p in all_preps]
+            print(f"🗑️ Available prep IDs for user: {prep_ids}")
+            return jsonify({"error": f"Prep not found. Available IDs: {prep_ids}"}), 404
 
         prep_data = prep_doc.to_dict()
         pdf_path = prep_data.get("pdfStoragePath")
@@ -535,13 +546,16 @@ def delete_coffee_chat_prep(prep_id):
                 blob = bucket.blob(pdf_path)
                 if blob.exists():
                     blob.delete()
-            except Exception:
+                    print(f"🗑️ Deleted PDF at: {pdf_path}")
+            except Exception as e:
+                print(f"🗑️ Failed to delete PDF: {e}")
                 pass
 
         prep_ref.delete()
+        print(f"🗑️ Successfully deleted prep: {prep_id}")
 
         return jsonify({"message": "Prep deleted successfully"})
 
     except Exception as e:
+        print(f"🗑️ Error deleting prep: {e}")
         return jsonify({"error": str(e)}), 500
-

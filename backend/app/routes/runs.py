@@ -3,13 +3,13 @@ Run routes - free and pro tier search endpoints
 """
 import json
 import csv
+from app.services.pdl_client import search_contacts_with_smart_location_strategy, get_contact_identity
 from io import StringIO
 from flask import Blueprint, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 
 from app.extensions import require_firebase_auth, get_db
 from app.services.resume_parser import extract_text_from_pdf
-from app.services.pdl_client import search_contacts_with_smart_location_strategy
 from app.services.reply_generation import batch_generate_emails
 from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user
 from app.services.auth import check_and_reset_credits
@@ -46,8 +46,11 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                 if user_doc.exists:
                     user_data = user_doc.to_dict()
                     credits_available = check_and_reset_credits(user_ref, user_data)
+                    seen_contact_list = list(user_data.get('seenContactKeys', []))
+                    seen_contact_set = set(seen_contact_list)
+                    print(f"📊 Loaded {len(seen_contact_set)} previously seen contacts")
                     if credits_available < 15:
-                        return {
+                        return {    
                             'error': 'Insufficient credits',
                             'credits_needed': 15,
                             'current_credits': credits_available,
@@ -61,11 +64,32 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         
         # Search contacts
         contacts = search_contacts_with_smart_location_strategy(
-            job_title, company, location, max_contacts=max_contacts, college_alumni=college_alumni
+            job_title, company, location, max_contacts=max_contacts, college_alumni=college_alumni, exclude_keys=seen_contact_set 
         )
         
         if not contacts:
             return {'contacts': [], 'successful_drafts': 0}
+        if db and user_id and contacts:
+            try:
+                updated_list = list(seen_contact_list)
+                updated_set = set(seen_contact_set)
+                MAX_SEEN_CONTACT_KEYS = 500
+                
+                for contact in contacts:
+                    key = get_contact_identity(contact)
+                    if key not in updated_set:
+                        updated_list.append(key)
+                        updated_set.add(key)
+                        
+                        if len(updated_list) > MAX_SEEN_CONTACT_KEYS:
+                            overflow = len(updated_list) - MAX_SEEN_CONTACT_KEYS
+                            updated_list = updated_list[overflow:]
+                            updated_set = set(updated_list)
+                
+                user_ref.set({'seenContactKeys': updated_list}, merge=True)
+                print(f"💾 Saved {len(contacts)} new contacts (total: {len(updated_list)})")
+            except Exception as e:
+                print(f"Failed to update seen contacts: {e}")
         
         # Generate emails
         email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests)
@@ -160,6 +184,9 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                 if user_doc.exists:
                     user_data = user_doc.to_dict()
                     credits_available = check_and_reset_credits(user_ref, user_data)
+                    seen_contact_list = list(user_data.get('seenContactKeys', []))
+                    seen_contact_set = set(seen_contact_list)
+                    print(f"📊 Loaded {len(seen_contact_set)} previously seen contacts")
                     tier = user_data.get('tier', 'free')
                     if tier != 'pro':
                         return {'error': 'Pro tier subscription required', 'contacts': []}
@@ -178,11 +205,32 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         
         # Search contacts
         contacts = search_contacts_with_smart_location_strategy(
-            job_title, company, location, max_contacts=max_contacts, college_alumni=college_alumni
+            job_title, company, location, max_contacts=max_contacts, college_alumni=college_alumni, exclude_keys=seen_contact_set
         )
         
         if not contacts:
             return {'contacts': [], 'successful_drafts': 0}
+        if db and user_id and user_ref and contacts:
+            try:
+                updated_list = list(seen_contact_list)
+                updated_set = set(seen_contact_set)
+                MAX_SEEN_CONTACT_KEYS = 500
+                
+                for contact in contacts:
+                    key = get_contact_identity(contact)
+                    if key not in updated_set:
+                        updated_list.append(key)
+                        updated_set.add(key)
+                        
+                        if len(updated_list) > MAX_SEEN_CONTACT_KEYS:
+                            overflow = len(updated_list) - MAX_SEEN_CONTACT_KEYS
+                            updated_list = updated_list[overflow:]
+                            updated_set = set(updated_list)
+                
+                user_ref.set({'seenContactKeys': updated_list}, merge=True)
+                print(f"💾 Saved {len(contacts)} new contacts (total: {len(updated_list)})")
+            except Exception as e:
+                print(f"Failed to update seen contacts: {e}")
         
         # Generate emails with resume
         email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests)

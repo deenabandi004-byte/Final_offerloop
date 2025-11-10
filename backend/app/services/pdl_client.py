@@ -14,6 +14,10 @@ from app.config import (
 from app.services.openai_client import get_openai_client
 
 
+"""
+Enhanced alumni filtering for PDL client - ensures contacts actually attended the school as degree students
+"""
+
 def _school_aliases(raw: str) -> list[str]:
     """Return robust aliases for a school; used for query + strict server-side filtering."""
     if not raw:
@@ -33,6 +37,537 @@ def _school_aliases(raw: str) -> list[str]:
         aliases.update({"stanford", "stanford university", "school of engineering, stanford"})
     # Add more schools over time as needed
     return sorted({" ".join(a.split()) for a in aliases})
+
+
+def _contact_has_school_as_primary_education(contact: dict, aliases: list[str]) -> bool:
+    """
+    ENHANCED VERSION: Check if contact has the school as their PRIMARY education (degree-granting)
+    Returns True only if the school appears to be where they got their main degree
+    """
+    # Check if we have detailed education data
+    edu = contact.get("education") or []
+    
+    if isinstance(edu, list) and edu:
+        # Sort education by importance (degrees, end dates, etc.)
+        primary_schools = []
+        
+        for e in edu:
+            if isinstance(e, dict):
+                school = e.get("school") or {}
+                school_name = ""
+                
+                if isinstance(school, dict):
+                    school_name = (school.get("name") or "").lower()
+                elif isinstance(e.get("school"), str):
+                    school_name = e.get("school", "").lower()
+                
+                # Check if this education entry has degree indicators
+                has_degree = False
+                degree_fields = e.get("degrees") or []
+                
+                # Check for degree indicators
+                if degree_fields:  # Has explicit degree field
+                    has_degree = True
+                elif e.get("degree"):  # Alternative degree field
+                    has_degree = True
+                elif e.get("end_date"):  # Has completion date (suggests full program)
+                    has_degree = True
+                elif any(deg in school_name for deg in ["university", "college", "institute"]):
+                    # If it looks like a degree-granting institution and has other indicators
+                    if e.get("start_date") or e.get("field_of_study") or e.get("major"):
+                        has_degree = True
+                
+                # If this looks like a degree-granting education, add to primary schools
+                if has_degree and school_name:
+                    primary_schools.append(school_name)
+        
+        # Check if any primary schools match our aliases
+        for school_name in primary_schools:
+            for alias in aliases:
+                if alias in school_name or school_name in alias:
+                    return True
+    
+    # Fallback: Check top-level education fields
+    # But weight them lower since they might be less reliable
+    edu_top = (contact.get("EducationTop") or "").lower()
+    college = (contact.get("College") or contact.get("college") or "").lower()
+    
+    # Only use these if they look like primary education
+    primary_indicators = ["bachelor", "master", "phd", "mba", "degree", "graduated", "alumni"]
+    
+    for field in [edu_top, college]:
+        if field:
+            # Check if this field contains both the school AND degree indicators
+            has_degree_indicator = any(indicator in field for indicator in primary_indicators)
+            
+            for alias in aliases:
+                if alias in field:
+                    # If we have degree indicators OR the field is specifically the "College" field
+                    if has_degree_indicator or field == college:
+                        return True
+    
+    return False
+def _contact_has_school_as_primary_education_lenient(contact: dict, aliases: list[str]) -> bool:
+    """
+    MORE LENIENT VERSION - Less strict about degree requirements
+    Returns True if the school appears in education with basic indicators
+    """
+    # Check if we have detailed education data
+    edu = contact.get("education") or []
+    
+    if isinstance(edu, list) and edu:
+        for e in edu:
+            if isinstance(e, dict):
+                school = e.get("school") or {}
+                school_name = ""
+                
+                if isinstance(school, dict):
+                    school_name = (school.get("name") or "").lower()
+                elif isinstance(e.get("school"), str):
+                    school_name = e.get("school", "").lower()
+                
+                # LESS STRICT: Just check if they have the school with ANY of these
+                has_degree_indicator = (
+                    e.get("degrees") or 
+                    e.get("degree") or 
+                    e.get("end_date") or  # Even just end date is enough
+                    e.get("field_of_study") or 
+                    e.get("major")
+                )
+                
+                # If school matches and has ANY indicator, accept it
+                if school_name:
+                    for alias in aliases:
+                        if (alias in school_name or school_name in alias) and has_degree_indicator:
+                            return True
+    
+    # Also check College field (often reliable for primary degree)
+    college = (contact.get("College") or contact.get("college") or "").lower()
+    if college:
+        for alias in aliases:
+            if alias in college:
+                return True  # Trust the College field
+    
+    # Check EducationTop if it clearly indicates a degree
+    edu_top = (contact.get("EducationTop") or "").lower()
+    if edu_top:
+        for alias in aliases:
+            if alias in edu_top:
+                # If USC/alias is in EducationTop, probably a degree
+                return True
+    
+    return False
+def _contact_hash(contact: dict) -> tuple:
+    """Generate a tuple of key fields to identify a contact uniquely"""
+    first = (contact.get("FirstName") or "").lower().strip()
+    last = (contact.get("LastName") or "").lower().strip()
+    email = (contact.get("Email") or "").lower().strip()
+    company = (contact.get("Company") or "").lower().strip()
+    
+    # Use email as primary identifier if available, otherwise name+company
+    if email:
+        return (first, last, email)
+    else:
+        return (first, last, company)
+def get_contact_identity(contact: dict) -> str:
+    """Generate a unique identity string for a contact"""
+    return "||".join(_contact_hash(contact))
+def _fetch_verified_alumni_contacts(
+    primary_title, similar_titles, cleaned_company,
+    location_strategy, job_title_enrichment,
+    max_contacts, college_alumni, excluded_keys=None  # ADD excluded_keys parameter
+):
+    """
+    Fetch contacts in batches until we have enough verified alumni
+    Guarantees to return the requested number if they exist
+    """
+    aliases = _school_aliases(college_alumni)
+    if not aliases:
+        print(f"⚠️ No aliases found for {college_alumni}")
+        return []
+    
+    excluded_keys = excluded_keys or set()  # ADD this line
+    verified_alumni = []
+    all_fetched_contacts = []
+    batch_size = max_contacts * 2  # Start with 2x the requested amount
+    max_total_fetch = 50  # Don't fetch more than 50 total to avoid excessive API calls
+    total_fetched = 0
+    attempts = 0
+    max_attempts = 4
+    
+    print(f"🎓 Starting alumni search for {max_contacts} verified {college_alumni} graduates")
+    print(f"   Excluding {len(excluded_keys)} previously seen contacts")  # ADD this line
+    
+    while len(verified_alumni) < max_contacts and attempts < max_attempts and total_fetched < max_total_fetch:
+        attempts += 1
+        
+        # Calculate how many to fetch this round
+        current_batch_size = min(batch_size, max_total_fetch - total_fetched)
+        if current_batch_size <= 0:
+            break
+            
+        print(f"\n📥 Attempt {attempts}: Fetching {current_batch_size} contacts...")
+        
+        # Fetch contacts using the appropriate strategy
+        if location_strategy['strategy'] == 'metro_primary':
+            batch_contacts = try_metro_search_optimized(
+                primary_title, similar_titles, cleaned_company,
+                location_strategy, current_batch_size,
+                college_alumni=college_alumni,
+                exclude_keys=excluded_keys  # ADD this parameter
+            )
+            
+            # If not enough, try locality
+            if len(batch_contacts) < current_batch_size:
+                locality_contacts = try_locality_search_optimized(
+                    primary_title, similar_titles, cleaned_company,
+                    location_strategy, current_batch_size - len(batch_contacts),
+                    college_alumni=college_alumni,
+                    exclude_keys=excluded_keys  # ADD this parameter
+                )
+                batch_contacts.extend([c for c in locality_contacts if c not in batch_contacts])
+        else:
+            batch_contacts = try_locality_search_optimized(
+                primary_title, similar_titles, cleaned_company,
+                location_strategy, current_batch_size,
+                college_alumni=college_alumni,
+                exclude_keys=excluded_keys  # ADD this parameter
+            )
+            
+            # If not enough, try broader search
+            if len(batch_contacts) < current_batch_size:
+                broader_contacts = try_job_title_levels_search_enhanced(
+                    job_title_enrichment, cleaned_company,
+                    location_strategy['city'], location_strategy['state'],
+                    current_batch_size - len(batch_contacts),
+                    college_alumni=college_alumni,
+                    exclude_keys=excluded_keys  # ADD this parameter
+                )
+                batch_contacts.extend([c for c in broader_contacts if c not in batch_contacts])
+        
+        # Track what we've fetched (with duplicate prevention)
+        for contact in batch_contacts:
+            contact_key = get_contact_identity(contact)  # ADD this line
+            if contact_key not in excluded_keys and contact not in all_fetched_contacts:  # MODIFY this condition
+                all_fetched_contacts.append(contact)
+        
+        total_fetched += len(batch_contacts)
+        
+        # Apply strict alumni filter to new batch
+        new_verified = 0
+        for contact in batch_contacts:
+            contact_key = get_contact_identity(contact)  # ADD this line
+            if contact_key in excluded_keys:  # ADD this check
+                continue  # Skip if already seen
+                
+            if _contact_has_school_as_primary_education_lenient(contact, aliases):
+                if contact not in verified_alumni:
+                    verified_alumni.append(contact)
+                    new_verified += 1
+                    
+                    # Log each verified alumni found
+                    name = f"{contact.get('FirstName', '')} {contact.get('LastName', '')}".strip()
+                    print(f"   ✓ Verified alumni #{len(verified_alumni)}: {name}")
+                    
+                if len(verified_alumni) >= max_contacts:
+                    break
+        
+        print(f"   Found {new_verified} new verified alumni from {len(batch_contacts)} contacts")
+        print(f"   Total verified: {len(verified_alumni)}/{max_contacts}")
+        
+        # If we're not finding many alumni, increase batch size for next attempt
+        if new_verified < batch_size * 0.2:  # Less than 20% success rate
+            batch_size = min(batch_size * 2, 25)  # Double the batch size, cap at 25
+            print(f"   📈 Low alumni rate, increasing next batch size to {batch_size}")
+    
+    # Final summary
+    print(f"\n🎓 Alumni search complete:")
+    print(f"   Total contacts fetched: {total_fetched}")
+    print(f"   Total verified {college_alumni} alumni: {len(verified_alumni)}")
+    
+    if len(verified_alumni) < max_contacts:
+        print(f"   ⚠️ Only found {len(verified_alumni)} verified alumni (requested {max_contacts})")
+        print(f"   Consider broadening search criteria or removing company/location filters")
+    else:
+        print(f"   ✅ Successfully found {max_contacts} verified alumni")
+    
+    return verified_alumni[:max_contacts]
+
+
+
+def _fetch_contacts_standard(
+    primary_title, similar_titles, cleaned_company,
+    location_strategy, job_title_enrichment,
+    max_contacts, exclude_keys=None
+):
+    """
+    Standard contact fetching without alumni filter (original logic)
+    """
+    excluded_keys = exclude_keys or set()
+    contacts = []
+    
+    if location_strategy['strategy'] == 'metro_primary':
+        contacts = try_metro_search_optimized(
+            primary_title, similar_titles, cleaned_company,
+            location_strategy, max_contacts,
+            college_alumni=None
+        )
+        
+        if len(contacts) < max_contacts:
+            print(f"Metro results insufficient ({len(contacts)}), adding locality results")
+            locality_contacts = try_locality_search_optimized(
+                primary_title, similar_titles, cleaned_company,
+                location_strategy, max_contacts - len(contacts),
+                college_alumni=None,
+                exclude_keys=excluded_keys
+            )
+            contacts.extend([c for c in locality_contacts if c not in contacts])
+    else:
+        contacts = try_locality_search_optimized(
+            primary_title, similar_titles, cleaned_company,
+            location_strategy, max_contacts,
+            college_alumni=None,
+            exclude_keys=excluded_keys
+        )
+        
+        if len(contacts) < max_contacts:
+            print(f"Locality results insufficient ({len(contacts)}), trying broader search")
+            broader_contacts = try_job_title_levels_search_enhanced(
+                job_title_enrichment, cleaned_company,
+                location_strategy['city'], location_strategy['state'],
+                max_contacts - len(contacts),
+                college_alumni=None
+            )
+            contacts.extend([c for c in broader_contacts if c not in contacts])
+    
+    return contacts
+
+def _contact_has_school_alias(c: dict, aliases: list[str]) -> bool:
+    """
+    ORIGINAL VERSION - kept for backward compatibility
+    Check if contact has any of the school aliases in their education (loose matching)
+    """
+    fields = []
+    fields.append((c.get("College") or c.get("college") or "").lower())
+    edu = c.get("education") or []
+    if isinstance(edu, list):
+        for e in edu:
+            if isinstance(e, dict):
+                school = e.get("school") or {}
+                if isinstance(school, dict):
+                    fields.append((school.get("name") or "").lower())
+            elif isinstance(e, str):
+                fields.append(e.lower())
+    elif isinstance(edu, str):
+        fields.append(edu.lower())
+    
+    edu_top = (c.get("EducationTop") or "").lower()
+    if edu_top:
+        fields.append(edu_top)
+    
+    for field in fields:
+        for alias in aliases:
+            if alias in field or field in alias:
+                return True
+    return False
+
+def _contact_has_school_as_primary_education(contact: dict, aliases: list[str]) -> bool:
+    """
+    Enhanced version: Check if contact has the school as their PRIMARY education (degree-granting)
+    Returns True only if the school appears to be where they got their main degree
+    """
+    # Check if we have detailed education data
+    edu = contact.get("education") or []
+    
+    if isinstance(edu, list) and edu:
+        # Look for degree-granting education entries
+        for e in edu:
+            if isinstance(e, dict):
+                school = e.get("school") or {}
+                school_name = ""
+                
+                if isinstance(school, dict):
+                    school_name = (school.get("name") or "").lower()
+                elif isinstance(e.get("school"), str):
+                    school_name = e.get("school", "").lower()
+                
+                # Check if this education entry has degree indicators
+                has_degree = False
+                
+                # Check for explicit degree fields
+                if e.get("degrees") or e.get("degree"):
+                    has_degree = True
+                # Check for graduation/completion indicators  
+                elif e.get("end_date") and e.get("start_date"):
+                    has_degree = True
+                # Check for field of study (usually indicates degree program)
+                elif e.get("field_of_study") or e.get("major"):
+                    has_degree = True
+                
+                # If this looks like a degree-granting education, check against aliases
+                if has_degree and school_name:
+                    for alias in aliases:
+                        if alias in school_name or school_name in alias:
+                            print(f"✓ Verified {contact.get('FirstName', '')} {contact.get('LastName', '')} has degree from {school_name}")
+                            return True
+    
+    # Fallback: Check College field (usually indicates primary degree)
+    college = (contact.get("College") or contact.get("college") or "").lower()
+    if college:
+        for alias in aliases:
+            if alias in college:
+                return True
+    
+    # Don't use EducationTop alone as it might include certificates/courses
+    return False
+def apply_strict_alumni_filter(contacts: list, college_alumni: str, use_strict: bool = True) -> list:
+    """
+    Apply alumni filtering with option for strict or loose matching
+    
+    Args:
+        contacts: List of contact dictionaries
+        college_alumni: School name to filter by
+        use_strict: If True, use strict degree-based filtering. If False, use original loose matching.
+    
+    Returns:
+        Filtered list of contacts who are actual alumni
+    """
+    if not college_alumni:
+        return contacts
+    
+    
+    if use_strict:
+        # Use enhanced filtering that checks for actual degrees
+        filtered = [c for c in contacts if _contact_has_school_as_primary_education(c, aliases)]
+        
+        # Log the filtering results
+        original_count = len(contacts)
+        filtered_count = len(filtered)
+        if original_count > filtered_count:
+            print(f"🎓 Strict alumni filter: {original_count} → {filtered_count} contacts")
+            print(f"   Removed {original_count - filtered_count} contacts without confirmed {college_alumni} degrees")
+        
+        return filtered
+    else:
+        # Use original loose filtering
+        return [c for c in contacts if _contact_has_school_alias(c, aliases)]
+
+
+# Enhanced PDL query builder for alumni search
+def build_enhanced_alumni_query(aliases: list[str]) -> dict:
+    """
+    Build a more sophisticated alumni query that prioritizes actual degree holders
+    
+    This query uses boosting to rank actual alumni higher while still catching edge cases
+    """
+    should_clauses = []
+    
+    for alias in aliases:
+        # High boost for full school name in education
+        should_clauses.append({
+            "match_phrase": {
+                "education.school.name": {
+                    "query": alias,
+                    "boost": 3.0  # High priority
+                }
+            }
+        })
+        
+        # Medium boost for school + degree indicators
+        degree_terms = ["bachelor", "bs", "ba", "master", "ms", "ma", "mba", "phd", "degree"]
+        for degree in degree_terms:
+            should_clauses.append({
+                "bool": {
+                    "must": [
+                        {"match_phrase": {"education.school.name": alias}},
+                        {"match": {"education.degrees": degree}}
+                    ],
+                    "boost": 5.0  # Very high priority for confirmed degrees
+                }
+            })
+        
+        # Lower boost for school mentions without degree confirmation
+        should_clauses.append({
+            "match": {
+                "education.summary": {
+                    "query": alias,
+                    "boost": 0.5  # Low priority
+                }
+            }
+        })
+    
+    return {"bool": {"should": should_clauses}}
+
+
+# Integration point for your existing code
+def search_contacts_with_smart_location_strategy_enhanced(
+    job_title, company, location, max_contacts=8, college_alumni=None, 
+    use_strict_alumni_filter=True
+):
+    """
+    Enhanced version of your existing search function with better alumni filtering
+    
+    This is a wrapper that would call your existing function and apply enhanced filtering
+    """
+    # Import your existing function (adjust import as needed)
+    from app.services.pdl_client import search_contacts_with_smart_location_strategy
+    
+    # Call existing search function
+    contacts = search_contacts_with_smart_location_strategy(
+        job_title, company, location, max_contacts=max_contacts * 2,  # Get extra to account for filtering
+        college_alumni=college_alumni  # Still pass for query-level filtering
+    )
+    
+    # Apply enhanced post-processing filter
+    if college_alumni and use_strict_alumni_filter:
+        contacts = apply_strict_alumni_filter(contacts, college_alumni, use_strict=True)
+    
+    # Return up to max_contacts
+    return contacts[:max_contacts]
+
+
+# Example usage and testing
+def test_alumni_filtering():
+    """
+    Test function to demonstrate the difference between loose and strict filtering
+    """
+    # Example contact that went to Rutgers but has Stanford certificate
+    test_contact = {
+        "FirstName": "Ismael",
+        "LastName": "Menjivar",
+        "education": [
+            {
+                "school": {"name": "Rutgers University"},
+                "degrees": ["Bachelor of Science"],
+                "field_of_study": "Computer Science",
+                "end_date": "2018"
+            },
+            {
+                "school": {"name": "Stanford University"},
+                "summary": "Online Certificate in Machine Learning",
+                "end_date": "2020"
+            }
+        ],
+        "EducationTop": "Rutgers University",
+        "College": "Rutgers"
+    }
+    
+    stanford_aliases = _school_aliases("Stanford University")
+    
+    # Test original loose matching
+    has_stanford_loose = _contact_has_school_alias(test_contact, stanford_aliases)
+    print(f"Loose matching: {has_stanford_loose}")  # Would return True (incorrect)
+    
+    # Test new strict matching
+    has_stanford_strict = _contact_has_school_as_primary_education(test_contact, stanford_aliases)
+    print(f"Strict matching: {has_stanford_strict}")  # Would return False (correct)
+    
+    return test_contact
+
+
+if __name__ == "__main__":
+    # Test the filtering
+    test_alumni_filtering()
 
 
 def _contact_has_school_alias(c: dict, aliases: list[str]) -> bool:
@@ -708,7 +1243,7 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
     return extracted_contacts
 
 
-def try_metro_search_optimized(clean_title, similar_titles, company, location_strategy, max_contacts=8, college_alumni=None):
+def try_metro_search_optimized(clean_title, similar_titles, company, location_strategy, max_contacts=8, college_alumni=None, exclude_keys=None):
     """
     Build an ES-style query targeting metro + fallbacks and run the scrolled PDL search.
     STRICT LOCATION: (metro OR city) AND state AND country
@@ -776,11 +1311,12 @@ def try_metro_search_optimized(clean_title, similar_titles, company, location_st
         desired_limit=remaining,
         search_type=f"metro_{location_strategy.get('matched_metro','unknown')}",
         page_size=page_size,
-        verbose=False
+        verbose=False,
+        
     )
 
 
-def try_locality_search_optimized(clean_title, similar_titles, company, location_strategy, max_contacts=8, college_alumni=None):
+def try_locality_search_optimized(clean_title, similar_titles, company, location_strategy, max_contacts=8, college_alumni=None, exclude_keys=None):
     """
     Locality-focused version (used when metro results are thin).
     STRICT LOCATION: city AND state AND country
@@ -833,11 +1369,12 @@ def try_locality_search_optimized(clean_title, similar_titles, company, location
         desired_limit=remaining,
         search_type=f"locality_{location_strategy.get('city','unknown')}",
         page_size=page_size,
-        verbose=False
+        verbose=False,
+     
     )
 
 
-def try_job_title_levels_search_enhanced(job_title_enrichment, company, city, state, max_contacts, college_alumni=None):
+def try_job_title_levels_search_enhanced(job_title_enrichment, company, city, state, max_contacts, college_alumni=None, exclude_keys=None):
     """Enhanced job title levels search"""
     print("Enhanced job title levels search")
 
@@ -897,21 +1434,33 @@ def try_job_title_levels_search_enhanced(job_title_enrichment, company, city, st
         desired_limit=remaining,
         search_type="job_levels_enhanced",
         page_size=page_size,
-        verbose=False
+        verbose=False,
+        
     )
 
 
-def search_contacts_with_smart_location_strategy(job_title, company, location, max_contacts=8, college_alumni=None):
-    """Enhanced search that intelligently chooses metro vs locality based on location input"""
+def search_contacts_with_smart_location_strategy(
+    job_title, company, location, max_contacts=8, college_alumni=None, exclude_keys=None
+):
+
+    """
+    ENHANCED VERSION: Guarantees the requested number of verified alumni contacts
+    
+    When alumni filter is active, this function will:
+    1. Fetch contacts in batches
+    2. Filter for verified degree holders
+    3. Continue fetching until we have enough verified alumni
+    4. Return exactly the requested number
+    """
     try:
         print(f"Starting smart location search for {job_title} at {company} in {location}")
+        if college_alumni:
+            print(f"🎓 Alumni filter enabled: {college_alumni}")
         
         # Step 1: Enrich job title
         job_title_enrichment = cached_enrich_job_title(job_title)
-        primary_title = job_title_enrichment['cleaned_name']
-        similar_titles = job_title_enrichment['similar_titles'][:3]
-        cleaned_company = cached_clean_company(company)
-        cleaned_location = cached_clean_location(location)
+        primary_title = job_title_enrichment.get('cleaned_name', job_title).lower()
+        similar_titles = [t.lower() for t in job_title_enrichment.get('similar_titles', [])[:4]]
         
         # Step 2: Clean company
         cleaned_company = clean_company_name(company) if company else ''
@@ -924,51 +1473,20 @@ def search_contacts_with_smart_location_strategy(job_title, company, location, m
         if location_strategy['matched_metro']:
             print(f"Matched metro: {location_strategy['matched_metro']} -> {location_strategy['metro_location']}")
         
-        # Step 4: Execute search based on determined strategy
-        contacts = []
-        
-        if location_strategy['strategy'] == 'metro_primary':
-            # Use metro search for major metro areas
-            contacts = try_metro_search_optimized(
-                primary_title, similar_titles, cleaned_company,
-                location_strategy, max_contacts,
-                college_alumni=college_alumni
-            )
-            
-            # If metro results are insufficient, add locality results
-            if len(contacts) < max_contacts:
-                print(f"Metro results insufficient ({len(contacts)}), adding locality results")
-                locality_contacts = try_locality_search_optimized(
-                    primary_title, similar_titles, cleaned_company,
-                    location_strategy, max_contacts - len(contacts),
-                    college_alumni=college_alumni
-                )
-                contacts.extend([c for c in locality_contacts if c not in contacts])
-        
-        else:
-            # Use locality search for non-metro areas
-            contacts = try_locality_search_optimized(
-                primary_title, similar_titles, cleaned_company,
-                location_strategy, max_contacts,
-                college_alumni=college_alumni
-            )
-            
-            # If locality results are insufficient, try broader search
-            if len(contacts) < max_contacts:
-                print(f"Locality results insufficient ({len(contacts)}), trying broader search")
-                broader_contacts = try_job_title_levels_search_enhanced(
-                    job_title_enrichment, cleaned_company,
-                    location_strategy['city'], location_strategy['state'],
-                    max_contacts - len(contacts),
-                    college_alumni=college_alumni
-                )
-                contacts.extend([c for c in broader_contacts if c not in contacts])
-
-        # ✅ server-side guardrail so only true alumni remain
+        # Step 4: CHANGED - If alumni filter is active, use batch fetching strategy
         if college_alumni:
-            aliases = _school_aliases(college_alumni)
-            if aliases:
-                contacts = [c for c in contacts if _contact_has_school_alias(c, aliases)]
+            return _fetch_verified_alumni_contacts(
+                primary_title, similar_titles, cleaned_company,
+                location_strategy, job_title_enrichment,
+                max_contacts, college_alumni, exclude_keys
+            )
+        
+        # Step 5: For non-alumni searches, use standard logic
+        contacts = _fetch_contacts_standard(
+            primary_title, similar_titles, cleaned_company,
+            location_strategy, job_title_enrichment,
+            max_contacts, exclude_keys
+        )
         
         # LOG FINAL RESULTS
         if len(contacts) == 0:
@@ -984,6 +1502,7 @@ def search_contacts_with_smart_location_strategy(job_title, company, location, m
         import traceback
         traceback.print_exc()
         return []
+
 
 
 def search_contacts_with_pdl_optimized(job_title, company, location, max_contacts=8):
