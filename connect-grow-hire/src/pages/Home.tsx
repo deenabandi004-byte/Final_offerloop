@@ -1234,7 +1234,7 @@ const downloadCoffeeChatPDF = async (prepId?: string) => {
                   <Card className="bg-gray-800/50 backdrop-blur-sm border-gray-700">
                     <CardHeader className="border-b border-gray-700">
                       <CardTitle className="text-xl text-white">
-                        Professional Search <span className="text-sm text-gray-400">- I want to network with...</span>
+                        Professional Search Filters<span className="text-sm text-gray-400">- I want to network with...</span>
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-6">
