@@ -94,6 +94,13 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         # Generate emails
         email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests)
         
+        # 🎯 DEBUG: Check email generation results
+        print(f"🎯 DEBUG: email_results type: {type(email_results)}")
+        print(f"🎯 DEBUG: email_results keys: {email_results.keys() if isinstance(email_results, dict) else 'NOT A DICT'}")
+        print(f"🎯 DEBUG: Number of email results: {len(email_results) if email_results else 0}")
+        if email_results:
+            print(f"🎯 DEBUG: First few email result keys: {list(email_results.keys())[:3]}")
+        
         # Create drafts if Gmail connected
         successful_drafts = 0
         user_info = None
@@ -107,17 +114,29 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         
         try:
             creds = _load_user_gmail_creds(user_id) if user_id else None
+            print(f"🎯 DEBUG: Gmail creds loaded: {creds is not None}")
             if creds:
+                print(f"🎯 DEBUG: Starting draft creation loop for {len(contacts[:max_contacts])} contacts")
                 for i, contact in enumerate(contacts[:max_contacts]):
-                    key = str(i)
+                    key = i  # ✅ FIX: Use integer key instead of string
                     email_result = email_results.get(key)
+                    print(f"🎯 DEBUG: Contact {i} ({contact.get('FirstName', 'Unknown')}) - key={key}, email_result exists: {email_result is not None}")
                     if email_result:
+                        print(f"🎯 DEBUG: Email result keys: {email_result.keys()}")
+                        print(f"🎯 DEBUG: Creating draft for {contact.get('Email')}")
                         draft_id = create_gmail_draft_for_user(
                             contact, email_result['subject'], email_result['body'],
                             tier='free', user_email=user_email, resume_url=None, user_info=user_info
                         )
+                        print(f"🎯 DEBUG: Draft ID returned: {draft_id}")
                         if draft_id and not draft_id.startswith('mock_'):
                             successful_drafts += 1
+                            print(f"🎯 DEBUG: Successfully created draft {successful_drafts}/{max_contacts}")
+                    else:
+                        print(f"🎯 DEBUG: No email_result for contact {i} with key={key}")
+                print(f"🎯 DEBUG: Draft creation complete. Total successful: {successful_drafts}")
+            else:
+                print(f"🎯 DEBUG: No Gmail credentials available for user {user_id}")
         except Exception as gmail_error:
             # Token refresh happens automatically in _load_user_gmail_creds
             # Only catch errors that indicate PERMANENT auth failure
@@ -260,7 +279,7 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
             creds = _load_user_gmail_creds(user_id) if user_id else None
             if creds:
                 for i, contact in enumerate(contacts[:max_contacts]):
-                    key = str(i)
+                    key = i  # ✅ FIX: Use integer key instead of string
                     email_result = email_results.get(key)
                     if email_result:
                         draft_id = create_gmail_draft_for_user(
@@ -643,4 +662,3 @@ def advanced_run_redirect():
     """Redirect advanced-run to free-run (advanced tier removed)"""
     print("Redirecting /api/advanced-run to /api/free-run (advanced tier removed)")
     return free_run()
-

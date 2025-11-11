@@ -6,7 +6,7 @@ import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { loadStripe } from "@stripe/stripe-js";
 import { getAuth } from 'firebase/auth';
 
-const stripePromise = loadStripe("pk_test_51S4BB8ERY2WrVHp1WPs1H5UpdwCuJaxeeZE9khGQrkgIGuRY4zVrGRtrO8lCsH9QgctGEGrMYU9dIqhwEuSTh4Gu000ts47riH");
+const stripePromise = loadStripe("pk_live_51S4BB8ERY2WrVHp1acXrKE6RBG7NBlfHcMZ2kf7XhCX2E5g8Lasedx6ntcaD1H4BsoUMBGYXIcKHcAB4JuohLa2B00j7jtmWnB");
 
 interface SubscriptionStatus {
   tier: string;

@@ -257,18 +257,12 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         email_body = clean_email_text(email_body)
         
         gmail_service = get_gmail_service_for_user(user_email)
-        print(f"📧 Connected Gmail account: {gmail_service.users().getProfile(userId='me').execute().get('emailAddress')}")
-
-        # (Optional but recommended) after creating the draft, log details too:
-        draft_result = gmail_service.users().drafts().create(
-            userId='me', body={'message': message_dict}
-        ).execute()
-
-        print(f"📤 Draft created: {draft_result}") 
+        
         if not gmail_service:
             print(f"Gmail unavailable for {user_email} - creating mock draft")
             return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}_user_{user_email}"
         
+        print(f"📧 Connected Gmail account: {gmail_service.users().getProfile(userId='me').execute().get('emailAddress')}")
         print(f"Creating {tier.capitalize()} Gmail draft for {user_email} -> {contact.get('FirstName', 'Unknown')}")
         if resume_url:
             print(f"   With resume attachment")
@@ -399,4 +393,3 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         import traceback
         traceback.print_exc()
         return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}_user_{user_email}"
-
