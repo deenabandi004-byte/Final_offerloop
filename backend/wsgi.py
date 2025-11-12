@@ -2,21 +2,19 @@ import os
 import logging
 from flask import Flask, send_from_directory, abort, request, redirect
 
-# --- Import your API blueprints ---
-# (keep this list in sync with your project)
-from app.routes.health import health_bp
-from app.routes.gmail_oauth import gmail_oauth_bp
-from app.routes.emails import emails_bp
-from app.routes.contacts import contacts_bp
-from app.routes.directory import directory_bp
-from app.routes.runs import runs_bp
-from app.routes.enrichment import enrichment_bp
-from app.routes.resume import resume_bp
-from app.routes.coffee_chat import coffee_chat_bp
-from app.routes.billing import billing_bp
-from app.routes.users import users_bp
-# from app.routes.spa import spa_bp  # ← leave commented if it defines a catch-all
-
+# --- Import your API blueprints (use package-relative imports) ---
+from .app.routes.health import health_bp
+from .app.routes.gmail_oauth import gmail_oauth_bp
+from .app.routes.emails import emails_bp
+from .app.routes.contacts import contacts_bp
+from .app.routes.directory import directory_bp
+from .app.routes.runs import runs_bp
+from .app.routes.enrichment import enrichment_bp
+from .app.routes.resume import resume_bp
+from .app.routes.coffee_chat import coffee_chat_bp
+from .app.routes.billing import billing_bp
+from .app.routes.users import users_bp
+# from .app.routes.spa import spa_bp  # leave commented if it defines a catch-all
 
 def create_app() -> Flask:
     # Project layout assumptions:
@@ -86,7 +84,6 @@ def create_app() -> Flask:
         return send_from_directory(app.static_folder, 'index.html')
 
     return app
-
 
 # Gunicorn entrypoint
 app = create_app()
