@@ -11,7 +11,7 @@ from .app.routes.directory import directory_bp
 from .app.routes.runs import runs_bp
 from .app.routes.enrichment import enrichment_bp
 from .app.routes.resume import resume_bp
-from .app.routes.coffee_chat import coffee_chat_bp
+from .app.routes.coffee_chat_prep import coffee_chat_bp
 from .app.routes.billing import billing_bp
 from .app.routes.users import users_bp
 # from .app.routes.spa import spa_bp  # leave commented if it defines a catch-all
