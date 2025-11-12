@@ -1,60 +1,46 @@
-"""
-WSGI entry point for Flask application
-Creates Flask app instance and registers all blueprints
-"""
-# Load environment variables FIRST, before any other imports
-from dotenv import load_dotenv
-load_dotenv()  # Load .env from project root by default
-
 import os
-import sys
-from flask import Flask
+import logging
+from flask import Flask, send_from_directory, abort, request, redirect
 
-# Since this wsgi.py is in backend/, and app/ is also in backend/,
-# we need to make sure backend is in the path
-backend_dir = os.path.dirname(os.path.abspath(__file__))
-if backend_dir not in sys.path:
-    sys.path.insert(0, backend_dir)
-
-# Now import from app (which is backend/app/)
-from app.extensions import init_app_extensions
-from app.routes import (
-    health_bp,
-    spa_bp,
-    gmail_oauth_bp,
-    emails_bp,
-    contacts_bp,
-    directory_bp,
-    runs_bp,
-    enrichment_bp,
-    resume_bp,
-    coffee_chat_bp,
-    billing_bp,
-    users_bp
-)
+# --- Import your API blueprints ---
+# (keep this list in sync with your project)
+from app.routes.health import health_bp
+from app.routes.gmail_oauth import gmail_oauth_bp
+from app.routes.emails import emails_bp
+from app.routes.contacts import contacts_bp
+from app.routes.directory import directory_bp
+from app.routes.runs import runs_bp
+from app.routes.enrichment import enrichment_bp
+from app.routes.resume import resume_bp
+from app.routes.coffee_chat import coffee_chat_bp
+from app.routes.billing import billing_bp
+from app.routes.users import users_bp
+# from app.routes.spa import spa_bp  # ← leave commented if it defines a catch-all
 
 
-def create_app():
-    """Create and configure Flask application"""
-    # Create Flask app instance
-    static_folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'connect-grow-hire', 'dist')
-    
-    # Enable debug mode in development
-    debug_mode = (
-        os.getenv("FLASK_ENV") == "development" or 
-        os.getenv("FLASK_DEBUG") == "1" or
-        os.getenv("ENVIRONMENT") == "development" or
-        os.getenv("DEBUG") == "1"
+def create_app() -> Flask:
+    # Project layout assumptions:
+    # repo/
+    #   backend/
+    #     wsgi.py  (this file)
+    #   connect-grow-hire/
+    #     dist/    (Vite build output)
+    REPO_ROOT = os.path.dirname(os.path.dirname(__file__))          # repo/backend -> repo
+    FRONTEND_DIR = os.path.join(REPO_ROOT, "connect-grow-hire")     # change if different
+    STATIC_DIR = os.path.join(FRONTEND_DIR, "dist")                 # Vite build output
+
+    app = Flask(
+        __name__,
+        static_folder=STATIC_DIR,   # where index.html + assets live after build
+        static_url_path=""          # serve at /
     )
-    
-    app = Flask(__name__, static_folder=static_folder, static_url_path="")
-    app.debug = debug_mode
-    
-    # Initialize extensions (CORS, Firebase, etc.)
-    init_app_extensions(app)
-    
-    # Register blueprints
-    # IMPORTANT: Register spa_bp LAST - it has catch-all routes that must not interfere with API routes
+
+    # --- Logging (handy on Render) ---
+    app.logger.setLevel(logging.INFO)
+    app.logger.info("STATIC FOLDER: %s", app.static_folder)
+    app.logger.info("INDEX EXISTS? %s", os.path.exists(os.path.join(app.static_folder, "index.html")))
+
+    # --- Register API blueprints FIRST ---
     app.register_blueprint(health_bp)
     app.register_blueprint(gmail_oauth_bp)
     app.register_blueprint(emails_bp)
@@ -66,73 +52,41 @@ def create_app():
     app.register_blueprint(coffee_chat_bp)
     app.register_blueprint(billing_bp)
     app.register_blueprint(users_bp)
-    app.register_blueprint(spa_bp)  # Register LAST - catch-all for SPA
-    
-    # Add security headers
-    @app.after_request
-    def add_security_headers(response):
-        """Add security headers to all responses"""
-        response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-        response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['X-XSS-Protection'] = '1; mode=block'
-        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
-        response.headers['Content-Security-Policy'] = "frame-ancestors 'self'"
-        response.headers['Server'] = 'Offerloop'
-        response.headers.pop('X-Powered-By', None)
-        return response
-    
-    # Add caching headers
-    @app.after_request
-    def add_caching(resp):
-        """Add caching headers"""
-        content_type = resp.headers.get("Content-Type", "")
-        if content_type.startswith("text/html"):
-            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            resp.headers["Pragma"] = "no-cache"
-            resp.headers["Expires"] = "0"
-        else:
-            resp.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
-        return resp
-    
-    # Block dangerous HTTP methods
+
+    # --- (Optional) If spa_bp only serves index it’s redundant with fallback below
+    # app.register_blueprint(spa_bp)
+
+    # --- Redirect apex → www (optional but recommended) ---
     @app.before_request
-    def block_dangerous_methods():
-        """Block TRACE and TRACK HTTP methods"""
-        from flask import abort, request
-        if request.method in ['TRACE', 'TRACK']:
-            abort(405)  # Method Not Allowed
-    
-    # Request logging (for debugging)
-    @app.before_request
-    def log_request():
-        """Log requests for debugging"""
-        from flask import request
-        if 'coffee-chat-prep' in request.path:
-            print(f"\n🔨 {request.method} {request.path}")
-            print(f"   Origin: {request.headers.get('Origin')}")
-            if request.headers.get('Authorization'):
-                print(f"   Auth: {request.headers.get('Authorization')[:50]}...")
-    
+    def force_www():
+        host = request.headers.get("Host", "")
+        if host == "offerloop.ai":
+            return redirect("https://www.offerloop.ai" + request.full_path, code=301)
+
+    # --- Serve built asset files (e.g., /assets/*) ---
+    @app.route('/assets/<path:filename>')
+    def vite_assets(filename):
+        assets_dir = os.path.join(app.static_folder, 'assets')
+        return send_from_directory(assets_dir, filename)
+
+    # --- SPA catch-all: serve index.html for any non-API route ---
+    @app.route('/', defaults={'path': ''})
+    @app.route('/<path:path>')
+    def spa_fallback(path):
+        # Don’t swallow API endpoints
+        if path.startswith('api/'):
+            abort(404)
+
+        index_path = os.path.join(app.static_folder, 'index.html')
+        if not os.path.exists(index_path):
+            # Helpful error on Render if frontend didn't build
+            app.logger.error("index.html not found at %s", index_path)
+            return "Frontend build not found. Did you run the frontend build on Render?", 500
+
+        return send_from_directory(app.static_folder, 'index.html')
+
     return app
 
 
-# Create app instance for WSGI servers
+# Gunicorn entrypoint
 app = create_app()
-
-
-if __name__ == '__main__':
-    print("=" * 50)
-    print("Initializing Offerloop server...")
-    print("=" * 50)
-    
-    print("\n" + "=" * 50)
-    print("Starting Offerloop server on port 5001...")
-    print("Access the API at: http://localhost:5001")
-    print("Health check: http://localhost:5001/health")
-    print("Available Tiers:")
-    print("- FREE: 120 credits")
-    print("- PRO: 840 credits")
-    print("=" * 50 + "\n")
-    
-    port = int(os.environ.get('PORT', 5001))
-    app.run(host='0.0.0.0', port=port, debug=True)
