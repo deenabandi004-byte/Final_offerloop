@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 1) Install Node (for building the frontend) — runs on Render (Linux)
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-apt-get install -y nodejs
-
-# 2) Build the frontend (change folder name if different)
+echo "==> Building frontend"
 cd connect-grow-hire
-npm ci
-npm run build
+
+# Prefer npm if available; otherwise use bun
+if command -v npm >/dev/null 2>&1; then
+  echo "Using npm"
+  npm ci || npm install
+  npm run build
+elif command -v bun >/dev/null 2>&1; then
+  echo "Using bun"
+  bun install
+  bun run build
+else
+  echo "ERROR: Neither npm nor bun found in Render build environment."
+  exit 1
+fi
+
 cd ..
 
-# 3) Install Python deps for the backend
+echo "==> Installing backend Python deps"
 pip install -r backend/requirements.txt
