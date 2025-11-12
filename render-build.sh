@@ -4,7 +4,6 @@ set -euo pipefail
 echo "==> Building frontend"
 cd connect-grow-hire
 
-# Prefer npm if available; otherwise use bun
 if command -v npm >/dev/null 2>&1; then
   echo "Using npm"
   npm ci || npm install
@@ -21,4 +20,5 @@ fi
 cd ..
 
 echo "==> Installing backend Python deps"
-pip install -r backend/requirements.txt
+pip install --upgrade pip
+pip install -r backend/requirements.txt --break-system-packages
