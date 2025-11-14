@@ -14,6 +14,7 @@ from .app.routes.resume import resume_bp
 from .app.routes.coffee_chat_prep import coffee_chat_bp
 from .app.routes.billing import billing_bp
 from .app.routes.users import users_bp
+from .app.extensions import init_app_extensions
 # from .app.routes.spa import spa_bp  # leave commented if it defines a catch-all
 
 def create_app() -> Flask:
@@ -32,7 +33,7 @@ def create_app() -> Flask:
         static_folder=STATIC_DIR,   # where index.html + assets live after build
         static_url_path=""          # serve at /
     )
-
+    init_app_extensions(app)
     # --- Logging (handy on Render) ---
     app.logger.setLevel(logging.INFO)
     app.logger.info("STATIC FOLDER: %s", app.static_folder)
@@ -71,16 +72,21 @@ def create_app() -> Flask:
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def spa_fallback(path):
-        # Don’t swallow API endpoints
+        # Let API routes pass through (they'll 404 naturally if not found)
         if path.startswith('api/'):
-            abort(404)
-
+            abort(404)  
+        
+        # If the path is a file that exists, serve it
+        file_path = os.path.join(app.static_folder, path)
+        if path and os.path.isfile(file_path):
+            return send_from_directory(app.static_folder, path)
+        
+        # Otherwise, serve index.html for React Router
         index_path = os.path.join(app.static_folder, 'index.html')
         if not os.path.exists(index_path):
-            # Helpful error on Render if frontend didn't build
             app.logger.error("index.html not found at %s", index_path)
             return "Frontend build not found. Did you run the frontend build on Render?", 500
-
+        
         return send_from_directory(app.static_folder, 'index.html')
 
     return app

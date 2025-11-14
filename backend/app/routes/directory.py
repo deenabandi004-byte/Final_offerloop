@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from flask import Blueprint, request, jsonify
 from datetime import date
 
-from app.extensions import require_firebase_auth
+from ..extensions import require_firebase_auth
 from app.models.contact import normalize_contact
 from app.config import DB_PATH
 

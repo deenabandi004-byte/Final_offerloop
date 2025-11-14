@@ -8,7 +8,7 @@ from io import StringIO
 from flask import Blueprint, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 
-from app.extensions import require_firebase_auth, get_db
+from ..extensions import require_firebase_auth, get_db
 from app.services.resume_parser import extract_text_from_pdf
 from app.services.reply_generation import batch_generate_emails
 from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user

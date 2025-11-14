@@ -18,10 +18,10 @@ import re
 
 
 from app.config import GMAIL_SCOPES, GOOGLE_CLIENT_ID, OAUTH_REDIRECT_URI
-from app.extensions import require_firebase_auth
+from ..extensions import require_firebase_auth
 from app.services.reply_generation import batch_generate_emails
 from app.services.gmail_client import _load_user_gmail_creds, _gmail_service
-from app.extensions import get_db
+from ..extensions import get_db
 
 emails_bp = Blueprint('emails', __name__, url_prefix='/api/emails')
 def _infer_mime_type(filename_or_url: str, fallback=("application", "octet-stream")):

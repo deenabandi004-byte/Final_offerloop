@@ -8,7 +8,7 @@ from firebase_admin import firestore, storage
 from flask import Blueprint, jsonify, request
 
 from app.config import COFFEE_CHAT_CREDITS
-from app.extensions import get_db, require_firebase_auth
+from ..extensions import get_db, require_firebase_auth
 from app.services.auth import check_and_reset_credits
 from app.services.coffee_chat import (
     fetch_serp_research,

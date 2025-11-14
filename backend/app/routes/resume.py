@@ -5,9 +5,9 @@ from flask import Blueprint, request, jsonify
 from firebase_admin import auth as fb_auth
 
 from app.services.resume_parser import extract_text_from_pdf
-from app.extensions import require_firebase_auth
+from ..extensions import require_firebase_auth
 from app.utils.users import parse_resume_info
-from app.extensions import get_db
+from ..extensions import get_db
 
 resume_bp = Blueprint('resume', __name__, url_prefix='/api')
 

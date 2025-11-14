@@ -5,11 +5,11 @@ import stripe
 from datetime import datetime
 from flask import Blueprint, request, jsonify
 
-from app.extensions import require_firebase_auth
+from ..extensions import require_firebase_auth
 from app.services.auth import check_and_reset_credits
 from app.services.stripe_client import create_checkout_session, handle_stripe_webhook, create_portal_session, handle_checkout_completed
 from app.config import TIER_CONFIGS
-from app.extensions import get_db
+from ..extensions import get_db
 
 billing_bp = Blueprint('billing', __name__, url_prefix='/api')
 

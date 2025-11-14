@@ -6,9 +6,9 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify
 from firebase_admin import firestore
 
-from app.extensions import require_firebase_auth
+from ..extensions import require_firebase_auth
 from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, check_for_replies
-from app.extensions import get_db
+from ..extensions import get_db
 
 contacts_bp = Blueprint('contacts', __name__, url_prefix='/api/contacts')
 

@@ -9,9 +9,9 @@ from urllib.parse import urlencode
 from google_auth_oauthlib.flow import Flow
 
 from app.config import GMAIL_SCOPES, OAUTH_REDIRECT_URI, get_frontend_redirect_uri
-from app.extensions import require_firebase_auth
+from ..extensions import require_firebase_auth
 from app.services.gmail_client import _gmail_client_config, _save_user_gmail_creds, _load_user_gmail_creds, _gmail_service
-from app.extensions import get_db
+from ..extensions import get_db
 
 gmail_oauth_bp = Blueprint('gmail_oauth', __name__, url_prefix='/api/google')
 
