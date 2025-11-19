@@ -274,6 +274,16 @@ def generate_and_draft():
             ).execute()
             print(f"📤 [{i}] Draft created: {draft}")
             draft_ids.append(draft.get("id"))
+            
+            # Extract threadId from draft (Gmail creates a thread when draft is created)
+            thread_id = draft.get("message", {}).get("threadId")
+            if not thread_id:
+                # If threadId not in draft response, get it from the draft message
+                try:
+                    draft_message = gmail.users().drafts().get(userId="me", id=draft["id"], format="full").execute()
+                    thread_id = draft_message.get("message", {}).get("threadId")
+                except Exception as e:
+                    print(f"⚠️ [{i}] Could not get threadId from draft: {e}")
 
             # Use the actual mailbox, not hard-coded /u/0/
             gmail_url = (
@@ -285,8 +295,61 @@ def generate_and_draft():
                 "index": i,
                 "to": to_addr,
                 "draftId": draft["id"],
+                "threadId": thread_id,
                 "gmailUrl": gmail_url
             })
+            
+            # Save/update contact in Firestore with gmailThreadId
+            if thread_id:
+                try:
+                    contacts_ref = db.collection("users").document(uid).collection("contacts")
+                    # Try to find existing contact by email
+                    existing_contacts = list(contacts_ref.where("email", "==", to_addr).limit(1).stream())
+                    
+                    contact_data = {
+                        "gmailThreadId": thread_id,
+                        "gmailDraftId": draft["id"],
+                        "gmailDraftUrl": gmail_url,
+                        "emailSubject": r["subject"],
+                        "emailBody": body,
+                        "draftCreatedAt": datetime.utcnow().isoformat(),
+                        "lastActivityAt": datetime.utcnow().isoformat(),
+                        "hasUnreadReply": False,
+                        "updatedAt": datetime.utcnow().isoformat()
+                    }
+                    
+                    # Add contact fields from the original contact data
+                    if c.get("FirstName"):
+                        contact_data["firstName"] = c["FirstName"]
+                    if c.get("LastName"):
+                        contact_data["lastName"] = c["LastName"]
+                    if c.get("Company"):
+                        contact_data["company"] = c["Company"]
+                    if c.get("Title") or c.get("jobTitle"):
+                        contact_data["jobTitle"] = c.get("Title") or c.get("jobTitle")
+                    if c.get("LinkedIn") or c.get("linkedinUrl"):
+                        contact_data["linkedinUrl"] = c.get("LinkedIn") or c.get("linkedinUrl")
+                    if c.get("College") or c.get("college"):
+                        contact_data["college"] = c.get("College") or c.get("college")
+                    if c.get("location"):
+                        contact_data["location"] = c["location"]
+                    
+                    if existing_contacts:
+                        # Update existing contact
+                        contact_doc = existing_contacts[0]
+                        contact_doc.reference.update(contact_data)
+                        print(f"✅ [{i}] Updated contact {contact_doc.id} with threadId {thread_id}")
+                    else:
+                        # Create new contact
+                        contact_data["email"] = to_addr
+                        contact_data["createdAt"] = datetime.utcnow().isoformat()
+                        new_contact_ref = contacts_ref.document()
+                        new_contact_ref.set(contact_data)
+                        print(f"✅ [{i}] Created new contact {new_contact_ref.id} with threadId {thread_id}")
+                except Exception as e:
+                    print(f"⚠️ [{i}] Failed to save contact to Firestore: {e}")
+                    import traceback
+                    traceback.print_exc()
         except Exception as e:
             print(f"❌ [{i}] Draft creation failed for {to_addr}: {e}")
 

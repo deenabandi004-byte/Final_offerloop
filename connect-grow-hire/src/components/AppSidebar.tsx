@@ -12,6 +12,7 @@ import {
   Users,
   Coffee,
 } from "lucide-react";
+import { Mail } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import OfferloopLogo from "../assets/Offerloop-topleft.jpeg";
 import OfferloopIcon from "../assets/icon.png";
@@ -43,6 +44,7 @@ const navigationItems = [
   { title: "Dashboard", url: "/dashboard", icon: BarChart3 },
   { title: "Contact Table", url: "/contact-directory", icon: Users },
   { title: "Coffee Chat Library", url: "/coffee-chat-library", icon: Coffee },
+  { title: "Outbox", url: "/outbox", icon: Mail },
   { title: "Pricing", url: "/pricing", icon: CreditCard },
 ];
 

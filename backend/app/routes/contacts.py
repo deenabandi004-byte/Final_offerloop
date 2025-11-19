@@ -410,13 +410,35 @@ def bulk_create_contacts():
                 skipped += 1
                 continue
             
-            # Check for duplicates
-            existing_query = contacts_ref.where('email', '==', email).limit(1) if email else contacts_ref.where('linkedinUrl', '==', linkedin).limit(1) if linkedin else None
-            if existing_query:
-                existing_docs = list(existing_query.stream())
-                if existing_docs:
-                    skipped += 1
-                    continue
+            # Check for duplicates - check both email and LinkedIn
+            # This matches the same logic used in exclusion
+            is_duplicate = False
+            
+            # Check by email if available
+            if email:
+                email_query = contacts_ref.where('email', '==', email).limit(1)
+                email_docs = list(email_query.stream())
+                if email_docs:
+                    is_duplicate = True
+            
+            # Check by LinkedIn if available and not already found as duplicate
+            if not is_duplicate and linkedin:
+                linkedin_query = contacts_ref.where('linkedinUrl', '==', linkedin).limit(1)
+                linkedin_docs = list(linkedin_query.stream())
+                if linkedin_docs:
+                    is_duplicate = True
+            
+            # Also check by name + company combination (for cases where email/LinkedIn might differ slightly)
+            if not is_duplicate and first_name and last_name and company:
+                name_company_query = contacts_ref.where('firstName', '==', first_name).where('lastName', '==', last_name).where('company', '==', company).limit(1)
+                name_company_docs = list(name_company_query.stream())
+                if name_company_docs:
+                    is_duplicate = True
+            
+            if is_duplicate:
+                skipped += 1
+                print(f"🚫 Skipping duplicate contact: {first_name} {last_name} ({email or linkedin or 'no email/linkedin'})")
+                continue
             
             contact = {
                 'firstName': first_name,

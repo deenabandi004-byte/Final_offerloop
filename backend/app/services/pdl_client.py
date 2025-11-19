@@ -19,24 +19,138 @@ Enhanced alumni filtering for PDL client - ensures contacts actually attended th
 """
 
 def _school_aliases(raw: str) -> list[str]:
-    """Return robust aliases for a school; used for query + strict server-side filtering."""
+    """
+    Generate comprehensive aliases for ANY school (not just USC/Stanford)
+    Returns list of normalized variations that PDL might use
+    """
     if not raw:
         return []
+    
+    # Clean and normalize input
     s = " ".join(str(raw).lower().split())
     aliases = {s}
-    # Extendable alias map
-    if any(k in s for k in ["usc", "southern california", "viterbi"]):
-        aliases.update({
-            "usc",
-            "university of southern california",
-            "usc viterbi school of engineering",
-            "viterbi school of engineering",
-            "usc viterbi",
-        })
-    if "stanford" in s:
-        aliases.update({"stanford", "stanford university", "school of engineering, stanford"})
-    # Add more schools over time as needed
-    return sorted({" ".join(a.split()) for a in aliases})
+    
+    # Remove common words to get core name
+    core = s
+    for remove in [" university", " college", " school", " institute", " of technology", ", the"]:
+        if remove in core:
+            core = core.replace(remove, "").strip()
+    
+    if core and core != s:
+        aliases.add(core)
+    
+    # Add "University of X" variants
+    if not s.startswith("university of") and core:
+        aliases.add(f"university of {core}")
+    
+    # Add variations with/without "the"
+    if s.startswith("the "):
+        aliases.add(s[4:])  # Remove "the"
+    else:
+        aliases.add(f"the {s}")
+    
+    # Comprehensive school-specific aliases map
+    school_map = {
+        # California schools
+        "usc": ["university of southern california", "usc viterbi", "viterbi school of engineering", "southern california"],
+        "university of southern california": ["usc", "usc viterbi", "viterbi school of engineering", "southern california"],
+        "southern california": ["usc", "university of southern california", "usc viterbi"],
+        
+        "ucla": ["university of california los angeles", "university of california, los angeles", "uc los angeles"],
+        "university of california los angeles": ["ucla", "uc los angeles", "cal los angeles"],
+        
+        "berkeley": ["uc berkeley", "university of california berkeley", "cal", "california berkeley"],
+        "university of california berkeley": ["berkeley", "uc berkeley", "cal"],
+        
+        "ucsd": ["uc san diego", "university of california san diego", "california san diego"],
+        "ucsi": ["uc irvine", "university of california irvine", "california irvine"],
+        "ucsb": ["uc santa barbara", "university of california santa barbara", "california santa barbara"],
+        
+        "stanford": ["stanford university", "leland stanford junior university"],
+        "stanford university": ["stanford", "leland stanford junior university"],
+        
+        "caltech": ["california institute of technology", "cal tech"],
+        
+        # Ivy League
+        "harvard": ["harvard university", "harvard college"],
+        "harvard university": ["harvard", "harvard college"],
+        
+        "yale": ["yale university"],
+        "yale university": ["yale"],
+        
+        "princeton": ["princeton university"],
+        "princeton university": ["princeton"],
+        
+        "columbia": ["columbia university", "columbia university in the city of new york"],
+        "columbia university": ["columbia", "columbia university in the city of new york"],
+        
+        "penn": ["university of pennsylvania", "upenn", "wharton"],
+        "university of pennsylvania": ["penn", "upenn", "wharton"],
+        
+        "brown": ["brown university"],
+        "brown university": ["brown"],
+        
+        "dartmouth": ["dartmouth college", "dartmouth university"],
+        "dartmouth college": ["dartmouth", "dartmouth university"],
+        
+        "cornell": ["cornell university"],
+        "cornell university": ["cornell"],
+        
+        # Other top schools
+        "mit": ["massachusetts institute of technology", "m.i.t."],
+        "massachusetts institute of technology": ["mit", "m.i.t."],
+        
+        "nyu": ["new york university", "new york u"],
+        "new york university": ["nyu", "new york u"],
+        
+        "duke": ["duke university"],
+        "duke university": ["duke"],
+        
+        "northwestern": ["northwestern university"],
+        "northwestern university": ["northwestern"],
+        
+        "chicago": ["university of chicago", "uchicago", "u of chicago"],
+        "university of chicago": ["chicago", "uchicago", "u of chicago"],
+        
+        "michigan": ["university of michigan", "umich", "u of michigan", "michigan ann arbor"],
+        "university of michigan": ["michigan", "umich", "u of michigan", "michigan ann arbor"],
+        
+        "virginia": ["university of virginia", "uva", "u of virginia"],
+        "university of virginia": ["virginia", "uva", "u of virginia"],
+        
+        "notre dame": ["university of notre dame", "the university of notre dame"],
+        "university of notre dame": ["notre dame", "the university of notre dame"],
+        
+        "carnegie mellon": ["carnegie mellon university", "cmu"],
+        "carnegie mellon university": ["carnegie mellon", "cmu"],
+        
+        "georgia tech": ["georgia institute of technology", "georgia tech"],
+        "georgia institute of technology": ["georgia tech"],
+        
+        "texas": ["university of texas", "ut austin", "texas austin"],
+        "university of texas": ["texas", "ut austin", "texas austin"],
+        
+        "washington": ["university of washington", "uw", "washington seattle"],
+        "university of washington": ["washington", "uw", "washington seattle"],
+        
+        "wisconsin": ["university of wisconsin", "uw madison", "wisconsin madison"],
+        "university of wisconsin": ["wisconsin", "uw madison", "wisconsin madison"],
+        
+        "illinois": ["university of illinois", "uiuc", "illinois urbana champaign"],
+        "university of illinois": ["illinois", "uiuc", "illinois urbana champaign"],
+        
+        # Add more as needed
+    }
+    
+    # Check if any key matches and add expansions
+    for key, expansions in school_map.items():
+        if key in s or any(key in alias for alias in list(aliases)):
+            aliases.update(expansions)
+            aliases.add(key)  # Also add the short form
+    
+    # Clean up and return sorted
+    cleaned = {" ".join(a.split()).strip() for a in aliases if a and len(a.strip()) > 1}
+    return sorted(cleaned)
 
 
 def _contact_has_school_as_primary_education(contact: dict, aliases: list[str]) -> bool:
@@ -109,8 +223,8 @@ def _contact_has_school_as_primary_education(contact: dict, aliases: list[str]) 
     return False
 def _contact_has_school_as_primary_education_lenient(contact: dict, aliases: list[str]) -> bool:
     """
-    MORE LENIENT VERSION - Less strict about degree requirements
-    Returns True if the school appears in education with basic indicators
+    MORE LENIENT VERSION - Accept if school appears in education
+    Fixed bidirectional substring matching
     """
     # Check if we have detailed education data
     edu = contact.get("education") or []
@@ -126,34 +240,38 @@ def _contact_has_school_as_primary_education_lenient(contact: dict, aliases: lis
                 elif isinstance(e.get("school"), str):
                     school_name = e.get("school", "").lower()
                 
-                # LESS STRICT: Just check if they have the school with ANY of these
-                has_degree_indicator = (
-                    e.get("degrees") or 
-                    e.get("degree") or 
-                    e.get("end_date") or  # Even just end date is enough
-                    e.get("field_of_study") or 
-                    e.get("major")
-                )
-                
-                # If school matches and has ANY indicator, accept it
-                if school_name:
+                # ✅ VERY LENIENT: Accept if school name is substantial
+                if school_name and len(school_name) > 2:
                     for alias in aliases:
-                        if (alias in school_name or school_name in alias) and has_degree_indicator:
-                            return True
+                        # ✅ FIX: Bidirectional substring check
+                        if alias in school_name or school_name in alias:
+                            # Accept if ANY of these exist (even empty values)
+                            has_any_indicator = (
+                                "degrees" in e or
+                                "degree" in e or
+                                "end_date" in e or
+                                "start_date" in e or
+                                "field_of_study" in e or
+                                "major" in e or
+                                len(school_name) > 5  # Substantial school name = likely real
+                            )
+                            if has_any_indicator:
+                                return True
     
     # Also check College field (often reliable for primary degree)
     college = (contact.get("College") or contact.get("college") or "").lower()
-    if college:
+    if college and len(college) > 2:
         for alias in aliases:
-            if alias in college:
+            # ✅ FIX: Bidirectional check
+            if alias in college or college in alias:
                 return True  # Trust the College field
     
-    # Check EducationTop if it clearly indicates a degree
+    # Check EducationTop
     edu_top = (contact.get("EducationTop") or "").lower()
-    if edu_top:
+    if edu_top and len(edu_top) > 2:
         for alias in aliases:
-            if alias in edu_top:
-                # If USC/alias is in EducationTop, probably a degree
+            # ✅ FIX: Bidirectional check
+            if alias in edu_top or edu_top in alias:
                 return True
     
     return False
@@ -164,11 +282,9 @@ def _contact_hash(contact: dict) -> tuple:
     email = (contact.get("Email") or "").lower().strip()
     company = (contact.get("Company") or "").lower().strip()
     
-    # Use email as primary identifier if available, otherwise name+company
-    if email:
-        return (first, last, email)
-    else:
-        return (first, last, company)
+    # ALWAYS use (first, last, company) for identity
+    # Email can be added later (PDL→Hunter), so it's not reliable for deduplication
+    return (first, last, company)
 def get_contact_identity(contact: dict) -> str:
     """Generate a unique identity string for a contact"""
     return "||".join(_contact_hash(contact))
@@ -190,7 +306,7 @@ def _fetch_verified_alumni_contacts(
     verified_alumni = []
     all_fetched_contacts = []
     batch_size = max_contacts * 2  # Start with 2x the requested amount
-    max_total_fetch = 50  # Don't fetch more than 50 total to avoid excessive API calls
+    max_total_fetch = 200  # Increased to 200 to handle low alumni rates (e.g., 10% = 20 alumni from 200 contacts)
     total_fetched = 0
     attempts = 0
     max_attempts = 4
@@ -247,27 +363,36 @@ def _fetch_verified_alumni_contacts(
         
         # Track what we've fetched (with duplicate prevention)
         for contact in batch_contacts:
-            contact_key = get_contact_identity(contact)  # ADD this line
-            if contact_key not in excluded_keys and contact not in all_fetched_contacts:  # MODIFY this condition
+            if contact not in all_fetched_contacts:
                 all_fetched_contacts.append(contact)
         
         total_fetched += len(batch_contacts)
         
         # Apply strict alumni filter to new batch
+        # IMPORTANT: Check alumni status FIRST, then exclude duplicates
         new_verified = 0
         for contact in batch_contacts:
-            contact_key = get_contact_identity(contact)  # ADD this line
-            if contact_key in excluded_keys:  # ADD this check
-                continue  # Skip if already seen
-                
+            # First verify if they're alumni
             if _contact_has_school_as_primary_education_lenient(contact, aliases):
-                if contact not in verified_alumni:
-                    verified_alumni.append(contact)
-                    new_verified += 1
-                    
-                    # Log each verified alumni found
-                    name = f"{contact.get('FirstName', '')} {contact.get('LastName', '')}".strip()
-                    print(f"   ✓ Verified alumni #{len(verified_alumni)}: {name}")
+                # Only now check if we've already added them (by identity, not exclude_keys)
+                contact_key = get_contact_identity(contact)
+                
+                # Skip if already in verified_alumni (duplicate check)
+                already_added = any(get_contact_identity(v) == contact_key for v in verified_alumni)
+                if already_added:
+                    continue
+                
+                # Skip if in excluded_keys (user's contact library)
+                if contact_key in excluded_keys:
+                    continue
+                
+                # Add to verified alumni
+                verified_alumni.append(contact)
+                new_verified += 1
+                
+                # Log each verified alumni found
+                name = f"{contact.get('FirstName', '')} {contact.get('LastName', '')}".strip()
+                print(f"   ✓ Verified alumni #{len(verified_alumni)}: {name}")
                     
                 if len(verified_alumni) >= max_contacts:
                     break
@@ -310,7 +435,8 @@ def _fetch_contacts_standard(
         contacts = try_metro_search_optimized(
             primary_title, similar_titles, cleaned_company,
             location_strategy, max_contacts,
-            college_alumni=None
+            college_alumni=None,
+            exclude_keys=excluded_keys  # ✅ PASS EXCLUDE_KEYS
         )
         
         if len(contacts) < max_contacts:
@@ -336,7 +462,8 @@ def _fetch_contacts_standard(
                 job_title_enrichment, cleaned_company,
                 location_strategy['city'], location_strategy['state'],
                 max_contacts - len(contacts),
-                college_alumni=None
+                college_alumni=None,
+                exclude_keys=excluded_keys  # ✅ PASS EXCLUDE_KEYS
             )
             contacts.extend([c for c in broader_contacts if c not in contacts])
     
@@ -435,6 +562,9 @@ def apply_strict_alumni_filter(contacts: list, college_alumni: str, use_strict: 
     if not college_alumni:
         return contacts
     
+    aliases = _school_aliases(college_alumni)
+    if not aliases:
+        return contacts
     
     if use_strict:
         # Use enhanced filtering that checks for actual degrees
@@ -785,8 +915,17 @@ def get_autocomplete_suggestions(query, data_type='job_title'):
 
 
 def es_title_block(primary_title: str, similar_titles: list[str] | None):
-    """Build Elasticsearch-style title block query"""
-    titles = [t.strip().lower() for t in ([primary_title] + (similar_titles or [])) if t]
+    """Build Elasticsearch-style title block query with validation"""
+    titles = [t.strip().lower() for t in ([primary_title] + (similar_titles or [])) if t and t.strip()]
+    
+    # ✅ CRITICAL: Don't create empty should clauses
+    if not titles:
+        print("⚠️ WARNING: No valid titles provided, using fallback query")
+        # Fallback to a broad professional query
+        return {"exists": {"field": "job_title"}}
+    
+    # PDL doesn't support minimum_should_match at the top level
+    # The "should" clause with at least one match is sufficient
     return {
         "bool": {
             "should": (
@@ -990,9 +1129,10 @@ def extract_contact_from_pdl_person_enhanced(person):
             
         best_email = _choose_best_email(emails, recommended)
 
-        if not best_email:
-            print(f"WARNING: No email found for {first_name} {last_name}, continuing anyway for Coffee Chat")
-            best_email = "Not available"  # Set a placeholder instead of returning None
+        # ✅ INCLUDE contacts even without emails (Hunter.io will enrich them)
+        if not best_email or best_email == "Not available":
+            
+            best_email = "Not available"  # Mark as unavailable but include the contact
 
         # Phone
         phone_numbers = person.get('phone_numbers') or []
@@ -1160,11 +1300,26 @@ def add_pdl_enrichment_fields_optimized(contact, person_data):
         print(f"Error adding enrichment fields: {e}")
 
 
-def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page_size=50, verbose=False):
-    """Execute PDL search with pagination"""
+def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page_size=50, verbose=False, skip_count=0):
+    """
+    Execute PDL search with pagination
+    
+    Args:
+        skip_count: Number of results to skip from the beginning (for getting different people)
+    """
+    import random
+    
+    # Add small random skip to get different results each time
+    # Skip between 0-5 results randomly to introduce variation
+    if skip_count == 0:
+        skip_count = random.randint(0, min(5, desired_limit // 2))
     
     # ---- Page 1
-    body = {"query": query_obj, "size": page_size}
+    # Fetch more than needed to account for skipping
+    fetch_size = page_size + skip_count if skip_count > 0 else page_size
+    # ✅ CRITICAL: Cap at 100 (PDL's max size limit)
+    fetch_size = min(100, fetch_size)
+    body = {"query": query_obj, "size": fetch_size}
     
     # ✅ ADD DEBUG LOGGING
     print(f"\n=== PDL {search_type} DEBUG ===")
@@ -1178,12 +1333,27 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
 
     r = requests.post(url, headers=headers, json=body, timeout=30)
     
-    # ✅ ADD ERROR DETAIL LOGGING
+    # ✅ HANDLE 404 GRACEFULLY - Don't crash, just return empty
+    if r.status_code == 404:
+        print(f"\n❌ PDL 404 ERROR - No records found matching query")
+        print(f"Response: {r.text}")
+        print(f"\n🔍 DIAGNOSIS:")
+        print(f"   This usually means:")
+        print(f"   1. The job title doesn't exist in PDL database")
+        print(f"   2. The location filter is too restrictive")
+        print(f"   3. The combination of filters yields zero results")
+        print(f"\n💡 SUGGESTIONS:")
+        print(f"   - Try a broader job title (e.g., 'engineer' instead of 'senior software engineer')")
+        print(f"   - Remove the company filter")
+        print(f"   - Try a different location or just state instead of city")
+        return []  # Return empty list to allow other search strategies
+    
+    # ✅ HANDLE OTHER ERRORS
     if r.status_code != 200:
         print(f"\n❌ PDL ERROR {r.status_code}:")
         print(f"Response: {r.text[:1000]}")
+        return []  # Return empty instead of raising to allow fallback
     
-    r.raise_for_status()
     j = r.json()
 
     data   = j.get("data", []) or []
@@ -1192,6 +1362,12 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
 
     if verbose:
         print(f"{search_type} page 1: got {len(data)}; total={total}; scroll_token={scroll}")
+    
+    # Skip the first skip_count results to get different people
+    if skip_count > 0 and len(data) > skip_count:
+        data = data[skip_count:]
+        if verbose:
+            print(f"⏭️ Skipped first {skip_count} results to get different people")
 
     # Stop early if we already have enough
     if len(data) >= desired_limit or not scroll:
@@ -1244,83 +1420,171 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
 
 
 def try_metro_search_optimized(clean_title, similar_titles, company, location_strategy, max_contacts=8, college_alumni=None, exclude_keys=None):
-    """
-    Build an ES-style query targeting metro + fallbacks and run the scrolled PDL search.
-    STRICT LOCATION: (metro OR city) AND state AND country
-    """
-    title_block = es_title_block_from_enrichment(clean_title, similar_titles)
+    """Metro search with complete validation and exclusion filtering"""
     
-    # BUILD STRICT LOCATION FILTER
+    # ✅ Handle exclusion keys
+    excluded_keys = exclude_keys or set()
+    
+    # Validate inputs
+    if not clean_title or not clean_title.strip():
+        print("❌ No valid job title")
+        return []
+    
+    metro_location = (location_strategy.get("metro_location") or "").lower()
     city = (location_strategy.get("city") or "").lower()
     state = (location_strategy.get("state") or "").lower()
-    metro_location = (location_strategy.get("metro_location") or "").lower()
     
+    if not metro_location and not city:
+        print("❌ No valid location")
+        return []
+    
+    # Build title block with validation
+    title_block = es_title_block_from_enrichment(clean_title, similar_titles)
+    
+    # Validate title block isn't empty
+    if not title_block.get("bool", {}).get("should") and not title_block.get("exists"):
+        print("❌ Empty title block")
+        return []
+    
+    # Build location filter
     location_must = []
     
-    # ✅ FIXED: Build location filter without minimum_should_match
+    # Use match instead of term for more flexible location matching
     if metro_location and city:
-        # Both available: metro OR city
         location_must.append({
             "bool": {
                 "should": [
-                    {"term": {"location_metro": metro_location}},
-                    {"term": {"location_locality": city}}
+                    {"match": {"location_metro": metro_location}},
+                    {"match": {"location_locality": city}}
                 ]
             }
         })
     elif metro_location:
-        # Only metro available
-        location_must.append({"term": {"location_metro": metro_location}})
+        location_must.append({"match": {"location_metro": metro_location}})
     elif city:
-        # Only city available
-        location_must.append({"term": {"location_locality": city}})
+        location_must.append({"match": {"location_locality": city}})
     
-    # STRICT: Must match state
+    # Make state optional - use should instead of must
     if state:
-        location_must.append({"term": {"location_region": state}})
+        location_must.append({
+            "bool": {
+                "should": [
+                    {"match": {"location_region": state}},
+                    {"match": {"location_locality": state}}  # Sometimes state is in city field
+                ]
+            }
+        })
     
-    # STRICT: Must be USA
     location_must.append({"term": {"location_country": "united states"}})
     
     loc_block = {"bool": {"must": location_must}}
 
+    # Build final query
     must = [title_block, loc_block]
-    if company:
-        must.append({"match_phrase": {"job_company_name": company.lower()}})
+    
+    # Add optional filters - use both match_phrase and match for flexibility
+    if company and company.strip():
+        company_lower = company.lower().strip()
+        must.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"job_company_name": company_lower}},
+                    {"match": {"job_company_name": company_lower}}
+                ]
+            }
+        })
+    
+    # ✅ ADD EDUCATION FILTER TO QUERY - use both match_phrase and match
     if college_alumni:
         aliases = _school_aliases(college_alumni)
         if aliases:
-            must.append({"bool": {"should": [{"match_phrase": {"education.school.name": a}} for a in aliases]}})
+            # Use both match_phrase (exact) and match (flexible) for better coverage
+            education_clauses = []
+            for a in aliases:
+                education_clauses.append({"match_phrase": {"education.school.name": a}})
+                education_clauses.append({"match": {"education.school.name": a}})
+            must.append({
+                "bool": {
+                    "should": education_clauses
+                }
+            })
 
+    # ✅ ALL FILTERS IN MUST CLAUSE - PDL only returns people matching ALL criteria:
+    #   1. Job title (title_block)
+    #   2. Location (loc_block) 
+    #   3. Company (if provided)
+    #   4. Education/school (if provided)
+    # This is efficient - PDL filters at query time, not post-processing
     query_obj = {"bool": {"must": must}}
 
-    PDL_URL = f"{PDL_BASE_URL}/person/search"
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
-    }
+    # Execute with proper error handling
+    try:
+        PDL_URL = f"{PDL_BASE_URL}/person/search"
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
+        }
 
-    remaining = max_contacts
-    page_size = min(100, max(1, remaining))
-
-    return execute_pdl_search(
-        headers=headers,
-        url=PDL_URL,
-        query_obj=query_obj,
-        desired_limit=remaining,
-        search_type=f"metro_{location_strategy.get('matched_metro','unknown')}",
-        page_size=page_size,
-        verbose=False,
+        # ✅ Request MORE than needed to account for filtering + variation
+        # When alumni filter is active, PDL already narrows results significantly
+        # But we need extra for: email filtering + skipping for variation
+        if college_alumni:
+            # Alumni filter in query means PDL returns mostly alumni
+            # But still need more because of flexible matching + variation
+            fetch_limit = max_contacts * 2  # Alumni filter in query = high hit rate
+        else:
+            # No alumni filter means more aggressive over-fetching needed
+            # for email filtering, general quality, and variation
+            fetch_limit = max_contacts * 5  # No alumni filter = need more buffer
         
-    )
-
+        page_size = min(100, max(1, fetch_limit))
+        
+        raw_contacts = execute_pdl_search(
+            headers=headers,
+            url=PDL_URL,
+            query_obj=query_obj,
+            desired_limit=fetch_limit,
+            search_type=f"metro_{location_strategy.get('matched_metro','unknown')}",
+            page_size=page_size,
+            verbose=False,
+        )
+        
+        # ✅ FILTER OUT EXCLUDED CONTACTS
+        if excluded_keys:
+            filtered_contacts = []
+            skipped_count = 0
+            
+            for contact in raw_contacts:
+                contact_key = get_contact_identity(contact)
+                if contact_key in excluded_keys:
+                    skipped_count += 1
+                    continue
+                filtered_contacts.append(contact)
+                if len(filtered_contacts) >= max_contacts:
+                    break
+            
+            print(f"🔍 Metro search filtering:")
+            print(f"   - Raw results from PDL: {len(raw_contacts)}")
+            print(f"   - Excluded (already seen): {skipped_count}")
+            print(f"   - Unique new contacts: {len(filtered_contacts)}")
+            
+            return filtered_contacts[:max_contacts]
+        else:
+            return raw_contacts[:max_contacts]
+            
+    except Exception as e:
+        print(f"Metro search failed: {e}")
+        return []
 
 def try_locality_search_optimized(clean_title, similar_titles, company, location_strategy, max_contacts=8, college_alumni=None, exclude_keys=None):
     """
     Locality-focused version (used when metro results are thin).
     STRICT LOCATION: city AND state AND country
     """
+    # ✅ Handle exclusion keys
+    excluded_keys = exclude_keys or set()
+    
     title_block = es_title_block_from_enrichment(clean_title, similar_titles)
     
     # BUILD STRICT LOCATION FILTER
@@ -1329,13 +1593,20 @@ def try_locality_search_optimized(clean_title, similar_titles, company, location
     
     location_must = []
     
-    # Require exact city match
+    # Use match for more flexible city matching
     if city:
-        location_must.append({"term": {"location_locality": city}})
+        location_must.append({"match": {"location_locality": city}})
     
-    # STRICT: Require exact state match  
+    # Make state optional - use should for flexibility
     if state:
-        location_must.append({"term": {"location_region": state}})
+        location_must.append({
+            "bool": {
+                "should": [
+                    {"match": {"location_region": state}},
+                    {"match": {"location_locality": state}}  # Sometimes state is in city field
+                ]
+            }
+        })
     
     # Always require USA
     location_must.append({"term": {"location_country": "united states"}})
@@ -1344,12 +1615,38 @@ def try_locality_search_optimized(clean_title, similar_titles, company, location
 
     must = [title_block, loc_block]
     if company:
-        must.append({"match_phrase": {"job_company_name": company.lower()}})
+        # Use both match_phrase and match for flexibility
+        company_lower = company.lower().strip()
+        must.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"job_company_name": company_lower}},
+                    {"match": {"job_company_name": company_lower}}
+                ]
+            }
+        })
+    
+    # ✅ ADD EDUCATION FILTER TO QUERY - use both match_phrase and match
     if college_alumni:
         aliases = _school_aliases(college_alumni)
         if aliases:
-            must.append({"bool": {"should": [{"match_phrase": {"education.school.name": a}} for a in aliases]}})
+            # Use both match_phrase (exact) and match (flexible) for better coverage
+            education_clauses = []
+            for a in aliases:
+                education_clauses.append({"match_phrase": {"education.school.name": a}})
+                education_clauses.append({"match": {"education.school.name": a}})
+            must.append({
+                "bool": {
+                    "should": education_clauses
+                }
+            })
 
+    # ✅ ALL FILTERS IN MUST CLAUSE - PDL only returns people matching ALL criteria:
+    #   1. Job title (title_block)
+    #   2. Location (loc_block) 
+    #   3. Company (if provided)
+    #   4. Education/school (if provided)
+    # This is efficient - PDL filters at query time, not post-processing
     query_obj = {"bool": {"must": must}}
 
     PDL_URL = f"{PDL_BASE_URL}/person/search"
@@ -1359,23 +1656,55 @@ def try_locality_search_optimized(clean_title, similar_titles, company, location
         "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
     }
 
-    remaining = max_contacts
-    page_size = min(100, max(1, remaining))
+    # ✅ Request MORE than needed to account for filtering + variation
+    # When alumni filter is active, PDL already narrows results
+    if college_alumni:
+        fetch_limit = max_contacts * 2  # Alumni filter in query = high hit rate
+    else:
+        fetch_limit = max_contacts * 5  # No alumni filter = need more buffer
+    
+    page_size = min(100, max(1, fetch_limit))
 
-    return execute_pdl_search(
+    raw_contacts = execute_pdl_search(
         headers=headers,
         url=PDL_URL,
         query_obj=query_obj,
-        desired_limit=remaining,
+        desired_limit=fetch_limit,
         search_type=f"locality_{location_strategy.get('city','unknown')}",
         page_size=page_size,
         verbose=False,
      
     )
+    
+    # ✅ FILTER OUT EXCLUDED CONTACTS
+    if excluded_keys:
+        filtered_contacts = []
+        skipped_count = 0
+        
+        for contact in raw_contacts:
+            contact_key = get_contact_identity(contact)
+            if contact_key in excluded_keys:
+                skipped_count += 1
+                continue
+            filtered_contacts.append(contact)
+            if len(filtered_contacts) >= max_contacts:
+                break
+        
+        print(f"🔍 Locality search filtering:")
+        print(f"   - Raw results from PDL: {len(raw_contacts)}")
+        print(f"   - Excluded (already seen): {skipped_count}")
+        print(f"   - Unique new contacts: {len(filtered_contacts)}")
+        
+        return filtered_contacts[:max_contacts]
+    else:
+        return raw_contacts[:max_contacts]
 
 
 def try_job_title_levels_search_enhanced(job_title_enrichment, company, city, state, max_contacts, college_alumni=None, exclude_keys=None):
     """Enhanced job title levels search"""
+    # ✅ Handle exclusion keys
+    excluded_keys = exclude_keys or set()
+    
     print("Enhanced job title levels search")
 
     must = []
@@ -1393,28 +1722,60 @@ def try_job_title_levels_search_enhanced(job_title_enrichment, company, city, st
                                job_title_enrichment.get('similar_titles') or []))
 
     if company:
-        must.append({"match_phrase": {"job_company_name": (company or "").lower()}})
+        # Use both match_phrase and match for flexibility
+        company_lower = (company or "").lower().strip()
+        must.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"job_company_name": company_lower}},
+                    {"match": {"job_company_name": company_lower}}
+                ]
+            }
+        })
 
     location_must = []
 
-    # Require exact city match
+    # Use match for more flexible city matching
     if city:
-        location_must.append({"term": {"location_locality": city}})
+        location_must.append({"match": {"location_locality": city}})
 
-    # STRICT: Require exact state match
+    # Make state optional - use should for flexibility
     if state:
-        location_must.append({"term": {"location_region": state}})
+        location_must.append({
+            "bool": {
+                "should": [
+                    {"match": {"location_region": state}},
+                    {"match": {"location_locality": state}}  # Sometimes state is in city field
+                ]
+            }
+        })
 
     # Always require USA
     location_must.append({"term": {"location_country": "united states"}})
 
     must.append({"bool": {"must": location_must}})
 
+    # ✅ ADD EDUCATION FILTER TO QUERY - use both match_phrase and match
     if college_alumni:
         aliases = _school_aliases(college_alumni)
         if aliases:
-            must.append({"bool": {"should": [{"match_phrase": {"education.school.name": a}} for a in aliases]}})
+            # Use both match_phrase (exact) and match (flexible) for better coverage
+            education_clauses = []
+            for a in aliases:
+                education_clauses.append({"match_phrase": {"education.school.name": a}})
+                education_clauses.append({"match": {"education.school.name": a}})
+            must.append({
+                "bool": {
+                    "should": education_clauses
+                }
+            })
 
+    # ✅ ALL FILTERS IN MUST CLAUSE - PDL only returns people matching ALL criteria:
+    #   1. Job title (title_block)
+    #   2. Location (loc_block) 
+    #   3. Company (if provided)
+    #   4. Education/school (if provided)
+    # This is efficient - PDL filters at query time, not post-processing
     query_obj = {"bool": {"must": must}}
 
     PDL_URL = f"{PDL_BASE_URL}/person/search"
@@ -1424,19 +1785,48 @@ def try_job_title_levels_search_enhanced(job_title_enrichment, company, city, st
         "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
     }
 
-    remaining = max_contacts
-    page_size = min(100, max(1, remaining))
+    # ✅ Request MORE than needed to account for filtering + variation
+    # When alumni filter is active, PDL already narrows results
+    if college_alumni:
+        fetch_limit = max_contacts * 2  # Alumni filter in query = high hit rate
+    else:
+        fetch_limit = max_contacts * 5  # No alumni filter = need more buffer
+    
+    page_size = min(100, max(1, fetch_limit))
 
-    return execute_pdl_search(
+    raw_contacts = execute_pdl_search(
         headers=headers,
         url=PDL_URL,
         query_obj=query_obj,
-        desired_limit=remaining,
+        desired_limit=fetch_limit,
         search_type="job_levels_enhanced",
         page_size=page_size,
         verbose=False,
         
     )
+    
+    # ✅ FILTER OUT EXCLUDED CONTACTS
+    if excluded_keys:
+        filtered_contacts = []
+        skipped_count = 0
+        
+        for contact in raw_contacts:
+            contact_key = get_contact_identity(contact)
+            if contact_key in excluded_keys:
+                skipped_count += 1
+                continue
+            filtered_contacts.append(contact)
+            if len(filtered_contacts) >= max_contacts:
+                break
+        
+        print(f"🔍 Job levels search filtering:")
+        print(f"   - Raw results from PDL: {len(raw_contacts)}")
+        print(f"   - Excluded (already seen): {skipped_count}")
+        print(f"   - Unique new contacts: {len(filtered_contacts)}")
+        
+        return filtered_contacts[:max_contacts]
+    else:
+        return raw_contacts[:max_contacts]
 
 
 def search_contacts_with_smart_location_strategy(
@@ -1453,6 +1843,29 @@ def search_contacts_with_smart_location_strategy(
     4. Return exactly the requested number
     """
     try:
+        # ✅ ADD COMPREHENSIVE INPUT VALIDATION
+        print(f"\n{'='*70}")
+        print(f"🔍 PDL SEARCH STARTED")
+        print(f"{'='*70}")
+        print(f"📥 Input Parameters:")
+        print(f"  ├─ job_title: '{job_title}'")
+        print(f"  ├─ company: '{company}'")
+        print(f"  ├─ location: '{location}'")
+        print(f"  ├─ max_contacts: {max_contacts}")
+        print(f"  ├─ college_alumni: '{college_alumni}'")
+        print(f"  └─ exclude_keys: {len(exclude_keys) if exclude_keys else 0} contacts")
+        
+        # ✅ VALIDATE REQUIRED INPUTS
+        if not job_title or not job_title.strip():
+            print(f"❌ ERROR: job_title is required but was empty or None")
+            return []
+        
+        if not location or not location.strip():
+            print(f"❌ ERROR: location is required but was empty or None")
+            return []
+        
+        print(f"{'='*70}\n")
+        
         print(f"Starting smart location search for {job_title} at {company} in {location}")
         if college_alumni:
             print(f"🎓 Alumni filter enabled: {college_alumni}")

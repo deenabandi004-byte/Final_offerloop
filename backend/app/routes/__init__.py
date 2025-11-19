@@ -26,6 +26,7 @@ __all__ = [
     'resume_bp',
     'coffee_chat_bp',
     'billing_bp',
-    'users_bp'
+    'users_bp',
+    'outbox_bp' 
 ]
 

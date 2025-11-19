@@ -39,47 +39,63 @@ const SignIn: React.FC = () => {
     }, 600);
   };
 
-  // ✅ MOVED: Define functions BEFORE useEffects so they can be called
+  // ✅ FIXED: Don't depend on context user, use Firebase auth directly
   const checkNeedsGmailConnection = async (): Promise<boolean> => {
     try {
-      if (!user) return false;
       const auth = getAuth();
       const firebaseUser = auth.currentUser;
-      if (!firebaseUser) return false;
+      if (!firebaseUser) {
+        console.log("🔍 No Firebase user yet, can't check Gmail");
+        return false;
+      }
+      
       const token = await firebaseUser.getIdToken();
+      console.log("🔍 Checking Gmail status for:", firebaseUser.email);
+      
       const response = await fetch(`${API_BASE_URL}/api/gmail/status`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
-      console.log("📧 Gmail status:", data);
+      console.log("📧 Gmail status response:", data);
       return !data.connected;
     } catch (error) {
       console.error("Error checking Gmail status:", error);
+      // On error, assume Gmail needs connecting to be safe
       return true;
     }
   };
 
   const initiateGmailOAuth = async () => {
     try {
-      if (!user) return;
       const auth = getAuth();
       const firebaseUser = auth.currentUser;
-      if (!firebaseUser) return;
+      if (!firebaseUser) {
+        console.error("❌ No Firebase user when trying to start Gmail OAuth");
+        return;
+      }
+      
       const token = await firebaseUser.getIdToken();
+      console.log("🔐 Starting Gmail OAuth for:", firebaseUser.email);
+      
       const response = await fetch(`${API_BASE_URL}/api/google/oauth/start`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
       
       if (data.authUrl) {
-        localStorage.setItem('post_gmail_destination', 
-          user.needsOnboarding ? '/onboarding' : '/home'
-        );
+        // Save where to go after OAuth completes
+        const destination = user?.needsOnboarding ? '/onboarding' : '/home';
+        localStorage.setItem('post_gmail_destination', destination);
+        
         console.log("📧 Redirecting to Gmail OAuth...");
+        console.log("📧 Will return to:", destination);
         window.location.href = data.authUrl;
+      } else {
+        console.error("❌ No authUrl in response:", data);
       }
     } catch (error) {
       console.error("Error starting Gmail OAuth:", error);
+      // Fallback: navigate to app anyway
       const dest = user?.needsOnboarding ? "/onboarding" : "/home";
       forceNavigate(dest);
     }
@@ -88,15 +104,30 @@ const SignIn: React.FC = () => {
   // ✅ useEffects come AFTER function definitions
   useEffect(() => setActiveTab(initialTab), [initialTab]);
 
+
   // ✅ AUTO-CHECK Gmail when signed-in user loads page
   useEffect(() => {
     const autoCheckGmail = async () => {
       if (isLoading || !user) return;
       
-      // Check if returning from Gmail OAuth
       const params = new URLSearchParams(location.search);
-      const justConnectedGmail = params.get('connected') === 'gmail';
-      
+    
+      const gmailError = params.get("gmail_error");
+      if (gmailError === "wrong_account") {
+        console.warn("📧 Gmail OAuth returned wrong_account error");
+        toast({
+          variant: "destructive",
+          title: "Wrong Gmail account",
+          description: `Please connect the Gmail account that matches your login: ${user.email}`,
+        });
+        // Don't immediately redirect them again; just let them hit the button / auto flow
+        // and pick the right account.
+        // We still fall through so the auto-check can decide what to do.
+      }
+
+      const justConnectedGmail = params.get("connected") === "gmail";
+
+      // ✅ Case 2: Gmail successfully connected
       if (justConnectedGmail) {
         console.log("📧 Returned from Gmail OAuth!");
         const dest = localStorage.getItem('post_gmail_destination') || '/home';
@@ -111,6 +142,7 @@ const SignIn: React.FC = () => {
         return;
       }
       
+      // Case 3: normal sign-in path → check whether Gmail is connected
       console.log('🔍 Auto-checking Gmail for:', user.email);
       
       const needsGmail = await checkNeedsGmailConnection();
@@ -120,19 +152,18 @@ const SignIn: React.FC = () => {
         await initiateGmailOAuth();
       } else {
         console.log('✅ Gmail already connected');
-        // Navigate to home AFTER confirming Gmail is connected
         const dest = user.needsOnboarding ? "/onboarding" : "/home";
         console.log('🏠 Navigating to:', dest);
         forceNavigate(dest);
       }
     };
-  
-    // Auto-check 1 second after user loads
+
     if (!isLoading && user) {
       const timer = setTimeout(autoCheckGmail, 1000);
       return () => clearTimeout(timer);
     }
-  }, [user, isLoading, location.search, toast]);  
+  }, [user, isLoading, location.search, toast]);
+  
   const handleGoogleAuth = async () => {
     if (submitting || isLoading) return;
     setSubmitting(true);
@@ -140,10 +171,13 @@ const SignIn: React.FC = () => {
       console.log("🔐 Initiating Google Sign-In...");
       const next = await signIn({ prompt: "consent" });
       
-      // ✅ Wait for user state to update
-      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log("✅ Firebase sign-in completed, next step:", next);
+      
+      // ✅ Wait a bit longer for Firebase state to settle
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
       // ✅ Check if Gmail needs to be connected
+      console.log("🔍 Checking if Gmail needs connection...");
       const needsGmail = await checkNeedsGmailConnection();
       
       if (needsGmail) {
@@ -153,6 +187,7 @@ const SignIn: React.FC = () => {
       }
       
       // Gmail already connected
+      console.log("✅ Gmail already connected, navigating to app");
       const dest = next === "onboarding" ? "/onboarding" : "/home";
       console.log("[signin] signIn returned:", next, "→", dest, "(Gmail already connected)");
       forceNavigate(dest);

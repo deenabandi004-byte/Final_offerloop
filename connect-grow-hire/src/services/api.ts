@@ -1,7 +1,7 @@
 // src/services/api.ts
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
-  (window.location.hostname === 'localhost'
+  (['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname)
     ? 'http://localhost:5001/api'
     : 'https://www.offerloop.ai/api');
 
@@ -87,6 +87,41 @@ export interface GenerateReplyResult {
   draftId: string;
   threadId: string;
   gmailUrl: string;
+}
+
+// ================================
+// Outbox Types
+// ================================
+export type OutboxStatus =
+  | "no_reply_yet"
+  | "new_reply"
+  | "waiting_on_them"
+  | "waiting_on_you"
+  | "closed";
+
+export interface OutboxThread {
+  id: string;
+  contactName: string;
+  jobTitle: string;
+  company: string;
+  email: string;
+  status: OutboxStatus;
+  lastMessageSnippet: string;
+  lastActivityAt: string; // ISO string
+  hasDraft: boolean;
+  suggestedReply?: string;
+  gmailDraftUrl?: string;
+  replyType?: "positive" | "referral" | "delay" | "decline" | "question";
+}
+
+export interface OutboxThreadsResponse {
+  threads: OutboxThread[];
+}
+
+export interface RegenerateReplyResponse {
+  thread: OutboxThread;
+  success: boolean;
+  message?: string;
 }
 
 // Union type for search results
@@ -231,6 +266,16 @@ class ApiService {
   }
 
   if (!response.ok) {
+    // For 401 with needsAuth, preserve the full error data including authUrl
+    if (response.status === 401 && data && (data.needsAuth || data.require_reauth)) {
+      const error: any = new Error(data.message || data.error || 'Authentication required');
+      error.needsAuth = data.needsAuth || data.require_reauth;
+      error.authUrl = data.authUrl;
+      error.contacts = data.contacts;
+      error.status = 401;
+      throw error;
+    }
+    
     const message =
       (data && (data.error || data.message || data.detail)) ||
       `HTTP ${response.status}: ${response.statusText}`;
@@ -560,6 +605,46 @@ async generateReplyDraft(contactId: string): Promise<GenerateReplyResult | Error
     headers,
   });
 }
+
+
+  // ================================
+  // Outbox API
+  // ================================
+  
+  /** Get all outbox email threads */
+  // ================================
+// Outbox API
+// ================================
+
+/** Get all Outbox email threads */
+async getOutboxThreads(): Promise<{ threads: OutboxThread[] } | { error: string }> {
+  const headers = await this.getAuthHeaders();
+
+  return this.makeRequest<{ threads: OutboxThread[] } | { error: string }>(
+    '/outbox/threads',
+    {
+      method: 'GET',
+      headers
+    }
+  );
+}
+
+/** Regenerate a suggested reply + Gmail draft for a thread */
+async regenerateOutboxReply(
+  threadId: string
+): Promise<{ thread: OutboxThread } | { error: string }> {
+  const headers = await this.getAuthHeaders();
+
+  return this.makeRequest<{ thread: OutboxThread } | { error: string }>(
+    `/outbox/threads/${threadId}/regenerate`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({})
+    }
+  );
+}
+
 
 
   /** Helper to download CSV blob as file */

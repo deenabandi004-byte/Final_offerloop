@@ -4,6 +4,7 @@ Run routes - free and pro tier search endpoints
 import json
 import csv
 from app.services.pdl_client import search_contacts_with_smart_location_strategy, get_contact_identity
+from app.services.hunter_enrichment import enrich_contacts_with_hunter
 from io import StringIO
 from flask import Blueprint, request, jsonify, send_file
 from werkzeug.utils import secure_filename
@@ -13,9 +14,10 @@ from app.services.resume_parser import extract_text_from_pdf
 from app.services.reply_generation import batch_generate_emails
 from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user
 from app.services.auth import check_and_reset_credits
-from app.services.hunter import enrich_contacts_with_hunter
 from app.config import TIER_CONFIGS
 from firebase_admin import firestore
+
+
 def _is_valid_email(value: str) -> bool:
     """Basic sanity check for emails."""
     if not isinstance(value, str):
@@ -41,7 +43,10 @@ def has_pdl_email(contact: dict) -> bool:
         contact.get("PersonalEmail"),
     ]
     return any(_is_valid_email(v) for v in candidates)
-runs_bp = Blueprint('runs', __name__, url_prefix='/api')
+
+
+runs_bp = Blueprint("runs_hunter", __name__)
+
 
 
 # Note: run_free_tier_enhanced_optimized and run_pro_tier_enhanced_final_with_text
@@ -118,11 +123,8 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         
         if not contacts:
             return {'contacts': [], 'successful_drafts': 0}
-        # ✅ REMOVED: No longer tracking seenContactKeys
-        # Only Contact Library is used for exclusion
-        # This allows contacts to reappear if library is cleared
         
-        # ✅ HUNTER.IO ENRICHMENT - Enrich contacts without emails
+        # ✅ HUNTER.IO ENRICHMENT (Option B: Smart Enrichment)
         contacts_with_email: list[dict] = []
         contacts_without_email: list[dict] = []
 
@@ -131,39 +133,30 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                 contacts_with_email.append(c)
             else:
                 contacts_without_email.append(c)
-        # 🔍 DEBUG: show a sample of contacts that we're about to send to Hunter
-        if contacts_without_email:
-            print("\nDEBUG: contacts WITHOUT any PDL emails (up to 5):")
-            for c in contacts_without_email[:5]:
-                print(
-                    f"   - {c.get('FirstName','')} {c.get('LastName','')} | "
-                    f"Email={c.get('Email')} | "
-                    f"WorkEmail={c.get('WorkEmail')} | "
-                    f"PersonalEmail={c.get('PersonalEmail')}"
-                )
-
 
         print(f"\n📧 Email Status: {len(contacts_with_email)}/{len(contacts)} have emails from PDL")
 
-        # Only use Hunter.io if we have contacts without emails
-        if contacts_without_email:
+        # Only use Hunter.io if we need more emails
+        if len(contacts_with_email) < max_contacts and contacts_without_email:
             needed = max_contacts - len(contacts_with_email)
             print(f"🔍 Need {needed} more emails, enriching {len(contacts_without_email)} contacts with Hunter.io...")
             
             try:
                 contacts = enrich_contacts_with_hunter(
                     contacts,
-                    max_enrichments=needed  # Only enrich what we need to save Hunter credits
+                    max_enrichments=needed
                 )
             except Exception as hunter_error:
                 ...
 
                 print(f"⚠️ Hunter.io enrichment failed: {hunter_error}")
-                import traceback
-                traceback.print_exc()
                 # Continue without Hunter enrichment
         else:
-            print(f"✅ All {len(contacts_with_email)} contacts have emails from PDL, skipping Hunter.io enrichment")
+            print(f"✅ Already have {len(contacts_with_email)} emails, skipping Hunter.io enrichment")
+        
+        # ✅ REMOVED: No longer tracking seenContactKeys
+        # Only Contact Library is used for exclusion
+        # This allows contacts to reappear if library is cleared
         
         # Generate emails
         email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests)
@@ -309,18 +302,15 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         if not contacts:
             return {'contacts': [], 'successful_drafts': 0}
         
-        # ✅ REMOVED: No longer tracking seenContactKeys
-        # Only Contact Library is used for exclusion
-        # This allows contacts to reappear if library is cleared
-        
-        # ✅ HUNTER.IO ENRICHMENT - Enrich contacts without emails
+        # ✅ HUNTER.IO ENRICHMENT (Option B: Smart Enrichment)
+        # Only enrich if we don't have enough emails
         contacts_with_email = [c for c in contacts if c.get('Email') and c['Email'] != "Not available"]
         contacts_without_email = len(contacts) - len(contacts_with_email)
         
         print(f"\n📧 Email Status: {len(contacts_with_email)}/{len(contacts)} have emails from PDL")
         
-        # Only use Hunter.io if we have contacts without emails
-        if contacts_without_email > 0:
+        # Only use Hunter.io if we need more emails
+        if len(contacts_with_email) < max_contacts and contacts_without_email > 0:
             needed = max_contacts - len(contacts_with_email)
             print(f"🔍 Need {needed} more emails, enriching {contacts_without_email} contacts with Hunter.io...")
             
@@ -331,11 +321,13 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                 )
             except Exception as hunter_error:
                 print(f"⚠️ Hunter.io enrichment failed: {hunter_error}")
-                import traceback
-                traceback.print_exc()
                 # Continue without Hunter enrichment
         else:
-            print(f"✅ All {len(contacts_with_email)} contacts have emails from PDL, skipping Hunter.io enrichment")
+            print(f"✅ Already have {len(contacts_with_email)} emails, skipping Hunter.io enrichment")
+        
+        # ✅ REMOVED: No longer tracking seenContactKeys
+        # Only Contact Library is used for exclusion
+        # This allows contacts to reappear if library is cleared
         
         # Generate emails with resume
         email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests)

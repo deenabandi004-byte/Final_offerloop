@@ -14,26 +14,30 @@ from .app.routes.resume import resume_bp
 from .app.routes.coffee_chat_prep import coffee_chat_bp
 from .app.routes.billing import billing_bp
 from .app.routes.users import users_bp
+from .app.routes.outbox import outbox_bp
 from .app.extensions import init_app_extensions
-# from .app.routes.spa import spa_bp  # leave commented if it defines a catch-all
 
 def create_app() -> Flask:
     # Project layout assumptions:
-    # repo/
-    #   backend/
-    #     wsgi.py  (this file)
-    #   connect-grow-hire/
-    #     dist/    (Vite build output)
-    REPO_ROOT = os.path.dirname(os.path.dirname(__file__))          # repo/backend -> repo
-    FRONTEND_DIR = os.path.join(REPO_ROOT, "connect-grow-hire")     # change if different
-    STATIC_DIR = os.path.join(FRONTEND_DIR, "dist")                 # Vite build output
+    REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
+    FRONTEND_DIR = os.path.join(REPO_ROOT, "connect-grow-hire")
+    STATIC_DIR = os.path.join(FRONTEND_DIR, "dist")
 
     app = Flask(
         __name__,
-        static_folder=STATIC_DIR,   # where index.html + assets live after build
-        static_url_path=""          # serve at /
+        static_folder=STATIC_DIR,
+        static_url_path=""
     )
+    
+    print("🚀 Initializing app extensions...")
     init_app_extensions(app)
+    print("✅ App extensions initialized")
+    
+    # Check if db was initialized
+    from .app.extensions import db
+    print(f"🔍 After init_app_extensions, db is: {db}")
+    print(f"🔍 db type: {type(db)}")
+    
     # --- Logging (handy on Render) ---
     app.logger.setLevel(logging.INFO)
     app.logger.info("STATIC FOLDER: %s", app.static_folder)
@@ -51,9 +55,7 @@ def create_app() -> Flask:
     app.register_blueprint(coffee_chat_bp)
     app.register_blueprint(billing_bp)
     app.register_blueprint(users_bp)
-
-    # --- (Optional) If spa_bp only serves index it’s redundant with fallback below
-    # app.register_blueprint(spa_bp)
+    app.register_blueprint(outbox_bp)
 
     # --- Redirect apex → www (optional but recommended) ---
     @app.before_request
@@ -72,16 +74,13 @@ def create_app() -> Flask:
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def spa_fallback(path):
-        # Let API routes pass through (they'll 404 naturally if not found)
         if path.startswith('api/'):
             abort(404)  
         
-        # If the path is a file that exists, serve it
         file_path = os.path.join(app.static_folder, path)
         if path and os.path.isfile(file_path):
             return send_from_directory(app.static_folder, path)
         
-        # Otherwise, serve index.html for React Router
         index_path = os.path.join(app.static_folder, 'index.html')
         if not os.path.exists(index_path):
             app.logger.error("index.html not found at %s", index_path)

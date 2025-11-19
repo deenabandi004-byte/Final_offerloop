@@ -47,12 +47,17 @@ def get_oauth_redirect_uri():
     )
 
 def get_frontend_redirect_uri():
-    """Get the appropriate frontend redirect URI based on environment"""
+    """Get the appropriate frontend redirect URI based on environment
+    
+    ⚠️ IMPORTANT: Returns base URL without query params.
+    Query params like ?connected=gmail or ?gmail_error=wrong_account 
+    are added by gmail_oauth.py callback handler.
+    """
     is_production = os.getenv("FLASK_ENV") == "production" or os.getenv("RENDER")
     return (
-        "https://www.offerloop.ai/signin?connected=gmail"
+        "https://www.offerloop.ai/signin"
         if is_production
-        else "http://localhost:8080/signin?connected=gmail"
+        else "http://localhost:8080/signin"
     )
 
 OAUTH_REDIRECT_URI = get_oauth_redirect_uri()
@@ -187,4 +192,3 @@ else:
 # OAuth insecure transport for localhost
 if (os.environ.get("OAUTH_REDIRECT_URI") or "").startswith("http://localhost"):
     os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
-

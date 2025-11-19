@@ -1043,8 +1043,38 @@ const downloadCoffeeChatPDF = async (prepId?: string) => {
           });
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Search failed:", error);
+      
+      // Check if this is a Gmail reconnection error
+      if (error?.needsAuth || error?.require_reauth) {
+        const authUrl = error.authUrl;
+        if (authUrl) {
+          toast({
+            title: "Gmail Connection Expired",
+            description: error.message || "Please reconnect your Gmail account to create drafts.",
+            variant: "destructive",
+            duration: 5000,
+          });
+          
+          // Store contacts if available
+          if (error.contacts && error.contacts.length > 0) {
+            console.log(`📧 Saving ${error.contacts.length} contacts before Gmail reconnection`);
+            // Optionally save contacts to directory before redirecting
+            try {
+              await autoSaveToDirectory(error.contacts, location.trim());
+            } catch (saveError) {
+              console.error("Failed to save contacts before redirect:", saveError);
+            }
+          }
+          
+          // Redirect to Gmail OAuth
+          console.log("📧 Redirecting to Gmail OAuth:", authUrl);
+          window.location.href = authUrl;
+          return;
+        }
+      }
+      
       toast({
         title: "Search Failed",
         description: error instanceof Error ? error.message : "Please try again.",
