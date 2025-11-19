@@ -57,6 +57,21 @@ def create_app() -> Flask:
     app.register_blueprint(users_bp)
     app.register_blueprint(outbox_bp)
 
+    # --- Debug route to check frontend build (MUST BE BEFORE return app) ---
+    @app.route('/api/debug/frontend')
+    def debug_frontend():
+        static_dir = app.static_folder
+        exists = os.path.exists(static_dir)
+        index_exists = os.path.exists(os.path.join(static_dir, 'index.html')) if exists else False
+        
+        return {
+            'static_folder': static_dir,
+            'static_folder_exists': exists,
+            'index_html_exists': index_exists,
+            'files_in_static': os.listdir(static_dir)[:20] if exists else [],
+            'repo_root': os.path.dirname(os.path.dirname(__file__))
+        }
+
     # --- Redirect apex → www (optional but recommended) ---
     @app.before_request
     def force_www():
@@ -75,7 +90,7 @@ def create_app() -> Flask:
     @app.route('/<path:path>')
     def spa_fallback(path):
         if path.startswith('api/'):
-            abort(404)  
+            abort(404)
         
         file_path = os.path.join(app.static_folder, path)
         if path and os.path.isfile(file_path):
