@@ -57,7 +57,7 @@ def create_app() -> Flask:
     app.register_blueprint(users_bp)
     app.register_blueprint(outbox_bp)
 
-    # --- Debug route to check frontend build (MUST BE BEFORE return app) ---
+    # --- Debug route to check frontend build ---
     @app.route('/api/debug/frontend')
     def debug_frontend():
         static_dir = app.static_folder
@@ -85,17 +85,20 @@ def create_app() -> Flask:
         assets_dir = os.path.join(app.static_folder, 'assets')
         return send_from_directory(assets_dir, filename)
 
-    # --- SPA catch-all: serve index.html for any non-API route ---
+    # --- SPA catch-all: serve index.html for any non-API route (MUST BE LAST!) ---
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def spa_fallback(path):
+        # Skip API routes
         if path.startswith('api/'):
             abort(404)
         
+        # Check if it's a static file that exists
         file_path = os.path.join(app.static_folder, path)
         if path and os.path.isfile(file_path):
             return send_from_directory(app.static_folder, path)
         
+        # For all other paths (React routes), serve index.html
         index_path = os.path.join(app.static_folder, 'index.html')
         if not os.path.exists(index_path):
             app.logger.error("index.html not found at %s", index_path)
