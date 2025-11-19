@@ -85,26 +85,25 @@ def create_app() -> Flask:
         assets_dir = os.path.join(app.static_folder, 'assets')
         return send_from_directory(assets_dir, filename)
 
-    # --- SPA catch-all: serve index.html for any non-API route (MUST BE LAST!) ---
-    @app.route('/', defaults={'path': ''})
-    @app.route('/<path:path>')
-    def spa_fallback(path):
-        # Skip API routes
-        if path.startswith('api/'):
-            abort(404)
-        
-        # Check if it's a static file that exists
-        file_path = os.path.join(app.static_folder, path)
-        if path and os.path.isfile(file_path):
-            return send_from_directory(app.static_folder, path)
-        
-        # For all other paths (React routes), serve index.html
-        index_path = os.path.join(app.static_folder, 'index.html')
-        if not os.path.exists(index_path):
-            app.logger.error("index.html not found at %s", index_path)
-            return "Frontend build not found. Did you run the frontend build on Render?", 500
-        
+    # --- Serve root index.html ---
+    @app.route('/')
+    def index():
         return send_from_directory(app.static_folder, 'index.html')
+
+    # --- 404 handler for SPA (catches all unmatched routes) ---
+    @app.errorhandler(404)
+    def not_found(e):
+        # Don't serve index.html for API routes that don't exist
+        if request.path.startswith('/api/'):
+            return "API endpoint not found", 404
+        
+        # For everything else, serve the React app
+        index_path = os.path.join(app.static_folder, 'index.html')
+        if os.path.exists(index_path):
+            app.logger.info(f"404 handler serving index.html for path: {request.path}")
+            return send_from_directory(app.static_folder, 'index.html')
+        else:
+            return "Frontend build not found", 500
 
     return app
 
