@@ -71,3 +71,7 @@ connect-grow-hire/package-lock.json
 backend/creds/*.json
 .env
 backend/.env
+token.pickle
+backend/token.pickle
+credentials.json
+.env
