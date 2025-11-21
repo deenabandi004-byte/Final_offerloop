@@ -171,22 +171,29 @@ def extract_companies_from_resume(resume_text):
 
 
 def parse_resume_info(resume_text):
-    """Parse basic info from resume text using OpenAI"""
+    """Parse comprehensive info from resume text using OpenAI"""
     try:
         client = get_openai_client()
         if not client or not resume_text:
             return {}
         
-        prompt = f"""Extract the following information from this resume text. Return ONLY a JSON object with these exact keys:
+        # Use more of the resume for better extraction
+        resume_snippet = resume_text[:4000]  # Increased from 2000
+        
+        prompt = f"""Extract comprehensive information from this resume. Return ONLY a JSON object with these exact keys:
 {{
   "name": "Full Name",
   "university": "University Name",
   "major": "Major/Field of Study",
-  "year": "Graduation Year or Class Year"
+  "year": "Graduation Year or Class Year",
+  "key_experiences": ["Brief description of 2-3 most relevant experiences/projects"],
+  "skills": ["Top 3-5 relevant skills"],
+  "achievements": ["1-2 notable achievements or accomplishments"],
+  "interests": ["Any relevant interests or passions mentioned"]
 }}
 
 Resume text:
-{resume_text[:2000]}
+{resume_snippet}
 
 Return ONLY the JSON object, no other text."""
         
@@ -196,7 +203,7 @@ Return ONLY the JSON object, no other text."""
                 {"role": "system", "content": "You extract structured information from resumes. Return only valid JSON."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=200,
+            max_tokens=500,  # Increased to handle more fields
             temperature=0.1
         )
         
@@ -209,7 +216,13 @@ Return ONLY the JSON object, no other text."""
                 result_text = result_text[4:]
             result_text = result_text.strip()
         
-        return json.loads(result_text)
+        parsed = json.loads(result_text)
+        # Ensure lists are lists, not strings
+        for key in ['key_experiences', 'skills', 'achievements', 'interests']:
+            if key in parsed and not isinstance(parsed[key], list):
+                parsed[key] = []
+        
+        return parsed
         
     except Exception as e:
         print(f"Resume parsing failed: {e}")
@@ -255,17 +268,22 @@ def extract_comprehensive_user_info(resume_text=None, user_profile=None):
 
 def extract_user_info_from_resume_priority(resume_text, profile):
     """
-    Extract user info prioritizing resume text, falling back to profile.
+    Extract comprehensive user info prioritizing resume text, falling back to profile.
     This is the main function used by email generation.
+    Now includes: experiences, skills, achievements, interests from resume.
     """
     user_info = {}
     
-    # Priority 1: Try to extract from resume if available
+    # Priority 1: Try to extract comprehensive info from resume if available
     if resume_text and len(resume_text.strip()) > 50:
         try:
             parsed = parse_resume_info(resume_text)
             if parsed:
                 user_info.update(parsed)
+                # Ensure list fields are properly set
+                for key in ['key_experiences', 'skills', 'achievements', 'interests']:
+                    if key not in user_info or not isinstance(user_info[key], list):
+                        user_info[key] = []
         except Exception as e:
             print(f"Resume parsing failed: {e}")
     
@@ -279,6 +297,11 @@ def extract_user_info_from_resume_priority(resume_text, profile):
             user_info['major'] = profile.get('major') or profile.get('fieldOfStudy') or ""
         if not user_info.get('university'):
             user_info['university'] = profile.get('university') or ""
+    
+    # Ensure all expected fields exist
+    for key in ['key_experiences', 'skills', 'achievements', 'interests']:
+        if key not in user_info:
+            user_info[key] = []
     
     return user_info
 

@@ -166,7 +166,46 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
             print(f"✅ All {len(contacts_with_email)} contacts have emails from PDL, skipping Hunter.io enrichment")
         
         # Generate emails
-        email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests)
+        print(f"📧 Generating emails for {len(contacts)} contacts...")
+        try:
+            email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests)
+            print(f"📧 Email generation returned {len(email_results)} results")
+        except Exception as email_gen_error:
+            print(f"❌ Email generation failed: {email_gen_error}")
+            import traceback
+            traceback.print_exc()
+            # Continue with empty results - contacts won't have emails but search can still complete
+            email_results = {}
+        
+        # Attach email data to ALL contacts FIRST (before draft creation)
+        emails_attached = 0
+        for i, contact in enumerate(contacts):
+            key = str(i)
+            email_result = email_results.get(i) or email_results.get(str(i)) or email_results.get(f"{i}")
+            if email_result and isinstance(email_result, dict):
+                subject = email_result.get('subject', '')
+                body = email_result.get('body', '')
+                if subject and body:
+                    contact['emailSubject'] = subject
+                    contact['emailBody'] = body
+                    emails_attached += 1
+                    print(f"✅ [{i}] Attached email to {contact.get('FirstName', 'Unknown')}: {subject[:50]}...")
+                else:
+                    print(f"⚠️ [{i}] Email result missing subject/body for {contact.get('FirstName', 'Unknown')}")
+            else:
+                print(f"⚠️ [{i}] No email result found for {contact.get('FirstName', 'Unknown')} (key: {key})")
+        
+        print(f"📧 Attached emails to {emails_attached}/{len(contacts)} contacts")
+        
+        # Get user resume URL
+        resume_url = None
+        if db and user_id:
+            try:
+                user_doc = db.collection('users').document(user_id).get()
+                if user_doc.exists:
+                    resume_url = user_doc.to_dict().get('resumeUrl')
+            except Exception:
+                pass
         
         # Create drafts if Gmail connected
         successful_drafts = 0
@@ -181,17 +220,54 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         
         try:
             creds = _load_user_gmail_creds(user_id) if user_id else None
+            connected_email = None
             if creds:
+                try:
+                    from app.services.gmail_client import _gmail_service
+                    gmail = _gmail_service(creds)
+                    connected_email = gmail.users().getProfile(userId="me").execute().get("emailAddress")
+                except Exception:
+                    pass
+                
+                print(f"📧 Creating Gmail drafts for {len(contacts[:max_contacts])} contacts...")
                 for i, contact in enumerate(contacts[:max_contacts]):
-                    key = str(i)
-                    email_result = email_results.get(key)
-                    if email_result:
-                        draft_id = create_gmail_draft_for_user(
-                            contact, email_result['subject'], email_result['body'],
-                            tier='free', user_email=user_email, resume_url=None, user_info=user_info
-                        )
-                        if draft_id and not draft_id.startswith('mock_'):
-                            successful_drafts += 1
+                    # Try both string and integer keys
+                    email_result = email_results.get(i) or email_results.get(str(i)) or email_results.get(f"{i}")
+                    if email_result and isinstance(email_result, dict):
+                        subject = email_result.get('subject', '')
+                        body = email_result.get('body', '')
+                        if subject and body:
+                            try:
+                                draft_result = create_gmail_draft_for_user(
+                                    contact, subject, body,
+                                    tier='free', user_email=user_email, resume_url=resume_url, user_info=user_info, user_id=user_id
+                                )
+                                
+                                # Handle both dict response (new) and string response (old/fallback)
+                                if isinstance(draft_result, dict):
+                                    draft_id = draft_result.get('draft_id', '')
+                                    draft_url = draft_result.get('draft_url', '')
+                                else:
+                                    draft_id = draft_result
+                                    draft_url = f"https://mail.google.com/mail/#drafts/{draft_id}" if draft_id and not draft_id.startswith('mock_') else None
+                                
+                                if draft_id and not draft_id.startswith('mock_'):
+                                    successful_drafts += 1
+                                    # Store draft URL with contact
+                                    if draft_url:
+                                        contact['gmailDraftId'] = draft_id
+                                        contact['gmailDraftUrl'] = draft_url
+                                    print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
+                                else:
+                                    print(f"⚠️ [{i}] Draft creation returned mock/invalid ID for {contact.get('FirstName', 'Unknown')}")
+                            except Exception as draft_error:
+                                print(f"❌ [{i}] Failed to create draft for {contact.get('FirstName', 'Unknown')}: {draft_error}")
+                                import traceback
+                                traceback.print_exc()
+                        else:
+                            print(f"⚠️ [{i}] Missing subject/body for {contact.get('FirstName', 'Unknown')}")
+                    else:
+                        print(f"⚠️ [{i}] No email result for draft creation: {contact.get('FirstName', 'Unknown')}")
         except Exception as gmail_error:
             # Token refresh happens automatically in _load_user_gmail_creds
             # Only catch errors that indicate PERMANENT auth failure
@@ -338,7 +414,36 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
             print(f"✅ All {len(contacts_with_email)} contacts have emails from PDL, skipping Hunter.io enrichment")
         
         # Generate emails with resume
-        email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests)
+        print(f"📧 Generating emails for {len(contacts)} contacts...")
+        try:
+            email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests)
+            print(f"📧 Email generation returned {len(email_results)} results")
+        except Exception as email_gen_error:
+            print(f"❌ Email generation failed: {email_gen_error}")
+            import traceback
+            traceback.print_exc()
+            # Continue with empty results - contacts won't have emails but search can still complete
+            email_results = {}
+        
+        # Attach email data to ALL contacts FIRST (before draft creation)
+        emails_attached = 0
+        for i, contact in enumerate(contacts):
+            key = str(i)
+            email_result = email_results.get(i) or email_results.get(str(i)) or email_results.get(f"{i}")
+            if email_result and isinstance(email_result, dict):
+                subject = email_result.get('subject', '')
+                body = email_result.get('body', '')
+                if subject and body:
+                    contact['emailSubject'] = subject
+                    contact['emailBody'] = body
+                    emails_attached += 1
+                    print(f"✅ [{i}] Attached email to {contact.get('FirstName', 'Unknown')}: {subject[:50]}...")
+                else:
+                    print(f"⚠️ [{i}] Email result missing subject/body for {contact.get('FirstName', 'Unknown')}")
+            else:
+                print(f"⚠️ [{i}] No email result found for {contact.get('FirstName', 'Unknown')} (key: {key})")
+        
+        print(f"📧 Attached emails to {emails_attached}/{len(contacts)} contacts")
         
         # Get user resume URL
         resume_url = None
@@ -363,17 +468,54 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         
         try:
             creds = _load_user_gmail_creds(user_id) if user_id else None
+            connected_email = None
             if creds:
+                try:
+                    from app.services.gmail_client import _gmail_service
+                    gmail = _gmail_service(creds)
+                    connected_email = gmail.users().getProfile(userId="me").execute().get("emailAddress")
+                except Exception:
+                    pass
+                
+                print(f"📧 Creating Gmail drafts for {len(contacts[:max_contacts])} contacts...")
                 for i, contact in enumerate(contacts[:max_contacts]):
                     key = str(i)
-                    email_result = email_results.get(key)
-                    if email_result:
-                        draft_id = create_gmail_draft_for_user(
-                            contact, email_result['subject'], email_result['body'],
-                            tier='free', user_email=user_email, resume_url=None, user_info=user_info
-                        )
-                        if draft_id and not draft_id.startswith('mock_'):
-                            successful_drafts += 1
+                    email_result = email_results.get(i) or email_results.get(str(i)) or email_results.get(f"{i}")
+                    if email_result and isinstance(email_result, dict):
+                        subject = email_result.get('subject', '')
+                        body = email_result.get('body', '')
+                        if subject and body:
+                            try:
+                                draft_result = create_gmail_draft_for_user(
+                                    contact, subject, body,
+                                    tier='pro', user_email=user_email, resume_url=resume_url, user_info=user_info, user_id=user_id
+                                )
+                                
+                                # Handle both dict response (new) and string response (old/fallback)
+                                if isinstance(draft_result, dict):
+                                    draft_id = draft_result.get('draft_id', '')
+                                    draft_url = draft_result.get('draft_url', '')
+                                else:
+                                    draft_id = draft_result
+                                    draft_url = f"https://mail.google.com/mail/#drafts/{draft_id}" if draft_id and not draft_id.startswith('mock_') else None
+                                
+                                if draft_id and not draft_id.startswith('mock_'):
+                                    successful_drafts += 1
+                                    # Store draft URL with contact
+                                    if draft_url:
+                                        contact['gmailDraftId'] = draft_id
+                                        contact['gmailDraftUrl'] = draft_url
+                                    print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
+                                else:
+                                    print(f"⚠️ [{i}] Draft creation returned mock/invalid ID for {contact.get('FirstName', 'Unknown')}")
+                            except Exception as draft_error:
+                                print(f"❌ [{i}] Failed to create draft for {contact.get('FirstName', 'Unknown')}: {draft_error}")
+                                import traceback
+                                traceback.print_exc()
+                        else:
+                            print(f"⚠️ [{i}] Missing subject/body for {contact.get('FirstName', 'Unknown')}")
+                    else:
+                        print(f"⚠️ [{i}] No email result for draft creation: {contact.get('FirstName', 'Unknown')}")
         except Exception as gmail_error:
             # Token refresh happens automatically in _load_user_gmail_creds
             # Only catch errors that indicate PERMANENT auth failure

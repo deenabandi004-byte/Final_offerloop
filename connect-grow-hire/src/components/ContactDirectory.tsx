@@ -68,6 +68,8 @@ const SpreadsheetContactDirectory: React.FC = () => {
     lastContactDate: serverContact.lastContactDate || serverContact.last_contact_date || '',
     emailSubject: serverContact.emailSubject || serverContact.email_subject || '',
     emailBody: serverContact.emailBody || serverContact.email_body || '',
+    gmailDraftId: serverContact.gmailDraftId || serverContact.gmail_draft_id || '',
+    gmailDraftUrl: serverContact.gmailDraftUrl || serverContact.gmail_draft_url || '',
     createdAt: serverContact.createdAt || serverContact.created_at,
     updatedAt: serverContact.updatedAt || serverContact.updated_at,
     // Gmail tracking fields
@@ -294,6 +296,11 @@ const SpreadsheetContactDirectory: React.FC = () => {
   };
 
   const buildGmailLink = (contact: Contact) => {
+    // If a Gmail draft exists, open that instead (has resume attached)
+    if (contact.gmailDraftUrl) {
+      return contact.gmailDraftUrl;
+    }
+    
     const to = contact.email;
     if (!to) return '#';
     const subject =
@@ -307,6 +314,13 @@ const SpreadsheetContactDirectory: React.FC = () => {
   };
 
   const handleEmailClick = (contact: Contact) => {
+    // If Gmail draft exists, open it directly (has resume attached)
+    if (contact.gmailDraftUrl) {
+      window.open(contact.gmailDraftUrl, '_blank');
+      return;
+    }
+    
+    // Otherwise, show dialog to choose mail app
     setSelectedContactForEmail(contact);
     setMailAppDialogOpen(true);
   };

@@ -123,6 +123,14 @@ const SignIn: React.FC = () => {
         // Don't immediately redirect them again; just let them hit the button / auto flow
         // and pick the right account.
         // We still fall through so the auto-check can decide what to do.
+      } else if (gmailError === "not_test_user") {
+        console.warn("📧 Gmail OAuth - user not in test users list");
+        toast({
+          variant: "destructive",
+          title: "Gmail Access Restricted",
+          description: `Your email (${user.email}) needs to be added to the test users list. Please contact support or add it in Google Cloud Console > OAuth consent screen > Test users.`,
+          duration: 10000,
+        });
       }
 
       const justConnectedGmail = params.get("connected") === "gmail";
@@ -148,8 +156,16 @@ const SignIn: React.FC = () => {
       const needsGmail = await checkNeedsGmailConnection();
       
       if (needsGmail) {
-        console.log('📧 Gmail not connected, starting OAuth...');
-        await initiateGmailOAuth();
+        console.log('📧 Gmail not connected, automatically requesting permissions...');
+        // Automatically trigger OAuth in background (popup) - no user interaction needed
+        initiateGmailOAuth(true).catch(err => {
+          console.error('Background Gmail OAuth failed:', err);
+          // Continue anyway - user can connect later
+        });
+        // Navigate immediately - OAuth happens in background popup
+        const dest = user.needsOnboarding ? "/onboarding" : "/home";
+        console.log('🏠 Navigating to:', dest, '(Gmail OAuth in background)');
+        forceNavigate(dest);
       } else {
         console.log('✅ Gmail already connected');
         const dest = user.needsOnboarding ? "/onboarding" : "/home";

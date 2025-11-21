@@ -363,7 +363,7 @@ def generate_reply_draft(contact_id):
             'success': True,
             'draftId': draft['id'],
             'threadId': thread_id,
-            'gmailUrl': f"https://mail.google.com/mail/u/0/#drafts/{draft['id']}"
+            'gmailUrl': f"https://mail.google.com/mail/#drafts/{draft['id']}"
         })
         
     except Exception as e:
@@ -436,9 +436,49 @@ def bulk_create_contacts():
                     is_duplicate = True
             
             if is_duplicate:
+                # Update existing contact with email subject/body and draft URL if provided
+                email_subject = (rc.get('emailSubject') or rc.get('email_subject') or '').strip()
+                email_body = (rc.get('emailBody') or rc.get('email_body') or '').strip()
+                gmail_draft_id = (rc.get('gmailDraftId') or rc.get('gmail_draft_id') or '').strip()
+                gmail_draft_url = (rc.get('gmailDraftUrl') or rc.get('gmail_draft_url') or '').strip()
+                
+                if email_subject or email_body or gmail_draft_url:
+                    # Find the existing contact document
+                    existing_doc = None
+                    if email:
+                        email_query = contacts_ref.where('email', '==', email).limit(1)
+                        email_docs = list(email_query.stream())
+                        if email_docs:
+                            existing_doc = email_docs[0]
+                    elif linkedin:
+                        linkedin_query = contacts_ref.where('linkedinUrl', '==', linkedin).limit(1)
+                        linkedin_docs = list(linkedin_query.stream())
+                        if linkedin_docs:
+                            existing_doc = linkedin_docs[0]
+                    
+                    if existing_doc:
+                        update_data = {}
+                        if email_subject:
+                            update_data['emailSubject'] = email_subject
+                        if email_body:
+                            update_data['emailBody'] = email_body
+                        if gmail_draft_id:
+                            update_data['gmailDraftId'] = gmail_draft_id
+                        if gmail_draft_url:
+                            update_data['gmailDraftUrl'] = gmail_draft_url
+                        if update_data:
+                            existing_doc.reference.update(update_data)
+                            print(f"✅ Updated existing contact {first_name} {last_name} with email subject/body/draft URL")
+                
                 skipped += 1
                 print(f"🚫 Skipping duplicate contact: {first_name} {last_name} ({email or linkedin or 'no email/linkedin'})")
                 continue
+            
+            # Get email subject and body if available (from generated emails)
+            email_subject = (rc.get('emailSubject') or rc.get('email_subject') or '').strip()
+            email_body = (rc.get('emailBody') or rc.get('email_body') or '').strip()
+            gmail_draft_id = (rc.get('gmailDraftId') or rc.get('gmail_draft_id') or '').strip()
+            gmail_draft_url = (rc.get('gmailDraftUrl') or rc.get('gmail_draft_url') or '').strip()
             
             contact = {
                 'firstName': first_name,
@@ -457,6 +497,17 @@ def bulk_create_contacts():
                 'userId': user_id,
                 'createdAt': today,
             }
+            
+            # Add email subject and body if available (from generated personalized emails)
+            if email_subject:
+                contact['emailSubject'] = email_subject
+            if email_body:
+                contact['emailBody'] = email_body
+            # Add Gmail draft URL if available (draft has resume attached)
+            if gmail_draft_id:
+                contact['gmailDraftId'] = gmail_draft_id
+            if gmail_draft_url:
+                contact['gmailDraftUrl'] = gmail_draft_url
             
             doc_ref = contacts_ref.add(contact)
             contact['id'] = doc_ref[1].id

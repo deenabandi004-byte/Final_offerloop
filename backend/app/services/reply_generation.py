@@ -53,150 +53,95 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests)
             contact_info_lines.append(user_linkedin)
         contact_info_str = " | ".join(contact_info_lines) if contact_info_lines else ""
         
-        # === UPDATED: Generate individual prompts with template-based personalization ===
-        email_prompts = []
+        # === PERSONALIZED: Generate natural, personalized emails for each contact ===
+        sender_university_short = get_university_shorthand(user_info.get('university', ''))
+        sender_name = user_info.get('name', '')
+        sender_firstname = sender_name.split()[0] if sender_name else ''
+        
+        # Build personalized context for each contact
+        contact_contexts = []
         for i, contact in enumerate(contacts):
-            # Detect commonality for this contact
+            # Detect commonality
             commonality_type, commonality_details = detect_commonality(user_info, contact, resume_text)
             
+            # Get contact info
+            firstname = contact.get('FirstName', '').capitalize()
+            lastname = contact.get('LastName', '')
             company = contact.get('Company', '')
             title = contact.get('Title', '')
-            firstname = contact.get('FirstName', '')
-            # Capitalize first name properly
-            firstname_capitalized = firstname.capitalize() if firstname else 'there'
-            
-            # Determine industry
             industry = determine_industry(company, title)
             
-            # Get user info for template
-            sender_firstname = user_info.get('name', '').split()[0] if user_info.get('name') else ''
-            sender_university = user_info.get('university', '')
-            sender_university_short = get_university_shorthand(sender_university)
-            sender_major = user_info.get('major', '')
-            sender_year = user_info.get('year', '')
+            # Get resume details for personalization
+            key_experiences = user_info.get('key_experiences', [])[:2]  # Top 2 experiences
+            skills = user_info.get('skills', [])[:3]  # Top 3 skills
+            achievements = user_info.get('achievements', [])[:1]  # Top achievement
             
-            # Get season and experience
-            season = get_current_season()
-            experience_summary = extract_experience_summary(resume_text)
-            
-            # Build template instructions based on commonality
+            # Build personalization context
+            personalization_note = ""
             if commonality_type == 'university':
-                mascot = commonality_details.get('mascot', '')
-                mascot_text = f" {mascot}" if mascot else ""
-                template_instructions = f"""TEMPLATE TYPE: ALUMNI EMAIL
-Subject: Fellow {sender_university_short}{mascot_text} Interested in {industry}
-
-Format:
-Hi {firstname_capitalized},
-
-I saw that you are a {sender_university_short} alum. I'm {sender_firstname}, a {sender_year} studying {sender_major}. This {season} {experience_summary}.
-
-I'm interested in {industry} and was wondering if you would be available for a short call to speak about your experience at {company}?
-
-For context, I've attached my resume below.
-
-Best regards,
-[Sender Name]
-{sender_university_short} | Class of [Year]"""
-                
+                personalization_note = f"Both attended {sender_university_short} - emphasize the alumni connection naturally"
             elif commonality_type == 'hometown':
                 hometown = commonality_details.get('hometown', '')
-                template_instructions = f"""TEMPLATE TYPE: HOMETOWN EMAIL
-Subject: From {hometown} to {company} — Would Love to Connect
-
-Format:
-Hi {firstname_capitalized},
-
-I saw we're both from {hometown}. I'm {sender_firstname}, a {sender_year} at {sender_university_short} studying {sender_major}. This {season} {experience_summary}.
-
-I'd love to hear about your journey to {company} and get your perspective. Would you be open to a quick 15-minute chat?
-
-For context, I've attached my resume below.
-
-Best regards,
-[Sender Name]"""
-                
+                personalization_note = f"Both from {hometown} - mention the shared hometown connection"
             elif commonality_type == 'company':
                 shared_company = commonality_details.get('company', '')
-                role_type = commonality_details.get('role_type', 'Team Member')
-                connection = commonality_details.get('connection_type', 'worked')
-                template_instructions = f"""TEMPLATE TYPE: COMPANY EMAIL
-Subject: Fellow {shared_company} {role_type} — Quick Chat?
-
-Format:
-Hi {firstname_capitalized},
-
-I noticed we both {connection} at {shared_company}. I'm {sender_firstname}, a {sender_year} at {sender_university_short} studying {sender_major}. This {season} {experience_summary}.
-
-I'd really appreciate hearing about your time there and how that experience shaped your next steps. Would you be open to a quick chat?
-
-For context, I've attached my resume below.
-
-Best regards,
-[Sender Name]"""
-                
-            else:
-                # General template
-                template_instructions = f"""TEMPLATE TYPE: GENERAL EMAIL
-Subject: {sender_university_short} Student Interested in {industry}
-
-Format:
-Hi {firstname_capitalized},
-
-I'm {sender_firstname}, a {sender_year} at {sender_university_short} studying {sender_major}. This {season} {experience_summary}.
-
-I'm hoping to pursue a career in {industry}, and I was wondering if you would be available in the coming weeks for a short call to speak about your experience at {company}?
-
-For context, I've attached my resume below.
-
-Best regards,
-[Sender Name]
-{sender_university_short} | Class of [Year]"""
+                personalization_note = f"Both worked at {shared_company} - reference the shared experience"
             
-            recipient_desc = f"{firstname_capitalized} {contact.get('LastName', '')} at {company}"
+            # Build contact context
+            contact_context = f"""Contact {i}: {firstname} {lastname}
+- Role: {title} at {company}
+- Industry: {industry}
+- Connection: {personalization_note if personalization_note else 'No specific connection - find a genuine reason to reach out'}
+- Personalize by: Mentioning their role/company, asking about their experience, showing genuine interest in their work"""
             
-            email_prompts.append(f"""Contact {i}:
-RECIPIENT: {recipient_desc}
-{template_instructions}""")
+            contact_contexts.append(contact_context)
         
-        # Build the complete prompt with template guidance
-        prompt = f"""Write {len(contacts)} professional networking emails using the specified template type for each contact.
+        # Build comprehensive prompt with resume details
+        resume_context = ""
+        if user_info.get('key_experiences'):
+            resume_context += f"\n- Key Experiences: {', '.join(user_info['key_experiences'][:2])}"
+        if user_info.get('skills'):
+            resume_context += f"\n- Skills: {', '.join(user_info['skills'][:3])}"
+        if user_info.get('achievements'):
+            resume_context += f"\n- Notable Achievement: {user_info['achievements'][0]}"
+        
+        prompt = f"""Write {len(contacts)} personalized, natural networking emails. Each email should be unique and tailored to the specific contact.
 
-SENDER INFO:
-- Name: {user_info.get('name', '')}
+ABOUT THE SENDER:
+- Name: {sender_name}
 - University: {sender_university_short}
-- Major: {sender_major}
-- Year: {sender_year}
+- Major: {user_info.get('major', '')}
+- Year: {user_info.get('year', '')}{resume_context}
 
-{chr(10).join(email_prompts)}
+CONTACTS:
+{chr(10).join(contact_contexts)}
 
-CRITICAL FORMATTING RULES FOR ALL EMAILS (MUST FOLLOW EXACTLY):
-1. Line 1: "Hi [FirstName]," THEN press Enter twice (create blank line) 
-2. DO NOT put any text on the same line as "Hi [FirstName]," - greeting must be on its own line
-3. Line 3: Start the email body after the blank line
-4. Each paragraph separated by blank lines (use \\n\\n in JSON)
-5. Signature format: "Best regards," on one line, THEN press Enter, THEN sender name on next line
-6. Signature name should be PLAIN TEXT (no bold, no formatting, normal size)
-7. Keep emails SHORT (60-80 words max)
-8. Use \\n\\n for paragraph breaks in the JSON body field
-9. DO NOT mention resume or attachments - those are added separately
+WRITING GUIDELINES:
+1. Be natural and conversational - write like a real person, not a template
+2. Each email must be unique - no copy-paste between contacts
+3. Personalize based on their role, company, and any connections (alumni, hometown, etc.)
+4. Reference specific details from the sender's resume when relevant (experiences, skills, achievements)
+5. Show genuine interest in their work and experience
+6. Keep it concise (70-90 words) but warm and authentic
+7. Subject lines should be specific and interesting, not generic
 
-EXAMPLE FORMAT IN JSON:
-"body": "Hi Sarah,\\n\\nI saw that you are a USC alum. I'm Deena, a Junior studying Data Science. This fall I have focused on data-driven storytelling.\\n\\nI'm interested in Investment Banking and was wondering if you would be available for a short call?\\n\\nFor context, I've attached my resume below.\\n\\nBest regards,\\nDeena Siddharth Bandi\\nUSC | Class of 2025"
+FORMATTING:
+- Start with "Hi [FirstName],"
+- Use \\n\\n for paragraph breaks in JSON
+- End with "Best regards,\\n[Sender Full Name]\\n{sender_university_short} | Class of {user_info.get('year', '')}"
+- Do NOT mention "attached resume" - that's handled separately
 
-CRITICAL: For alumni/hometown/company emails, MUST use the opening line specified in the template.
-
-Return ONLY valid JSON with \\n\\n for line breaks:
+Return ONLY valid JSON:
 {{"0": {{"subject": "...", "body": "..."}}, "1": {{"subject": "...", "body": "..."}}, ...}}"""
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You write short, punchy networking emails that create immediate interest. Each email must be unique, memorable, and ~50 words. Use only standard ASCII characters - no smart quotes, em dashes, or special characters."},
+                {"role": "system", "content": "You write authentic, personalized networking emails that feel genuine and human. Each email should be unique, tailored to the recipient, and reference specific details from the sender's background. Write naturally - like a real person reaching out, not a template. Use only standard ASCII characters."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=2000,
-            temperature=0.8,
+            max_tokens=2500,  # Increased for more detailed emails
+            temperature=0.9,  # Higher for more creativity and naturalness
         )
         
         response_text = response.choices[0].message.content.strip()

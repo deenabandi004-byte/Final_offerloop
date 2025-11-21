@@ -2,25 +2,21 @@
 Email generation and drafting routes
 """
 import os
-import secrets
 import base64
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 from flask import Blueprint, request, jsonify
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
-from urllib.parse import urlencode
 import mimetypes
 import re
 
-
-
-from app.config import GMAIL_SCOPES, GOOGLE_CLIENT_ID, OAUTH_REDIRECT_URI
+from app.config import GMAIL_SCOPES
 from ..extensions import require_firebase_auth
 from app.services.reply_generation import batch_generate_emails
-from app.services.gmail_client import _load_user_gmail_creds, _gmail_service
+from app.services.gmail_client import get_gmail_service
 from ..extensions import get_db
 
 emails_bp = Blueprint('emails', __name__, url_prefix='/api/emails')
@@ -77,37 +73,13 @@ def generate_and_draft():
     user_profile = payload.get("userProfile", {})
     career_interest = payload.get("careerInterests")
 
-    # If Gmail not connected, return authUrl (first-time only)
-    creds = _load_user_gmail_creds(uid)
-    if not creds:
-        # Generate a unique state token for CSRF protection
-        state = secrets.token_urlsafe(32)
-
-        # Store state in Firestore with the user's UID
-        db.collection("oauth_state").document(state).set({
-            "uid": uid,
-            "created": datetime.utcnow(),
-            "expires": datetime.utcnow() + timedelta(minutes=10)
-        })
-
-        # Use the GMAIL_SCOPES constant to ensure consistency
-        scope_string = " ".join(GMAIL_SCOPES)
-
-        AUTH_BASE = "https://accounts.google.com/o/oauth2/v2/auth"
-        params = {
-            "client_id": GOOGLE_CLIENT_ID,
-            "redirect_uri": OAUTH_REDIRECT_URI,
-            "response_type": "code",
-            "scope": scope_string,
-            "access_type": "offline",
-            "include_granted_scopes": "true",
-            "prompt": "consent",
-            "state": state,
-        }
-        auth_url = f"{AUTH_BASE}?{urlencode(params)}"
-        print(f"🔐 Generated OAuth URL with state: {state}")
-        print(f"🔐 Requesting scopes: {scope_string}")
-        return jsonify({"needsAuth": True, "authUrl": auth_url}), 401
+    # Get Gmail service using shared token.pickle (no OAuth required)
+    gmail_service = get_gmail_service()
+    if not gmail_service:
+        return jsonify({
+            "error": "Gmail service unavailable",
+            "message": "token.pickle not found. Please ensure token.pickle exists in backend/ directory."
+        }), 500
 
     # 1) Generate emails
     results = batch_generate_emails(contacts, resume_text, user_profile, career_interest)
@@ -117,7 +89,7 @@ def generate_and_draft():
 
 
     # 2) Create drafts with resume and formatted body
-    gmail = _gmail_service(creds)
+    gmail = gmail_service
     created = []
     draft_ids = []
 

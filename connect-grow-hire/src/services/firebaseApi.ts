@@ -40,6 +40,8 @@ export interface Contact {
   // ================================
   gmailThreadId?: string;
   gmailMessageId?: string;
+  gmailDraftId?: string;
+  gmailDraftUrl?: string;
   hasUnreadReply?: boolean;
   notificationsMuted?: boolean;
   draftCreatedAt?: string;

@@ -406,6 +406,8 @@ const Home = () => {
           emailBody: c.email_body ?? c.emailBody ?? undefined,
           gmailThreadId: c.gmailThreadId ?? c.gmail_thread_id ?? undefined,
           gmailMessageId: c.gmailMessageId ?? c.gmail_message_id ?? undefined,
+          gmailDraftId: c.gmailDraftId ?? c.gmail_draft_id ?? undefined,
+          gmailDraftUrl: c.gmailDraftUrl ?? c.gmail_draft_url ?? undefined,
           hasUnreadReply: false,
           notificationsMuted: false,
           // DO NOT set createdAt/updatedAt; backend adds them
