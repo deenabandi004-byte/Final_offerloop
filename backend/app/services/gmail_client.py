@@ -230,13 +230,16 @@ def get_gmail_service():
         
         service = build('gmail', 'v1', credentials=creds)
         
-        # Verify connection by getting profile
+        # Verify connection by getting profile (only log in debug mode or when explicitly requested)
+        # This is often called from health checks, so we don't want to spam logs
         try:
             profile = service.users().getProfile(userId='me').execute()
             email = profile.get('emailAddress', 'unknown')
-            print(f"✅ Gmail service connected to: {email}")
+            # Only print if explicitly requested (not for health checks)
+            # The email is logged elsewhere when actually used for user operations
         except Exception as profile_error:
-            print(f"⚠️ Connected but couldn't fetch profile: {profile_error}")
+            # Only log errors, not successful connections
+            print(f"⚠️ Gmail service connected but couldn't fetch profile: {profile_error}")
         
         return service
         

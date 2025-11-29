@@ -33,6 +33,14 @@ def health():
         firebase_status = 'error'
         firebase_error = str(e)
     
+    # Check Gmail service availability (without verbose logging)
+    gmail_available = False
+    try:
+        gmail_service = get_gmail_service()
+        gmail_available = gmail_service is not None
+    except Exception:
+        gmail_available = False
+    
     return jsonify({
         'status': 'healthy',
         'tiers': ['free', 'pro'],
@@ -40,7 +48,7 @@ def health():
         'services': {
             'pdl': 'connected',
             'openai': 'connected',
-            'gmail': 'connected' if get_gmail_service() else 'unavailable',
+            'gmail': 'connected' if gmail_available else 'unavailable',
             'firebase': {
                 'status': firebase_status,
                 'error': firebase_error

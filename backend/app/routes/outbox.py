@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from datetime import datetime
 
 from app.extensions import get_db, require_firebase_auth
-from app.services.gmail_client import _load_user_gmail_creds
+from app.services.gmail_client import _load_user_gmail_creds, _gmail_service
 
 outbox_bp = Blueprint("outbox", __name__, url_prefix="/api/outbox")
 
@@ -89,14 +89,55 @@ def list_threads():
         .collection("contacts")
     )
 
-    docs = contacts_ref.stream()
+    docs = list(contacts_ref.stream())
+    print(f"📊 Total contacts found: {len(docs)}")
 
-    # Only include contacts that actually have a Gmail thread ID
-    contacts = [
-        d for d in docs
-        if d.to_dict().get("gmailThreadId") or d.to_dict().get("gmail_thread_id")
-    ]
+    # Include contacts that have:
+    # 1. A Gmail thread ID, OR
+    # 2. A Gmail draft ID/URL (even if no threadId yet - drafts can become threads)
+    contacts = []
+    for doc in docs:
+        data = doc.to_dict()
+        has_thread_id = bool(data.get("gmailThreadId") or data.get("gmail_thread_id"))
+        has_draft = bool(
+            data.get("gmailDraftId") or 
+            data.get("gmail_draft_id") or 
+            data.get("gmailDraftUrl") or 
+            data.get("gmail_draft_url")
+        )
+        
+        if has_thread_id or has_draft:
+            contacts.append(doc)
+            print(f"✅ Contact {doc.id} included: threadId={has_thread_id}, draft={has_draft}")
+            
+            # If contact has a draft but no threadId, try to get threadId from Gmail
+            if has_draft and not has_thread_id:
+                draft_id = data.get("gmailDraftId") or data.get("gmail_draft_id")
+                if draft_id:
+                    try:
+                        creds = _load_user_gmail_creds(uid)
+                        if creds:
+                            gmail_service = _gmail_service(creds)
+                            draft = gmail_service.users().drafts().get(
+                                userId='me', 
+                                id=draft_id,
+                                format='full'
+                            ).execute()
+                            
+                            thread_id = draft.get("message", {}).get("threadId")
+                            if thread_id:
+                                # Update contact with threadId
+                                doc.reference.update({
+                                    "gmailThreadId": thread_id,
+                                    "updatedAt": datetime.utcnow().isoformat()
+                                })
+                                print(f"✅ Found threadId {thread_id} for draft {draft_id}")
+                        else:
+                            print(f"⚠️ No Gmail credentials for user {uid}")
+                    except Exception as e:
+                        print(f"⚠️ Could not fetch threadId for draft {draft_id}: {e}")
 
+    print(f"📧 Contacts with threads/drafts: {len(contacts)}")
     threads = [_build_outbox_thread(doc) for doc in contacts]
     threads.sort(key=lambda t: t.get("lastActivityAt") or "", reverse=True)
 

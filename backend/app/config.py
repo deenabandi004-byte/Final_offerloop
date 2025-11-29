@@ -17,6 +17,7 @@ STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY')
 STRIPE_PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY')
 STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')
 SERPAPI_KEY = os.getenv('SERPAPI_KEY')
+JINA_API_KEY = os.getenv("JINA_API_KEY", "")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")  # Path to service account JSON
@@ -69,6 +70,7 @@ OAUTH_REDIRECT_URI = get_oauth_redirect_uri()
 # ========================================
 RESUME_LINE = "For context, I've attached my resume below."
 COFFEE_CHAT_CREDITS = 30
+INTERVIEW_PREP_CREDITS = 25
 CACHE_DURATION = timedelta(days=365)
 CREATE_GMAIL_DRAFTS = False  # Set True to create Gmail drafts; False to only return subject/body and compose links
 

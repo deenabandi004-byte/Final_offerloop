@@ -11,6 +11,7 @@ from app.routes.runs import runs_bp
 from app.routes.enrichment import enrichment_bp
 from app.routes.resume import resume_bp
 from app.routes.coffee_chat_prep import coffee_chat_bp
+from app.routes.interview_prep import interview_prep_bp
 from app.routes.billing import billing_bp
 from app.routes.users import users_bp
 
@@ -25,6 +26,7 @@ __all__ = [
     'enrichment_bp',
     'resume_bp',
     'coffee_chat_bp',
+    'interview_prep_bp',
     'billing_bp',
     'users_bp',
     'outbox_bp' 

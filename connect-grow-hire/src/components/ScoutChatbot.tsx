@@ -1,360 +1,277 @@
-// src/components/ScoutChatbot.tsx
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageCircle, X, Send, Sparkles, ArrowUp } from 'lucide-react';
+import { Send, Loader2, ExternalLink, Sparkles } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
-interface ScoutChatbotProps {
-  onJobTitleSuggestion: (jobTitle: string) => void;
+const BACKEND_URL = window.location.hostname === 'localhost'
+  ? 'http://localhost:5001'
+  : 'https://www.offerloop.ai';
+
+interface SearchFields {
+  job_title?: string;
+  company?: string;
+  location?: string;
+  experience_level?: string;
 }
 
-interface Message {
-  id: number;
-  type: string;
+interface JobListing {
+  title: string;
+  company: string;
+  location?: string;
+  url?: string;
+  snippet?: string;
+}
+
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
   content: string;
-  jobTitle?: string | null;
+  fields?: SearchFields;
+  jobListings?: JobListing[];
   timestamp: Date;
 }
 
+interface ScoutChatbotProps {
+  onJobTitleSuggestion: (title: string, company?: string, location?: string) => void;
+}
+
 const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 1,
-      type: 'bot',
-      content: "Hi! I'm Scout 🕵️ I'll help you find the perfect job title to search for. What company are you interested in?",
-      timestamp: new Date()
-    }
-  ]);
-  const [inputMessage, setInputMessage] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const [conversation, setConversation] = useState({
-    company: '',
-    jobType: '',
-    level: '',
-    department: ''
-  });
-  const [step, setStep] = useState('company'); // company -> jobType -> level -> suggestions
-  
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [context, setContext] = useState<Record<string, any>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
+  // Initial greeting
   useEffect(() => {
-    scrollToBottom();
+    if (messages.length === 0) {
+      setMessages([{
+        id: 'greeting',
+        role: 'assistant',
+        content: "Hey! I'm Scout 🐕 Ready to help you find professionals to network with!\n\n" +
+                 "You can:\n" +
+                 "• **Paste a job posting URL** and I'll fill in the search for you\n" +
+                 "• **Tell me what you're looking for** (e.g., 'data analyst jobs in SF')\n" +
+                 "• **Ask me anything** about companies or roles\n\n" +
+                 "What would you like to do?",
+        timestamp: new Date(),
+      }]);
+    }
+  }, []);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  useEffect(() => {
-    if (isOpen && inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [isOpen]);
+  const sendMessage = async () => {
+    if (!input.trim() || isLoading) return;
 
-  const addMessage = (content: string, type: string = 'user', jobTitle: string | null = null) => {
-    const newMessage: Message = {
-      id: Date.now(),
-      type,
-      content,
-      jobTitle, // Store the job title for suggestion messages
-      timestamp: new Date()
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: input.trim(),
+      timestamp: new Date(),
     };
-    setMessages(prev => [...prev, newMessage]);
-  };
 
-  const simulateTyping = (callback: () => void) => {
-    setIsTyping(true);
-    setTimeout(() => {
-      setIsTyping(false);
-      callback();
-    }, 1000 + Math.random() * 1000);
-  };
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setIsLoading(true);
 
-  const generateJobTitleSuggestions = async (company: string, jobType: string, level: string): Promise<string[]> => {
     try {
-      console.log(`🤖 Scout: Using OpenAI to generate suggestions for ${level} ${jobType} at ${company}...`);
-      
-      // Call our OpenAI-powered endpoint - UPDATE THIS URL
-      const response = await fetch('https://offshore-direct-linked-brass.trycloudflare.com/api/scout-suggestions', {
+      const response = await fetch(`${BACKEND_URL}/api/scout/chat`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          company: company,
-          jobType: jobType,
-          level: level
-        })
+          message: userMessage.content,
+          context,
+        }),
       });
 
-      if (response.ok) {
-        const suggestionData = await response.json();
-        console.log(`✅ OpenAI suggestions received:`, suggestionData);
-        
-        if (suggestionData.suggestions && suggestionData.suggestions.length > 0) {
-          return suggestionData.suggestions;
+      const data = await response.json();
+
+      // Update context for next message
+      if (data.context) {
+        setContext(data.context);
+      }
+
+      // Create assistant message
+      const assistantMessage: ChatMessage = {
+        id: `assistant-${Date.now()}`,
+        role: 'assistant',
+        content: data.message,
+        fields: data.fields,
+        jobListings: data.job_listings,
+        timestamp: new Date(),
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
+
+      // Auto-populate fields if returned
+      if (data.fields) {
+        const { job_title, company, location } = data.fields;
+        if (job_title || company || location) {
+          onJobTitleSuggestion(
+            job_title || '',
+            company || undefined,
+            location || undefined
+          );
         }
-      } else {
-        console.warn('⚠️ OpenAI suggestions failed, falling back to static suggestions');
       }
+
     } catch (error) {
-      console.error('❌ Error calling OpenAI suggestions:', error);
+      console.error('[Scout] Error:', error);
+      setMessages(prev => [...prev, {
+        id: `error-${Date.now()}`,
+        role: 'assistant',
+        content: "Oops! I ran into an issue. Please try again or rephrase your message.",
+        timestamp: new Date(),
+      }]);
+    } finally {
+      setIsLoading(false);
+      inputRef.current?.focus();
     }
-
-    // Fallback to our basic database if OpenAI fails
-    return getBasicTitleSuggestions(jobType, level);
-  };
-
-  const getBasicTitleSuggestions = (jobType: string, level: string): string[] => {
-    const basicTitles: Record<string, Record<string, string[]>> = {
-      'engineering': {
-        'entry': ['Software Engineer', 'Junior Software Engineer', 'Software Engineer I', 'Associate Software Engineer'],
-        'mid': ['Software Engineer II', 'Senior Software Engineer', 'Full Stack Engineer', 'Backend Engineer'],
-        'senior': ['Staff Software Engineer', 'Principal Engineer', 'Lead Software Engineer', 'Senior Staff Engineer'],
-        'manager': ['Engineering Manager', 'Senior Engineering Manager', 'Director of Engineering', 'VP of Engineering']
-      },
-      'product': {
-        'entry': ['Product Manager', 'Associate Product Manager', 'Junior Product Manager', 'Product Analyst'],
-        'mid': ['Senior Product Manager', 'Product Manager II', 'Lead Product Manager', 'Principal Product Manager'],
-        'senior': ['Staff Product Manager', 'Principal Product Manager', 'Senior Principal PM', 'Distinguished PM'],
-        'manager': ['Director of Product', 'VP of Product', 'Head of Product', 'Chief Product Officer']
-      },
-      'marketing': {
-        'entry': ['Marketing Manager', 'Marketing Specialist', 'Digital Marketing Manager', 'Marketing Coordinator'],
-        'mid': ['Senior Marketing Manager', 'Product Marketing Manager', 'Growth Marketing Manager', 'Brand Manager'],
-        'senior': ['Principal Marketing Manager', 'Lead Marketing Manager', 'Marketing Director', 'Senior Brand Manager'],
-        'manager': ['Director of Marketing', 'VP of Marketing', 'Head of Marketing', 'Chief Marketing Officer']
-      },
-      'sales': {
-        'entry': ['Account Executive', 'Sales Development Representative', 'Business Development Representative', 'Sales Associate'],
-        'mid': ['Senior Account Executive', 'Sales Manager', 'Enterprise Account Executive', 'Strategic Account Manager'],
-        'senior': ['Principal Account Executive', 'Lead Sales Manager', 'Senior Sales Director', 'Key Account Manager'],
-        'manager': ['Sales Director', 'VP of Sales', 'Head of Sales', 'Chief Revenue Officer']
-      },
-      'data': {
-        'entry': ['Data Scientist', 'Data Analyst', 'Junior Data Scientist', 'Business Analyst'],
-        'mid': ['Senior Data Scientist', 'Machine Learning Engineer', 'Data Science Manager', 'Senior Data Analyst'],
-        'senior': ['Principal Data Scientist', 'Staff Data Scientist', 'Lead Data Scientist', 'Distinguished Scientist'],
-        'manager': ['Director of Data Science', 'VP of Data', 'Head of Analytics', 'Chief Data Officer']
-      },
-      'design': {
-        'entry': ['UX Designer', 'UI Designer', 'Product Designer', 'Visual Designer'],
-        'mid': ['Senior UX Designer', 'Senior Product Designer', 'Lead Designer', 'Design Manager'],
-        'senior': ['Staff Designer', 'Principal Designer', 'Lead Product Designer', 'Design Director'],
-        'manager': ['Design Manager', 'Director of Design', 'VP of Design', 'Head of Design']
-      },
-      'finance': {
-        'entry': ['Financial Analyst', 'Investment Analyst', 'Junior Financial Analyst', 'Accounting Associate'],
-        'mid': ['Senior Financial Analyst', 'Finance Manager', 'Investment Associate', 'Senior Analyst'],
-        'senior': ['Principal Financial Analyst', 'Senior Finance Manager', 'Finance Director', 'Investment Director'],
-        'manager': ['Finance Director', 'VP of Finance', 'CFO', 'Head of Finance']
-      },
-      'operations': {
-        'entry': ['Operations Manager', 'Business Operations Analyst', 'Operations Coordinator', 'Program Coordinator'],
-        'mid': ['Senior Operations Manager', 'Business Operations Manager', 'Program Manager', 'Operations Lead'],
-        'senior': ['Principal Operations Manager', 'Lead Program Manager', 'Operations Director', 'Senior Program Manager'],
-        'manager': ['Director of Operations', 'VP of Operations', 'Head of Operations', 'Chief Operating Officer']
-      }
-    };
-
-    return basicTitles[jobType]?.[level] || ['Software Engineer', 'Product Manager', 'Marketing Manager', 'Sales Manager'];
-  };
-
-  const handleSendMessage = async () => {
-    if (!inputMessage.trim()) return;
-
-    const userMessage = inputMessage.trim();
-    addMessage(userMessage, 'user');
-    setInputMessage('');
-
-    // Process the conversation based on current step
-    if (step === 'company') {
-      setConversation(prev => ({ ...prev, company: userMessage }));
-      
-      simulateTyping(() => {
-        addMessage("Perfect! What type of role are you looking for? (e.g., engineering, product, marketing, sales, data, design, finance, operations)", 'bot');
-        setStep('jobType');
-      });
-    } 
-    else if (step === 'jobType') {
-      const normalizedJobType = userMessage.toLowerCase();
-      let detectedType = 'engineering'; // default
-      
-      if (normalizedJobType.includes('engineer') || normalizedJobType.includes('tech') || normalizedJobType.includes('software') || normalizedJobType.includes('developer')) {
-        detectedType = 'engineering';
-      } else if (normalizedJobType.includes('product')) {
-        detectedType = 'product';
-      } else if (normalizedJobType.includes('market')) {
-        detectedType = 'marketing';
-      } else if (normalizedJobType.includes('sales') || normalizedJobType.includes('business dev')) {
-        detectedType = 'sales';
-      } else if (normalizedJobType.includes('data') || normalizedJobType.includes('analyst') || normalizedJobType.includes('science')) {
-        detectedType = 'data';
-      } else if (normalizedJobType.includes('design') || normalizedJobType.includes('ux') || normalizedJobType.includes('ui')) {
-        detectedType = 'design';
-      } else if (normalizedJobType.includes('finance') || normalizedJobType.includes('accounting') || normalizedJobType.includes('investment')) {
-        detectedType = 'finance';
-      } else if (normalizedJobType.includes('operations') || normalizedJobType.includes('ops')) {
-        detectedType = 'operations';
-      }
-      
-      setConversation(prev => ({ ...prev, jobType: detectedType }));
-      
-      simulateTyping(() => {
-        addMessage("Got it! What level are you targeting? (entry, mid, senior, manager)", 'bot');
-        setStep('level');
-      });
-    }
-    else if (step === 'level') {
-      const normalizedLevel = userMessage.toLowerCase();
-      let detectedLevel = 'mid'; // default
-      
-      if (normalizedLevel.includes('entry') || normalizedLevel.includes('junior') || normalizedLevel.includes('new grad') || normalizedLevel.includes('associate')) {
-        detectedLevel = 'entry';
-      } else if (normalizedLevel.includes('senior') || normalizedLevel.includes('lead') || normalizedLevel.includes('principal') || normalizedLevel.includes('staff')) {
-        detectedLevel = 'senior';
-      } else if (normalizedLevel.includes('manager') || normalizedLevel.includes('director') || normalizedLevel.includes('head') || normalizedLevel.includes('vp')) {
-        detectedLevel = 'manager';
-      }
-      
-      const finalConversation = { ...conversation, level: detectedLevel };
-      setConversation(finalConversation);
-      
-      simulateTyping(async () => {
-        // FIXED: Properly await the async function
-        const suggestions = await generateJobTitleSuggestions(finalConversation.company, finalConversation.jobType, detectedLevel);
-        
-        addMessage(`Perfect! Based on your interest in ${finalConversation.jobType} roles at ${finalConversation.company}, here are the most common job titles to search for:`, 'bot');
-        
-        setTimeout(() => {
-          suggestions.forEach((title, index) => {
-            setTimeout(() => {
-              // Create the message with the clean title stored separately
-              const newMessage: Message = {
-                id: Date.now(),
-                type: 'suggestion',
-                content: `${index + 1}. ${title}`,
-                jobTitle: title, // Store the clean job title
-                timestamp: new Date()
-              };
-              setMessages(prev => [...prev, newMessage]);
-            }, index * 300);
-          });
-          
-          setTimeout(() => {
-            addMessage("Click any suggestion above to use it in your search, or ask me to find more specific titles! 🎯", 'bot');
-          }, suggestions.length * 300 + 500);
-        }, 1000);
-        
-        setStep('suggestions');
-      });
-    }
-    else if (step === 'suggestions') {
-      // Handle follow-up questions
-      simulateTyping(() => {
-        addMessage("Let me help you refine that search! What specific aspects of the role are you most interested in?", 'bot');
-      });
-    }
-  };
-
-  const handleSuggestionClick = (jobTitle: string | null | undefined) => {
-    if (onJobTitleSuggestion && jobTitle) {
-      onJobTitleSuggestion(jobTitle);
-    }
-    addMessage(`Great choice! I've filled in "${jobTitle}" for you. You can now complete your search! 🚀`, 'bot');
-  };
-
-  const resetConversation = () => {
-    setMessages([
-      {
-        id: 1,
-        type: 'bot',
-        content: "Hi! I'm Scout 🕵️ I'll help you find the perfect job title to search for. What company are you interested in?",
-        timestamp: new Date()
-      }
-    ]);
-    setConversation({ company: '', jobType: '', level: '', department: '' });
-    setStep('company');
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSendMessage();
+      sendMessage();
     }
   };
 
+  const handleJobClick = (job: JobListing) => {
+    onJobTitleSuggestion(job.title, job.company, job.location || undefined);
+  };
+
+  const formatMessage = (content: string) => {
+    // Convert markdown-like formatting to HTML
+    return content
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br />');
+  };
+
   return (
-    <div className="h-full flex flex-col bg-gray-900 text-white">
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+    <div className="flex flex-col h-full bg-gray-900">
+      {/* Messages Area */}
+      <div className="flex-1 p-4 overflow-y-auto">
+        <div className="space-y-4">
         {messages.map((message) => (
           <div
             key={message.id}
-            className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
+              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div
-              className={`max-w-[80%] p-3 rounded-lg text-sm ${
-                message.type === 'user'
-                  ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-br-sm'
-                  : message.type === 'suggestion'
-                  ? 'bg-gray-800 text-green-400 border border-gray-700 cursor-pointer hover:bg-gray-700 transition-colors rounded-bl-sm'
-                  : 'bg-gray-800 text-gray-200 rounded-bl-sm border border-gray-700'
-              }`}
-              onClick={message.type === 'suggestion' && message.jobTitle ? () => handleSuggestionClick(message.jobTitle) : undefined}
-            >
-              {message.content}
-              {message.type === 'suggestion' && (
-                <div className="mt-1 text-xs text-green-400 flex items-center">
-                  <ArrowUp className="w-3 h-3 mr-1" />
-                  Click to use
+                className={`max-w-[85%] rounded-lg p-3 ${
+                  message.role === 'user'
+                    ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white'
+                    : 'bg-gray-800 text-gray-100 border border-gray-700'
+                }`}
+              >
+                {/* Message content */}
+                <div
+                  className="text-sm leading-relaxed"
+                  dangerouslySetInnerHTML={{ __html: formatMessage(message.content) }}
+                />
+
+                {/* Fields badge */}
+                {message.fields && Object.keys(message.fields).length > 0 && (
+                  <div className="mt-3 p-2 bg-green-500/20 border border-green-500/40 rounded-md">
+                    <div className="flex items-center gap-1 text-green-400 text-xs font-medium mb-1">
+                      <Sparkles className="h-3 w-3" />
+                      Search fields updated!
+                    </div>
+                    <div className="text-xs text-green-300/80">
+                      {message.fields.job_title && <span>Title: {message.fields.job_title}</span>}
+                      {message.fields.company && <span> • Company: {message.fields.company}</span>}
+                      {message.fields.location && <span> • Location: {message.fields.location}</span>}
+                    </div>
+                  </div>
+                )}
+
+                {/* Job listings */}
+                {message.jobListings && message.jobListings.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    <div className="text-xs text-gray-400 font-medium">Click to use:</div>
+                    {message.jobListings.slice(0, 5).map((job, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => handleJobClick(job)}
+                        className="w-full text-left p-2 bg-gray-700/50 hover:bg-gray-700 rounded border border-gray-600 hover:border-purple-500 transition-colors"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <div className="text-sm font-medium text-white">{job.title}</div>
+                            <div className="text-xs text-gray-400">
+                              {job.company}
+                              {job.location && ` • ${job.location}`}
+                            </div>
+                          </div>
+                          {job.url && (
+                            <a
+                              href={job.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-blue-400 hover:text-blue-300"
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          )}
+                        </div>
+                      </button>
+                    ))}
                 </div>
               )}
             </div>
           </div>
         ))}
         
-        {isTyping && (
+          {/* Scroll anchor */}
+          <div ref={messagesEndRef} />
+
+          {/* Loading indicator */}
+          {isLoading && (
           <div className="flex justify-start">
-            <div className="bg-gray-800 text-gray-200 p-3 rounded-lg rounded-bl-sm max-w-[80%] border border-gray-700">
-              <div className="flex space-x-1">
-                <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce"></div>
-                <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-              </div>
+              <div className="bg-gray-800 border border-gray-700 rounded-lg p-3">
+                <div className="flex items-center gap-2 text-gray-400">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="text-sm">Scout is thinking...</span>
+                </div>
             </div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Input */}
-      <div className="p-4 border-t border-gray-700">
-        <div className="flex space-x-2">
-          <input
+      {/* Input Area */}
+      <div className="p-4 border-t border-gray-700 bg-gray-900/95">
+        <div className="flex gap-2">
+          <Input
             ref={inputRef}
-            type="text"
-            value={inputMessage}
-            onChange={(e) => setInputMessage(e.target.value)}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Type your message..."
-            className="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-white placeholder-gray-400"
-            disabled={isTyping}
+            placeholder="Paste a job URL or describe what you're looking for..."
+            className="flex-1 bg-gray-800 border-gray-600 text-white placeholder-gray-400 focus:border-purple-500"
+            disabled={isLoading}
           />
-          <button
-            onClick={handleSendMessage}
-            disabled={!inputMessage.trim() || isTyping}
-            className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white p-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          <Button
+            onClick={sendMessage}
+            disabled={!input.trim() || isLoading}
+            className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
           >
-            <Send className="w-4 h-4" />
-          </button>
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+          </Button>
         </div>
-        <button
-          onClick={resetConversation}
-          className="mt-2 text-xs text-gray-400 hover:text-gray-300 transition-colors"
-        >
-          Start over
-        </button>
+        <div className="mt-2 text-xs text-gray-500 text-center">
+          Try: "data analyst jobs in NYC" or paste a LinkedIn/Greenhouse job URL
+        </div>
       </div>
     </div>
   );

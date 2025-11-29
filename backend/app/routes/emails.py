@@ -16,7 +16,7 @@ import re
 from app.config import GMAIL_SCOPES
 from ..extensions import require_firebase_auth
 from app.services.reply_generation import batch_generate_emails
-from app.services.gmail_client import get_gmail_service
+from app.services.gmail_client import get_gmail_service_for_user
 from ..extensions import get_db
 
 emails_bp = Blueprint('emails', __name__, url_prefix='/api/emails')
@@ -73,12 +73,13 @@ def generate_and_draft():
     user_profile = payload.get("userProfile", {})
     career_interest = payload.get("careerInterests")
 
-    # Get Gmail service using shared token.pickle (no OAuth required)
-    gmail_service = get_gmail_service()
+    # Get Gmail service using user's OAuth credentials (falls back to shared account if not connected)
+    user_email = request.firebase_user.get("email")
+    gmail_service = get_gmail_service_for_user(user_email, user_id=uid)
     if not gmail_service:
         return jsonify({
             "error": "Gmail service unavailable",
-            "message": "token.pickle not found. Please ensure token.pickle exists in backend/ directory."
+            "message": "Please connect your Gmail account to create drafts. The shared Gmail account is not available."
         }), 500
 
     # 1) Generate emails
@@ -271,57 +272,60 @@ def generate_and_draft():
                 "gmailUrl": gmail_url
             })
             
-            # Save/update contact in Firestore with gmailThreadId
-            if thread_id:
-                try:
-                    contacts_ref = db.collection("users").document(uid).collection("contacts")
-                    # Try to find existing contact by email
-                    existing_contacts = list(contacts_ref.where("email", "==", to_addr).limit(1).stream())
-                    
-                    contact_data = {
-                        "gmailThreadId": thread_id,
-                        "gmailDraftId": draft["id"],
-                        "gmailDraftUrl": gmail_url,
-                        "emailSubject": r["subject"],
-                        "emailBody": body,
-                        "draftCreatedAt": datetime.utcnow().isoformat(),
-                        "lastActivityAt": datetime.utcnow().isoformat(),
-                        "hasUnreadReply": False,
-                        "updatedAt": datetime.utcnow().isoformat()
-                    }
-                    
-                    # Add contact fields from the original contact data
-                    if c.get("FirstName"):
-                        contact_data["firstName"] = c["FirstName"]
-                    if c.get("LastName"):
-                        contact_data["lastName"] = c["LastName"]
-                    if c.get("Company"):
-                        contact_data["company"] = c["Company"]
-                    if c.get("Title") or c.get("jobTitle"):
-                        contact_data["jobTitle"] = c.get("Title") or c.get("jobTitle")
-                    if c.get("LinkedIn") or c.get("linkedinUrl"):
-                        contact_data["linkedinUrl"] = c.get("LinkedIn") or c.get("linkedinUrl")
-                    if c.get("College") or c.get("college"):
-                        contact_data["college"] = c.get("College") or c.get("college")
-                    if c.get("location"):
-                        contact_data["location"] = c["location"]
-                    
-                    if existing_contacts:
-                        # Update existing contact
-                        contact_doc = existing_contacts[0]
-                        contact_doc.reference.update(contact_data)
-                        print(f"✅ [{i}] Updated contact {contact_doc.id} with threadId {thread_id}")
-                    else:
-                        # Create new contact
-                        contact_data["email"] = to_addr
-                        contact_data["createdAt"] = datetime.utcnow().isoformat()
-                        new_contact_ref = contacts_ref.document()
-                        new_contact_ref.set(contact_data)
-                        print(f"✅ [{i}] Created new contact {new_contact_ref.id} with threadId {thread_id}")
-                except Exception as e:
-                    print(f"⚠️ [{i}] Failed to save contact to Firestore: {e}")
-                    import traceback
-                    traceback.print_exc()
+            # Save/update contact in Firestore with draft info (even if no threadId yet)
+            # Drafts may not have threadId until they're sent or replied to
+            try:
+                contacts_ref = db.collection("users").document(uid).collection("contacts")
+                # Try to find existing contact by email
+                existing_contacts = list(contacts_ref.where("email", "==", to_addr).limit(1).stream())
+                
+                contact_data = {
+                    "gmailDraftId": draft["id"],
+                    "gmailDraftUrl": gmail_url,
+                    "emailSubject": r["subject"],
+                    "emailBody": body,
+                    "draftCreatedAt": datetime.utcnow().isoformat(),
+                    "lastActivityAt": datetime.utcnow().isoformat(),
+                    "hasUnreadReply": False,
+                    "updatedAt": datetime.utcnow().isoformat()
+                }
+                
+                # Add threadId if we have it
+                if thread_id:
+                    contact_data["gmailThreadId"] = thread_id
+                
+                # Add contact fields from the original contact data
+                if c.get("FirstName"):
+                    contact_data["firstName"] = c["FirstName"]
+                if c.get("LastName"):
+                    contact_data["lastName"] = c["LastName"]
+                if c.get("Company"):
+                    contact_data["company"] = c["Company"]
+                if c.get("Title") or c.get("jobTitle"):
+                    contact_data["jobTitle"] = c.get("Title") or c.get("jobTitle")
+                if c.get("LinkedIn") or c.get("linkedinUrl"):
+                    contact_data["linkedinUrl"] = c.get("LinkedIn") or c.get("linkedinUrl")
+                if c.get("College") or c.get("college"):
+                    contact_data["college"] = c.get("College") or c.get("college")
+                if c.get("location"):
+                    contact_data["location"] = c["location"]
+                
+                if existing_contacts:
+                    # Update existing contact
+                    contact_doc = existing_contacts[0]
+                    contact_doc.reference.update(contact_data)
+                    print(f"✅ [{i}] Updated contact {contact_doc.id} with draftId {draft['id']}" + (f" and threadId {thread_id}" if thread_id else ""))
+                else:
+                    # Create new contact
+                    contact_data["email"] = to_addr
+                    contact_data["createdAt"] = datetime.utcnow().isoformat()
+                    new_contact_ref = contacts_ref.document()
+                    new_contact_ref.set(contact_data)
+                    print(f"✅ [{i}] Created new contact {new_contact_ref.id} with draftId {draft['id']}" + (f" and threadId {thread_id}" if thread_id else ""))
+            except Exception as e:
+                print(f"⚠️ [{i}] Failed to save contact to Firestore: {e}")
+                import traceback
+                traceback.print_exc()
         except Exception as e:
             print(f"❌ [{i}] Draft creation failed for {to_addr}: {e}")
 

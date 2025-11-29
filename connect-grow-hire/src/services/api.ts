@@ -207,6 +207,137 @@ export interface CoffeeChatPrep {
 }
 
 // ================================
+// Interview Prep Types
+// ================================
+export interface InterviewPrepRequest {
+  job_posting_url?: string;
+  company_name?: string;
+  job_title?: string;
+}
+
+export interface InterviewPrepResponse {
+  id: string;
+  status: string;
+}
+
+export interface InterviewPrepStatus {
+  id?: string;
+  status:
+    | 'pending'
+    | 'processing'
+    | 'parsing_job_posting'
+    | 'parsing_failed'
+    | 'extracting_requirements'
+    | 'scraping_reddit'
+    | 'processing_content'
+    | 'generating_pdf'
+    | 'completed'
+    | 'failed';
+  needsManualInput?: boolean;
+  progress?: string;
+  jobDetails?: {
+    company_name: string;
+    company_domain: string;
+    job_title: string;
+    level?: string;
+    team_division?: string;
+    location?: string;
+    remote_policy?: string;
+    required_skills?: string[];
+    preferred_skills?: string[];
+    years_experience?: string;
+    job_type?: string;
+    key_responsibilities?: string[];
+    interview_hints?: string;
+    salary_range?: string;
+    role_category?: string;
+  };
+  insights?: {
+    company_name: string;
+    last_updated: string;
+    interview_process?: {
+      stages: string[];
+      timeline: string;
+      format: string;
+      interviewers?: string;
+      duration?: string;
+      pass_rates?: string;
+    };
+    common_questions?: Array<{
+      category: string;
+      questions: string[];
+      tips?: string;
+    }>;
+    real_interview_experiences?: Array<{
+      role: string;
+      year: string;
+      summary: string;
+      surprising?: string;
+      difficulty?: string;
+    }>;
+    success_tips?: {
+      preparation?: string[];
+      during_interview?: string[];
+      company_specific?: string[];
+    };
+    red_flags_and_mistakes?: string[];
+    day_of_logistics?: {
+      what_to_wear?: string;
+      arrival_time?: string;
+      what_to_bring?: string;
+      virtual_setup?: string;
+      parking_building_access?: string;
+    };
+    post_interview?: {
+      response_timeline?: string;
+      thank_you_notes?: string;
+      follow_up?: string;
+      offer_details?: string;
+      negotiation_tips?: string;
+    };
+    culture_insights?: {
+      work_life_balance?: string;
+      team_dynamics?: string;
+      management_style?: string;
+      growth_opportunities?: string;
+      diversity_inclusion?: string;
+      remote_policy?: string;
+    };
+    compensation?: {
+      base_salary_range?: string;
+      bonus_structure?: string;
+      benefits_highlights?: string;
+      salary_by_level?: string;
+      negotiation_room?: string;
+    };
+    role_specific_prep?: {
+      prep_topics?: string[];
+      practice_resources?: string[];
+      time_investment?: string;
+    };
+    sources_count?: number;
+    sources_summary?: string;
+  };
+  pdfUrl?: string;
+  pdfStoragePath?: string;
+  error?: string;
+  completedAt?: string;
+  createdAt?: string;
+  userId?: string;
+  userEmail?: string;
+}
+
+export interface InterviewPrep {
+  id: string;
+  companyName: string;
+  jobTitle?: string;
+  status: string;
+  createdAt: string;
+  pdfUrl?: string;
+  error?: string;
+}
+
+// ================================
 // ApiService
 // ================================
 class ApiService {
@@ -476,7 +607,41 @@ class ApiService {
     });
   }
 
- 
+  // ================================
+  // Interview Prep Endpoints
+  // ================================
+  async generateInterviewPrep(request: InterviewPrepRequest): Promise<InterviewPrepResponse | ApiError> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<InterviewPrepResponse | ApiError>('/interview-prep/generate', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(request),
+    });
+  }
+
+  async getInterviewPrepStatus(prepId: string): Promise<InterviewPrepStatus | ApiError> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<InterviewPrepStatus | ApiError>(`/interview-prep/status/${prepId}`, {
+      method: 'GET',
+      headers,
+    });
+  }
+
+  async downloadInterviewPrepPDF(prepId: string): Promise<{ pdfUrl: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ pdfUrl: string }>(`/interview-prep/download/${prepId}`, {
+      method: 'GET',
+      headers,
+    });
+  }
+
+  async getInterviewPrepHistory(limit: number = 10): Promise<{ history: InterviewPrep[] } | ApiError> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ history: InterviewPrep[] } | ApiError>(`/interview-prep/history?limit=${limit}`, {
+      method: 'GET',
+      headers,
+    });
+  }
 
     // ================================
   // Gmail Integration Endpoints

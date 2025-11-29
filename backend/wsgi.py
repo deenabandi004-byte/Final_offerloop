@@ -12,9 +12,11 @@ from .app.routes.runs import runs_bp
 from .app.routes.enrichment import enrichment_bp
 from .app.routes.resume import resume_bp
 from .app.routes.coffee_chat_prep import coffee_chat_bp
+from .app.routes.interview_prep import interview_prep_bp
 from .app.routes.billing import billing_bp
 from .app.routes.users import users_bp
 from .app.routes.outbox import outbox_bp
+from .app.routes.scout import scout_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -53,9 +55,11 @@ def create_app() -> Flask:
     app.register_blueprint(enrichment_bp)
     app.register_blueprint(resume_bp)
     app.register_blueprint(coffee_chat_bp)
+    app.register_blueprint(interview_prep_bp)
     app.register_blueprint(billing_bp)
     app.register_blueprint(users_bp)
     app.register_blueprint(outbox_bp)
+    app.register_blueprint(scout_bp)
 
     # --- Debug route to check frontend build ---
     @app.route('/api/debug/frontend')

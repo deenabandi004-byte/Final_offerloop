@@ -16,17 +16,55 @@ from ..extensions import get_db
 gmail_oauth_bp = Blueprint('gmail_oauth', __name__, url_prefix='/api/google')
 
 
+# Add a before_request handler to log ALL requests to this blueprint
+@gmail_oauth_bp.before_request
+def log_oauth_request():
+    """Log all requests to OAuth endpoints for debugging"""
+    import sys
+    sys.stdout.flush()
+    print("=" * 80)
+    print(f"🌐 OAuth Blueprint Request Received")
+    print(f"   Method: {request.method}")
+    print(f"   Path: {request.path}")
+    print(f"   Full URL: {request.url}")
+    print(f"   Headers: {dict(request.headers)}")
+    
+    # For OPTIONS requests, explicitly handle CORS
+    if request.method == 'OPTIONS':
+        from flask import make_response
+        print(f"   ✅ Handling OPTIONS (CORS preflight)")
+        response = make_response()
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin', '*'))
+        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Authorization, Content-Type, Cache-Control')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        response.headers.add('Access-Control-Max-Age', '3600')
+        print("=" * 80)
+        sys.stdout.flush()
+        return response
+    
+    print("=" * 80)
+    sys.stdout.flush()
+
+
 @gmail_oauth_bp.get("/oauth/start")
 @require_firebase_auth
 def google_oauth_start():
     """Initiate Gmail OAuth flow with proper state management"""
+    import sys
+    sys.stdout.flush()  # Ensure logs are flushed immediately
     print("=" * 70)
     print("🔐 /api/google/oauth/start CALLED")
     print("=" * 70)
+    sys.stdout.flush()
     
     db = get_db()
     uid = request.firebase_user["uid"]
     user_email = request.firebase_user.get("email")
+    
+    # Normalize email (lowercase, strip whitespace)
+    if user_email:
+        user_email = user_email.strip().lower()
     
     print(f"🔐 User requesting OAuth: {user_email} (uid: {uid})")
     
@@ -35,11 +73,12 @@ def google_oauth_start():
     print(f"🔐 Generated state token: {state}")
     
     # Store state in Firestore with user context
+    # Increased expiration to 15 minutes to handle slow OAuth flows
     state_data = {
         "uid": uid,
         "email": user_email,
         "created": datetime.utcnow(),
-        "expires": datetime.utcnow() + timedelta(minutes=10)
+        "expires": datetime.utcnow() + timedelta(minutes=15)
     }
     
     print(f"🔐 Saving state document to Firestore...")
@@ -75,27 +114,114 @@ def google_oauth_start():
         "response_type": "code",
         "scope": scope_string,
         "access_type": "offline",
-        "include_granted_scopes": "true",
-        "prompt": "select_account consent",  # Added select_account to allow choosing any account
+        # Removed include_granted_scopes to ensure consent screen always shows
+        # This is critical for Google's OAuth verification process
         "state": state,
-        # Removed login_hint to allow any email domain
-        # Removed hd (hosted domain) parameter to allow any email domain
-        # Added prompt=select_account to show account picker
-        # Note: In Testing mode, users must be added to Test users list in OAuth consent screen
-        # Google Cloud Console > APIs & Services > OAuth consent screen > Test users
     }
+    
+    # CRITICAL: Force consent screen to ALWAYS show (required for Google verification)
+    # Using ONLY "consent" (not "select_account consent") to skip account picker
+    # "consent" forces the consent screen with checkboxes to appear every time,
+    # even if the user has previously granted these exact permissions
+    params["prompt"] = "consent"
+    
+    # Use login_hint to pre-select the user's account and skip account picker entirely
+    # With login_hint + prompt=consent, Google should go STRAIGHT to consent screen
+    # (no account picker, no sign-in screen - just the permission checkboxes)
+    if user_email:
+        params["login_hint"] = user_email
+        print(f"🔐 Using login_hint: {user_email}")
+        print(f"🔐 With prompt=consent, this should skip account picker and go STRAIGHT to consent screen")
+        print(f"🔐 Expected flow: Direct to consent screen with checkboxes (no account picker)")
+    else:
+        print(f"⚠️ No login_hint (no user email) - account picker may show first")
+    
+    print(f"🔐 CRITICAL: Consent screen with checkboxes MUST appear")
+    print(f"🔐 If account picker still shows, the user may need to be signed into Google in the browser")
+    print(f"🔐 If consent screen doesn't appear, user must revoke permissions first at:")
+    print(f"   https://myaccount.google.com/permissions")
+    
+    # Note: In Testing mode, users must be added to Test users list in OAuth consent screen
+    # Google Cloud Console > APIs & Services > OAuth consent screen > Test users
+    #
+    # IMPORTANT FOR GOOGLE VERIFICATION:
+    # To ensure the consent screen always shows during verification:
+    # 1. The prompt=select_account consent parameter forces the consent screen
+    # 2. If testing with an account that already granted permissions, you may need to:
+    #    - Revoke access at: https://myaccount.google.com/permissions
+    #    - Or use a fresh test account that hasn't granted permissions yet
+    # 3. The consent screen with checkboxes MUST appear for Google's verification process
     
     auth_url = f"{AUTH_BASE}?{urlencode(params)}"
     
-    print(f"🔐 OAuth URL: {auth_url}")
+    # ========================================
+    # DETAILED LOGGING FOR DEBUGGING CONSENT SCREEN
+    # ========================================
+    print("=" * 80)
+    print("🔍 DETAILED OAUTH URL DEBUGGING")
+    print("=" * 80)
+    print(f"🔐 OAuth URL generated")
+    print(f"🔐 Base URL: {AUTH_BASE}")
+    print(f"🔐 Client ID: {CLIENT_ID[:20]}... (truncated for security)")
+    print(f"🔐 Redirect URI: {REDIRECT_URI}")
     print(f"🔐 Requesting scopes: {scope_string}")
+    print(f"")
+    print(f"🔐 PARAMETERS BEING SENT:")
+    for key, value in params.items():
+        if key == "client_id":
+            print(f"   {key}: {str(value)[:20]}... (truncated)")
+        elif key == "state":
+            print(f"   {key}: {str(value)[:20]}... (truncated)")
+        else:
+            print(f"   {key}: {value}")
+    print(f"")
+    print(f"🔐 CRITICAL PARAMETERS CHECK:")
+    print(f"   prompt: {params.get('prompt', '❌ NOT SET!')} {'✅' if params.get('prompt') == 'consent' else '❌ WRONG VALUE!'}")
+    print(f"   login_hint: {'❌ PRESENT (BAD!)' if 'login_hint' in params else '✅ NOT PRESENT (GOOD!)'}")
+    print(f"   include_granted_scopes: {'❌ PRESENT (BAD!)' if 'include_granted_scopes' in params else '✅ NOT PRESENT (GOOD!)'}")
+    print(f"   access_type: {params.get('access_type', 'NOT SET')}")
+    print(f"")
+    print(f"🔐 URL VERIFICATION:")
+    # Check if prompt=consent is in the URL (URL encoded)
+    url_has_consent = 'prompt=consent' in auth_url or 'prompt%3Dconsent' in auth_url
+    print(f"   Consent prompt in URL: {'✅ YES' if url_has_consent else '❌ NO - THIS IS THE PROBLEM!'}")
+    url_has_login_hint = 'login_hint' in auth_url
+    print(f"   Login hint in URL: {'❌ YES (BAD!)' if url_has_login_hint else '✅ NO (GOOD!)'}")
+    print(f"")
+    print(f"🔐 FULL OAUTH URL (for debugging - check this in browser):")
+    print(f"   {auth_url}")
+    print(f"")
+    print(f"🔐 TO TEST: Copy the URL above and paste it in an incognito/private browser window")
+    print(f"   The consent screen with checkboxes should appear")
+    print(f"   If it doesn't, the account may have already granted permissions")
+    print("=" * 80)
+    
+    # Additional checks
+    if 'hd=' in auth_url or '&hd=' in auth_url:
+        import re
+        hd_match = re.search(r'[&?]hd=([^&]+)', auth_url)
+        if hd_match:
+            print(f"⚠️ WARNING: hd parameter found: {hd_match.group(1)}")
+            print(f"   This will restrict account selection. Check Google Cloud Console OAuth settings.")
     
     response_data = {
         "authUrl": auth_url,
-        "state": state
+        "state": state,
+        "debug": {
+            "prompt": params.get("prompt"),
+            "has_login_hint": "login_hint" in params,
+            "has_include_granted_scopes": "include_granted_scopes" in params,
+            "scopes": scope_string.split(),
+            "url_length": len(auth_url),
+            "client_id_prefix": CLIENT_ID[:20] if CLIENT_ID else "MISSING"
+        }
     }
     print(f"✅ Returning OAuth response to frontend")
-    print("=" * 70)
+    print(f"🔐 State token being returned: {state[:20]}...")
+    print(f"🔐 Auth URL length: {len(auth_url)} chars")
+    print("=" * 80)
+    import sys
+    sys.stdout.flush()  # Ensure logs are flushed
     
     return jsonify(response_data)
 
@@ -111,9 +237,54 @@ def google_oauth_callback():
     state = request.args.get("state")
     code = request.args.get("code")
 
-    print(f"🔍 OAuth Callback - State: {state}, Code: {'present' if code else 'missing'}")
+    # ========================================
+    # DETAILED CALLBACK LOGGING
+    # ========================================
+    print("=" * 80)
+    print("🔍 OAUTH CALLBACK RECEIVED")
+    print("=" * 80)
+    print(f"🔍 State: {state[:20] if state else 'MISSING'}...")
+    print(f"🔍 Code: {'✅ PRESENT' if code else '❌ MISSING'}")
     print(f"🔍 Full callback URL: {request.url}")
     print(f"🔍 Configured redirect URI: {OAUTH_REDIRECT_URI}")
+    print(f"")
+    print(f"🔍 ALL CALLBACK PARAMETERS:")
+    for key, value in request.args.items():
+        if key == "state":
+            print(f"   {key}: {str(value)[:30]}... (truncated)")
+        elif key == "code":
+            print(f"   {key}: {'PRESENT' if value else 'MISSING'} (length: {len(value) if value else 0})")
+        else:
+            print(f"   {key}: {value}")
+    print("=" * 80)
+    
+    # Check for hosted domain restriction (hd parameter)
+    hd_param = request.args.get("hd")
+    if hd_param:
+        print(f"⚠️ WARNING: Hosted domain restriction detected: hd={hd_param}")
+        print(f"   This restricts account selection to {hd_param} domain")
+        print(f"   This is likely configured in Google Cloud Console OAuth settings")
+        print(f"   Users can still select other accounts by going back, but it's confusing")
+    else:
+        print(f"✅ No hosted domain restriction (hd parameter) - all accounts allowed")
+    
+    # Check if authuser parameter is present (indicates account picker was shown)
+    authuser = request.args.get("authuser")
+    if authuser:
+        print(f"⚠️ Account picker was shown - user selected account #{authuser}")
+        print(f"   This suggests login_hint may not have auto-selected the account")
+    else:
+        print(f"✅ No authuser parameter - account was likely auto-selected")
+    
+    # Check if consent screen was shown
+    # If code is present without errors, check if we can determine if consent was shown
+    if code:
+        print(f"")
+        print(f"🔍 CONSENT SCREEN ANALYSIS:")
+        print(f"   Code received: ✅ YES")
+        print(f"   This means OAuth completed, but we can't tell from callback if consent screen was shown")
+        print(f"   To verify consent screen appeared, check the OAuth URL logs above")
+        print(f"   The URL should contain 'prompt=consent' parameter")
 
     if not code:
         error = request.args.get("error")
@@ -129,33 +300,42 @@ def google_oauth_callback():
         
         return jsonify({"error": "Missing authorization code", "error_details": error}), 400
 
-    # Extract UID from state
+    # Extract UID and expected email from state
     uid = None
+    expected_email_from_state = None
     if state:
         try:
             sdoc = db.collection("oauth_state").document(state).get()
             if not sdoc.exists:
                 print(f"❌ State document not found: {state}")
-                print(f"   🔍 Checking if state expired or was never saved...")
-                # Try to get from Firebase auth token if available (fallback)
+                print(f"   🔍 Possible reasons:")
+                print(f"      - State expired (15 min timeout)")
+                print(f"      - State was already used and deleted")
+                print(f"      - OAuth URL was cached/reused")
+                print(f"      - State was never saved (check OAuth start logs)")
+                
+                # Check if state might have expired by looking for similar states
+                # (This is just for debugging - we'll proceed anyway)
                 try:
+                    # Try to get from Firebase auth token if available (fallback)
                     from app.extensions import require_firebase_auth
-                    # Try to get user from token in request
                     auth_header = request.headers.get('Authorization', '')
                     if auth_header.startswith('Bearer '):
-                        token = auth_header.split('Bearer ')[1]
-                        # Decode token to get uid (simplified - you might need firebase_admin)
                         print(f"   🔍 Attempting to extract UID from auth token...")
                 except Exception as token_err:
                     print(f"   ⚠️ Could not extract from token: {token_err}")
                 
                 # For now, allow callback to proceed if we have a code (less secure but works)
                 print(f"   ⚠️ Proceeding without state validation (code present: {bool(code)})")
+                print(f"   💡 Tip: If this happens frequently, check if OAuth URL is being cached")
                 # Don't return error - try to continue
             else:
                 state_data = sdoc.to_dict() or {}
                 uid = state_data.get("uid")
+                expected_email_from_state = state_data.get("email")
                 print(f"✅ Found UID from state: {uid}")
+                if expected_email_from_state:
+                    print(f"📧 Expected email from state: {expected_email_from_state}")
                 
                 # Clean up state document after use
                 try:
@@ -186,6 +366,16 @@ def google_oauth_callback():
         profile = gmail_service.users().getProfile(userId="me").execute()
         gmail_email = (profile or {}).get("emailAddress")
         print(f"📧 Gmail profile email: {gmail_email}")
+        
+        # Compare with expected email from state
+        if expected_email_from_state:
+            if expected_email_from_state.lower() == gmail_email.lower():
+                print(f"✅ Email matches! Login hint worked correctly")
+            else:
+                print(f"⚠️ Email mismatch!")
+                print(f"   Expected: {expected_email_from_state}")
+                print(f"   Got: {gmail_email}")
+                print(f"   User may have selected different account from picker")
 
         # 3) If we don't have UID from state, try to find user by Gmail email
         if not uid:
@@ -263,6 +453,58 @@ def google_oauth_callback():
         traceback.print_exc()
         return jsonify({"error": f"Token exchange failed: {str(e)}"}), 500
 
+
+
+@gmail_oauth_bp.post("/gmail/revoke")
+@require_firebase_auth
+def revoke_gmail_permissions():
+    """Revoke Gmail permissions for the current user - forces consent screen to show on next OAuth"""
+    db = get_db()
+    uid = request.firebase_user["uid"]
+    user_email = request.firebase_user.get("email", "unknown")
+    
+    print(f"🔄 Revoking Gmail permissions for user: {user_email} (uid: {uid})")
+    
+    try:
+        # Delete the Gmail credentials document
+        gmail_doc_ref = db.collection("users").document(uid).collection("integrations").document("gmail")
+        gmail_doc = gmail_doc_ref.get()
+        
+        if gmail_doc.exists:
+            # Try to revoke the token with Google if we have credentials
+            try:
+                creds = _load_user_gmail_creds(uid)
+                if creds and hasattr(creds, 'token'):
+                    import requests
+                    revoke_url = 'https://oauth2.googleapis.com/revoke'
+                    revoke_params = {'token': creds.token}
+                    requests.post(revoke_url, params=revoke_params)
+                    print(f"✅ Revoked token with Google")
+            except Exception as revoke_err:
+                print(f"⚠️ Could not revoke token with Google (may already be revoked): {revoke_err}")
+            
+            # Delete the credentials document
+            gmail_doc_ref.delete()
+            print(f"✅ Deleted Gmail credentials from Firestore")
+            return jsonify({
+                "success": True,
+                "message": "Gmail permissions revoked. The consent screen will appear on next OAuth attempt."
+            }), 200
+        else:
+            print(f"ℹ️ No Gmail credentials found for user: {user_email}")
+            return jsonify({
+                "success": True,
+                "message": "No Gmail permissions found to revoke."
+            }), 200
+            
+    except Exception as e:
+        print(f"❌ Error revoking Gmail permissions: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 
 @gmail_oauth_bp.get("/gmail/status")

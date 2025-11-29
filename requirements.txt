@@ -14,3 +14,6 @@ gunicorn==21.2.0
 reportlab
 google-search-results
 dateparser
+aiohttp
+asyncpraw
+beautifulsoup4

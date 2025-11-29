@@ -1,3 +1,90 @@
+# Scout AI Overhaul - Cursor Prompt
+
+## Overview
+
+You are overhauling the Scout feature for Offerloop.ai - a networking platform that helps students connect with professionals. Scout is a conversational AI assistant that helps users fill in the Professional Search form fields on the Home page.
+
+**Current State:** Scout is a basic job title discovery assistant with limited functionality.
+
+**Target State:** Scout becomes a powerful, conversational AI that can:
+1. Parse job posting URLs and auto-fill search fields
+2. Find job postings based on natural language queries (e.g., "data analytics jobs in San Francisco")
+3. Help users input the right keywords/titles for their searches
+4. Have full conversations with SERP-powered research capabilities
+5. Answer questions about companies, roles, interview processes, etc.
+
+**Performance Target:** Responses should complete within 30-60 seconds max, with most responses under 15 seconds.
+
+---
+
+## Files to Modify
+
+### Backend Files
+- `app/routes/scout.py` - API endpoints
+- `app/services/scout_service.py` - Core Scout logic (major rewrite)
+
+### Frontend Files
+- `src/components/ScoutChatbot.tsx` - Chat UI component
+- `src/pages/Home.tsx` - Professional Search form (minor updates to callback)
+
+---
+
+## Architecture
+
+```
+User Input (URL, Natural Language, or Question)
+        │
+        ▼
+┌─────────────────────────────────────────────┐
+│           Intent Classification             │
+│  (Regex + GPT-4o-mini, < 1 second)          │
+│                                             │
+│  Intents:                                   │
+│  - URL_PARSE: User pasted a job posting URL │
+│  - JOB_SEARCH: User wants to find jobs      │
+│  - FIELD_HELP: User needs help with fields  │
+│  - RESEARCH: User asking about company/role │
+│  - CONVERSATION: General chat/follow-up     │
+└────────────────┬────────────────────────────┘
+                 │
+    ┌────────────┼────────────┬───────────────┬─────────────┐
+    ▼            ▼            ▼               ▼             ▼
+┌────────┐ ┌──────────┐ ┌──────────┐  ┌───────────┐ ┌────────────┐
+│URL Mode│ │Job Search│ │Field Help│  │ Research  │ │Conversation│
+│ (Jina) │ │  (SERP)  │ │  (LLM)   │  │(SERP+LLM) │ │   (LLM)    │
+└───┬────┘ └────┬─────┘ └────┬─────┘  └─────┬─────┘ └─────┬──────┘
+    │           │            │              │             │
+    └───────────┴────────────┴──────────────┴─────────────┘
+                             │
+                             ▼
+              ┌──────────────────────────────┐
+              │   Response Generator (LLM)   │
+              │   + Field Extraction         │
+              └──────────────┬───────────────┘
+                             │
+                             ▼
+              ┌──────────────────────────────┐
+              │  Return to Frontend:         │
+              │  - message (conversational)  │
+              │  - fields (to auto-populate) │
+              │  - suggestions (job listings)│
+              └──────────────────────────────┘
+```
+
+---
+
+## Backend Implementation
+
+### 1. New Dependencies
+
+Add to `requirements.txt`:
+```
+httpx>=0.25.0  # For async HTTP requests to Jina
+```
+
+### 2. scout_service.py - Complete Rewrite
+
+```python
 """
 Scout Service v2.0 - Conversational job search assistant with URL parsing,
 job discovery, and SERP-powered research capabilities.
@@ -9,7 +96,6 @@ import json
 import re
 import time
 import hashlib
-import traceback
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional, Tuple, Literal
 from urllib.parse import urlparse
@@ -60,7 +146,7 @@ class JobListing:
     url: Optional[str] = None
     snippet: Optional[str] = None
     source: str = "serp"
-
+    
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
@@ -99,7 +185,7 @@ class TTLCache:
     def __init__(self, default_ttl: int = 3600):  # 1 hour default
         self._store: Dict[str, Tuple[float, Any]] = {}
         self._default_ttl = default_ttl
-
+    
     def get(self, key: str) -> Optional[Any]:
         if key not in self._store:
             return None
@@ -108,11 +194,11 @@ class TTLCache:
             self._store.pop(key, None)
             return None
         return value
-
+    
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
         lifetime = ttl if ttl is not None else self._default_ttl
         self._store[key] = (time.time() + lifetime, value)
-
+    
     def make_key(self, *args) -> str:
         return hashlib.md5(":".join(str(a) for a in args).encode()).hexdigest()
 
@@ -123,21 +209,24 @@ class TTLCache:
 
 class ScoutService:
     """Main Scout service orchestrating all functionality."""
-
+    
     DEFAULT_MODEL = "gpt-4o-mini"
     
     def __init__(self):
         self._cache = TTLCache()
         self._openai = get_async_openai_client()
+        self._http_client: Optional[httpx.AsyncClient] = None
     
     async def _get_http_client(self) -> httpx.AsyncClient:
-        """Create a new HTTP client for each request to avoid event loop issues."""
-        return httpx.AsyncClient(timeout=30.0)
+        """Lazy-initialize HTTP client."""
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(timeout=30.0)
+        return self._http_client
     
     # ========================================================================
     # MAIN ENTRY POINT
     # ========================================================================
-
+    
     async def handle_chat(
         self,
         *,
@@ -165,7 +254,7 @@ class ScoutService:
                         "• Tell me what kind of roles you're looking for (e.g., 'data analyst jobs in NYC')\n"
                         "• Ask me about companies or roles\n\n"
                         "What would you like to do?",
-            context=context,
+                context=context,
             ).to_dict()
         
         # Classify intent
@@ -193,16 +282,16 @@ class ScoutService:
             return ScoutResponse(
                 status="error",
                 message="I ran into an issue processing that. Could you try rephrasing or paste the job description text directly?",
-                        context=context,
-        ).to_dict()
-
+                context=context,
+            ).to_dict()
+    
     # ========================================================================
     # INTENT CLASSIFICATION
     # ========================================================================
-
+    
     async def _classify_intent(
-        self,
-        message: str,
+        self, 
+        message: str, 
         context: Dict[str, Any]
     ) -> Tuple[IntentType, Dict[str, Any]]:
         """
@@ -218,53 +307,23 @@ class ScoutService:
             extracted["url"] = urls[0]
             return "URL_PARSE", extracted
         
-        # Pattern 2: Job search patterns - improved to catch more variations
+        # Pattern 2: Job search patterns
         job_search_patterns = [
-            r'\b(find|search|look for|looking for|show me|get me|can you find)\b.*\b(jobs?|roles?|positions?|openings?|postings?)\b',
-            r'\b(jobs?|roles?|positions?|openings?|postings?)\b.*\b(in|at|near)\b',
-            r'\b(hiring|openings?|postings?)\b.*\b(for|at|in)\b',
+            r'\b(find|search|look for|looking for|show me|get me)\b.*\b(jobs?|roles?|positions?|openings?)\b',
+            r'\b(jobs?|roles?|positions?)\b.*(in|at|near)\b',
+            r'\b(hiring|openings?)\b.*\b(for|at|in)\b',
             r'\bwho.*(is hiring|are hiring)\b',
-            r'\b(data|software|product|marketing|sales|finance|engineering|engineer|analyst|scientist|manager|designer|developer)\b.*\b(jobs?|roles?|positions?|postings?)\b.*\b(in|at|near)\b',
-            r'\b(find|search|look for)\b.*\b(postings?|openings?)\b.*\b(in|at|near)\b',
-            # Catch "find [role] postings in [location]" pattern
-            r'\b(find|search|look for|show me)\b.*\b(postings?|openings?|jobs?)\b',
+            r'\b(data|software|product|marketing|sales|finance|engineering)\b.*\b(jobs?|roles?|positions?)\b',
         ]
         for pattern in job_search_patterns:
             if re.search(pattern, message, re.IGNORECASE):
-                # Extract job title/role if mentioned
-                # Look for role before "postings/jobs in location"
-                role_match = re.search(
-                    r'\b(find|search|look for|show me|get me)\s+(.+?)\s+(?:postings?|openings?|jobs?|roles?|positions?)\s+(?:in|at|near)',
-                    message, re.IGNORECASE
-                )
-                if role_match:
-                    extracted["job_title"] = role_match.group(2).strip()
-                
                 # Extract location if mentioned
                 location_match = re.search(
-                    r'\b(?:in|at|near)\s+([A-Za-z\s,]+?)(?:\s*$|\s+(?:for|as|with|postings?|openings?|jobs?))',
+                    r'\b(?:in|at|near)\s+([A-Za-z\s,]+?)(?:\s*$|\s+(?:for|as|with))',
                     message, re.IGNORECASE
                 )
                 if location_match:
                     extracted["location"] = location_match.group(1).strip()
-                
-                # Also try to extract role from common patterns
-                if not extracted.get("job_title"):
-                    # Pattern: "software engineering postings" -> "software engineer"
-                    role_patterns = [
-                        r'\b([a-z\s]+?)\s+(?:postings?|openings?|jobs?|roles?|positions?)\s+(?:in|at|near)',
-                        r'\b(?:find|search|look for)\s+([a-z\s]+?)\s+(?:postings?|openings?|jobs?)',
-                    ]
-                    for rp in role_patterns:
-                        rm = re.search(rp, message, re.IGNORECASE)
-                        if rm:
-                            potential_role = rm.group(1).strip()
-                            # Clean up common words
-                            potential_role = re.sub(r'\b(postings?|openings?|jobs?|roles?|positions?)\b', '', potential_role, flags=re.IGNORECASE).strip()
-                            if potential_role and len(potential_role) > 3:
-                                extracted["job_title"] = potential_role
-                                break
-                
                 return "JOB_SEARCH", extracted
         
         # Pattern 3: Field help patterns
@@ -294,26 +353,6 @@ class ScoutService:
                 return "RESEARCH", extracted
         
         # Fall back to LLM classification for ambiguous cases
-        # But first, check if it looks like a job search with a quick heuristic
-        if any(word in message.lower() for word in ['find', 'search', 'look for', 'postings', 'openings', 'jobs']) and \
-           any(word in message.lower() for word in ['in', 'at', 'near']):
-            # Likely a job search - extract what we can
-            location_match = re.search(
-                r'\b(?:in|at|near)\s+([A-Za-z\s,]+?)(?:\s*$|\s+(?:for|as|with))',
-                message, re.IGNORECASE
-            )
-            if location_match:
-                extracted["location"] = location_match.group(1).strip()
-            # Try to extract role
-            role_match = re.search(
-                r'\b(find|search|look for|show me)\s+(.+?)\s+(?:postings?|openings?|jobs?)\s+(?:in|at|near)',
-                message, re.IGNORECASE
-            )
-            if role_match:
-                extracted["job_title"] = role_match.group(2).strip()
-            return "JOB_SEARCH", extracted
-        
-        # Fall back to LLM classification for ambiguous cases
         return await self._llm_classify_intent(message, context)
     
     async def _llm_classify_intent(
@@ -322,10 +361,6 @@ class ScoutService:
         context: Dict[str, Any]
     ) -> Tuple[IntentType, Dict[str, Any]]:
         """Use LLM to classify intent when regex patterns don't match."""
-        if not self._openai:
-            print("[Scout] OpenAI client not available for classification")
-            return "CONVERSATION", {}
-        
         try:
             prompt = f"""Classify this user message for a job search assistant. Return JSON only.
 
@@ -372,33 +407,8 @@ Return format:
             
             return intent, entities
             
-        except asyncio.TimeoutError:
-            print("[Scout] LLM classification timed out - using heuristic fallback")
-            # Quick heuristic: if message has job search keywords, treat as job search
-            if any(word in message.lower() for word in ['find', 'search', 'look for', 'postings', 'openings', 'jobs']) and \
-               any(word in message.lower() for word in ['in', 'at', 'near', 'los angeles', 'san francisco', 'new york']):
-                # Extract location
-                location_match = re.search(
-                    r'\b(?:in|at|near)\s+([A-Za-z\s,]+?)(?:\s*$|\s+(?:for|as|with))',
-                    message, re.IGNORECASE
-                )
-                if location_match:
-                    extracted["location"] = location_match.group(1).strip()
-                # Extract role
-                role_match = re.search(
-                    r'\b(find|search|look for|show me|can you find)\s+(.+?)\s+(?:postings?|openings?|jobs?)\s+(?:in|at|near)',
-                    message, re.IGNORECASE
-                )
-                if role_match:
-                    extracted["job_title"] = role_match.group(2).strip()
-                return "JOB_SEARCH", extracted
-            return "CONVERSATION", {}
-        except json.JSONDecodeError as e:
-            print(f"[Scout] LLM classification JSON decode error: {e}")
-            return "CONVERSATION", {}
         except Exception as e:
             print(f"[Scout] LLM classification failed: {e}")
-            print(f"[Scout] Traceback: {traceback.format_exc()}")
             return "CONVERSATION", {}
     
     # ========================================================================
@@ -463,7 +473,6 @@ Return format:
     
     async def _fetch_url_content(self, url: str) -> Optional[str]:
         """Fetch URL content using Jina Reader API."""
-        client = None
         try:
             client = await self._get_http_client()
             jina_url = f"{JINA_READER_URL}{url}"
@@ -484,37 +493,16 @@ Return format:
                 print(f"[Scout] Jina Reader returned {response.status_code} for {url}")
                 return None
                 
-        except asyncio.TimeoutError:
-            print(f"[Scout] Jina Reader timeout for {url}")
-            return None
-        except RuntimeError as e:
-            if "Event loop is closed" in str(e):
-                print(f"[Scout] Event loop closed error for {url} - this is usually harmless")
-            else:
-                print(f"[Scout] Runtime error fetching URL via Jina: {e}")
-            return None
         except Exception as e:
-            print(f"[Scout] Error fetching URL via Jina: {type(e).__name__}: {e}")
-            print(f"[Scout] Traceback: {traceback.format_exc()}")
+            print(f"[Scout] Error fetching URL via Jina: {e}")
             return None
-        finally:
-            # Always close the client to avoid resource leaks
-            if client:
-                try:
-                    await client.aclose()
-                except Exception:
-                    pass  # Ignore errors when closing
-
+    
     async def _extract_job_details_from_content(
-        self,
+        self, 
         content: str,
         url: str
     ) -> Tuple[SearchFields, Optional[str]]:
         """Extract job details from page content using LLM."""
-        if not self._openai:
-            print("[Scout] OpenAI client not available for job extraction")
-            return SearchFields(), None
-        
         try:
             # Infer company from URL if possible
             domain_hint = self._extract_company_from_url(url)
@@ -528,9 +516,7 @@ Content:
 {content[:8000]}
 
 Extract:
-- job_title: A simplified, searchable job title (e.g., "Software Engineer", "Data Analyst Intern"). 
-  Remove team names, project names, and extra qualifiers. Keep only the core role.
-  Example: "AI Research Scientist, Text Data Research - MSL FAIR" -> "AI Research Scientist"
+- job_title: The exact job title (e.g., "Software Engineer", "Data Analyst Intern")
 - company: Company name
 - location: City, State or "Remote" if mentioned
 - experience_level: One of: intern, entry, mid, senior, lead, manager, director, or null
@@ -553,17 +539,13 @@ If a field cannot be determined, use null.
                     max_tokens=300,
                     response_format={"type": "json_object"},
                 ),
-                timeout=15.0  # Increased from 10s to handle complex pages
+                timeout=10.0
             )
             
             result = json.loads(completion.choices[0].message.content)
             
-            # Simplify job title if it's too specific
-            raw_title = result.get("job_title")
-            simplified_title = self._simplify_job_title(raw_title) if raw_title else None
-            
             fields = SearchFields(
-                job_title=simplified_title,
+                job_title=result.get("job_title"),
                 company=result.get("company") or domain_hint,
                 location=result.get("location"),
                 experience_level=result.get("experience_level"),
@@ -572,15 +554,8 @@ If a field cannot be determined, use null.
             
             return fields, summary
             
-        except asyncio.TimeoutError:
-            print("[Scout] Job extraction timed out (15s limit)")
-            return SearchFields(), None
-        except json.JSONDecodeError as e:
-            print(f"[Scout] Job extraction JSON decode error: {e}")
-            return SearchFields(), None
         except Exception as e:
-            print(f"[Scout] Error extracting job details: {type(e).__name__}: {e}")
-            print(f"[Scout] Traceback: {traceback.format_exc()}")
+            print(f"[Scout] Error extracting job details: {e}")
             return SearchFields(), None
     
     def _extract_company_from_url(self, url: str) -> Optional[str]:
@@ -666,7 +641,7 @@ If a field cannot be determined, use null.
         # Extract fields from first few results
         fields = self._aggregate_fields_from_jobs(jobs, extracted)
         
-        # Build response with actionable job listings
+        # Build response
         message_parts = [f"🔍 **Found {len(jobs)} relevant positions!** Here are the top matches:\n"]
         
         for i, job in enumerate(jobs[:5], 1):
@@ -675,7 +650,7 @@ If a field cannot be determined, use null.
                 job_line += f" ({job.location})"
             message_parts.append(job_line)
         
-        message_parts.append("\n✨ **I've filled in the search form with:**")
+        message_parts.append("\n✨ **I've filled in suggested search terms:**")
         if fields.job_title:
             message_parts.append(f"• Job Title: **{fields.job_title}**")
         if fields.company:
@@ -683,7 +658,7 @@ If a field cannot be determined, use null.
         if fields.location:
             message_parts.append(f"• Location: **{fields.location}**")
         
-        message_parts.append("\n💡 **Next step:** Click **Find Contacts** to discover professionals in these roles! You can also click any job listing above to use that specific role.")
+        message_parts.append("\nFeel free to adjust these and click **Find Contacts** to discover professionals!")
         
         return ScoutResponse(
             status="ok",
@@ -736,14 +711,11 @@ If a field cannot be determined, use null.
             if cached:
                 return cached
             
-            # Use Google Jobs engine for better results
             search = GoogleSearch({
-            "engine": "google_jobs",
                 "q": query,
                 "api_key": SERPAPI_KEY,
                 "num": 10,
-            "hl": "en",
-                "gl": "us",
+                "tbm": "",  # Web search
             })
             
             # Run in thread pool to not block
@@ -752,67 +724,43 @@ If a field cannot be determined, use null.
             
             jobs = []
             
-            # Parse jobs_results from Google Jobs
-            for result in results.get("jobs_results", [])[:10]:
-                title = result.get("title", "").strip()
-                company = result.get("company_name", "").strip()
-                location = result.get("location", "").strip()
+            # Parse organic results
+            for result in results.get("organic_results", [])[:10]:
+                title = result.get("title", "")
+                snippet = result.get("snippet", "")
                 link = result.get("link", "")
-                description = result.get("description", "")
                 
-                # Skip invalid results
-                if not title or title.lower() in ["job search", "jobs", "careers", "hiring"]:
-                    continue
-                if not company or company.lower() in ["unknown", "jobs", "careers"]:
-                    continue
-
-                # Simplify the title before storing
-                simplified_title = self._simplify_job_title(title)
+                # Try to extract company and job title from result
+                job_title, company, location = self._parse_job_from_serp_result(title, snippet, link)
                 
+                if job_title:
+                    jobs.append(JobListing(
+                        title=job_title,
+                        company=company or "Unknown",
+                        location=location,
+                        url=link,
+                        snippet=snippet[:200] if snippet else None,
+                        source="serp"
+                    ))
+            
+            # Also check jobs_results if available
+            for result in results.get("jobs_results", [])[:5]:
                 jobs.append(JobListing(
-                    title=simplified_title,  # Use simplified title
-                    company=company,
-                    location=location,
-                    url=link,
-                    snippet=description[:200] if description else None,
+                    title=result.get("title", "Unknown Role"),
+                    company=result.get("company_name", "Unknown"),
+                    location=result.get("location"),
+                    url=result.get("link"),
+                    snippet=result.get("description", "")[:200],
                     source="google_jobs"
                 ))
-            
-            # If no jobs_results, try organic results as fallback
-            if not jobs:
-                for result in results.get("organic_results", [])[:5]:
-                    title = result.get("title", "").strip()
-                    snippet = result.get("snippet", "").strip()
-                    link = result.get("link", "")
-                    
-                    # Skip generic job board pages
-                    if any(skip in title.lower() for skip in ["job search", "jobs at", "careers at", "hiring"]):
-                        continue
-                    
-                    # Try to extract job details
-                    job_title, company, location = self._parse_job_from_serp_result(title, snippet, link)
-                    
-                    if job_title and job_title.lower() not in ["job search", "jobs", "careers"]:
-                        # Simplify the title before storing
-                        simplified_title = self._simplify_job_title(job_title)
-                        
-                        jobs.append(JobListing(
-                            title=simplified_title,  # Use simplified title
-                            company=company or "Unknown",
-                            location=location,
-                            url=link,
-                            snippet=snippet[:200] if snippet else None,
-                            source="serp"
-                        ))
             
             self._cache.set(cache_key, jobs, ttl=1800)  # Cache for 30 min
             return jobs
             
         except Exception as e:
             print(f"[Scout] SERP search failed: {e}")
-            print(f"[Scout] Traceback: {traceback.format_exc()}")
             return []
-
+    
     def _parse_job_from_serp_result(
         self,
         title: str,
@@ -823,11 +771,6 @@ If a field cannot be determined, use null.
         job_title = None
         company = None
         location = None
-        
-        # Skip generic titles
-        generic_titles = ["job search", "jobs", "careers", "hiring", "openings"]
-        if title.lower() in generic_titles:
-            return None, None, None
         
         # Common patterns in job listing titles
         # "Software Engineer - Google" or "Software Engineer at Google"
@@ -840,45 +783,18 @@ If a field cannot be determined, use null.
         for pattern in patterns:
             match = re.match(pattern, title, re.IGNORECASE)
             if match:
-                potential_title = match.group(1).strip()
-                potential_company = match.group(2).strip() if match.group(2) else None
-                potential_location = match.group(3).strip() if match.lastindex >= 3 and match.group(3) else None
-                
-                # Validate that we got meaningful data
-                if potential_title and potential_title.lower() not in generic_titles:
-                    job_title = potential_title
-                    if potential_company and potential_company.lower() not in ["jobs", "careers", "hiring"]:
-                        company = potential_company
-                    if potential_location:
-                        location = potential_location
-                    break
+                job_title = match.group(1).strip()
+                company = match.group(2).strip() if match.group(2) else None
+                location = match.group(3).strip() if match.lastindex >= 3 and match.group(3) else None
+                break
         
-        # If no match, use the whole title as job title (if it's not generic)
-        if not job_title and title.lower() not in generic_titles:
+        # If no match, use the whole title as job title
+        if not job_title:
             job_title = title
-        
-        # Try to extract company from snippet if not found
-        if not company and snippet:
-            # Look for "at Company" or "Company is hiring" patterns
-            company_match = re.search(r'\b(at|from|with)\s+([A-Z][A-Za-z0-9\s&]+?)(?:\s|,|\.|$)', snippet, re.IGNORECASE)
-            if company_match:
-                potential_company = company_match.group(2).strip()
-                if potential_company.lower() not in ["jobs", "careers", "hiring", "the", "a", "an"]:
-                    company = potential_company
         
         # Try to get company from URL
         if not company:
             company = self._extract_company_from_url(url)
-        
-        # Extract location from snippet if not found
-        if not location and snippet:
-            # Look for location patterns like "in City, State" or "City, State"
-            location_match = re.search(r'\b(in|at|near)\s+([A-Z][A-Za-z\s,]+?)(?:\s|,|\.|$)', snippet, re.IGNORECASE)
-            if location_match:
-                potential_location = location_match.group(2).strip()
-                # Basic validation - should contain letters and possibly commas
-                if len(potential_location) > 2 and any(c.isalpha() for c in potential_location):
-                    location = potential_location
         
         return job_title, company, location
     
@@ -889,59 +805,26 @@ If a field cannot be determined, use null.
     ) -> SearchFields:
         """Aggregate the most common/relevant fields from job listings."""
         # Use extracted fields as base
-        raw_job_title = extracted.get("job_title")
-        # Simplify the job title if it's too specific
-        job_title = self._simplify_job_title(raw_job_title) if raw_job_title else None
+        job_title = extracted.get("job_title")
         company = extracted.get("company")
         location = extracted.get("location")
         
-        # Filter out invalid jobs
-        valid_jobs = [
-            j for j in jobs 
-            if j.title 
-            and j.title.lower() not in ["job search", "jobs", "careers", "hiring", "unknown"]
-            and j.company 
-            and j.company.lower() not in ["unknown", "jobs", "careers", "hiring"]
-        ]
-        
         # If not extracted, use most common from results
-        if not job_title and valid_jobs:
-            # Get the most common job title (not the shortest, but the most frequent)
-            # First simplify all titles
-            simplified_titles = {}
-            for j in valid_jobs:
-                simplified = self._simplify_job_title(j.title)
-                if simplified:
-                    simplified_titles[simplified] = simplified_titles.get(simplified, 0) + 1
-            
-            if simplified_titles:
-                # Get the most common simplified title
-                most_common = max(simplified_titles.items(), key=lambda x: x[1])[0]
-                job_title = most_common
+        if not job_title and jobs:
+            # Get the most "standard" job title (shortest, most common)
+            titles = [j.title for j in jobs if j.title]
+            if titles:
+                job_title = min(titles, key=len)  # Shortest is usually most generic
         
-        if not company and valid_jobs:
-            companies = [j.company for j in valid_jobs if j.company and j.company != "Unknown"]
+        if not company and jobs:
+            companies = [j.company for j in jobs if j.company and j.company != "Unknown"]
             if companies:
-                # Get most common company
-                company_counts = {}
-                for c in companies:
-                    company_key = c.strip().lower()
-                    company_counts[company_key] = company_counts.get(company_key, 0) + 1
-                if company_counts:
-                    most_common_company = max(company_counts.items(), key=lambda x: x[1])
-                    company = most_common_company[0].title()
+                company = companies[0]
         
-        if not location and valid_jobs:
-            locations = [j.location for j in valid_jobs if j.location]
+        if not location and jobs:
+            locations = [j.location for j in jobs if j.location]
             if locations:
-                # Get most common location
-                location_counts = {}
-                for loc in locations:
-                    loc_key = loc.strip().lower()
-                    location_counts[loc_key] = location_counts.get(loc_key, 0) + 1
-                if location_counts:
-                    most_common_location = max(location_counts.items(), key=lambda x: x[1])
-                    location = most_common_location[0].title()
+                location = locations[0]
         
         return SearchFields(
             job_title=job_title,
@@ -984,9 +867,6 @@ If a field cannot be determined, use null.
         extracted: Dict[str, Any]
     ) -> List[str]:
         """Get alternative job title suggestions."""
-        if not self._openai:
-            return []
-        
         try:
             prompt = f"""The user is looking for: "{message}"
 Extracted info: {json.dumps(extracted)}
@@ -1016,7 +896,6 @@ Return as JSON: {{"suggestions": ["title1", "title2", ...]}}
             
         except Exception as e:
             print(f"[Scout] Error getting suggestions: {e}")
-            print(f"[Scout] Traceback: {traceback.format_exc()}")
             return []
     
     # ========================================================================
@@ -1030,17 +909,6 @@ Return as JSON: {{"suggestions": ["title1", "title2", ...]}}
         context: Dict[str, Any]
     ) -> ScoutResponse:
         """Help users understand what to enter in search fields."""
-        
-        if not self._openai:
-            return ScoutResponse(
-                status="ok",
-                message="Here are some tips for filling in the search:\n\n"
-                        "• **Job Title**: Use common titles like 'Software Engineer', 'Product Manager', 'Data Analyst'\n"
-                        "• **Company**: Optional - leave blank to search across all companies\n"
-                        "• **Location**: Use city names like 'San Francisco, CA' or 'New York, NY'\n\n"
-                        "What specific role are you interested in? I can help you find the right search terms!",
-                context=context,
-            )
         
         prompt = f"""The user needs help with job search fields. Their message: "{message}"
 
@@ -1079,7 +947,6 @@ If you can infer specific titles they should try, list them.
             
         except Exception as e:
             print(f"[Scout] Field help failed: {e}")
-            print(f"[Scout] Traceback: {traceback.format_exc()}")
             return ScoutResponse(
                 status="ok",
                 message="Here are some tips for filling in the search:\n\n"
@@ -1133,16 +1000,6 @@ If you can infer specific titles they should try, list them.
             research_context = ""
         
         # Generate response with LLM
-        if not self._openai:
-            return ScoutResponse(
-                status="ok",
-                message="I found some information but had trouble summarizing it. Try asking a more specific question, like:\n\n"
-                        "• 'What's the interview process at [Company]?'\n"
-                        "• 'What skills are needed for [Role]?'\n"
-                        "• 'How is the culture at [Company]?'",
-                context=context,
-            )
-        
         try:
             prompt = f"""The user is researching: "{message}"
             
@@ -1162,8 +1019,8 @@ Keep it concise but informative. Use formatting for readability.
             
             completion = await asyncio.wait_for(
                 self._openai.chat.completions.create(
-                model=self.DEFAULT_MODEL,
-                messages=[
+                    model=self.DEFAULT_MODEL,
+                    messages=[
                         {"role": "system", "content": "You are Scout, a knowledgeable job search assistant. Provide helpful research insights."},
                         {"role": "user", "content": prompt},
                     ],
@@ -1193,7 +1050,6 @@ Keep it concise but informative. Use formatting for readability.
             
         except Exception as e:
             print(f"[Scout] Research response failed: {e}")
-            print(f"[Scout] Traceback: {traceback.format_exc()}")
             return ScoutResponse(
                 status="ok",
                 message="I found some information but had trouble summarizing it. Try asking a more specific question, like:\n\n"
@@ -1213,38 +1069,6 @@ Keep it concise but informative. Use formatting for readability.
         context: Dict[str, Any]
     ) -> ScoutResponse:
         """Handle general conversation and follow-ups."""
-        
-        # Quick check: if this looks like a job search, handle it as such
-        if any(word in message.lower() for word in ['find', 'search', 'look for', 'postings', 'openings', 'jobs']) and \
-           any(word in message.lower() for word in ['in', 'at', 'near', 'los angeles', 'san francisco', 'new york', 'nyc', 'sf', 'la']):
-            # Extract what we can
-            extracted = {}
-            location_match = re.search(
-                r'\b(?:in|at|near)\s+([A-Za-z\s,]+?)(?:\s*$|\s+(?:for|as|with))',
-                message, re.IGNORECASE
-            )
-            if location_match:
-                extracted["location"] = location_match.group(1).strip()
-            role_match = re.search(
-                r'\b(find|search|look for|show me|can you find)\s+(.+?)\s+(?:postings?|openings?|jobs?)\s+(?:in|at|near)',
-                message, re.IGNORECASE
-            )
-            if role_match:
-                extracted["job_title"] = role_match.group(2).strip()
-            # Treat as job search
-            return await self._handle_job_search(message, extracted, context)
-        
-        if not self._openai:
-            print("[Scout] OpenAI client not available for conversation")
-            return ScoutResponse(
-                status="ok",
-                message="I'm here to help you find professionals to network with! You can:\n\n"
-                        "🔗 **Paste a job posting URL** - I'll extract the details\n"
-                        "🔍 **Describe what you're looking for** - e.g., 'data analyst jobs in NYC'\n"
-                        "❓ **Ask me anything** - about companies, roles, or interviews\n\n"
-                        "What would you like to do?",
-                context=context,
-            )
         
         # Build conversation history
         history = context.get("history", [])
@@ -1302,20 +1126,8 @@ If you can extract job search fields from the conversation, mention them."""
                 context=self._update_context(context, history=new_history[-10:]),
             )
             
-        except asyncio.TimeoutError:
-            print("[Scout] Conversation timed out")
-            return ScoutResponse(
-                status="ok",
-                message="I'm here to help you find professionals to network with! You can:\n\n"
-                        "🔗 **Paste a job posting URL** - I'll extract the details\n"
-                        "🔍 **Describe what you're looking for** - e.g., 'data analyst jobs in NYC'\n"
-                        "❓ **Ask me anything** - about companies, roles, or interviews\n\n"
-                        "What would you like to do?",
-                context=context,
-            )
         except Exception as e:
             print(f"[Scout] Conversation failed: {e}")
-            print(f"[Scout] Traceback: {traceback.format_exc()}")
             return ScoutResponse(
                 status="ok",
                 message="I'm here to help you find professionals to network with! You can:\n\n"
@@ -1329,134 +1141,6 @@ If you can extract job search fields from the conversation, mention them."""
     # ========================================================================
     # HELPERS
     # ========================================================================
-    
-    def _simplify_job_title(self, job_title: str) -> str:
-        """
-        Simplify overly specific job titles to improve search results.
-        Removes department names, team names, project names, and extra qualifiers while keeping core role.
-        
-        Examples:
-        - "Consulting Services - Senior Consultant" -> "Senior Consultant"
-        - "AI Research Scientist, Text Data Research - MSL FAIR" -> "AI Research Scientist"
-        - "Software Engineer, Infrastructure Team" -> "Software Engineer"
-        - "Product Manager - Growth" -> "Product Manager"
-        """
-        if not job_title:
-            return job_title
-        
-        title = job_title.strip()
-        original_title = title
-        
-        # Common job role keywords (the actual role, not department)
-        role_keywords = [
-            'engineer', 'manager', 'scientist', 'analyst', 'designer',
-            'developer', 'director', 'lead', 'architect', 'specialist',
-            'consultant', 'coordinator', 'assistant', 'intern', 'researcher',
-            'executive', 'officer', 'president', 'vice president', 'vp',
-            'associate', 'senior', 'junior', 'principal', 'staff'
-        ]
-        
-        # Department/service name indicators (usually not the actual role)
-        department_keywords = [
-            'services', 'solutions', 'department', 'division', 'team', 'group',
-            'consulting', 'advisory', 'practice', 'unit', 'organization'
-        ]
-        
-        # If title has dash, intelligently choose which part is the actual role
-        if ' - ' in title or ' – ' in title or ' — ' in title:
-            # Try different dash types
-            for dash in [' - ', ' – ', ' — ']:
-                if dash in title:
-                    parts = [p.strip() for p in title.split(dash)]
-                    
-                    # Score each part: higher score = more likely to be the actual role
-                    best_part = None
-                    best_score = -1
-                    
-                    for i, part in enumerate(parts):
-                        score = 0
-                        part_lower = part.lower()
-                        
-                        # Points for having role keywords
-                        for keyword in role_keywords:
-                            if keyword in part_lower:
-                                score += 2
-                        
-                        # Negative points for department keywords (unless it's clearly a role)
-                        for dept_word in department_keywords:
-                            if dept_word in part_lower:
-                                # Only penalize if it's the ONLY word or clearly a department
-                                if len(part.split()) <= 2 and not any(rk in part_lower for rk in role_keywords):
-                                    score -= 3
-                        
-                        # Prefer parts that have both a role keyword AND a level (senior, junior, etc.)
-                        if any(level in part_lower for level in ['senior', 'junior', 'principal', 'lead', 'staff', 'associate']):
-                            if any(rk in part_lower for rk in role_keywords):
-                                score += 3
-                        
-                        # Prefer second part if first looks like a department
-                        if i == 1 and len(parts) > 0:
-                            first_lower = parts[0].lower()
-                            if any(dept in first_lower for dept in department_keywords):
-                                score += 2
-                        
-                        if score > best_score:
-                            best_score = score
-                            best_part = part
-                    
-                    # Use the best part if we found one with a positive score
-                    if best_part and best_score > 0:
-                        title = best_part
-                    # Fallback: if first part looks like department, use second
-                    elif len(parts) > 1:
-                        first_lower = parts[0].lower()
-                        second = parts[1]
-                        if any(dept in first_lower for dept in department_keywords):
-                            if any(rk in second.lower() for rk in role_keywords):
-                                title = second
-                    break
-        
-        # If title has comma, find the part with the most role keywords
-        if ',' in title:
-            parts = [p.strip() for p in title.split(',')]
-            
-            best_part = None
-            best_score = -1
-            
-            for part in parts:
-                score = sum(1 for keyword in role_keywords if keyword in part.lower())
-                # Penalize if it looks like a department
-                part_lower = part.lower()
-                if any(dept in part_lower for dept in department_keywords):
-                    if not any(rk in part_lower for rk in role_keywords):
-                        score -= 2
-                
-                if score > best_score:
-                    best_score = score
-                    best_part = part
-            
-            if best_part and best_score > 0:
-                title = best_part
-            else:
-                # Default to first part
-                title = parts[0]
-        
-        # Remove parenthetical team/project names: "Title (Team Name)"
-        if '(' in title and ')' in title:
-            title = re.sub(r'\s*\([^)]+\)', '', title).strip()
-        
-        # Remove trailing department/team indicators
-        title = re.sub(r'\s*[-–—]\s*[A-Z][^a-z]*$', '', title)  # Remove " - MSL FAIR" type patterns
-        title = re.sub(r',\s*[A-Z][^,]+$', '', title)  # Remove ", Team Name" at end
-        
-        # Final cleanup - remove extra spaces
-        title = ' '.join(title.split())
-        
-        # If we ended up with something too short or just a department name, keep original
-        if len(title) < 3 or title.lower() in department_keywords:
-            return original_title
-        
-        return title
     
     def _update_context(self, context: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         """Update context with new information."""
@@ -1485,3 +1169,460 @@ If you can extract job search fields from the conversation, mention them."""
 # ============================================================================
 
 scout_service = ScoutService()
+```
+
+### 3. scout.py - Updated Routes
+
+```python
+"""
+Scout API endpoints - conversational job search assistant.
+"""
+from __future__ import annotations
+
+import asyncio
+
+from flask import Blueprint, jsonify, request
+
+from app.services.scout_service import scout_service
+
+scout_bp = Blueprint("scout", __name__, url_prefix="/api/scout")
+
+
+@scout_bp.route("/chat", methods=["POST"])
+def scout_chat():
+    """
+    Main Scout chat endpoint.
+    
+    Request body:
+    {
+        "message": "user's message or URL",
+        "context": { ... optional session context ... }
+    }
+    
+    Response:
+    {
+        "status": "ok" | "needs_input" | "error",
+        "message": "Scout's response",
+        "fields": { "job_title": "...", "company": "...", "location": "..." },
+        "job_listings": [ { "title": "...", "company": "...", ... } ],
+        "intent": "URL_PARSE" | "JOB_SEARCH" | "FIELD_HELP" | "RESEARCH" | "CONVERSATION",
+        "context": { ... updated context for next request ... }
+    }
+    """
+    payload = request.get_json(force=True, silent=True) or {}
+    message = payload.get("message", "")
+    context = payload.get("context") or {}
+    
+    try:
+        result = asyncio.run(
+            scout_service.handle_chat(
+                message=message,
+                context=context,
+            )
+        )
+        return jsonify(result)
+    except Exception as exc:
+        print(f"[Scout] Chat endpoint failed: {exc}")
+        return jsonify({
+            "status": "error",
+            "message": "Scout is having trouble right now. Please try again!",
+            "context": context,
+        }), 500
+
+
+@scout_bp.route("/health", methods=["GET"])
+def scout_health():
+    """Health check endpoint."""
+    return jsonify({"status": "ok", "service": "scout"})
+```
+
+### 4. config.py - Add Jina API Key
+
+Add to your `app/config.py`:
+
+```python
+import os
+
+# Existing keys...
+SERPAPI_KEY = os.getenv("SERPAPI_KEY", "")
+PEOPLE_DATA_LABS_API_KEY = os.getenv("PEOPLE_DATA_LABS_API_KEY", "")
+
+# Add this:
+JINA_API_KEY = os.getenv("JINA_API_KEY", "")
+```
+
+---
+
+## Frontend Implementation
+
+### 5. ScoutChatbot.tsx - Updated Component
+
+```tsx
+import React, { useState, useRef, useEffect } from 'react';
+import { Send, Loader2, ExternalLink, Sparkles } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
+
+const BACKEND_URL = window.location.hostname === 'localhost'
+  ? 'http://localhost:5001'
+  : 'https://www.offerloop.ai';
+
+interface SearchFields {
+  job_title?: string;
+  company?: string;
+  location?: string;
+  experience_level?: string;
+}
+
+interface JobListing {
+  title: string;
+  company: string;
+  location?: string;
+  url?: string;
+  snippet?: string;
+}
+
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  fields?: SearchFields;
+  jobListings?: JobListing[];
+  timestamp: Date;
+}
+
+interface ScoutChatbotProps {
+  onJobTitleSuggestion: (title: string, company?: string, location?: string) => void;
+}
+
+const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [context, setContext] = useState<Record<string, any>>({});
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Initial greeting
+  useEffect(() => {
+    if (messages.length === 0) {
+      setMessages([{
+        id: 'greeting',
+        role: 'assistant',
+        content: "Hey! I'm Scout 🐕 Ready to help you find professionals to network with!\n\n" +
+                 "You can:\n" +
+                 "• **Paste a job posting URL** and I'll fill in the search for you\n" +
+                 "• **Tell me what you're looking for** (e.g., 'data analyst jobs in SF')\n" +
+                 "• **Ask me anything** about companies or roles\n\n" +
+                 "What would you like to do?",
+        timestamp: new Date(),
+      }]);
+    }
+  }, []);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const sendMessage = async () => {
+    if (!input.trim() || isLoading) return;
+
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: input.trim(),
+      timestamp: new Date(),
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setIsLoading(true);
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/scout/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: userMessage.content,
+          context,
+        }),
+      });
+
+      const data = await response.json();
+
+      // Update context for next message
+      if (data.context) {
+        setContext(data.context);
+      }
+
+      // Create assistant message
+      const assistantMessage: ChatMessage = {
+        id: `assistant-${Date.now()}`,
+        role: 'assistant',
+        content: data.message,
+        fields: data.fields,
+        jobListings: data.job_listings,
+        timestamp: new Date(),
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
+
+      // Auto-populate fields if returned
+      if (data.fields) {
+        const { job_title, company, location } = data.fields;
+        if (job_title || company || location) {
+          onJobTitleSuggestion(
+            job_title || '',
+            company || undefined,
+            location || undefined
+          );
+        }
+      }
+
+    } catch (error) {
+      console.error('[Scout] Error:', error);
+      setMessages(prev => [...prev, {
+        id: `error-${Date.now()}`,
+        role: 'assistant',
+        content: "Oops! I ran into an issue. Please try again or rephrase your message.",
+        timestamp: new Date(),
+      }]);
+    } finally {
+      setIsLoading(false);
+      inputRef.current?.focus();
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
+
+  const handleJobClick = (job: JobListing) => {
+    onJobTitleSuggestion(job.title, job.company, job.location || undefined);
+  };
+
+  const formatMessage = (content: string) => {
+    // Convert markdown-like formatting to HTML
+    return content
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br />');
+  };
+
+  return (
+    <div className="flex flex-col h-full bg-gray-900">
+      {/* Messages Area */}
+      <ScrollArea className="flex-1 p-4" ref={scrollRef}>
+        <div className="space-y-4">
+          {messages.map((message) => (
+            <div
+              key={message.id}
+              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              <div
+                className={`max-w-[85%] rounded-lg p-3 ${
+                  message.role === 'user'
+                    ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white'
+                    : 'bg-gray-800 text-gray-100 border border-gray-700'
+                }`}
+              >
+                {/* Message content */}
+                <div
+                  className="text-sm leading-relaxed"
+                  dangerouslySetInnerHTML={{ __html: formatMessage(message.content) }}
+                />
+
+                {/* Fields badge */}
+                {message.fields && Object.keys(message.fields).length > 0 && (
+                  <div className="mt-3 p-2 bg-green-500/20 border border-green-500/40 rounded-md">
+                    <div className="flex items-center gap-1 text-green-400 text-xs font-medium mb-1">
+                      <Sparkles className="h-3 w-3" />
+                      Search fields updated!
+                    </div>
+                    <div className="text-xs text-green-300/80">
+                      {message.fields.job_title && <span>Title: {message.fields.job_title}</span>}
+                      {message.fields.company && <span> • Company: {message.fields.company}</span>}
+                      {message.fields.location && <span> • Location: {message.fields.location}</span>}
+                    </div>
+                  </div>
+                )}
+
+                {/* Job listings */}
+                {message.jobListings && message.jobListings.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    <div className="text-xs text-gray-400 font-medium">Click to use:</div>
+                    {message.jobListings.slice(0, 5).map((job, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => handleJobClick(job)}
+                        className="w-full text-left p-2 bg-gray-700/50 hover:bg-gray-700 rounded border border-gray-600 hover:border-purple-500 transition-colors"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <div className="text-sm font-medium text-white">{job.title}</div>
+                            <div className="text-xs text-gray-400">
+                              {job.company}
+                              {job.location && ` • ${job.location}`}
+                            </div>
+                          </div>
+                          {job.url && (
+                            <a
+                              href={job.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-blue-400 hover:text-blue-300"
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {/* Loading indicator */}
+          {isLoading && (
+            <div className="flex justify-start">
+              <div className="bg-gray-800 border border-gray-700 rounded-lg p-3">
+                <div className="flex items-center gap-2 text-gray-400">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="text-sm">Scout is thinking...</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </ScrollArea>
+
+      {/* Input Area */}
+      <div className="p-4 border-t border-gray-700 bg-gray-900/95">
+        <div className="flex gap-2">
+          <Input
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder="Paste a job URL or describe what you're looking for..."
+            className="flex-1 bg-gray-800 border-gray-600 text-white placeholder-gray-400 focus:border-purple-500"
+            disabled={isLoading}
+          />
+          <Button
+            onClick={sendMessage}
+            disabled={!input.trim() || isLoading}
+            className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
+          >
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
+        <div className="mt-2 text-xs text-gray-500 text-center">
+          Try: "data analyst jobs in NYC" or paste a LinkedIn/Greenhouse job URL
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ScoutChatbot;
+```
+
+### 6. Home.tsx - Minor Update to Callback
+
+The existing `handleJobTitleSuggestion` callback in Home.tsx should already work. Just verify it handles all three fields:
+
+```tsx
+const handleJobTitleSuggestion = (suggestedTitle: string, company?: string, location?: string) => {
+  if (suggestedTitle) setJobTitle(suggestedTitle);
+  if (company) setCompany(company);
+  if (location) setLocation(location);
+  
+  const filledFields = [suggestedTitle, company, location].filter(Boolean);
+  if (filledFields.length > 0) {
+    toast({
+      title: "Search Fields Updated",
+      description: `Filled in: ${filledFields.join(', ')}`,
+    });
+  }
+};
+```
+
+---
+
+## Environment Variables
+
+Add to your `.env`:
+
+```
+JINA_API_KEY=your_jina_api_key_here
+```
+
+---
+
+## Testing Checklist
+
+### URL Parsing Tests
+- [ ] Paste Greenhouse URL → extracts title, company, location
+- [ ] Paste Lever URL → extracts details
+- [ ] Paste LinkedIn job URL → extracts or gracefully falls back
+- [ ] Paste invalid URL → asks user to paste description
+
+### Job Search Tests
+- [ ] "data analyst jobs in San Francisco" → finds jobs, fills fields
+- [ ] "software engineer at Google" → finds Google jobs
+- [ ] "intern positions in NYC" → finds internships
+- [ ] "find me marketing roles" → searches broadly
+
+### Field Help Tests
+- [ ] "what should I search for?" → gives suggestions
+- [ ] "help me fill in the form" → explains fields
+- [ ] "what job title should I use for PM?" → suggests titles
+
+### Research Tests
+- [ ] "what's the interview process at Meta?" → researches and answers
+- [ ] "tell me about working at Stripe" → provides company info
+- [ ] "how hard is it to get a job at McKinsey?" → researches
+
+### Conversation Tests
+- [ ] Follow-up questions work with context
+- [ ] Can switch between intents mid-conversation
+- [ ] Graceful error handling
+
+### Performance Tests
+- [ ] URL parsing < 10 seconds
+- [ ] Job search < 15 seconds
+- [ ] Research queries < 20 seconds
+- [ ] No request exceeds 60 seconds
+
+---
+
+## Optimization Notes
+
+1. **Parallel Processing**: Consider fetching URL content while showing "Analyzing..." message
+2. **Streaming**: For longer responses, implement SSE streaming
+3. **Caching**: URL content cached for 1 hour, job searches for 30 minutes
+4. **Timeouts**: All external calls have explicit timeouts (5-15 seconds)
+5. **Fallbacks**: Every function has graceful error handling
+
+---
+
+## Future Enhancements (Not in Scope)
+
+- [ ] PDL validation of extracted fields
+- [ ] Resume-based job matching
+- [ ] Save favorite job listings
+- [ ] Email alerts for new postings
+- [ ] Interview prep integration

@@ -1,5 +1,5 @@
 """
-Scout API endpoints - exposes conversational job title lookups.
+Scout API endpoints - conversational job search assistant.
 """
 from __future__ import annotations
 
@@ -9,42 +9,54 @@ from flask import Blueprint, jsonify, request
 
 from app.services.scout_service import scout_service
 
-def handle_unexpected(e):
-    try:
-        current_app.logger.exception("Unhandled error", exc_info=e)
-    except Exception:
-        pass  # logging should never block a 500
-
-    return jsonify({"status": "error", "message": "internal server error"}), 500
-
 scout_bp = Blueprint("scout", __name__, url_prefix="/api/scout")
 
 
-@scout_bp.route("/chat", methods=["POST"])  # ← REMOVED OPTIONS - Flask-CORS handles it
+@scout_bp.route("/chat", methods=["POST"])
 def scout_chat():
     """
-    Accepts a chat message (and optional structured hints) and returns a Scout response.
+    Main Scout chat endpoint.
+    
+    Request body:
+    {
+        "message": "user's message or URL",
+        "context": { ... optional session context ... }
+    }
+    
+    Response:
+    {
+        "status": "ok" | "needs_input" | "error",
+        "message": "Scout's response",
+        "fields": { "job_title": "...", "company": "...", "location": "..." },
+        "job_listings": [ { "title": "...", "company": "...", ... } ],
+        "intent": "URL_PARSE" | "JOB_SEARCH" | "FIELD_HELP" | "RESEARCH" | "CONVERSATION",
+        "context": { ... updated context for next request ... }
+    }
     """
     payload = request.get_json(force=True, silent=True) or {}
     message = payload.get("message", "")
-    company = payload.get("company")
-    role_description = payload.get("role")
-    experience_level = payload.get("level")
     context = payload.get("context") or {}
-
+    
     try:
         result = asyncio.run(
             scout_service.handle_chat(
                 message=message,
-                company=company,
-                role_description=role_description,
-                experience_level=experience_level,
                 context=context,
             )
         )
         return jsonify(result)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    except Exception as exc:  # pragma: no cover - defensive
-        print(f"[Scout] Chat endpoint failed: {exc}")
-        return jsonify({"error": "Scout is currently unavailable. Please try again later."}), 500
+    except Exception as exc:
+        print(f"[Scout] Chat endpoint failed: {type(exc).__name__}: {exc}")
+        import traceback
+        print(f"[Scout] Traceback: {traceback.format_exc()}")
+        return jsonify({
+            "status": "error",
+            "message": "Scout is having trouble right now. Please try again!",
+            "context": context,
+        }), 500
+
+
+@scout_bp.route("/health", methods=["GET"])
+def scout_health():
+    """Health check endpoint."""
+    return jsonify({"status": "ok", "service": "scout"})
