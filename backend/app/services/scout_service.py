@@ -757,15 +757,66 @@ If a field cannot be determined, use null.
                 title = result.get("title", "").strip()
                 company = result.get("company_name", "").strip()
                 location = result.get("location", "").strip()
-                link = result.get("link", "")
                 description = result.get("description", "")
+                
+                # Try multiple possible URL fields from Google Jobs API
+                # Google Jobs API often uses apply_options for direct links to actual job postings
+                # share_link points to Google search results, not the actual job
+                link = None
+                
+                # Priority 1: Try apply_options first (these are direct links to actual job postings)
+                # LinkedIn is usually the best source, so prefer it if available
+                apply_options = result.get("apply_options", [])
+                if isinstance(apply_options, list) and len(apply_options) > 0:
+                    # First, try to find LinkedIn link (most reliable)
+                    for option in apply_options:
+                        if isinstance(option, dict):
+                            option_title = (option.get("title") or "").lower()
+                            apply_url = (option.get("link") or option.get("url") or "").strip()
+                            if apply_url and apply_url.startswith("http"):
+                                # Prefer LinkedIn, but take the first valid one if no LinkedIn found
+                                if "linkedin" in option_title or "linkedin" in apply_url.lower():
+                                    link = apply_url
+                                    break
+                                elif not link:  # Keep first valid link as fallback
+                                    link = apply_url
+                    
+                    # If we found LinkedIn, use it; otherwise use first valid link
+                    # (link is already set above if found)
+                
+                # Priority 2: Try other direct link fields (skip share_link as it's a Google search URL)
+                if not link:
+                    link = (
+                        result.get("link") or 
+                        result.get("apply_link") or 
+                        result.get("url") or
+                        ""
+                    ).strip()
+                    if link and link.startswith("http") and "google.com/search" not in link:
+                        pass  # Keep it if it's not a Google search URL
+                    else:
+                        link = None
+                
+                # Priority 3: Only use share_link as last resort if it's not a Google search URL
+                # (Usually share_link is a Google search URL, so we skip it)
+                if not link:
+                    share_link = result.get("share_link", "").strip()
+                    if share_link and share_link.startswith("http") and "google.com/search" not in share_link:
+                        link = share_link
+                
+                # Debug: Log available fields for first result
+                if len(jobs) == 0:
+                    print(f"[Scout] Debug - First job result fields: {list(result.keys())}")
+                    print(f"[Scout] Debug - share_link: {result.get('share_link')}")
+                    print(f"[Scout] Debug - apply_options: {result.get('apply_options')}")
+                    print(f"[Scout] Debug - Final link: {link}")
                 
                 # Skip invalid results
                 if not title or title.lower() in ["job search", "jobs", "careers", "hiring"]:
                     continue
                 if not company or company.lower() in ["unknown", "jobs", "careers"]:
                     continue
-
+                
                 # Simplify the title before storing
                 simplified_title = self._simplify_job_title(title)
                 
@@ -773,7 +824,7 @@ If a field cannot be determined, use null.
                     title=simplified_title,  # Use simplified title
                     company=company,
                     location=location,
-                    url=link,
+                    url=link,  # Will be None if we couldn't find a valid URL
                     snippet=description[:200] if description else None,
                     source="google_jobs"
                 ))
@@ -783,14 +834,18 @@ If a field cannot be determined, use null.
                 for result in results.get("organic_results", [])[:5]:
                     title = result.get("title", "").strip()
                     snippet = result.get("snippet", "").strip()
-                    link = result.get("link", "")
+                    link = (result.get("link") or result.get("url") or "").strip()
                     
                     # Skip generic job board pages
                     if any(skip in title.lower() for skip in ["job search", "jobs at", "careers at", "hiring"]):
                         continue
                     
+                    # Only use if we have a valid URL
+                    if not link or not link.startswith("http"):
+                        link = None
+                    
                     # Try to extract job details
-                    job_title, company, location = self._parse_job_from_serp_result(title, snippet, link)
+                    job_title, company, location = self._parse_job_from_serp_result(title, snippet, link or "")
                     
                     if job_title and job_title.lower() not in ["job search", "jobs", "careers"]:
                         # Simplify the title before storing
@@ -800,7 +855,7 @@ If a field cannot be determined, use null.
                             title=simplified_title,  # Use simplified title
                             company=company or "Unknown",
                             location=location,
-                            url=link,
+                            url=link,  # Will be None if invalid
                             snippet=snippet[:200] if snippet else None,
                             source="serp"
                         ))

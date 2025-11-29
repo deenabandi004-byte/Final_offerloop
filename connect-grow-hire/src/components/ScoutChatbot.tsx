@@ -106,6 +106,16 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
         timestamp: new Date(),
       };
 
+      // Debug: Log job listings to check if URLs are present
+      if (data.job_listings && data.job_listings.length > 0) {
+        console.log('[Scout] Job listings received:', data.job_listings.map(j => ({
+          title: j.title,
+          company: j.company,
+          url: j.url,
+          hasUrl: !!j.url
+        })));
+      }
+
       setMessages(prev => [...prev, assistantMessage]);
 
       // Auto-populate fields if returned
@@ -193,34 +203,50 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
                 {/* Job listings */}
                 {message.jobListings && message.jobListings.length > 0 && (
                   <div className="mt-3 space-y-2">
-                    <div className="text-xs text-gray-400 font-medium">Click to use:</div>
+                    <div className="text-xs text-gray-400 font-medium">Click to use for search:</div>
                     {message.jobListings.slice(0, 5).map((job, idx) => (
-                      <button
+                      <div
                         key={idx}
-                        onClick={() => handleJobClick(job)}
-                        className="w-full text-left p-2 bg-gray-700/50 hover:bg-gray-700 rounded border border-gray-600 hover:border-purple-500 transition-colors"
+                        className="w-full p-3 bg-gray-700/50 rounded border border-gray-600 hover:border-purple-500 transition-colors"
                       >
-                        <div className="flex items-start justify-between">
-                          <div>
+                        <div className="flex items-start justify-between gap-3">
+                          <button
+                            onClick={() => handleJobClick(job)}
+                            className="flex-1 text-left min-w-0"
+                          >
                             <div className="text-sm font-medium text-white">{job.title}</div>
                             <div className="text-xs text-gray-400">
                               {job.company}
                               {job.location && ` • ${job.location}`}
                             </div>
-                          </div>
-                          {job.url && (
+                          </button>
+                          {job.url && job.url.trim() && job.url.startsWith('http') ? (
                             <a
                               href={job.url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-blue-400 hover:text-blue-300"
+                              className="flex-shrink-0 px-3 py-1.5 text-xs font-medium bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white rounded transition-all shadow-sm hover:shadow-md flex items-center gap-1.5 whitespace-nowrap"
+                              title="View job posting"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                console.log('[Scout] Opening job URL:', job.url);
+                              }}
                             >
-                              <ExternalLink className="h-4 w-4" />
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              <span>View</span>
                             </a>
+                          ) : (
+                            <button
+                              disabled
+                              className="flex-shrink-0 px-3 py-1.5 text-xs font-medium bg-gray-600/30 text-gray-500 rounded cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap opacity-50"
+                              title="Job URL not available"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              <span>View</span>
+                            </button>
                           )}
                         </div>
-                      </button>
+                      </div>
                     ))}
                 </div>
               )}
