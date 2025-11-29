@@ -53,7 +53,7 @@ const SignIn: React.FC = () => {
       const token = await firebaseUser.getIdToken();
       console.log("🔍 Checking Gmail status for:", firebaseUser.email);
       
-      const response = await fetch(`${API_BASE_URL}/api/gmail/status`, {
+      const response = await fetch(`${API_BASE_URL}/api/google/gmail/status`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
@@ -200,6 +200,8 @@ const SignIn: React.FC = () => {
 
 
   // ✅ AUTO-CHECK Gmail when signed-in user loads page
+  // NOTE: This only runs if user navigates to /signin manually
+  // If OAuth is triggered from handleGoogleAuth, it redirects immediately (no auto-check needed)
   useEffect(() => {
     // Only run if we're actually on the /signin route
     if (location.pathname !== '/signin') {
@@ -217,7 +219,14 @@ const SignIn: React.FC = () => {
       // Mark as run immediately to prevent duplicate calls
       autoCheckGmailRanRef.current = true;
       
+      // If user just completed OAuth flow, don't auto-trigger again
+      // (handleGoogleAuth already handles OAuth for new/existing users)
       const params = new URLSearchParams(location.search);
+      const justCompletedOAuth = params.get("connected") === "gmail" || params.get("gmail_error");
+      if (justCompletedOAuth) {
+        console.log("📧 OAuth just completed, skipping auto-check");
+        return;
+      }
     
       const gmailError = params.get("gmail_error");
       if (gmailError === "wrong_account") {
@@ -301,39 +310,28 @@ const SignIn: React.FC = () => {
       
       console.log("✅ Firebase sign-in completed, next step:", next);
       
-      // ✅ Wait a bit longer for Firebase state to settle
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // ✅ For new users (sign-up), immediately show Gmail OAuth permissions screen
-      // For existing users, check if Gmail is already connected
+      // ✅ IMMEDIATELY check Gmail connection (no delay) and trigger OAuth if needed
+      // This prevents navigation to home before OAuth
       const isNewUser = next === "onboarding";
       console.log("🔍 User type check:", { isNewUser, next });
       
-      if (isNewUser) {
-        console.log("📧 New user sign-up - immediately requesting Gmail permissions...");
-        console.log("📧 About to call initiateGmailOAuth(false)...");
-        // Immediately trigger Gmail OAuth for new users - show permissions screen right away
-        await initiateGmailOAuth(false); // false = redirect (not popup) so user sees the permissions screen
-        console.log("📧 initiateGmailOAuth completed (should have redirected)");
-        return; // OAuth redirects, stop here
-      }
-      
-      // ✅ For existing users, check if Gmail needs to be connected
-      console.log("🔍 Existing user - checking if Gmail needs connection...");
+      // For both new and existing users, check Gmail connection immediately
+      console.log("🔍 Checking Gmail connection status...");
       const needsGmail = await checkNeedsGmailConnection();
       console.log("🔍 Gmail connection check result:", needsGmail);
       
       if (needsGmail) {
-        console.log("📧 Gmail not connected, starting OAuth flow...");
+        console.log("📧 Gmail not connected, starting OAuth flow IMMEDIATELY...");
         console.log("📧 About to call initiateGmailOAuth(false)...");
+        // Immediately trigger Gmail OAuth - show permissions screen right away
+        // This redirects, so we don't navigate to home first
         await initiateGmailOAuth(false); // false = redirect so user sees permissions screen
         console.log("📧 initiateGmailOAuth completed (should have redirected)");
-        return; // OAuth redirects, stop here
+        return; // OAuth redirects, stop here - don't navigate anywhere
       }
       
       // Gmail already connected - navigate based on next route
       console.log("✅ Gmail already connected, navigating to app");
-      // TypeScript narrows next to "home" after the early return, but we need to handle both cases
       const dest = (next as "onboarding" | "home") === "onboarding" ? "/onboarding" : "/home";
       console.log("[signin] signIn returned:", next, "→", dest, "(Gmail already connected)");
       forceNavigate(dest);

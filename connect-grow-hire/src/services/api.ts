@@ -658,7 +658,7 @@ class ApiService {
   async gmailStatus(): Promise<{ connected: boolean; scopes: string[] }> {
     const headers = await this.getAuthHeaders();
     return this.makeRequest<{ connected: boolean; scopes: string[] }>(
-      '/gmail/status',
+      '/google/gmail/status',
       { headers }
     );
   }

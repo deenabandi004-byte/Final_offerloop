@@ -453,7 +453,7 @@ const checkNeedsGmailConnection = async (): Promise<boolean> => {
       ? 'http://localhost:5001' 
       : 'https://www.offerloop.ai';
     
-    const response = await fetch(`${API_BASE_URL}/api/gmail/status`, {
+    const response = await fetch(`${API_BASE_URL}/api/google/gmail/status`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     
