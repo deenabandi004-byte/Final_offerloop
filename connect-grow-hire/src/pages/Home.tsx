@@ -130,6 +130,8 @@ const Home = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [gmailCheckComplete, setGmailCheckComplete] = useState(false);
+  const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
+  const [gmailAddress, setGmailAddress] = useState<string | null>(null);
   const effectiveUser =
     currentUser || ({
       credits: 0,
@@ -329,6 +331,19 @@ const Home = () => {
       checkCredits();
     }
   }, [firebaseUser]);
+
+  useEffect(() => {
+    const checkGmailStatus = async () => {
+      if (!currentUser) return;
+      try {
+        const connected = await checkNeedsGmailConnection();
+        setGmailConnected(!connected);
+      } catch {
+        setGmailConnected(false);
+      }
+    };
+    checkGmailStatus();
+  }, [currentUser]);
 
 
 
@@ -663,6 +678,7 @@ useEffect(() => {
     });
     
     setGmailCheckComplete(true);
+    setGmailConnected(true);
   }
 }, [toast]); // Only depend on toast
 const handleCoffeeChatSubmit = async () => {
@@ -1202,17 +1218,6 @@ const downloadInterviewPrepPDF = async (prepId?: string) => {
       return;
     }
 
-    // ✅ Check Gmail connection before search - redirect to OAuth if needed
-    const needsGmail = await checkNeedsGmailConnection();
-    if (needsGmail) {
-      toast({
-        title: "Connect Gmail First",
-        description: "Please connect your Gmail to create email drafts.",
-      });
-      await initiateGmailOAuth();
-      return; // OAuth will redirect, stop search
-    }
-
     if (userTier === "pro" && !uploadedFile) {
       toast({
         title: "Resume Required",
@@ -1574,6 +1579,37 @@ const downloadInterviewPrepPDF = async (prepId?: string) => {
                 </TabsList>
 
                 <TabsContent value="find-candidates" className="mt-6">
+                  {/* Gmail Connection Status */}
+                  <Card className="mb-6 bg-gray-800/50 backdrop-blur-sm border-gray-700">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-3 h-3 rounded-full ${gmailConnected ? 'bg-green-500' : 'bg-yellow-500'}`} />
+                          <div>
+                            <p className="text-sm font-medium text-white">
+                              {gmailConnected ? 'Gmail Connected' : 'Gmail Not Connected'}
+                            </p>
+                            <p className="text-xs text-gray-400">
+                              {gmailConnected 
+                                ? 'Email drafts will be created in your Gmail' 
+                                : 'Connect Gmail to create email drafts automatically'}
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          onClick={() => initiateGmailOAuth()}
+                          variant={gmailConnected ? "outline" : "default"}
+                          size="sm"
+                          className={gmailConnected 
+                            ? "border-gray-600 text-gray-300 hover:bg-gray-700" 
+                            : "bg-blue-600 hover:bg-blue-700 text-white"}
+                        >
+                          {gmailConnected ? 'Reconnect' : 'Connect Gmail'}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+
                   <Card className="bg-gray-800/50 backdrop-blur-sm border-gray-700">
                     <CardHeader className="border-b border-gray-700">
                       <CardTitle className="text-xl text-white">
