@@ -48,6 +48,24 @@ def create_app() -> Flask:
     # --- Register API blueprints FIRST ---
     app.register_blueprint(health_bp)
     app.register_blueprint(gmail_oauth_bp)
+    
+    # --- Backwards compatibility: Add old /api/gmail/* routes ---
+    # These routes call the same handlers as /api/google/* routes
+    from .app.extensions import require_firebase_auth
+    from .app.routes.gmail_oauth import google_oauth_start, gmail_status
+    
+    @app.route('/api/gmail/oauth/start', methods=['GET', 'OPTIONS'])
+    @require_firebase_auth
+    def gmail_oauth_start_legacy():
+        """Legacy route for /api/gmail/oauth/start - calls same handler as /api/google/oauth/start"""
+        return google_oauth_start()
+    
+    @app.route('/api/gmail/status', methods=['GET', 'OPTIONS'])
+    @require_firebase_auth
+    def gmail_status_legacy():
+        """Legacy route for /api/gmail/status - calls same handler as /api/google/gmail/status"""
+        return gmail_status()
+    
     app.register_blueprint(emails_bp)
     app.register_blueprint(contacts_bp)
     app.register_blueprint(directory_bp)
