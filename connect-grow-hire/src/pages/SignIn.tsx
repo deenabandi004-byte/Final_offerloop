@@ -178,9 +178,12 @@ const SignIn: React.FC = () => {
             }
           }, 500);
         } else {
-          console.log("📧 Redirecting to Gmail OAuth...");
+          console.log("📧 Redirecting to Gmail OAuth IMMEDIATELY...");
+          console.log("📧 OAuth URL:", data.authUrl);
           console.log("📧 Will return to:", destination);
-          window.location.href = data.authUrl;
+          // Use replace instead of href to avoid back button issues
+          // This should show the Gmail OAuth consent screen immediately
+          window.location.replace(data.authUrl);
         }
       } else {
         console.error("❌ No authUrl in response:", data);
@@ -325,7 +328,9 @@ const SignIn: React.FC = () => {
         console.log("📧 About to call initiateGmailOAuth(false)...");
         // Immediately trigger Gmail OAuth - show permissions screen right away
         // This redirects, so we don't navigate to home first
+        // CRITICAL: This should redirect to Gmail OAuth consent screen immediately
         await initiateGmailOAuth(false); // false = redirect so user sees permissions screen
+        // This line should never execute because initiateGmailOAuth redirects
         console.log("📧 initiateGmailOAuth completed (should have redirected)");
         return; // OAuth redirects, stop here - don't navigate anywhere
       }
