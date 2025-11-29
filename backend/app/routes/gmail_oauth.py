@@ -120,21 +120,22 @@ def google_oauth_start():
     }
     
     # CRITICAL: Force consent screen to ALWAYS show (required for Google verification)
-    # Using ONLY "consent" (not "select_account consent") to skip account picker
+    # Using "select_account consent" to ensure BOTH account picker AND consent screen appear
+    # This is more reliable than just "consent" alone
+    # "select_account" shows account picker (if needed)
     # "consent" forces the consent screen with checkboxes to appear every time,
     # even if the user has previously granted these exact permissions
-    params["prompt"] = "consent"
+    params["prompt"] = "select_account consent"
     
-    # Use login_hint to pre-select the user's account and skip account picker entirely
-    # With login_hint + prompt=consent, Google should go STRAIGHT to consent screen
-    # (no account picker, no sign-in screen - just the permission checkboxes)
+    # Use login_hint to pre-select the user's account (but consent screen will still show)
+    # This helps skip account picker but consent screen is still forced
     if user_email:
         params["login_hint"] = user_email
         print(f"🔐 Using login_hint: {user_email}")
-        print(f"🔐 With prompt=consent, this should skip account picker and go STRAIGHT to consent screen")
-        print(f"🔐 Expected flow: Direct to consent screen with checkboxes (no account picker)")
+        print(f"🔐 With prompt=select_account consent, consent screen WILL appear")
+        print(f"🔐 Expected flow: Account picker (if needed) → Consent screen with checkboxes")
     else:
-        print(f"⚠️ No login_hint (no user email) - account picker may show first")
+        print(f"⚠️ No login_hint (no user email) - account picker will show first")
     
     print(f"🔐 CRITICAL: Consent screen with checkboxes MUST appear")
     print(f"🔐 If account picker still shows, the user may need to be signed into Google in the browser")
@@ -176,17 +177,30 @@ def google_oauth_start():
             print(f"   {key}: {value}")
     print(f"")
     print(f"🔐 CRITICAL PARAMETERS CHECK:")
-    print(f"   prompt: {params.get('prompt', '❌ NOT SET!')} {'✅' if params.get('prompt') == 'consent' else '❌ WRONG VALUE!'}")
-    print(f"   login_hint: {'❌ PRESENT (BAD!)' if 'login_hint' in params else '✅ NOT PRESENT (GOOD!)'}")
-    print(f"   include_granted_scopes: {'❌ PRESENT (BAD!)' if 'include_granted_scopes' in params else '✅ NOT PRESENT (GOOD!)'}")
+    expected_prompt = 'select_account consent'
+    actual_prompt = params.get('prompt', '❌ NOT SET!')
+    print(f"   prompt: {actual_prompt} {'✅' if actual_prompt == expected_prompt else '❌ WRONG VALUE!'}")
+    if actual_prompt != expected_prompt:
+        print(f"   ⚠️ Expected: '{expected_prompt}', Got: '{actual_prompt}'")
+    print(f"   login_hint: {'✅ PRESENT' if 'login_hint' in params else '⚠️ NOT PRESENT (account picker will show)'}")
+    print(f"   include_granted_scopes: {'❌ PRESENT (BAD - can skip consent!)' if 'include_granted_scopes' in params else '✅ NOT PRESENT (GOOD!)'}")
     print(f"   access_type: {params.get('access_type', 'NOT SET')}")
     print(f"")
     print(f"🔐 URL VERIFICATION:")
-    # Check if prompt=consent is in the URL (URL encoded)
-    url_has_consent = 'prompt=consent' in auth_url or 'prompt%3Dconsent' in auth_url
+    # Check if prompt=select_account consent is in the URL (URL encoded)
+    # The space gets encoded as + or %20
+    url_has_consent = (
+        'prompt=select_account+consent' in auth_url or 
+        'prompt=select_account%20consent' in auth_url or
+        'prompt%3Dselect_account+consent' in auth_url or
+        'prompt%3Dselect_account%20consent' in auth_url
+    )
     print(f"   Consent prompt in URL: {'✅ YES' if url_has_consent else '❌ NO - THIS IS THE PROBLEM!'}")
+    if not url_has_consent:
+        print(f"   ⚠️ WARNING: Consent prompt not found in URL!")
+        print(f"   🔍 URL contains: {auth_url[:200]}...")
     url_has_login_hint = 'login_hint' in auth_url
-    print(f"   Login hint in URL: {'❌ YES (BAD!)' if url_has_login_hint else '✅ NO (GOOD!)'}")
+    print(f"   Login hint in URL: {'✅ YES' if url_has_login_hint else '⚠️ NO (account picker will show)'}")
     print(f"")
     print(f"🔐 FULL OAUTH URL (for debugging - check this in browser):")
     print(f"   {auth_url}")

@@ -1029,7 +1029,8 @@ const handleInterviewPrepSubmit = async () => {
             setTimeout(async () => {
               try {
                 const finalCheck = await apiService.getInterviewPrepStatus(prepId);
-                if (finalCheck.pdfUrl) {
+                // Type guard: check if it's InterviewPrepStatus (has pdfUrl) and not ApiError
+                if ('pdfUrl' in finalCheck && finalCheck.pdfUrl) {
                   flushSync(() => {
                     setInterviewPrepLoading(false);
                     setInterviewPrepStatus('completed');
@@ -1199,6 +1200,17 @@ const downloadInterviewPrepPDF = async (prepId?: string) => {
         variant: "destructive",
       });
       return;
+    }
+
+    // ✅ Check Gmail connection before search - redirect to OAuth if needed
+    const needsGmail = await checkNeedsGmailConnection();
+    if (needsGmail) {
+      toast({
+        title: "Connect Gmail First",
+        description: "Please connect your Gmail to create email drafts.",
+      });
+      await initiateGmailOAuth();
+      return; // OAuth will redirect, stop search
     }
 
     if (userTier === "pro" && !uploadedFile) {
@@ -2205,12 +2217,13 @@ const downloadInterviewPrepPDF = async (prepId?: string) => {
                                           if (Array.isArray(commonQuestions)) {
                                             // Old format: array of category objects
                                             return commonQuestions.map((q: any) => q.category).join(', ');
-                                          } else if (typeof commonQuestions === 'object') {
+                                          } else if (typeof commonQuestions === 'object' && commonQuestions !== null) {
                                             // New format: object with behavioral, technical, company_specific
                                             const categories: string[] = [];
-                                            if (commonQuestions.behavioral) categories.push('Behavioral');
-                                            if (commonQuestions.technical) categories.push('Technical');
-                                            if (commonQuestions.company_specific) categories.push('Company-Specific');
+                                            const questionsObj = commonQuestions as { behavioral?: any; technical?: any; company_specific?: any };
+                                            if (questionsObj.behavioral) categories.push('Behavioral');
+                                            if (questionsObj.technical) categories.push('Technical');
+                                            if (questionsObj.company_specific) categories.push('Company-Specific');
                                             return categories.join(', ');
                                           }
                                           return '';
@@ -2219,7 +2232,7 @@ const downloadInterviewPrepPDF = async (prepId?: string) => {
                                           Sample questions preview:
                                           <ul className="list-disc list-inside mt-1 space-y-1">
                                             {(() => {
-                                              const commonQuestions = interviewPrepResult.insights.common_questions;
+                                              const commonQuestions: any = interviewPrepResult.insights.common_questions;
                                               const sampleQuestions: string[] = [];
                                               
                                               if (Array.isArray(commonQuestions)) {
@@ -2231,15 +2244,16 @@ const downloadInterviewPrepPDF = async (prepId?: string) => {
                                                     });
                                                   }
                                                 });
-                                              } else if (typeof commonQuestions === 'object') {
+                                              } else if (typeof commonQuestions === 'object' && commonQuestions !== null) {
                                                 // New format
-                                                if (commonQuestions.behavioral?.questions) {
-                                                  commonQuestions.behavioral.questions.slice(0, 2).forEach((q: any) => {
+                                                const questionsObj = commonQuestions as { behavioral?: { questions?: any[] }; technical?: { questions?: any[] }; company_specific?: { questions?: any[] } };
+                                                if (questionsObj.behavioral?.questions) {
+                                                  questionsObj.behavioral.questions.slice(0, 2).forEach((q: any) => {
                                                     sampleQuestions.push(typeof q === 'string' ? q : q.question || '');
                                                   });
                                                 }
-                                                if (commonQuestions.technical?.questions && sampleQuestions.length < 3) {
-                                                  commonQuestions.technical.questions.slice(0, 2).forEach((q: any) => {
+                                                if (questionsObj.technical?.questions && sampleQuestions.length < 3) {
+                                                  questionsObj.technical.questions.slice(0, 2).forEach((q: any) => {
                                                     sampleQuestions.push(typeof q === 'string' ? q : q.question || '');
                                                   });
                                                 }
