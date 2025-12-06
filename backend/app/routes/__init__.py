@@ -14,6 +14,9 @@ from app.routes.coffee_chat_prep import coffee_chat_bp
 from app.routes.interview_prep import interview_prep_bp
 from app.routes.billing import billing_bp
 from app.routes.users import users_bp
+from app.routes.firm_search import firm_search_bp
+from app.routes.dashboard import dashboard_bp
+from app.routes.timeline import timeline_bp
 
 __all__ = [
     'health_bp',
@@ -29,6 +32,8 @@ __all__ = [
     'interview_prep_bp',
     'billing_bp',
     'users_bp',
-    'outbox_bp' 
+    'firm_search_bp',
+    'dashboard_bp',
+    'timeline_bp'
 ]
 

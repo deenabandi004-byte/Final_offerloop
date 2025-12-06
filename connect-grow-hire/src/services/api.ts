@@ -111,6 +111,7 @@ export interface OutboxThread {
   hasDraft: boolean;
   suggestedReply?: string;
   gmailDraftUrl?: string;
+  gmailDraftId?: string;
   replyType?: "positive" | "referral" | "delay" | "decline" | "question";
 }
 
@@ -335,6 +336,59 @@ export interface InterviewPrep {
   createdAt: string;
   pdfUrl?: string;
   error?: string;
+}
+
+// ================================
+// Firm Search Types
+// ================================
+export interface Firm {
+  id: string;
+  name: string;
+  website?: string;
+  linkedinUrl?: string;
+  location?: {
+    city?: string;
+    state?: string;
+    country?: string;
+    display?: string;
+  };
+  industry?: string;
+  employeeCount?: number;
+  sizeBucket?: 'small' | 'mid' | 'large';
+  sizeRange?: string;
+  founded?: number;
+}
+
+export interface FirmSearchResult {
+  success: boolean;
+  firms: Firm[];
+  total: number;
+  parsedFilters?: {
+    industry?: string;
+    location?: string;
+    locationNormalized?: any;
+    size?: string;
+    keywords?: string[];
+  };
+  searchId?: string;
+  batchSize?: number;
+  firmsReturned?: number;
+  creditsCharged?: number;
+  remainingCredits?: number;
+  error?: string;
+  insufficientCredits?: boolean;
+  creditsNeeded?: number;
+  currentCredits?: number;
+  fallbackApplied?: boolean;
+  queryLevel?: number;
+}
+
+export interface SearchHistoryItem {
+  id: string;
+  query: string;
+  parsedFilters?: any;
+  resultsCount: number;
+  createdAt: string;
 }
 
 // ================================
@@ -643,6 +697,50 @@ class ApiService {
     });
   }
 
+  // ================================
+  // Firm Search Endpoints
+  // ================================
+
+  async searchFirms(query: string, batchSize: number = 10): Promise<FirmSearchResult> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<FirmSearchResult>('/firm-search/search', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ query, batchSize }),
+    });
+  }
+
+  async getFirmSearchHistory(limit: number = 10): Promise<SearchHistoryItem[]> {
+    const headers = await this.getAuthHeaders();
+    const result = await this.makeRequest<{ success: boolean; searches: SearchHistoryItem[] }>(`/firm-search/history?limit=${limit}`, {
+      method: 'GET',
+      headers,
+    });
+    return result.searches || [];
+  }
+
+  async getFirmSearchById(searchId: string): Promise<FirmSearchResult | null> {
+    const headers = await this.getAuthHeaders();
+    try {
+      const result = await this.makeRequest<{ success: boolean; search: any }>(`/firm-search/history/${searchId}`, {
+        method: 'GET',
+        headers,
+      });
+      if (result.success && result.search) {
+        return {
+          success: true,
+          firms: result.search.results || [],
+          total: result.search.resultsCount || 0,
+          parsedFilters: result.search.parsedFilters,
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting firm search:', error);
+      return null;
+    }
+  }
+
     // ================================
   // Gmail Integration Endpoints
   // ================================
@@ -773,6 +871,71 @@ async generateReplyDraft(contactId: string): Promise<GenerateReplyResult | Error
 
 
   // ================================
+  // Dashboard API
+  // ================================
+  
+  /** Get dashboard statistics */
+  async getDashboardStats(): Promise<{
+    outreachByMonth: Array<{ month: string; outreach: number; replies: number }>;
+    replyStats: { totalReplies: number; responseRate: number; totalSent: number };
+    topFirms: Array<{ name: string; contacts: number; replyRate: number }>;
+  } | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/dashboard/stats', {
+      method: 'GET',
+      headers,
+    });
+  }
+
+  /** Get personalized recommendations */
+  async getRecommendations(): Promise<{
+    recommendations: Array<{
+      type: string;
+      title: string;
+      description: string;
+      action: string;
+      contactId?: string;
+      contactIds?: string[];
+      priority?: string;
+    }>;
+  } | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/dashboard/recommendations', {
+      method: 'GET',
+      headers,
+    });
+  }
+
+  /** Get firm locations for map */
+  async getFirmLocations(): Promise<{
+    locations: Array<{
+      name: string;
+      city: string;
+      state: string;
+      contacts: number;
+      coordinates: { x: number; y: number };
+    }>;
+  } | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/dashboard/firm-locations', {
+      method: 'GET',
+      headers,
+    });
+  }
+
+  /** Get interview prep statistics */
+  async getInterviewPrepStats(): Promise<{
+    total: number;
+    completedThisMonth: number;
+  } | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/dashboard/interview-prep-stats', {
+      method: 'GET',
+      headers,
+    });
+  }
+
+  // ================================
   // Outbox API
   // ================================
   
@@ -822,6 +985,69 @@ async regenerateOutboxReply(
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
+  }
+
+  // ================================
+  // Timeline Endpoints
+  // ================================
+
+  /** Generate personalized recruiting timeline from a prompt */
+  async generateTimeline(
+    prompt: string, 
+    isUpdate: boolean = false,
+    existingTimeline?: {
+      phases: Array<{
+        name: string;
+        startMonth: string;
+        endMonth: string;
+        goals: string[];
+        description: string;
+      }>;
+      startDate: string;
+      targetDeadline: string;
+    }
+  ): Promise<{
+    timeline: { phases: Array<{
+      name: string;
+      startMonth: string;
+      endMonth: string;
+      goals: string[];
+      description: string;
+    }> };
+    startDate: string;
+    targetDeadline: string;
+  }> {
+    const headers = await this.getAuthHeaders();
+    const requestBody: any = { prompt };
+    
+    // If updating, include existing timeline data
+    if (isUpdate && existingTimeline) {
+      requestBody.isUpdate = true;
+      requestBody.existingTimeline = existingTimeline;
+    }
+    
+    const response = await this.makeRequest<{ 
+      success?: boolean; 
+      timeline: any;
+      startDate: string;
+      targetDeadline: string;
+    }>(
+      '/timeline/generate',
+      {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      }
+    );
+    console.log('📡 API Response:', response);
+    return {
+      timeline: response.timeline || { phases: [] },
+      startDate: response.startDate,
+      targetDeadline: response.targetDeadline,
+    };
   }
 }
 

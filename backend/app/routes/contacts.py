@@ -363,7 +363,7 @@ def generate_reply_draft(contact_id):
             'success': True,
             'draftId': draft['id'],
             'threadId': thread_id,
-            'gmailUrl': f"https://mail.google.com/mail/#drafts/{draft['id']}"
+            'gmailUrl': f"https://mail.google.com/mail/u/0/#draft/{draft['id']}"
         })
         
     except Exception as e:

@@ -178,6 +178,342 @@ def check_for_replies(gmail_service, thread_id, sent_to_email):
         return {'hasReply': False, 'isUnread': False}
 
 
+def extract_message_body(message, max_length=500):
+    """Extract clean plain text body from a Gmail message, removing HTML/CSS/formatting"""
+    import re
+    
+    try:
+        payload = message.get('payload', {})
+        body = ''
+        
+        def clean_html_text(html_text):
+            """Thoroughly clean HTML text"""
+            if not html_text:
+                return ''
+            
+            # Remove style tags and their content completely
+            html_text = re.sub(r'<style[^>]*>.*?</style>', '', html_text, flags=re.DOTALL | re.IGNORECASE)
+            
+            # Remove script tags
+            html_text = re.sub(r'<script[^>]*>.*?</script>', '', html_text, flags=re.DOTALL | re.IGNORECASE)
+            
+            # Remove inline styles (style="...")
+            html_text = re.sub(r'style\s*=\s*["\'][^"\']*["\']', '', html_text, flags=re.IGNORECASE)
+            
+            # Remove all HTML tags
+            html_text = re.sub(r'<[^>]+>', '', html_text)
+            
+            # Decode HTML entities
+            html_text = html_text.replace('&nbsp;', ' ')
+            html_text = html_text.replace('&amp;', '&')
+            html_text = html_text.replace('&lt;', '<')
+            html_text = html_text.replace('&gt;', '>')
+            html_text = html_text.replace('&quot;', '"')
+            html_text = html_text.replace('&#39;', "'")
+            html_text = html_text.replace('&apos;', "'")
+            
+            # Remove excessive whitespace but preserve line breaks
+            html_text = re.sub(r'[ \t]+', ' ', html_text)  # Multiple spaces to single
+            html_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', html_text)  # Multiple newlines to double
+            
+            return html_text.strip()
+        
+        def remove_email_signature(text):
+            """Remove common email signature patterns"""
+            # Remove lines starting with common signature markers
+            lines = text.split('\n')
+            cleaned_lines = []
+            in_signature = False
+            
+            signature_markers = [
+                '--', '---', '___', 'Best regards', 'Best,', 'Sincerely', 'Thanks,',
+                'Sent from', 'Get Outlook', 'Sent from my', 'iPhone', 'Android',
+                'This email', 'Confidentiality Notice', 'Disclaimer:'
+            ]
+            
+            for line in lines:
+                line_lower = line.strip().lower()
+                # Check if this line starts a signature
+                if any(line_lower.startswith(marker.lower()) for marker in signature_markers):
+                    in_signature = True
+                
+                # Stop at common signature separators
+                if line.strip() in ['--', '---', '___']:
+                    in_signature = True
+                    continue
+                
+                if not in_signature:
+                    cleaned_lines.append(line)
+            
+            return '\n'.join(cleaned_lines).strip()
+        
+        # Handle multipart messages
+        if 'parts' in payload:
+            # First, try to find text/plain
+            for part in payload['parts']:
+                mime_type = part.get('mimeType', '')
+                body_data = part.get('body', {}).get('data')
+                
+                if mime_type == 'text/plain' and body_data:
+                    try:
+                        decoded = base64.urlsafe_b64decode(body_data).decode('utf-8', errors='ignore')
+                        if decoded and decoded.strip():
+                            body = decoded
+                            break
+                    except Exception as e:
+                        print(f"Error decoding text/plain part: {e}")
+                        continue
+                
+                # Recursively check nested parts
+                if 'parts' in part:
+                    for nested_part in part.get('parts', []):
+                        nested_mime = nested_part.get('mimeType', '')
+                        nested_data = nested_part.get('body', {}).get('data')
+                        if nested_mime == 'text/plain' and nested_data:
+                            try:
+                                decoded = base64.urlsafe_b64decode(nested_data).decode('utf-8', errors='ignore')
+                                if decoded and decoded.strip():
+                                    body = decoded
+                                    break
+                            except Exception:
+                                pass
+                    if body:
+                        break
+            
+            # If no plain text, try HTML
+            if not body:
+                for part in payload['parts']:
+                    mime_type = part.get('mimeType', '')
+                    body_data = part.get('body', {}).get('data')
+                    
+                    if mime_type == 'text/html' and body_data:
+                        try:
+                            decoded = base64.urlsafe_b64decode(body_data).decode('utf-8', errors='ignore')
+                            if decoded:
+                                body = clean_html_text(decoded)
+                                if body.strip():
+                                    break
+                        except Exception as e:
+                            print(f"Error decoding text/html part: {e}")
+                            continue
+                    
+                    # Check nested parts for HTML
+                    if 'parts' in part:
+                        for nested_part in part.get('parts', []):
+                            nested_mime = nested_part.get('mimeType', '')
+                            nested_data = nested_part.get('body', {}).get('data')
+                            if nested_mime == 'text/html' and nested_data:
+                                try:
+                                    decoded = base64.urlsafe_b64decode(nested_data).decode('utf-8', errors='ignore')
+                                    if decoded:
+                                        body = clean_html_text(decoded)
+                                        if body.strip():
+                                            break
+                                except Exception:
+                                    pass
+                        if body:
+                            break
+        
+        # Handle simple messages (not multipart)
+        elif 'body' in payload and 'data' in payload['body']:
+            try:
+                decoded = base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8', errors='ignore')
+                # Check if it's HTML
+                if '<' in decoded and '>' in decoded:
+                    body = clean_html_text(decoded)
+                else:
+                    body = decoded
+            except Exception as e:
+                print(f"Error decoding simple message body: {e}")
+        
+        # Fallback to Gmail snippet if we have nothing
+        if not body or not body.strip():
+            body = message.get('snippet', '')
+        
+        # Clean up the body
+        if body:
+            # Remove email signatures
+            body = remove_email_signature(body)
+            
+            # Remove quoted replies (lines starting with >)
+            lines = body.split('\n')
+            cleaned_lines = []
+            in_quoted = False
+            for line in lines:
+                stripped = line.strip()
+                # Detect quoted text
+                if stripped.startswith('>') or (stripped.startswith('On ') and 'wrote:' in stripped):
+                    in_quoted = True
+                if in_quoted:
+                    continue
+                cleaned_lines.append(line)
+            body = '\n'.join(cleaned_lines)
+            
+            # Final cleanup
+            body = re.sub(r'\s+', ' ', body)  # Collapse all whitespace to single spaces
+            body = body.strip()
+            
+            # Limit length for snippets if specified
+            if max_length and len(body) > max_length:
+                # Try to cut at a sentence boundary
+                truncated = body[:max_length]
+                last_period = truncated.rfind('.')
+                last_exclamation = truncated.rfind('!')
+                last_question = truncated.rfind('?')
+                last_sentence = max(last_period, last_exclamation, last_question)
+                if last_sentence > max_length * 0.7:  # Only use if we're not cutting too much
+                    body = truncated[:last_sentence + 1] + '...'
+                else:
+                    body = truncated + '...'
+        
+        return body.strip()
+    except Exception as e:
+        print(f"Error extracting message body: {e}")
+        import traceback
+        traceback.print_exc()
+        # Fallback to snippet
+        return message.get('snippet', '').strip()
+
+
+def get_latest_message_from_thread(gmail_service, thread_id, sent_to_email=None):
+    """
+    Get the latest message from a Gmail thread.
+    If sent_to_email is provided, returns the latest message from that sender.
+    Otherwise, returns the latest message in the thread.
+    """
+    try:
+        thread = gmail_service.users().threads().get(
+            userId='me',
+            id=thread_id,
+            format='full'
+        ).execute()
+        
+        messages = thread.get('messages', [])
+        if not messages:
+            return None
+        
+        # If sent_to_email is provided, find latest message from that sender
+        if sent_to_email:
+            for msg in reversed(messages):  # Start from latest
+                headers = msg.get('payload', {}).get('headers', [])
+                from_header = next((h['value'] for h in headers if h['name'].lower() == 'from'), '')
+                
+                if sent_to_email.lower() in from_header.lower():
+                    return msg
+        
+        # Otherwise, return the latest message
+        return messages[-1]
+    except Exception as e:
+        print(f"Error getting latest message from thread: {e}")
+        return None
+
+
+def sync_thread_message(gmail_service, thread_id, sent_to_email=None, user_email=None):
+    """
+    Sync the latest message from a Gmail thread and return message snippet with status.
+    Returns dict with: snippet, hasUnreadReply, lastActivityAt, status, isFromRecipient
+    """
+    try:
+        # Get full thread to analyze all messages
+        thread = gmail_service.users().threads().get(
+            userId='me',
+            id=thread_id,
+            format='full'
+        ).execute()
+        
+        messages = thread.get('messages', [])
+        if not messages:
+            return {
+                'snippet': 'No messages found in thread.',
+                'hasUnreadReply': False,
+                'lastActivityAt': None,
+                'status': 'no_reply_yet',
+                'isFromRecipient': False
+            }
+        
+        # Get the latest message
+        latest_msg = messages[-1]
+        
+        # Determine who sent the latest message
+        headers = latest_msg.get('payload', {}).get('headers', [])
+        from_header = next((h['value'] for h in headers if h['name'].lower() == 'from'), '')
+        
+        # Check if latest message is from recipient
+        is_from_recipient = False
+        if sent_to_email:
+            is_from_recipient = sent_to_email.lower() in from_header.lower()
+        
+        # Check if latest message is from user
+        is_from_user = False
+        if user_email:
+            is_from_user = user_email.lower() in from_header.lower()
+        
+        # Extract message body
+        snippet = extract_message_body(latest_msg, max_length=300)
+        if not snippet:
+            # Fallback to Gmail's snippet
+            snippet = latest_msg.get('snippet', 'No message content available.')
+            # Clean the snippet too
+            import re
+            snippet = re.sub(r'\s+', ' ', snippet).strip()
+        
+        # Check if unread
+        has_unread = 'UNREAD' in latest_msg.get('labelIds', [])
+        
+        # Get timestamp
+        timestamp = latest_msg.get('internalDate')
+        last_activity = None
+        if timestamp:
+            try:
+                last_activity = datetime.fromtimestamp(int(timestamp) / 1000).isoformat()
+            except Exception:
+                pass
+        
+        # Determine status
+        status = 'waiting_on_them'
+        if is_from_recipient and has_unread:
+            status = 'new_reply'
+        elif is_from_recipient and not has_unread:
+            status = 'waiting_on_you'  # They replied, we haven't responded yet
+        elif is_from_user:
+            status = 'waiting_on_them'  # We sent, waiting for their reply
+        else:
+            # Check if there are any replies from recipient in the thread
+            has_any_reply = False
+            for msg in messages:
+                msg_headers = msg.get('payload', {}).get('headers', [])
+                msg_from = next((h['value'] for h in msg_headers if h['name'].lower() == 'from'), '')
+                if sent_to_email and sent_to_email.lower() in msg_from.lower():
+                    has_any_reply = True
+                    break
+            
+            if not has_any_reply:
+                status = 'no_reply_yet'
+            else:
+                status = 'waiting_on_you'
+        
+        return {
+            'snippet': snippet,
+            'hasUnreadReply': has_unread and is_from_recipient,
+            'lastActivityAt': last_activity or datetime.utcnow().isoformat(),
+            'messageId': latest_msg.get('id'),
+            'status': status,
+            'isFromRecipient': is_from_recipient
+        }
+    except Exception as e:
+        print(f"Error syncing thread message: {e}")
+        import traceback
+        traceback.print_exc()
+        # datetime is imported at module level, use it directly
+        return {
+            'snippet': 'Error syncing message from Gmail.',
+            'hasUnreadReply': False,
+            'lastActivityAt': datetime.utcnow().isoformat(),
+            'status': 'waiting_on_them',
+            'isFromRecipient': False
+        }
+
+
 def get_gmail_service():
     """Get Gmail API service using token.pickle (shared account)"""
     try:
@@ -574,12 +910,12 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
             raise  # Re-raise to be caught by outer exception handler
         
         # Get the Gmail account where the draft was created and build draft URL
-        # Use generic URL format that works for any logged-in account
+        # Use the correct URL format to open the specific draft (singular "draft" not "drafts")
         gmail_draft_url = None
         try:
             account_email = gmail_service.users().getProfile(userId='me').execute().get('emailAddress')
-            # Use generic URL without account index - Gmail will open in the correct account
-            gmail_draft_url = f"https://mail.google.com/mail/#drafts/{draft_id}"
+            # Use URL format that opens the specific draft directly
+            gmail_draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
             print(f"✅ Created {tier.capitalize()} Gmail draft {draft_id}")
             print(f"   📧 Draft saved in Gmail account: {account_email}")
             print(f"   👤 Requested by user: {user_email}")
@@ -590,8 +926,8 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         except Exception as profile_err:
             print(f"✅ Created {tier.capitalize()} Gmail draft {draft_id}")
             print(f"   (Could not fetch account details: {profile_err})")
-            # Still create URL even if we can't get profile - use generic format
-            gmail_draft_url = f"https://mail.google.com/mail/#drafts/{draft_id}"
+            # Still create URL even if we can't get profile - use format that opens specific draft
+            gmail_draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
         
         # Return both draft_id and URL as a dict for easier access
         return {

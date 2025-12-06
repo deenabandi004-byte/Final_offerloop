@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { GlassCard } from "@/components/GlassCard";
+import { PageWrapper } from "@/components/PageWrapper";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Separator } from "@/components/ui/separator";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { db, storage } from '@/lib/firebase';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
@@ -49,8 +49,8 @@ export default function AccountSettings() {
   const [resumeData, setResumeData] = useState<any>(null);
   const [resumeUrl, setResumeUrl] = useState<string | null>(null);
   const [resumeFileName, setResumeFileName] = useState<string | null>(null);
-
   const [refreshKey, setRefreshKey] = useState(0);
+
   
   const parseName = (fullName: string | undefined) => {
     if (!fullName || typeof fullName !== 'string') {
@@ -195,7 +195,7 @@ export default function AccountSettings() {
       await loadResumeFromFirestore();
       
       // Force a tiny refresh of the UI that shows resume details
-      setRefreshKey((k) => k + 1);
+      setRefreshKey((k: number) => k + 1);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'An unexpected error occurred';
       setUploadError(msg);
@@ -347,9 +347,9 @@ export default function AccountSettings() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <PageWrapper>
       {/* Header */}
-      <div className="border-b bg-card">
+      <div className="border-b border-white/10 glass-nav">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -357,18 +357,18 @@ export default function AccountSettings() {
                 variant="ghost"
                 size="sm"
                 onClick={() => navigate('/')}
-                className="gap-2"
+                className="gap-2 text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 hover:text-blue-400"
               >
                 <ArrowLeft className="h-4 w-4" />
                 Back
               </Button>
               <div>
-                <h1 className="text-2xl font-semibold text-foreground">Account Settings</h1>
-                <p className="text-sm text-muted-foreground">Manage your account and preferences</p>
+                <h1 className="text-2xl font-semibold text-white dark:text-white text-slate-900 dark:text-white">Account Settings</h1>
+                <p className="text-sm text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">Manage your account and preferences</p>
               </div>
             </div>
             <Avatar className="h-12 w-12">
-              <AvatarFallback className="bg-primary/10 text-primary">
+              <AvatarFallback className="bg-blue-500/20 text-blue-400 border border-blue-500/30">
                 {personalInfo.firstName && personalInfo.lastName
                   ? `${personalInfo.firstName[0]}${personalInfo.lastName[0]}`
                   : user?.email?.[0]?.toUpperCase() || "U"}
@@ -382,19 +382,17 @@ export default function AccountSettings() {
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Personal Information Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Personal Information</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
+          <GlassCard className="p-6 rounded-2xl">
+            <h2 className="text-xl font-semibold mb-6 text-white dark:text-white text-slate-900 dark:text-white">Personal Information</h2>
+            <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="firstName">First Name</Label>
+                  <Label htmlFor="firstName" className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">First Name</Label>
                   <Input
                     id="firstName"
                     value={personalInfo.firstName}
                     readOnly
-                    className="bg-muted/30"
+                    className="bg-white/5 border border-white/10 focus:border-blue-400/50"
                   />
                 </div>
                 <div className="space-y-2">
@@ -403,7 +401,7 @@ export default function AccountSettings() {
                     id="lastName"
                     value={personalInfo.lastName}
                     readOnly
-                    className="bg-muted/30"
+                    className="bg-white/5 border border-white/10 focus:border-blue-400/50"
                   />
                 </div>
               </div>
@@ -428,15 +426,13 @@ export default function AccountSettings() {
                   className="bg-muted/30"
                 />
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </GlassCard>
 
           {/* Academic Information Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Academic Information</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
+          <GlassCard className="p-6 rounded-2xl">
+            <h2 className="text-xl font-semibold mb-6 text-white dark:text-white text-slate-900 dark:text-white">Academic Information</h2>
+            <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="graduationMonth">Graduation Month</Label>
@@ -444,7 +440,7 @@ export default function AccountSettings() {
                     id="graduationMonth"
                     value={academicInfo.graduationMonth}
                     readOnly
-                    className="bg-muted/30"
+                    className="bg-white/5 border border-white/10 focus:border-blue-400/50"
                   />
                 </div>
                 <div className="space-y-2">
@@ -453,7 +449,7 @@ export default function AccountSettings() {
                     id="graduationYear"
                     value={academicInfo.graduationYear}
                     readOnly
-                    className="bg-muted/30"
+                    className="bg-white/5 border border-white/10 focus:border-blue-400/50"
                   />
                 </div>
               </div>
@@ -477,19 +473,17 @@ export default function AccountSettings() {
                   className="bg-muted/30"
                 />
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </GlassCard>
 
           {/* Professional Profile Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Professional Profile</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
+          <GlassCard className="p-6 rounded-2xl">
+            <h2 className="text-xl font-semibold mb-6 text-white dark:text-white text-slate-900 dark:text-white">Professional Profile</h2>
+            <div className="space-y-6">
               <div className="space-y-4">
                 {/* Resume Upload Section */}
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium text-foreground">Resume</Label>
+                  <Label className="text-sm font-medium text-white dark:text-white text-slate-900 dark:text-white">Resume</Label>
                   {(() => {
                     if (resumeData) {
                       return (
@@ -663,15 +657,13 @@ export default function AccountSettings() {
                   </div>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </GlassCard>
           
           {/* Account Management Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Account Management</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          <GlassCard className="p-6 rounded-2xl">
+            <h2 className="text-xl font-semibold mb-6 text-white dark:text-white text-slate-900 dark:text-white">Account Management</h2>
+            <div className="space-y-4">
               <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg border">
                 <div>
                   <h4 className="font-medium text-foreground mb-1">Subscription</h4>
@@ -712,15 +704,13 @@ export default function AccountSettings() {
                   Sign Out
                 </Button>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </GlassCard>
 
           {/* Danger Zone */}
-          <Card className="border-destructive/20">
-            <CardHeader>
-              <CardTitle className="text-destructive">Danger zone</CardTitle>
-            </CardHeader>
-            <CardContent>
+          <GlassCard className="p-6 rounded-2xl border-red-500/30">
+            <h2 className="text-xl font-semibold mb-6 text-red-400">Danger zone</h2>
+            <div>
               <div className="flex items-center justify-between p-4 bg-destructive/5 rounded-lg border border-destructive/20">
                 <div>
                   <h4 className="font-medium text-destructive mb-1">Delete your account</h4>
@@ -733,10 +723,10 @@ export default function AccountSettings() {
                   Delete account
                 </Button>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </GlassCard>
         </div>
       </div>
-    </div>
+    </PageWrapper>
   );
 }

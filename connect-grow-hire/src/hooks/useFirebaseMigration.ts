@@ -39,16 +39,17 @@ export const useFirebaseMigration = () => {
         }
       }
 
-      const resumeDataStr = localStorage.getItem('resumeData');
-      if (resumeDataStr) {
-        try {
-          const resumeData = JSON.parse(resumeDataStr);
-          await firebaseApi.saveResumeData(user.uid, resumeData);
-          console.log('Migrated resume data to Firestore');
-        } catch (error) {
-          console.error('Failed to migrate resume data:', error);
-        }
-      }
+      // Resume data migration - commented out as saveResumeData method doesn't exist
+      // const resumeDataStr = localStorage.getItem('resumeData');
+      // if (resumeDataStr) {
+      //   try {
+      //     const resumeData = JSON.parse(resumeDataStr);
+      //     // await firebaseApi.saveResumeData(user.uid, resumeData);
+      //     console.log('Resume data migration skipped - method not implemented');
+      //   } catch (error) {
+      //     console.error('Failed to migrate resume data:', error);
+      //   }
+      // }
 
       const contactKeys = Object.keys(localStorage).filter(key => key.startsWith('contacts_'));
       for (const key of contactKeys) {

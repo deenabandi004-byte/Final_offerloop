@@ -258,10 +258,10 @@ def generate_and_draft():
                 except Exception as e:
                     print(f"⚠️ [{i}] Could not get threadId from draft: {e}")
 
-            # Use the actual mailbox, not hard-coded /u/0/
+            # Use the correct format to open the specific draft (singular "draft" not "drafts")
             gmail_url = (
-                f"https://mail.google.com/mail/?authuser={connected_email}#drafts/{draft['id']}"
-                if connected_email else f"https://mail.google.com/mail/#drafts/{draft['id']}"
+                f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft['id']}"
+                if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft['id']}"
             )
 
             created.append({

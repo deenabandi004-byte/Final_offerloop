@@ -249,7 +249,7 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                                     draft_url = draft_result.get('draft_url', '')
                                 else:
                                     draft_id = draft_result
-                                    draft_url = f"https://mail.google.com/mail/#drafts/{draft_id}" if draft_id and not draft_id.startswith('mock_') else None
+                                    draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}" if draft_id and not draft_id.startswith('mock_') else None
                                 
                                 if draft_id and not draft_id.startswith('mock_'):
                                     successful_drafts += 1
@@ -497,7 +497,7 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                                     draft_url = draft_result.get('draft_url', '')
                                 else:
                                     draft_id = draft_result
-                                    draft_url = f"https://mail.google.com/mail/#drafts/{draft_id}" if draft_id and not draft_id.startswith('mock_') else None
+                                    draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}" if draft_id and not draft_id.startswith('mock_') else None
                                 
                                 if draft_id and not draft_id.startswith('mock_'):
                                     successful_drafts += 1

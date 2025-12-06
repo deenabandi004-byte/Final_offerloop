@@ -2,28 +2,33 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { PageWrapper } from "@/components/PageWrapper";
+import { GlassCard } from "@/components/GlassCard";
 
 const TermsOfService = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen bg-background">
+    <PageWrapper>
       <Header />
       <div className="container mx-auto px-6 py-16 max-w-4xl">
         <button
-          onClick={() => navigate("/home")}
-          className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-8"
+          onClick={() => navigate("/")}
+          className="flex items-center gap-2 text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 hover:text-blue-400 transition-colors mb-8"
         >
           <ArrowLeft size={20} />
           Back to Home
         </button>
 
-        <h1 className="text-4xl font-bold mb-2">Terms of Service</h1>
-        <p className="text-sm text-muted-foreground mb-10">
+        <h1 className="text-display-lg mb-2 text-white dark:text-white text-slate-900 dark:text-white">
+          Terms of <span className="gradient-text-teal">Service</span>
+        </h1>
+        <p className="text-sm text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 mb-10">
           <strong>Last Updated:</strong> 09.24.25
         </p>
 
-        <div className="prose prose-lg max-w-none text-foreground">
+        <GlassCard className="p-8 rounded-2xl">
+        <div className="prose prose-lg max-w-none">
           <p>
             These Terms of Service (“Terms”) are a binding agreement between you (“you,” “User”) and
             Offerloop.ai (“Offerloop.ai,” “we,” “us,” or “our”) governing your use of our website,
@@ -32,7 +37,7 @@ const TermsOfService = () => {
             Policy (incorporated by reference). If you do not agree, you must not use the Services.
           </p>
 
-          <h2>1. Eligibility</h2>
+          <h2 className="text-white dark:text-white text-slate-900 dark:text-white">1. Eligibility</h2>
           <p>
             You confirm that you are at least 18 years old (or the age of majority in your
             jurisdiction), legally capable of entering this agreement, not on any restricted party
@@ -354,9 +359,10 @@ const TermsOfService = () => {
             You may revoke Offerloop's access to your Google account at any time by visiting your Google Account Permissions page or by disconnecting your Google account in your Offerloop account settings. Revoking access will disable Gmail integration features but will not delete your Offerloop account.
           </p>
         </div>
+        </GlassCard>
       </div>
       <Footer />
-    </div>
+    </PageWrapper>
   );
 };
 

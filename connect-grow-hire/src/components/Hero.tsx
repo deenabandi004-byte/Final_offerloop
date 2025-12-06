@@ -18,13 +18,13 @@ const features = [
     icon: Handshake,
     title: "Meaningful Connections",
     description: "Jump straight to real conversations with professionals and hiring managers—skip the small talk and get to what matters most.",
-    iconColor: "text-pink-500"
+    iconColor: "text-cyan-400"
   },
   {
     icon: BarChart,
     title: "Progress Tracking",
     description: "Visualize your job search journey, track every application and response, and stay organized all the way to your next offer.",
-    iconColor: "text-rose-500"
+    iconColor: "text-cyan-500"
   }
 ];
 

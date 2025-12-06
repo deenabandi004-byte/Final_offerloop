@@ -5,6 +5,9 @@ import { ArrowLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { getAuth } from "firebase/auth";
+import { PageWrapper } from "@/components/PageWrapper";
+import { GlassCard } from "@/components/GlassCard";
+import { Logo } from "@/components/Logo";
  
 
 
@@ -352,23 +355,34 @@ const SignIn: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white">
+    <PageWrapper>
       <div className="max-w-3xl mx-auto px-4 py-8">
         <button
           onClick={() => navigate("/")}
-          className="inline-flex items-center gap-2 text-sm text-zinc-300 hover:text-white transition"
+          className="inline-flex items-center gap-2 text-sm text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 hover:text-blue-400 transition-colors mb-6"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Home
         </button>
 
-        <div className="mt-10 bg-zinc-900/60 backdrop-blur rounded-2xl p-6 border border-zinc-800">
+        <GlassCard className="mt-10 p-8 rounded-2xl">
+          <div className="mb-8 text-center">
+            <Logo size="lg" className="justify-center mb-4" />
+            <h1 className="text-display-lg text-white dark:text-white text-slate-900 dark:text-white mb-2">
+              {activeTab === "signup" ? "Create your account" : "Welcome back"}
+            </h1>
+            <p className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">
+              {activeTab === "signup" 
+                ? "Get started with Offerloop in seconds" 
+                : "Sign in to continue to your account"}
+            </p>
+          </div>
           <div className="flex gap-4 mb-6">
             <button
-              className={`px-4 py-2 rounded-xl border ${
+              className={`px-4 py-2 rounded-xl border transition-all ${
                 activeTab === "signin"
-                  ? "bg-white text-black border-white"
-                  : "border-zinc-700 text-zinc-300 hover:text-white"
+                  ? "bg-white/10 border-blue-400/50 text-white"
+                  : "border-white/10 text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 hover:border-blue-400/30"
               }`}
               onClick={() => setActiveTab("signin")}
               disabled={submitting}
@@ -376,10 +390,10 @@ const SignIn: React.FC = () => {
               Sign in
             </button>
             <button
-              className={`px-4 py-2 rounded-xl border ${
+              className={`px-4 py-2 rounded-xl border transition-all ${
                 activeTab === "signup"
-                  ? "bg-white text-black border-white"
-                  : "border-zinc-700 text-zinc-300 hover:text-white"
+                  ? "bg-white/10 border-blue-400/50 text-white"
+                  : "border-white/10 text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 hover:border-blue-400/30"
               }`}
               onClick={() => setActiveTab("signup")}
               disabled={submitting}
@@ -393,7 +407,7 @@ const SignIn: React.FC = () => {
             <button
               onClick={handleGoogleAuth}
               disabled={submitting || isLoading}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 bg-white text-black font-medium hover:opacity-90 disabled:opacity-60"
+              className="btn-primary-glass w-full inline-flex items-center justify-center gap-2 px-4 py-3 font-medium disabled:opacity-60"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="h-5 w-5" aria-hidden="true">
                 <path
@@ -419,22 +433,22 @@ const SignIn: React.FC = () => {
             {/* NEW: Connect Gmail (server-side OAuth for drafts) */}
              
 
-            <div className="text-xs text-zinc-400 space-y-2">
+            <div className="text-xs text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 space-y-2">
               <p>
                 {activeTab === "signup"
-                  ? "Step 1: Sign in to RecruitEdge. Step 2: Connect Gmail to allow draft creation."
-                  : "Sign in, then click Connect Gmail to allow draft creation in your account."}
+                  ? "Step 1: Sign in to Offerloop. Step 2: Connect Gmail to allow draft creation."
+                  : "Sign in, then connect Gmail to allow draft creation in your account."}
               </p>
-              <p className="text-zinc-500">
+              <p className="text-gray-500 dark:text-gray-500 text-slate-500 dark:text-gray-500">
                 ✓ We'll never send emails without your permission<br />
                 ✓ We only create drafts in your Gmail<br />
                 ✓ You review and send all emails yourself
               </p>
             </div>
           </div>
-        </div>
+        </GlassCard>
       </div>
-    </div>
+    </PageWrapper>
   );
 };
 

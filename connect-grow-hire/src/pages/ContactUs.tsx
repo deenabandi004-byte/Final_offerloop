@@ -1,13 +1,14 @@
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageWrapper } from "@/components/PageWrapper";
+import { GlassCard } from "@/components/GlassCard";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Mail, Phone, Linkedin, Instagram, Clock } from "lucide-react";
-const ContactUs = () => {
 
+const ContactUs = () => {
   return (
-    <div className="min-h-screen bg-background">
+    <PageWrapper>
       <Header />
       
       <main className="container mx-auto px-6 py-16">
@@ -15,7 +16,7 @@ const ContactUs = () => {
           {/* Back Button */}
           <div className="flex justify-start">
             <Button variant="ghost" size="sm" asChild>
-              <Link to="/home" className="flex items-center gap-2">
+              <Link to="/home" className="flex items-center gap-2 text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 hover:text-blue-400">
                 <ArrowLeft className="h-4 w-4" />
                 Back to Home
               </Link>
@@ -24,28 +25,26 @@ const ContactUs = () => {
 
           {/* Hero Section */}
           <div className="text-center space-y-6">
-            <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
-              Contact Us
+            <h1 className="text-display-lg text-white dark:text-white text-slate-900 dark:text-white">
+              Contact <span className="gradient-text-teal">Us</span>
             </h1>
-            <p className="text-xl text-muted-foreground leading-relaxed max-w-3xl mx-auto">
+            <p className="text-xl text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 leading-relaxed max-w-3xl mx-auto">
               Have questions about Offerloop.ai? We'd love to hear from you. Send us a message and we'll respond within 1 business day.
             </p>
           </div>
 
           <div className="max-w-2xl mx-auto space-y-6">
               {/* Direct Contact Info */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Get in touch</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
+              <GlassCard className="p-6 rounded-2xl">
+                <h2 className="text-xl font-semibold mb-4 text-white dark:text-white text-slate-900 dark:text-white">Get in touch</h2>
+                <div className="space-y-4">
                   <div className="flex items-center gap-3">
-                    <Mail className="h-5 w-5 text-primary" />
+                    <Mail className="h-5 w-5 text-blue-400" />
                     <div>
-                      <p className="font-medium">Support</p>
+                      <p className="font-medium text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">Support</p>
                       <a 
                         href="mailto:support@pipelinepath.io"
-                        className="text-sm text-muted-foreground hover:text-primary transition-colors"
+                        className="text-sm text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 hover:text-blue-400 transition-colors"
                       >
                         support@pipelinepath.io
                       </a>
@@ -53,57 +52,51 @@ const ContactUs = () => {
                   </div>
 
                   <div className="flex items-center gap-3">
-                    <Phone className="h-5 w-5 text-primary" />
+                    <Phone className="h-5 w-5 text-blue-400" />
                     <div>
-                      <p className="font-medium">Phone</p>
-                      <p className="text-sm text-muted-foreground">(503) 616-1981</p>
+                      <p className="font-medium text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">Phone</p>
+                      <p className="text-sm text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">(503) 616-1981</p>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </GlassCard>
 
               {/* Response Time */}
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-3">
-                    <Clock className="h-5 w-5 text-primary" />
-                    <div>
-                      <p className="font-medium">Response Time</p>
-                      <p className="text-sm text-muted-foreground">We typically reply within 1 business day</p>
-                    </div>
+              <GlassCard className="p-6 rounded-2xl">
+                <div className="flex items-center gap-3">
+                  <Clock className="h-5 w-5 text-blue-400" />
+                  <div>
+                    <p className="font-medium text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">Response Time</p>
+                    <p className="text-sm text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">We typically reply within 1 business day</p>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </GlassCard>
 
               {/* Social Links */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Connect with us</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex gap-4">
-                    <Button variant="outline" size="icon" asChild>
-                      <a href="#" target="_blank" rel="noopener noreferrer">
-                        <Linkedin className="h-4 w-4" />
-                      </a>
-                    </Button>
-                    <Button variant="outline" size="icon" asChild>
-                      <a href="#" target="_blank" rel="noopener noreferrer">
-                        <Instagram className="h-4 w-4" />
-                      </a>
-                    </Button>
-                  </div>
-                  <p className="text-sm text-muted-foreground mt-4">
-                    Follow us for updates and insights about recruiting and career development.
-                  </p>
-                </CardContent>
-              </Card>
+              <GlassCard className="p-6 rounded-2xl">
+                <h2 className="text-xl font-semibold mb-4 text-white dark:text-white text-slate-900 dark:text-white">Connect with us</h2>
+                <div className="flex gap-4">
+                  <Button variant="outline" size="icon" className="border-white/10 hover:border-blue-400/50 hover:bg-white/5" asChild>
+                    <a href="https://linkedin.com/company/offerloop-ai" target="_blank" rel="noopener noreferrer">
+                      <Linkedin className="h-4 w-4 text-gray-400 dark:text-gray-400 hover:text-blue-400" />
+                    </a>
+                  </Button>
+                  <Button variant="outline" size="icon" className="border-white/10 hover:border-blue-400/50 hover:bg-white/5" asChild>
+                    <a href="https://instagram.com/offerloop.ai" target="_blank" rel="noopener noreferrer">
+                      <Instagram className="h-4 w-4 text-gray-400 dark:text-gray-400 hover:text-blue-400" />
+                    </a>
+                  </Button>
+                </div>
+                <p className="text-sm text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 mt-4">
+                  Follow us for updates and insights about recruiting and career development.
+                </p>
+              </GlassCard>
             </div>
         </div>
       </main>
 
       <Footer />
-    </div>
+    </PageWrapper>
   );
 };
 

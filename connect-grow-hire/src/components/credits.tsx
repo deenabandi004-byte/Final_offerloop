@@ -12,10 +12,10 @@ export function CreditPill({
 
   const tone =
     low === "red"
-      ? "bg-red-500/15 text-red-200 ring-red-400/30"
+      ? "bg-red-500/15 text-red-700 ring-red-400/30"
       : low === "amber"
-      ? "bg-amber-500/15 text-amber-100 ring-amber-400/30"
-      : "bg-blue-500/15 text-blue-100 ring-blue-400/30";
+      ? "bg-amber-500/15 text-amber-700 ring-amber-400/30"
+      : "bg-blue-500/15 text-blue-700 ring-blue-400/30";
 
   return (
     <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full ring-1 ${tone}`}>

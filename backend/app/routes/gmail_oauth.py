@@ -60,11 +60,43 @@ def google_oauth_start():
     
     db = get_db()
     uid = request.firebase_user["uid"]
-    user_email = request.firebase_user.get("email")
+    
+    # Get email from Firestore user document (source of truth)
+    # This ensures we use the correct email for the logged-in user
+    user_email = None
+    try:
+        user_doc = db.collection("users").document(uid).get()
+        if user_doc.exists:
+            user_data = user_doc.to_dict() or {}
+            user_email = user_data.get("email")
+            if user_email:
+                print(f"🔐 Found email in Firestore: {user_email}")
+            else:
+                print(f"⚠️ No email in Firestore user document")
+        else:
+            print(f"⚠️ User document not found in Firestore for uid: {uid}")
+    except Exception as e:
+        print(f"⚠️ Could not fetch email from Firestore: {e}")
+    
+    # Fallback to Firebase token email if Firestore doesn't have it
+    if not user_email:
+        user_email = request.firebase_user.get("email")
+        if user_email:
+            print(f"🔐 Using email from Firebase token (fallback): {user_email}")
+        else:
+            print(f"❌ ERROR: No email found in Firestore or Firebase token!")
+    
+    # Debug: Log what we're using
+    print(f"🔐 DEBUG: firebase_user token email: {request.firebase_user.get('email')}")
+    print(f"🔐 DEBUG: Final email to use: {user_email}")
+    print(f"🔐 DEBUG: firebase_user uid: {uid}")
     
     # Normalize email (lowercase, strip whitespace)
     if user_email:
         user_email = user_email.strip().lower()
+        print(f"🔐 DEBUG: Normalized email for login_hint: {user_email}")
+    else:
+        print(f"⚠️ WARNING: No email available after all attempts!")
     
     print(f"🔐 User requesting OAuth: {user_email} (uid: {uid})")
     
@@ -120,22 +152,26 @@ def google_oauth_start():
     }
     
     # CRITICAL: Force consent screen to ALWAYS show (required for Google verification)
-    # Using "select_account consent" to ensure BOTH account picker AND consent screen appear
-    # This is more reliable than just "consent" alone
-    # "select_account" shows account picker (if needed)
-    # "consent" forces the consent screen with checkboxes to appear every time,
+    # Using "consent" to force the consent screen with checkboxes to appear every time,
     # even if the user has previously granted these exact permissions
-    params["prompt"] = "select_account consent"
+    # NOTE: We use "consent" (not "select_account consent") so that login_hint can
+    # pre-select the account without forcing the account picker to show
+    params["prompt"] = "consent"
     
-    # Use login_hint to pre-select the user's account (but consent screen will still show)
-    # This helps skip account picker but consent screen is still forced
+    # Use login_hint to pre-select the user's account that's signed into the website
+    # This ensures only the signed-in user's email is shown (no account picker)
     if user_email:
         params["login_hint"] = user_email
-        print(f"🔐 Using login_hint: {user_email}")
-        print(f"🔐 With prompt=select_account consent, consent screen WILL appear")
-        print(f"🔐 Expected flow: Account picker (if needed) → Consent screen with checkboxes")
+        print(f"=" * 80)
+        print(f"🔐 SETTING LOGIN_HINT")
+        print(f"🔐 Email being used for login_hint: {user_email}")
+        print(f"🔐 UID: {uid}")
+        print(f"🔐 This will pre-select the account matching the signed-in user")
+        print(f"🔐 With prompt=consent (no select_account), account picker will be skipped if user is signed in")
+        print(f"🔐 Expected flow: Direct to consent screen for {user_email} (no account picker)")
+        print(f"=" * 80)
     else:
-        print(f"⚠️ No login_hint (no user email) - account picker will show first")
+        print(f"⚠️ No login_hint (no user email) - account picker will show all accounts")
     
     print(f"🔐 CRITICAL: Consent screen with checkboxes MUST appear")
     print(f"🔐 If account picker still shows, the user may need to be signed into Google in the browser")
@@ -154,6 +190,26 @@ def google_oauth_start():
     # 3. The consent screen with checkboxes MUST appear for Google's verification process
     
     auth_url = f"{AUTH_BASE}?{urlencode(params)}"
+    
+    # CRITICAL DEBUG: Verify login_hint is in the final URL
+    print(f"=" * 80)
+    print(f"🔐 FINAL OAUTH URL VERIFICATION")
+    print(f"🔐 login_hint in params: {'login_hint' in params}")
+    if 'login_hint' in params:
+        print(f"🔐 login_hint value in params: {params['login_hint']}")
+    print(f"🔐 login_hint in URL: {'login_hint' in auth_url}")
+    if 'login_hint' in auth_url:
+        import re
+        from urllib.parse import unquote
+        hint_match = re.search(r'login_hint=([^&]+)', auth_url)
+        if hint_match:
+            decoded_hint = unquote(hint_match.group(1))
+            print(f"🔐 login_hint value in URL (decoded): {decoded_hint}")
+            if user_email and decoded_hint != user_email:
+                print(f"❌ ERROR: login_hint mismatch! Expected: {user_email}, Got in URL: {decoded_hint}")
+            else:
+                print(f"✅ login_hint matches in URL: {decoded_hint}")
+    print(f"=" * 80)
     
     # ========================================
     # DETAILED LOGGING FOR DEBUGGING CONSENT SCREEN
@@ -177,23 +233,22 @@ def google_oauth_start():
             print(f"   {key}: {value}")
     print(f"")
     print(f"🔐 CRITICAL PARAMETERS CHECK:")
-    expected_prompt = 'select_account consent'
+    expected_prompt = 'consent'
     actual_prompt = params.get('prompt', '❌ NOT SET!')
     print(f"   prompt: {actual_prompt} {'✅' if actual_prompt == expected_prompt else '❌ WRONG VALUE!'}")
     if actual_prompt != expected_prompt:
         print(f"   ⚠️ Expected: '{expected_prompt}', Got: '{actual_prompt}'")
     print(f"   login_hint: {'✅ PRESENT' if 'login_hint' in params else '⚠️ NOT PRESENT (account picker will show)'}")
+    if 'login_hint' in params:
+        print(f"   login_hint value: {params['login_hint']}")
     print(f"   include_granted_scopes: {'❌ PRESENT (BAD - can skip consent!)' if 'include_granted_scopes' in params else '✅ NOT PRESENT (GOOD!)'}")
     print(f"   access_type: {params.get('access_type', 'NOT SET')}")
     print(f"")
     print(f"🔐 URL VERIFICATION:")
-    # Check if prompt=select_account consent is in the URL (URL encoded)
-    # The space gets encoded as + or %20
+    # Check if prompt=consent is in the URL
     url_has_consent = (
-        'prompt=select_account+consent' in auth_url or 
-        'prompt=select_account%20consent' in auth_url or
-        'prompt%3Dselect_account+consent' in auth_url or
-        'prompt%3Dselect_account%20consent' in auth_url
+        'prompt=consent' in auth_url or 
+        'prompt%3Dconsent' in auth_url
     )
     print(f"   Consent prompt in URL: {'✅ YES' if url_has_consent else '❌ NO - THIS IS THE PROBLEM!'}")
     if not url_has_consent:
@@ -201,6 +256,12 @@ def google_oauth_start():
         print(f"   🔍 URL contains: {auth_url[:200]}...")
     url_has_login_hint = 'login_hint' in auth_url
     print(f"   Login hint in URL: {'✅ YES' if url_has_login_hint else '⚠️ NO (account picker will show)'}")
+    if url_has_login_hint:
+        # Extract login_hint value from URL for verification
+        import re
+        hint_match = re.search(r'login_hint=([^&]+)', auth_url)
+        if hint_match:
+            print(f"   Login hint value in URL: {hint_match.group(1)}")
     print(f"")
     print(f"🔐 FULL OAUTH URL (for debugging - check this in browser):")
     print(f"   {auth_url}")
@@ -421,7 +482,7 @@ def google_oauth_callback():
             user_email = gmail_email
             print(f"👤 Using Gmail email as user email: {user_email}")
 
-        # 4) Decide what to do based on match / mismatch
+        # 4) Allow any Gmail account to be connected (users may use different email for sending)
         redirect_url = get_frontend_redirect_uri()
 
         # Build helper to append query params safely
@@ -429,18 +490,10 @@ def google_oauth_callback():
             sep = "&" if "?" in url else "?"
             return f"{url}{sep}{key}={value}"
 
+        # Log email mismatch for reference but allow connection
         if gmail_email and user_email and gmail_email.lower() != user_email.lower():
-            print("❌ Gmail account does not match app login email; NOT saving creds.")
-            # Clean up state doc
-            if state:
-                try:
-                    db.collection("oauth_state").document(state).delete()
-                except:
-                    pass
-            # Redirect with an explicit error flag
-            redirect_url = add_param(redirect_url, "gmail_error", "wrong_account")
-            print(f"🔗 Redirecting to frontend with wrong_account: {redirect_url}")
-            return redirect(redirect_url)
+            print(f"ℹ️ Gmail account ({gmail_email}) differs from app login email ({user_email}) - allowing connection")
+            print(f"   Users may want to use a different Gmail account for sending emails")
 
         # 5) Save creds (only if we have a UID)
         if not uid:

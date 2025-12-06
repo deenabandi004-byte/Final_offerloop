@@ -158,7 +158,6 @@ const ContactDirectory: React.FC<ContactDirectoryProps> = ({ userEmail = 'user@e
     const userName = (profInfo.firstName && profInfo.lastName) ? `${profInfo.firstName} ${profInfo.lastName}` : (resumeData.name || '');
     const userMajor = profInfo.fieldOfStudy || resumeData.major || '';
     const userUniversity = profInfo.university || resumeData.university || '';
-    const userYear = profInfo.graduationYear || resumeData.year || '';
 
     const subject = `Quick chat about your work at ${contact.company || 'your company'}`;
 

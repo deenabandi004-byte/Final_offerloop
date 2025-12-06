@@ -231,8 +231,8 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                                     successful_drafts += 1
                                     # Store draft URL with contact
                                     gmail_url = (
-                                        f"https://mail.google.com/mail/?authuser={connected_email}#drafts/{draft_id}"
-                                        if connected_email else f"https://mail.google.com/mail/#drafts/{draft_id}"
+                                        f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft_id}"
+                                        if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
                                     )
                                     contact['gmailDraftId'] = draft_id
                                     contact['gmailDraftUrl'] = gmail_url
@@ -472,8 +472,8 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                                     successful_drafts += 1
                                     # Store draft URL with contact
                                     gmail_url = (
-                                        f"https://mail.google.com/mail/?authuser={connected_email}#drafts/{draft_id}"
-                                        if connected_email else f"https://mail.google.com/mail/#drafts/{draft_id}"
+                                        f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft_id}"
+                                        if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
                                     )
                                     contact['gmailDraftId'] = draft_id
                                     contact['gmailDraftUrl'] = gmail_url

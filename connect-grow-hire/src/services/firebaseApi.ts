@@ -10,6 +10,8 @@ import {
   deleteDoc,
   query,
   where,
+  orderBy,
+  limit,
   Timestamp,
   writeBatch,
 } from 'firebase/firestore';
@@ -71,6 +73,35 @@ export interface UserData {
   lastLogin?: string;
   professionalInfo?: ProfessionalInfo;
   needsOnboarding?: boolean;
+}
+
+// ================================
+// CALENDAR TYPES
+// ================================
+export interface CalendarEvent {
+  id?: string;
+  title: string;
+  contactId?: string;
+  contactName: string;
+  firm: string;
+  date: string; // ISO date format like "2025-12-05"
+  time: string; // like "14:00"
+  duration: number; // minutes, default 30
+  type: 'video' | 'phone' | 'in-person';
+  status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
+  meetingLink?: string;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface FollowUpReminder {
+  id: string;
+  contactId: string;
+  contactName: string;
+  firm: string;
+  daysSinceContact: number;
+  lastContactDate: string;
 }
 
 // ================================
@@ -212,6 +243,451 @@ export const firebaseApi = {
 
     const d = snapshot.docs[0];
     return { id: d.id, ...d.data() } as Contact;
+  },
+
+  // ================================
+  // ACTIVITY LOGGING
+  // ================================
+  async logActivity(
+    uid: string,
+    type: 'firmSearch' | 'contactSearch' | 'coffeePrep' | 'interviewPrep',
+    summary: string,
+    metadata?: any
+  ): Promise<void> {
+    try {
+      console.log('📝 Logging activity:', { uid, type, summary, metadata });
+      const activitiesRef = collection(db, 'users', uid, 'activity');
+      const activityDoc = doc(activitiesRef);
+      await setDoc(activityDoc, {
+        type,
+        summary,
+        timestamp: Timestamp.now(),
+        metadata: metadata || {},
+      });
+      console.log('✅ Activity logged successfully');
+    } catch (error) {
+      console.error('❌ Failed to log activity:', error);
+      throw error; // Re-throw so caller knows it failed
+    }
+  },
+
+  async getActivities(uid: string, limitCount: number = 10): Promise<Array<{
+    id: string;
+    type: string;
+    summary: string;
+    timestamp: any;
+    metadata?: any;
+  }>> {
+    try {
+      const activitiesRef = collection(db, 'users', uid, 'activity');
+      
+      // Try with orderBy first, fallback to getting all and sorting client-side if index doesn't exist
+      let snapshot;
+      try {
+        const q = query(activitiesRef, orderBy('timestamp', 'desc'), limit(limitCount));
+        snapshot = await getDocs(q);
+      } catch (error: any) {
+        // If orderBy fails (likely missing index), get all and sort client-side
+        console.warn('Firestore index may be missing, fetching all activities and sorting client-side:', error);
+        const allSnapshot = await getDocs(activitiesRef);
+        const allActivities = allSnapshot.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+        })) as Array<{
+          id: string;
+          type: string;
+          summary: string;
+          timestamp: any;
+          metadata?: any;
+        }>;
+        
+        // Sort by timestamp desc and limit
+        return allActivities
+          .filter(a => a.timestamp)
+          .sort((a, b) => {
+            const aTime = a.timestamp?.toMillis?.() || 0;
+            const bTime = b.timestamp?.toMillis?.() || 0;
+            return bTime - aTime;
+          })
+          .slice(0, limitCount);
+      }
+      
+      return snapshot.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })) as Array<{
+        id: string;
+        type: string;
+        summary: string;
+        timestamp: any;
+        metadata?: any;
+      }>;
+    } catch (error) {
+      console.error('Error fetching activities:', error);
+      return [];
+    }
+  },
+
+  // ================================
+  // GOALS MANAGEMENT
+  // ================================
+  async getGoals(uid: string): Promise<Array<{
+    id: string;
+    type: string;
+    target: number;
+    period: string;
+    startDate: any;
+    endDate: any;
+  }>> {
+    try {
+      const goalsRef = collection(db, 'users', uid, 'goals');
+      const snapshot = await getDocs(goalsRef);
+      
+      return snapshot.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })) as Array<{
+        id: string;
+        type: string;
+        target: number;
+        period: string;
+        startDate: any;
+        endDate: any;
+      }>;
+    } catch (error) {
+      console.error('Error fetching goals:', error);
+      return [];
+    }
+  },
+
+  async createGoal(
+    uid: string,
+    goal: {
+      type: 'contacts' | 'firms' | 'coffeeChats' | 'outreach';
+      target: number;
+      period: 'month' | 'week' | 'year';
+      startDate: Timestamp;
+      endDate: Timestamp;
+    }
+  ): Promise<string> {
+    try {
+      const goalsRef = collection(db, 'users', uid, 'goals');
+      const goalDoc = doc(goalsRef);
+      await setDoc(goalDoc, goal);
+      return goalDoc.id;
+    } catch (error) {
+      console.error('Error creating goal:', error);
+      throw error;
+    }
+  },
+
+  async updateUserStreak(uid: string, streakData: {
+    currentStreak: number;
+    longestStreak: number;
+    lastActivityDate: string;
+  }): Promise<void> {
+    try {
+      const userRef = doc(db, 'users', uid);
+      await updateDoc(userRef, {
+        currentStreak: streakData.currentStreak,
+        longestStreak: streakData.longestStreak,
+        lastActivityDate: streakData.lastActivityDate,
+      });
+    } catch (error) {
+      console.error('Error updating user streak:', error);
+      // Don't throw - streak update shouldn't break activity logging
+    }
+  },
+
+  async getUserStreak(uid: string): Promise<{
+    currentStreak: number;
+    longestStreak: number;
+    lastActivityDate: string | null;
+  } | null> {
+    try {
+      const userRef = doc(db, 'users', uid);
+      const userDoc = await getDoc(userRef);
+      
+      if (!userDoc.exists()) {
+        return null;
+      }
+      
+      const data = userDoc.data();
+      return {
+        currentStreak: data.currentStreak || 0,
+        longestStreak: data.longestStreak || 0,
+        lastActivityDate: data.lastActivityDate || null,
+      };
+    } catch (error) {
+      console.error('Error fetching user streak:', error);
+      return null;
+    }
+  },
+
+  // ================================
+  // CALENDAR MANAGEMENT
+  // ================================
+  async createCalendarEvent(uid: string, event: Omit<CalendarEvent, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+    try {
+      const eventsRef = collection(db, 'users', uid, 'calendar_events');
+      const newEventRef = doc(eventsRef);
+      
+      // Remove undefined values (Firestore doesn't accept undefined)
+      const eventData: Record<string, any> = {
+        title: event.title,
+        contactName: event.contactName,
+        firm: event.firm,
+        date: event.date,
+        time: event.time,
+        duration: event.duration,
+        type: event.type,
+        status: event.status,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      
+      // Only add optional fields if they have values
+      if (event.contactId) {
+        eventData.contactId = event.contactId;
+      }
+      if (event.meetingLink) {
+        eventData.meetingLink = event.meetingLink;
+      }
+      if (event.notes) {
+        eventData.notes = event.notes;
+      }
+      
+      await setDoc(newEventRef, eventData);
+      return newEventRef.id;
+    } catch (error) {
+      console.error('Error creating calendar event:', error);
+      throw error;
+    }
+  },
+
+  async getCalendarEvents(uid: string, month?: number, year?: number): Promise<CalendarEvent[]> {
+    try {
+      const eventsRef = collection(db, 'users', uid, 'calendar_events');
+      
+      // Try to query with orderBy, but fallback if index doesn't exist
+      let snapshot;
+      try {
+        const q = query(eventsRef, orderBy('date', 'asc'), orderBy('time', 'asc'));
+        snapshot = await getDocs(q);
+      } catch (error: any) {
+        // If orderBy fails (likely missing index), get all and sort client-side
+        console.warn('Firestore index may be missing, fetching all events and sorting client-side:', error);
+        snapshot = await getDocs(eventsRef);
+      }
+      
+      let events = snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as CalendarEvent[];
+      
+      // Sort client-side if we didn't use orderBy
+      events.sort((a, b) => {
+        const dateCompare = a.date.localeCompare(b.date);
+        if (dateCompare !== 0) return dateCompare;
+        return a.time.localeCompare(b.time);
+      });
+      
+      // Filter by month/year if provided
+      if (month !== undefined && year !== undefined) {
+        events = events.filter(event => {
+          if (!event.date) return false;
+          // Parse date string (format: "yyyy-MM-dd")
+          const [eventYear, eventMonth] = event.date.split('-').map(Number);
+          // Note: month is 0-indexed in JS Date, but our filter uses 0-indexed too
+          return eventMonth - 1 === month && eventYear === year;
+        });
+      }
+      
+      console.log(`📅 Fetched ${events.length} calendar events for month ${month}, year ${year}`);
+      return events;
+    } catch (error) {
+      console.error('Error fetching calendar events:', error);
+      return [];
+    }
+  },
+
+  async updateCalendarEvent(uid: string, eventId: string, updates: Partial<CalendarEvent>): Promise<void> {
+    try {
+      const eventRef = doc(db, 'users', uid, 'calendar_events', eventId);
+      
+      // Remove undefined values (Firestore doesn't accept undefined)
+      const updateData: Record<string, any> = {
+        updatedAt: new Date().toISOString(),
+      };
+      
+      // Only include defined fields
+      Object.keys(updates).forEach(key => {
+        const value = updates[key as keyof CalendarEvent];
+        if (value !== undefined) {
+          updateData[key] = value;
+        }
+      });
+      
+      await updateDoc(eventRef, updateData);
+    } catch (error) {
+      console.error('Error updating calendar event:', error);
+      throw error;
+    }
+  },
+
+  async deleteCalendarEvent(uid: string, eventId: string): Promise<void> {
+    try {
+      const eventRef = doc(db, 'users', uid, 'calendar_events', eventId);
+      await deleteDoc(eventRef);
+    } catch (error) {
+      console.error('Error deleting calendar event:', error);
+      throw error;
+    }
+  },
+
+  async getFollowUpReminders(uid: string): Promise<FollowUpReminder[]> {
+    try {
+      const contacts = await firebaseApi.getContacts(uid);
+      const now = new Date();
+      const threeDaysAgo = new Date(now);
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      
+      // Get upcoming events to exclude contacts with scheduled meetings
+      const upcomingEvents = await firebaseApi.getCalendarEvents(uid);
+      const upcomingEventContactIds = new Set(
+        upcomingEvents
+          .filter(e => {
+            const eventDate = new Date(`${e.date}T${e.time}`);
+            return eventDate > now;
+          })
+          .map(e => e.contactId)
+          .filter(Boolean) as string[]
+      );
+      
+      const reminders: FollowUpReminder[] = [];
+      
+      for (const contact of contacts) {
+        // Skip if contact has upcoming event
+        if (contact.id && upcomingEventContactIds.has(contact.id)) {
+          continue;
+        }
+        
+        // Skip if status is 'Replied' or 'Meeting Scheduled'
+        if (contact.status === 'Replied' || contact.status === 'Meeting Scheduled') {
+          continue;
+        }
+        
+        // Check if firstContactDate is more than 3 days ago
+        if (contact.firstContactDate) {
+          const contactDate = new Date(contact.firstContactDate);
+          if (contactDate < threeDaysAgo) {
+            const daysSince = Math.floor((now.getTime() - contactDate.getTime()) / (1000 * 60 * 60 * 24));
+            
+            reminders.push({
+              id: contact.id || '',
+              contactId: contact.id || '',
+              contactName: `${contact.firstName} ${contact.lastName}`.trim() || contact.email,
+              firm: contact.company || '',
+              daysSinceContact: daysSince,
+              lastContactDate: contact.firstContactDate,
+            });
+          }
+        }
+      }
+      
+      // Sort by daysSinceContact descending
+      reminders.sort((a, b) => b.daysSinceContact - a.daysSinceContact);
+      
+      return reminders;
+    } catch (error) {
+      console.error('Error fetching follow-up reminders:', error);
+      return [];
+    }
+  },
+
+  // ================================
+  // CONTACT SEARCH (for autocomplete)
+  // ================================
+  async searchContacts(uid: string, searchQuery: string, limitCount: number = 10): Promise<Contact[]> {
+    try {
+      const contacts = await firebaseApi.getContacts(uid);
+      const queryLower = searchQuery.toLowerCase();
+      
+      return contacts
+        .filter(contact => {
+          const fullName = `${contact.firstName} ${contact.lastName}`.toLowerCase();
+          const email = contact.email.toLowerCase();
+          const company = (contact.company || '').toLowerCase();
+          
+          return fullName.includes(queryLower) || 
+                 email.includes(queryLower) || 
+                 company.includes(queryLower);
+        })
+        .slice(0, limitCount);
+    } catch (error) {
+      console.error('Error searching contacts:', error);
+      return [];
+    }
+  },
+
+  // ================================
+  // TIMELINE MANAGEMENT
+  // ================================
+  async saveTimeline(uid: string, timelineData: {
+    phases: Array<{
+      name: string;
+      startMonth: string;
+      endMonth: string;
+      goals: string[];
+      description: string;
+    }>;
+    startDate: string;
+    targetDeadline: string;
+    lastPrompt?: string;
+    updatedAt?: string;
+  }): Promise<void> {
+    const userRef = doc(db, 'users', uid);
+    await updateDoc(userRef, {
+      timeline: {
+        ...timelineData,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  },
+
+  async getTimeline(uid: string): Promise<{
+    phases: Array<{
+      name: string;
+      startMonth: string;
+      endMonth: string;
+      goals: string[];
+      description: string;
+    }>;
+    startDate: string;
+    targetDeadline: string;
+    lastPrompt?: string;
+    updatedAt?: string;
+  } | null> {
+    try {
+      const userRef = doc(db, 'users', uid);
+      const userSnap = await getDoc(userRef);
+      if (!userSnap.exists()) {
+        console.log('❌ User document does not exist');
+        return null;
+      }
+      const data = userSnap.data();
+      const timeline = data.timeline;
+      if (!timeline || !timeline.phases || timeline.phases.length === 0) {
+        console.log('❌ No timeline data found in user document');
+        return null;
+      }
+      console.log('✅ Found timeline in Firestore:', timeline);
+      // Ensure lastPrompt is included if it exists
+      return {
+        ...timeline,
+        lastPrompt: timeline.lastPrompt || '',
+      };
+    } catch (error) {
+      console.error('❌ Error getting timeline:', error);
+      return null;
+    }
   },
 };
 

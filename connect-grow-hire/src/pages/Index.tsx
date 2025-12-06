@@ -1,14 +1,11 @@
 // src/pages/Index.tsx
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ChevronDown, Check, Send, Calendar, Handshake, BarChart, Users, Target, MessageSquare, TrendingUp, Zap, ArrowRight, Lightbulb, Heart } from 'lucide-react';import twoBillionImage from '@/assets/twobillion.jpeg';
-import aiPersonalImage from '@/assets/Ai_Personal.jpeg';
-import smartMatchingImage from '@/assets/SmartMatching.jpeg';
-import topTierImage from '@/assets/TopTier.jpeg';
-import analyticsImage from '@/assets/Analytics.jpeg';
-import lockImg from "@/assets/lock.png";
-import { Sparkles } from 'lucide-react';
-import { BetaBadge } from '@/components/BetaBadges';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { useTheme } from '@/contexts/ThemeContext';
+import { Check, ArrowRight, Twitter, Linkedin, Instagram } from 'lucide-react';
+import { ExpandablePrivacyLock } from '@/components/ExpandablePrivacyLock';
+import { ProductTour } from '@/components/ProductTour';
+import CircularGallery from '@/components/CircularGallery';
 import DylanRoby from "@/assets/DylanRoby.png";
 import SaraUcuzoglu from "@/assets/SaraU.png";
 import JacksonLeck from "@/assets/JacksonLeck.png";
@@ -16,9 +13,14 @@ import FiveStarReview from "@/assets/5StarReview.png";
 import EliHamou from "@/assets/EliHamou.png";
 import LucasTurcuato from "@/assets/LucasTurcuato.png";
 import Marquee from "react-fast-marquee";
-import proSearchVideo from "@/assets/Offerloop Professional Search.mp4";
-import directoryVideo from "@/assets/contact directory and emails.mp4";
-
+import DynamicBackground from '@/components/background/DynamicBackground';
+import { DynamicGradientBackground } from '@/components/background/DynamicGradientBackground';
+import { ThemeToggle } from '@/components/ThemeToggle';
+import { Logo } from '@/components/Logo';
+// TODO: Add your three background images to the assets folder and import them here:
+// import cityscapeImage from '@/assets/cityscape.jpg';
+// import officeImage from '@/assets/office.jpg';
+// import coffeeShopImage from '@/assets/coffee-shop.jpg';
 
 // Company Logos
 import GoldmanSachsLogo from "@/assets/GoldmanSachs.png";
@@ -30,1071 +32,525 @@ import BlackstoneLogo from "@/assets/Blackstone.png";
 import PwCLogo from "@/assets/PwC.png";
 import McKinseyLogo from "@/assets/McKinsey.png";
 import BainLogo from "@/assets/McKinsey.png";
-console.log({ DylanRoby, SaraUcuzoglu, JacksonLeck });
+
+// Environment scene backgrounds - Visible cityscape layers for glass effect (unused but kept for potential future use)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const SCENE_BACKGROUNDS = [
+  `radial-gradient(ellipse 800px 600px at 25% 65%, rgba(13, 148, 136, 0.4) 0%, transparent 50%),
+   radial-gradient(ellipse 600px 500px at 75% 55%, rgba(6, 182, 212, 0.35) 0%, transparent 50%),
+   radial-gradient(ellipse 500px 400px at 50% 75%, rgba(16, 185, 129, 0.3) 0%, transparent 45%),
+   linear-gradient(180deg, #0a2e2e 0%, #0d3838 50%, #0a2a2a 100%)`,
+  `radial-gradient(ellipse 700px 550px at 20% 70%, rgba(16, 185, 129, 0.38) 0%, transparent 48%),
+   radial-gradient(ellipse 650px 500px at 80% 50%, rgba(13, 148, 136, 0.36) 0%, transparent 47%),
+   radial-gradient(ellipse 550px 450px at 45% 80%, rgba(6, 182, 212, 0.32) 0%, transparent 46%),
+   linear-gradient(180deg, #0c2f2f 0%, #0e3636 50%, #0b2b2b 100%)`,
+  `radial-gradient(ellipse 750px 600px at 50% 60%, rgba(6, 182, 212, 0.42) 0%, transparent 50%),
+   radial-gradient(ellipse 600px 480px at 30% 50%, rgba(13, 148, 136, 0.35) 0%, transparent 48%),
+   radial-gradient(ellipse 520px 420px at 70% 70%, rgba(16, 185, 129, 0.33) 0%, transparent 45%),
+   linear-gradient(180deg, #0a2d2d 0%, #0d3535 50%, #0a2929 100%)`,
+  `radial-gradient(ellipse 680px 580px at 60% 68%, rgba(13, 148, 136, 0.39) 0%, transparent 49%),
+   radial-gradient(ellipse 620px 510px at 35% 55%, rgba(16, 185, 129, 0.34) 0%, transparent 46%),
+   radial-gradient(ellipse 560px 460px at 75% 75%, rgba(6, 182, 212, 0.31) 0%, transparent 44%),
+   linear-gradient(180deg, #0b2e2e 0%, #0e3737 50%, #0b2a2a 100%)`,
+  `radial-gradient(ellipse 720px 590px at 40% 65%, rgba(6, 182, 212, 0.4) 0%, transparent 50%),
+   radial-gradient(ellipse 660px 520px at 72% 58%, rgba(13, 148, 136, 0.37) 0%, transparent 48%),
+   radial-gradient(ellipse 580px 470px at 55% 78%, rgba(16, 185, 129, 0.32) 0%, transparent 46%),
+   linear-gradient(180deg, #0a2c2c 0%, #0d3434 50%, #0a2828 100%)`,
+  `radial-gradient(ellipse 690px 570px at 48% 67%, rgba(16, 185, 129, 0.38) 0%, transparent 49%),
+   radial-gradient(ellipse 630px 505px at 68% 52%, rgba(6, 182, 212, 0.35) 0%, transparent 47%),
+   radial-gradient(ellipse 570px 465px at 32% 73%, rgba(13, 148, 136, 0.33) 0%, transparent 45%),
+   linear-gradient(180deg, #0b2d2d 0%, #0e3636 50%, #0b2929 100%)`,
+];
 
 
-/** Reusable, professional CTA buttons for header + hero */
-const CtaButtons: React.FC<{ compact?: boolean }> = ({ compact }) => {
-  const navigate = useNavigate();
-  const pad = compact ? "px-4 py-2 text-sm" : "px-6 py-3 text-base";
-  const radius = "rounded-2xl";
-  const base =
-    `inline-flex items-center justify-center ${pad} ${radius} font-semibold ` +
-    `transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ` +
-    `focus-visible:ring-blue-400 focus-visible:ring-offset-gray-900`;
-
-  return (
-    <div className={`flex items-center ${compact ? "gap-3" : "gap-4"}`}>
-      {/* Secondary / Sign in */}
-      <button
-        onClick={() => navigate("/signin?mode=signin")}
-        className={`${base} bg-gray-800/70 text-gray-100 hover:bg-gray-700/80 active:scale-[0.98] border border-gray-700/70 shadow-sm`}
-      >
-        Sign in
-      </button>
-
-      {/* Primary / Sign up */}
-      <button
-        onClick={() => navigate("/signin?mode=signup")}
-        className={`${base} bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white shadow-lg shadow-blue-900/30 active:scale-[0.98]`}
-      >
-        Sign up with Google
-        <ArrowRight className="ml-2 h-4 w-4" />
-      </button>
-    </div>
-  );
-};
-const ClosedBetaStrip: React.FC = () => {
-  const navigate = useNavigate(); // ✅ added
-
-  return (
-    <section
-      id="beta"
-      className="mt-8 px-6 max-w-5xl mx-auto"
-    >
-      {/* Outer gradient border wrapper */}
-      <div 
-        className="relative rounded-3xl p-[2px]"
-        style={{
-          background: 'linear-gradient(135deg, #6366f1, #a855f7, #ec4899, #8b5cf6, #6366f1)',
-          backgroundSize: '200% 200%',
-          animation: 'ripple-gradient 8s ease infinite'
-        }}
-      >
-        {/* Inner content with glass effect */}
-        <div className="relative rounded-3xl bg-gray-800/60 backdrop-blur-xl border border-white/10">
-          {/* USC emphasis row */}
-          <div className="relative mb-5 flex flex-wrap items-center justify-center gap-2 pt-8">
-            <span className="inline-flex items-center rounded-full bg-white text-gray-900 px-3 py-1 text-xs font-semibold">
-              Closed Beta
-            </span>
-            <span className="text-xs text-slate-300">100 seats • 2 weeks</span>
-            <span className="inline-flex items-center rounded-full border border-fuchsia-300/40 bg-fuchsia-400/10 px-3 py-1 text-xs font-semibold text-fuchsia-200">
-              USC students prioritized
-            </span>
-          </div>
-
-          {/* Headline + subhead */}
-          <div className="relative mx-auto max-w-5xl text-center px-6">
-            <h3 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-slate-50">
-              USC Closed Beta is live
-            </h3>
-            <p className="mt-4 text-base sm:text-lg text-slate-300 leading-relaxed">
-              Validate Gmail-powered networking outreach and turn more conversations into offers—starting at USC.
-              Small weekly admit batches to protect deliverability.
-            </p>
-          </div>
-
-          {/* Primary actions (single CTA) */}
-          <div className="relative mt-7 flex items-center justify-center px-6">
-            <button
-              onClick={() => navigate('/usc-beta')} // ✅ changed
-              className="
-                inline-flex items-center justify-center
-                rounded-2xl px-7 py-3.5 text-base font-semibold text-white
-                bg-gradient-to-r from-indigo-500 to-violet-500
-                hover:from-indigo-600 hover:to-violet-600
-                shadow-lg shadow-indigo-900/30 transition
-              "
-            >
-              Join the USC Beta
-            </button>
-          </div>
-
-          {/* Divider */}
-          <div className="relative mx-auto my-12 h-px w-full bg-gradient-to-r from-transparent via-white/15 to-transparent" />
-
-          {/* --- How it works + Benefits (Side by Side) --- */}
-          <div className="relative w-full px-6">
-            <h4 className="text-center text-[28px] md:text-3xl font-extrabold tracking-tight text-slate-50 mb-10">
-              How it works
-            </h4>
-
-            <div className="max-w-[1400px] mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Left: Steps */}
-              <div>
-                <ol className="space-y-6">  
-                  {[
-                    {
-                      title: "Request Access",
-                      sub: "Tell us your use case (USC admitted first).",
-                      grad: "from-indigo-500 via-violet-500 to-fuchsia-500",
-                      chip: "bg-indigo-500",
-                    },
-                    {
-                      title: "Get an Invite",
-                      sub: "We admit in small weekly batches.",
-                      grad: "from-violet-500 via-fuchsia-500 to-indigo-500",
-                      chip: "bg-violet-500",
-                    },
-                    {
-                      title: "Start Sending",
-                      sub: "Guided setup with a safe Gmail cap during beta.",
-                      grad: "from-fuchsia-500 via-indigo-500 to-violet-500",
-                      chip: "bg-fuchsia-500",
-                    },
-                  ].map(({ title, sub, grad, chip }, i) => (
-                    <li key={title} className="relative">
-                      <div className={`rounded-2xl p-[1.5px] bg-gradient-to-r ${grad} shadow-[0_10px_40px_-10px_rgba(0,0,0,0.6)]`}>
-                        <div className="rounded-2xl bg-slate-900/70 backdrop-blur border border-white/10 px-7 py-6">
-                          <div className="flex items-start gap-5">
-                            <span className="relative inline-flex h-10 w-10 items-center justify-center rounded-full text-white text-sm font-bold">
-                              <span className={`absolute inset-0 ${chip} blur-md opacity-70`} aria-hidden />
-                              <span className="relative z-[1] rounded-full bg-white/10 h-10 w-10 grid place-items-center">
-                                {i + 1}
-                              </span>
-                            </span>
-
-                            <div className="min-w-0">
-                              <h5 className="text-[18px] font-semibold tracking-tight text-slate-100">
-                                {title}
-                              </h5>
-                              <p className="mt-1 text-sm text-slate-400 leading-relaxed">{sub}</p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-
-              {/* Right: Benefits */}
-              <div className="space-y-6">
-                {/* What you'll get */}
-                <div className="rounded-3xl p-[1.5px] bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500">
-                  <div className="rounded-3xl bg-slate-900/70 backdrop-blur border border-white/10 p-7 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.6)]">
-                    <h5 className="text-center text-sm font-semibold text-slate-100 mb-3 tracking-wide">
-                      What you'll get
-                    </h5>
-                    <ul className="mx-auto text-sm text-slate-300 leading-relaxed list-disc list-inside space-y-1.5">
-                      <li>Guided onboarding tailored for USC workflows</li>
-                      <li>Working Gmail outreach flow (no spray-and-pray)</li>
-                      <li>Fast support + quick fixes from the core team</li>
-                    </ul>
-                  </div>
-                </div>
-
-                {/* What we ask */}
-                <div className="rounded-3xl p-[1.5px] bg-gradient-to-r from-fuchsia-500 via-indigo-500 to-violet-500">
-                  <div className="rounded-3xl bg-slate-900/70 backdrop-blur border border-white/10 p-7 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.6)]">
-                    <h5 className="text-center text-sm font-semibold text-slate-100 mb-3 tracking-wide">
-                      What we ask
-                    </h5>
-                    <ul className="mx-auto text-sm text-slate-300 leading-relaxed list-disc list-inside space-y-1.5">
-                      <li>Run a real outreach use case</li>
-                      <li>Share quick feedback at key moments (1–2 min)</li>
-                      <li>Be patient with small rough edges — we ship weekly</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* --- Micro FAQ + footnote --- */}
-          <div className="relative mt-10 mb-8 text-center px-6 max-w-7xl mx-auto">
-            <details className="text-sm text-slate-300 inline-block">
-              <summary className="cursor-pointer text-slate-100/90 font-medium">Why a closed beta?</summary>
-              <p className="mt-1 text-slate-400">
-                We're validating reliability & deliverability in real student workflows before scaling beyond USC.
-              </p>
-            </details>
-            <p className="mt-3 text-[12px] text-slate-400/90">
-              Sending is available to Closed Beta users (100 seats). Request access to join a weekly batch.
-            </p>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-};
 const Index = () => {
-  const [openFaq, setOpenFaq] = useState<number | null>(null);
   const navigate = useNavigate();
+  const { theme } = useTheme();
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [activeScene, setActiveScene] = useState(0);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [parallaxOffset, setParallaxOffset] = useState(0);
+  const sectionRefs = useRef<(HTMLElement | null)[]>([]);
 
-  const toggleFaq = (index: number) => {
-    setOpenFaq(openFaq === index ? null : index);
-  };
+  // Handle scroll for scene transitions and parallax
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollY = window.scrollY;
+      const windowHeight = window.innerHeight;
+      
+      // Parallax effect (Layer 1 moves slower)
+      setParallaxOffset(scrollY * 0.3);
+      
+      // Determine active scene based on scroll position
+      sectionRefs.current.forEach((section, index) => {
+        if (section) {
+          const rect = section.getBoundingClientRect();
+          if (rect.top <= windowHeight * 0.5 && rect.bottom >= windowHeight * 0.5) {
+            setActiveScene(index);
+          }
+        }
+      });
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Background images array - add your three images here once they're in the assets folder
+  const backgroundImages: string[] = [
+    // Uncomment and update these once you add the images:
+    // cityscapeImage,
+    // officeImage,
+    // coffeeShopImage,
+  ];
 
   return (
-    <div className="min-h-screen bg-gray-[#0a0d1a] text-white">
-      {/* Header */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-gray-900/90 backdrop-blur-md border-b border-gray-800">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-8">
-            <div className="flex items-center gap-2">
-              <span 
-                className="text-2xl font-bold text-white cursor-pointer"
-                onClick={() => navigate("/")}
-              >
-                Offer<span className="bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">loop</span>.ai
-              </span>
-               
-              <span className="bg-white text-gray-900 text-xs font-semibold px-2 py-1 rounded-md">
-                BETA
-              </span>
+    <div className="min-h-screen text-foreground bg-background transition-colors duration-300">
+      {/* ============================================
+          Dynamic Gradient Background (Theme-aware)
+          ============================================ */}
+      <DynamicGradientBackground />
+      
+      {/* ============================================
+          Dynamic Background - Cycles through office, coffee shop, and city
+          ============================================ */}
+      {backgroundImages.length > 0 && (
+        <DynamicBackground 
+          images={backgroundImages}
+          transitionDuration={8} // Each image displays for 8 seconds
+          fadeDuration={2} // 2 second crossfade transition
+        />
+      )}
+
+      {/* Theme Toggle Button */}
+      <ThemeToggle />
+
+      {/* ============================================
+          Content Layer
+          ============================================ */}
+      <div className="relative z-10">
+        
+        {/* Floating Glass Navigation */}
+        <header className="fixed top-4 left-4 right-4 z-50 glass-nav rounded-2xl max-w-7xl mx-auto">
+          <div className="px-6 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-8">
+              <Logo size="md" />
+              <nav className="hidden md:flex items-center gap-6">
+                {['Features', 'Pricing', 'Privacy', 'About'].map((item) => {
+                  const href = item === 'Privacy' ? '#privacy-lock' : `#${item.toLowerCase()}`;
+                  return (
+                    <a
+                      key={item}
+                      href={href}
+                      className="text-sm text-gray-300 hover:text-blue-400 transition-colors link-slide"
+                    >
+                      {item}
+                    </a>
+                  );
+                })}
+              </nav>
             </div>
-            <nav className="hidden md:flex items-center gap-6">
-              <a href="#features" className="text-gray-300 hover:text-white transition-colors">Features</a>
-              <a 
-                href="#pricing" 
-                className="text-gray-300 hover:text-white transition-colors"
-                onClick={(e) => {
-                  e.preventDefault();
-                  document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' });
-                }}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => navigate("/signin?mode=signin")}
+                className="btn-secondary-glass px-4 py-2 text-sm"
               >
-                Pricing
-              </a>
-              <a 
-                href="#privacy" 
-                className="text-gray-300 hover:text-white transition-colors"
-                onClick={(e) => {
-                  e.preventDefault();
-                  document.getElementById('privacy')?.scrollIntoView({ behavior: 'smooth' });
-                }}
+                Sign in
+              </button>
+              <button
+                onClick={() => navigate("/signin?mode=signup")}
+                className="btn-primary-glass px-4 py-2 text-sm flex items-center gap-2"
               >
-                Privacy
-              </a>
-              <a 
-                href="#about" 
-                className="text-gray-300 hover:text-white transition-colors"
-                onClick={(e) => {
-                  e.preventDefault();
-                  document.getElementById('about')?.scrollIntoView({ behavior: 'smooth' });
-                }}
-              >
-                About
-              </a>
-            </nav>
+                Sign up <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
-          {/* Header CTAs (compact) */}
-          <div className="hidden md:flex items-center">
-            <CtaButtons compact />
-          </div>
-        </div>
-      </header>
- 
- 
-      {/* Hero Section */}
-      <section className="relative min-h-screen flex flex-col items-center justify-center px-6 overflow-hidden bg-[#0a0d1a]">
-        <div className="w-full mx-auto text-center">
-          <div className="max-w-4xl mx-auto mb-8">
-              <h1 className="text-8xl md:text-[7rem] font-bold mb-12 leading-tight mt-32">
-              Recruiting On <span className="bg-gradient-to-r from-blue-400 via-purple-400 to-blue-400 bg-[length:200%_auto] bg-clip-text text-transparent animate-gradient">Autopilot</span>
+        </header>
+
+        {/* Hero Section */}
+        <section 
+          ref={(el) => { sectionRefs.current[0] = el; }}
+          className="min-h-screen pt-40 pb-24 relative"
+          data-scene="0"
+          style={{ overflow: 'clip' }}
+        >
+          {/* Hero Text - Full Width Centered */}
+          <div className="max-w-7xl mx-auto px-12 text-center mb-20">
+            <h1 className="text-hero mb-10 max-w-5xl mx-auto" style={{ overflow: 'visible', lineHeight: '1.2', padding: '0.5rem 1rem' }}>
+              <span className="block text-white tracking-tight" style={{ padding: '0.25rem 0.5rem' }}>Recruiting</span>
+              <span className="block tracking-tight" style={{ padding: '0.25rem 0.5rem' }}>
+                <span className="text-white">On </span>
+                <span className="text-autopilot-gradient italic" style={{ padding: '0.125rem 0.5rem', overflow: 'visible', marginRight: '0.25rem' }}>Autopilot</span>
+              </span>
             </h1>
-              <p className="text-xl text-gray-300 mb-8 leading-relaxed">
+            <p className="text-2xl text-gray-300 mb-12 max-w-3xl mx-auto">
               We take the tedious, repetitive work out of recruiting.
             </p>
             <button
               onClick={() => navigate("/signin?mode=signup")}
-              className="inline-flex items-center justify-center px-8 py-4 text-lg font-semibold rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white shadow-lg shadow-blue-900/30 transition-all active:scale-[0.98] mb-16"
+              className="btn-primary-glass px-12 py-5 text-lg rounded-2xl pulse-glow inline-flex items-center gap-3"
             >
-              Try it out
-              <ArrowRight className="ml-2 h-5 w-5" />
+              Try it out <ArrowRight className="h-5 w-5" />
             </button>
+            
+            {/* CircularGallery Component - 3D circular gallery showing screenshots */}
+            <div className="w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] mt-12 overflow-visible" style={{ minHeight: '600px', height: '700px', zIndex: 100, isolation: 'isolate', transform: 'translateZ(0)', willChange: 'transform' }}>
+              <CircularGallery
+                items={[
+                  { image: 'https://picsum.photos/seed/1/800/600', text: 'Screenshot 1' },
+                  { image: 'https://picsum.photos/seed/2/800/600', text: 'Screenshot 2' },
+                  { image: 'https://picsum.photos/seed/3/800/600', text: 'Screenshot 3' },
+                  { image: 'https://picsum.photos/seed/4/800/600', text: 'Screenshot 4' },
+                  { image: 'https://picsum.photos/seed/5/800/600', text: 'Screenshot 5' },
+                ]}
+                bend={3}
+                textColor={theme === 'light' ? '#1e293b' : '#ffffff'}
+                borderRadius={0.05}
+                font="bold 24px sans-serif"
+                scrollSpeed={2}
+                scrollEase={0.05}
+              />
+            </div>
+            
+            {/* Title underneath carousel */}
+            <div className="text-center mt-8 mb-16">
+              <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-3 text-white dark:text-white text-slate-900 dark:text-white">
+                <span className="text-cyan-400 dark:text-cyan-400 text-cyan-600 dark:text-cyan-400">Search</span> to <span className="text-cyan-400 dark:text-cyan-400 text-cyan-600 dark:text-cyan-400">success</span>
+              </h2>
+              <p className="text-lg md:text-xl text-gray-300 dark:text-gray-300 text-slate-600 dark:text-gray-300 max-w-2xl mx-auto">
+                We guide you <span className="text-cyan-400 dark:text-cyan-400 text-cyan-600 dark:text-cyan-400">every step</span>
+              </p>
+            </div>
           </div>
-        </div>
-        
-        {/* Demo videos */}
-        <div className="w-full mt-16 px-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 max-w-[1800px] mx-auto">
-            <figure className="relative overflow-hidden rounded-2xl border border-white/10 bg-black/40 shadow-2xl transform hover:scale-[1.02] transition-transform">
-              <video
-                autoPlay
-                loop
-                muted
-                playsInline
-                className="w-full pointer-events-none"
-                style={{ aspectRatio: "16 / 9" }}
+
+
+        </section>
+
+        {/* Product Tour Section */}
+        <section 
+          ref={(el) => { sectionRefs.current[1] = el; }}
+          data-scene="1"
+          className="relative"
+          style={{ marginTop: '-1px' }}
+        >
+          <ProductTour />
+        </section>
+
+        {/* Testimonials Section */}
+        <section 
+          ref={(el) => { sectionRefs.current[3] = el; }}
+          className="py-24 px-6 overflow-hidden relative"
+          data-scene="3"
+          style={{ marginTop: '-1px' }}
+        >
+          <div className="max-w-full mx-auto">
+            <div className="text-center mb-16">
+              <h2 className="text-display-lg mb-4 text-white dark:text-white text-slate-900 dark:text-white">
+                Hear from our <span className="gradient-text-teal">Real Customers</span>
+              </h2>
+              <p className="text-xl text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">
+                Used by hundreds of students across the country with offers received from top tier firms
+              </p>
+            </div>
+
+            {/* Company Logos */}
+            <div className="mb-16">
+              <Marquee 
+                gradient={true} 
+                gradientColor="hsl(var(--background))" 
+                gradientWidth={200} 
+                speed={50} 
+                direction="right"
               >
-                <source src={proSearchVideo} type="video/mp4" />
-              </video>
-              <figcaption className="px-6 py-5 text-center text-xl font-semibold text-slate-200 border-t border-white/10">
-                Offerloop — Professional Search
-              </figcaption>
-            </figure>
-
-            <figure className="relative overflow-hidden rounded-2xl border border-white/10 bg-black/40 shadow-2xl transform hover:scale-[1.02] transition-transform">
-              <video
-                autoPlay
-                loop
-                muted
-                playsInline
-                className="w-full pointer-events-none"
-                style={{ aspectRatio: "16 / 9" }}
-              >
-                <source src={directoryVideo} type="video/mp4" />
-              </video>
-              <figcaption className="px-6 py-5 text-center text-xl font-semibold text-slate-200 border-t border-white/10">
-                Contact Directory & Emails
-              </figcaption>
-            </figure>
-          </div>
-        </div>
-      </section>
-      
-      <ClosedBetaStrip />
-{/* Why Choose Section */}
-      <section className="py-24 px-6 bg-[#0a0d1a]">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl md:text-5xl font-bold mb-6 flex items-center justify-center">
-              Why Choose&nbsp;
-            <span className="bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">
-              Offerloop.ai?
-            </span>
-            
-            
-            
-          </h2>
-            <p className="text-xl text-gray-300">
-              Everything you need to streamline your recruiting process and land the best opportunities — in less time.
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-16 items-center mb-20">
-            <div>
-              <h3 className="text-3xl font-bold mb-6 text-blue-400">Smart Matching</h3>
-              <p className="text-xl text-gray-300 mb-8">
-                Our AI-powered algorithm connects the right talent with the right opportunities based on skills, experience, and culture fit.
-              </p>
-              <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-8 border border-gray-700">
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-                    <span className="text-gray-300">Skills-based matching</span>
+                {[
+                  { src: McKinseyLogo, alt: 'McKinsey' },
+                  { src: EvercoreLogo, alt: 'Evercore' },
+                  { src: GoldmanSachsLogo, alt: 'Goldman Sachs' },
+                  { src: BainLogo, alt: 'Bain' },
+                  { src: MorganStanleyLogo, alt: 'Morgan Stanley' },
+                  { src: BlackstoneLogo, alt: 'Blackstone' },
+                  { src: PwCLogo, alt: 'PwC' },
+                  { src: JPMorganLogo, alt: 'J.P. Morgan' },
+                  { src: BarclaysLogo, alt: 'Barclays' },
+                ].map(({ src, alt }) => (
+                  <div key={alt} className="flex items-center mx-12">
+                    <img src={src} alt={alt} className="h-12 md:h-14 w-auto opacity-60 hover:opacity-100 transition-opacity" />
                   </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
-                    <span className="text-gray-300">Culture fit analysis</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-3 h-3 bg-pink-500 rounded-full"></div>
-                    <span className="text-gray-300">Experience alignment</span>
-                  </div>
-                </div>
-              </div>
+                ))}
+              </Marquee>
             </div>
-            <div className="bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-2xl p-8 backdrop-blur-sm border border-gray-700">
-              <img 
-                src={smartMatchingImage} 
-                alt="Smart Matching visualization" 
-                className="w-full h-64 object-contain rounded-xl"
-              />
-            </div>
-          </div>
 
-          <div className="grid md:grid-cols-2 gap-16 items-center mb-20">
-            <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 rounded-2xl p-8 backdrop-blur-sm border border-gray-700 md:order-1">
-              <img 
-                src={topTierImage} 
-                alt="Top-tier Mentorship visualization" 
-                className="w-full h-64 object-contain rounded-xl"
-              />
-            </div>
-            <div className="md:order-2">
-              <h3 className="text-3xl font-bold mb-6 text-purple-400">Top-tier Mentorship</h3>
-              <p className="text-xl text-gray-300 mb-8">
-                Get counseling from top talent and professionals across multiple industries to maximize your opportunity at landing your dream job.
-              </p>
-              <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-700">
-                <p className="text-gray-300 italic">
-                  "Connect with industry professionals who can guide you through the recruiting process and help you prepare for success."
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-16 items-center">
-            <div>
-              <h3 className="text-3xl font-bold mb-6 text-green-400">Analytics & Insights</h3>
-              <p className="text-xl text-gray-300 mb-8">
-                Track your hiring metrics, measure success rates, and optimize your recruitment process with detailed analytics.
-              </p>
-              <div className="space-y-4">
-                <div className="bg-gray-800/50 backdrop-blur-sm rounded-lg p-4 border border-gray-700 flex items-center justify-between">
-                  <span className="text-gray-300">Applications Sent</span>
-                  <span className="text-green-400 text-lg font-bold">247</span>
-                </div>
-                <div className="bg-gray-800/50 backdrop-blur-sm rounded-lg p-4 border border-gray-700 flex items-center justify-between">
-                  <span className="text-gray-300">Response Rate</span>
-                  <span className="text-blue-400 text-lg font-bold">34%</span>
-                </div>
-                <div className="bg-gray-800/50 backdrop-blur-sm rounded-lg p-4 border border-gray-700 flex items-center justify-between">
-                  <span className="text-gray-300">Interviews Scheduled</span>
-                  <span className="text-purple-400 text-lg font-bold">12</span>
-                </div>
-              </div>
-            </div>
-            <div className="bg-gradient-to-br from-green-500/20 to-blue-500/20 rounded-2xl p-8 backdrop-blur-sm border border-gray-700">
-              <img 
-                src={analyticsImage} 
-                alt="Analytics & Insights visualization" 
-                className="w-full h-64 object-contain rounded-xl"
-              />
-            </div>
-          </div>
-        </div>
-      </section>
-      {/* Smart Filter Section */}
-      <section id="features" className="py-24 px-6 bg-[#0a0d1a]">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid md:grid-cols-2 gap-16 items-center mb-20">
-            <div>
-              <h3 className="text-3xl font-bold mb-6 text-blue-400 flex items-center gap-3">
-                2 Billion+ Professionals
-                <BetaBadge size="xs" variant="outline" />
-              </h3>
-              <p className="text-xl text-gray-300 mb-8">
-                Access the world's largest database of professional contacts with advanced filtering capabilities to find exactly who you're looking for.
-              </p>
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
-                  <span className="text-gray-300">Advanced search filters</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
-                  <span className="text-gray-300">Real-time data updates</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
-                  <span className="text-gray-300">Global coverage</span>
-                </div>
-              </div>
-            </div>
-            <div className="relative rounded-2xl overflow-hidden border border-blue-500/30 bg-gradient-to-br from-gray-900 to-gray-800" style={{ height: '500px' }}>
-              <img 
-                src={twoBillionImage} 
-                alt="Global professional network visualization" 
-                className="w-full h-full object-contain p-4"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-gray-900/90 via-transparent to-transparent flex items-end justify-center pb-8">
-                <div className="text-center">
-                  <div className="text-5xl font-bold text-white mb-2 drop-shadow-lg">2B+</div>
-                  <div className="text-xl text-gray-200 drop-shadow-lg">Professional Contacts</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-16 items-center">
-            <div className="relative rounded-2xl overflow-hidden border border-purple-500/30 bg-gradient-to-br from-gray-900 to-gray-800" style={{ height: '500px' }}>
-              <img 
-                src={aiPersonalImage} 
-                alt="AI-powered personalization engine visualization" 
-                className="w-full h-full object-contain p-4"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-gray-900/90 via-transparent to-transparent flex items-end justify-center pb-8">
-                <div className="text-center">
-                  <div className="text-5xl font-bold text-white mb-2 drop-shadow-lg">AI Powered</div>
-                  <div className="text-xl text-gray-200 drop-shadow-lg">Personalization Engine</div>
-                </div>
-              </div>
-            </div>
-            <div>
-              <h3 className="text-3xl font-bold mb-6 text-purple-400 flex items-center gap-3">
-                AI Personalizations
-                <BetaBadge size="xs" variant="outline" />
-              </h3>
-
-              <p className="text-xl text-gray-300 mb-8">
-                Maximize your response rate and recruitment success with hyper personalized emails curated to capture attention.
-              </p>
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
-                  <span className="text-gray-300">Personalized email generation</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
-                  <span className="text-gray-300">Context-aware messaging</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
-                  <span className="text-gray-300">Higher response rates</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      
-
-
-      {/* Reviews Section */}
-      <section className="py-24 px-6 md:px-12 lg:px-20 overflow-hidden bg-[#0a0d1a]">
-        <div className="w-full max-w-full mx-auto">
-          {/* Header */}
-          <div className="text-center mb-20">
-            <h2 className="text-6xl md:text-7xl font-bold mb-4 leading-relaxed">Hear from our<br /><span className="bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">Real Customers</span></h2>
-            <p className="text-lg md:text-xl text-gray-500">Used by hundreds of students across the country with offers received from top tier firms</p>
-          </div>
-
-          {/* Company Logos Marquee */}
-          <div className="mb-20">
-            <Marquee
-              gradient={true}
-              gradientColor="#0a0d1a"
-              gradientWidth={250}
-              speed={50}
-              direction="right"
+            {/* Reviews */}
+            <Marquee 
+              gradient={true} 
+              gradientColor="hsl(var(--background))" 
+              gradientWidth={300} 
+              speed={80} 
+              pauseOnHover={true}
             >
-              <div className="flex items-center mx-12">
-                <img
-                  src={McKinseyLogo}
-                  alt="McKinsey"
-                  className="h-14 md:h-16 w-auto opacity-70"
-                />
-              </div>
-              <div className="flex items-center mx-12">
-                <img
-                  src={EvercoreLogo}
-                  alt="Evercore"
-                  className="h-10 md:h-12 w-auto opacity-70"
-                />
-              </div>
-              <div className="flex items-center mx-12">
-                <img
-                  src={GoldmanSachsLogo}
-                  alt="Goldman Sachs"
-                  className="h-14 md:h-16 w-auto opacity-70"
-                />
-              </div>
-              <div className="flex items-center mx-12">
-                <img
-                  src={BainLogo}
-                  alt="Bain"
-                  className="h-14 md:h-16 w-auto opacity-70"
-                />
-              </div>
-              <div className="flex items-center mx-12">
-                <img
-                  src={MorganStanleyLogo}
-                  alt="Morgan Stanley"
-                  className="h-14 md:h-16 w-auto opacity-70"
-                />
-              </div>
-              <div className="flex items-center mx-12">
-                <img
-                  src={BlackstoneLogo}
-                  alt="Blackstone"
-                  className="h-14 md:h-16 w-auto opacity-70"
-                />
-              </div>
-               <div className="flex items-center mx-8 ml-20">
-                <img
-                  src={PwCLogo}
-                  alt="PwC"
-                  className="h-14 md:h-16 w-auto opacity-70"
-                />
-              </div>
-              <div className="flex items-center mx-12">
-                <img
-                  src={JPMorganLogo}
-                  alt="J.P. Morgan"
-                  className="h-14 md:h-16 w-auto opacity-70"
-                />
-              </div>
-              <div className="flex items-center mx-12">
-                <img
-                  src={BarclaysLogo}
-                  alt="Barclays"
-                  className="h-10 md:h-12 w-auto opacity-70"
-                />
-              </div>
+              {[
+                { name: 'Dylan Roby', role: 'Evercore, Investment Banking Analyst', img: DylanRoby, quote: "Offerloop does the work that I had spent hundreds of hours doing to land my internship… in mere minutes." },
+                { name: 'Sarah Ucuzoglu', role: 'PwC, Financial Advisory Intern', img: SaraUcuzoglu, quote: "Having the ability to automate the cold reach out process allows for more time spent face to face with a professional." },
+                { name: 'Jackson Leck', role: 'Blackstone, Private Equity Intern', img: JacksonLeck, quote: "I would have so many recruiting tabs open... with Offerloop I have one. Everything I need in a single place." },
+                { name: 'Eli Hamou', role: 'Deloitte, Audit Intern', img: EliHamou, quote: "This platform completely transformed how I approach networking. The time I save allows me to focus on what really matters." },
+                { name: 'Lucas Turcuato', role: 'Barclays, Investment Banking Analyst', img: LucasTurcuato, quote: "Game changer for recruiting season. I went from stressed to organized in minutes." },
+              ].map(({ name, role, img, quote }) => {
+                // All testimonials use the same blue color scheme
+                const color = { light: 'rgba(59, 130, 246, 0.08)', border: 'rgba(59, 130, 246, 0.25)', class: 'testimonial-blue' };
+                return (
+                <div 
+                  key={name} 
+                  className={`glass-card rounded-2xl p-8 mx-4 w-[420px] h-[380px] flex flex-col justify-between relative overflow-hidden ${theme === 'light' ? color.class : ''}`}
+                  style={{
+                    borderColor: theme === 'light' ? color.border : 'var(--glass-border)',
+                  }}
+                >
+                  {/* Color accent overlay for light mode */}
+                  {theme === 'light' && (
+                    <div 
+                      className="absolute inset-0 pointer-events-none rounded-2xl"
+                      style={{
+                        background: `linear-gradient(135deg, ${color.light} 0%, transparent 50%)`,
+                      }}
+                    />
+                  )}
+                  <div className="relative z-10 flex flex-col h-full">
+                    <div className="flex-1">
+                      <img src={FiveStarReview} alt="5 star rating" className="w-24 mb-4" />
+                      <p className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 italic text-lg leading-relaxed">"{quote}"</p>
+                    </div>
+                    <div className="flex items-center gap-4 mt-auto pt-6">
+                      <img 
+                        src={img} 
+                        alt={name} 
+                        className="w-14 h-14 rounded-full object-cover border"
+                        style={{
+                          borderColor: theme === 'light' ? color.border : 'rgba(59, 130, 246, 0.3)',
+                        }}
+                      />
+                      <div>
+                        <div className="font-semibold text-white dark:text-white text-slate-900 dark:text-white">{name}</div>
+                        <div className="text-sm text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">{role}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                );
+              })}
             </Marquee>
           </div>
-          
-          {/* Reviews Carousel */}
-          <Marquee
-            gradient={true}
-            gradientColor="#0a0d1a"
-            gradientWidth={343}
-            speed={100}
-            pauseOnHover={true}
-          >
-            {/* Review 1 - Dylan Roby */}
-            <div className="flex flex-col justify-between bg-black/50 backdrop-blur-sm rounded-2xl p-10 border border-gray-700 mx-4 w-[480px] h-[500px]">
-              <div>
-                <div className="flex items-start mb-8">
-                  <img
-                    src={FiveStarReview}
-                    alt="5 star rating"
-                    className="w-[130px] h-auto object-contain"
-                  />
-                </div>
-                <p className="text-gray-300 mb-10 italic text-xl leading-relaxed">
-                  "Offerloop does the work that I had spent hundreds of hours doing to land my internship… in mere minutes. The platform is incredibly intuitive and saves me so much time during recruiting season."
-                </p>
-              </div>
-              <div className="flex items-center gap-5">
-                <img
-                  src={DylanRoby}
-                  alt="Dylan Roby"
-                  className="w-20 h-20 rounded-full object-cover border border-gray-600 shadow-md"
-                />
-                <div>
-                  <div className="font-semibold text-xl">Dylan Roby</div>
-                  <div className="text-gray-400 text-base">Evercore, Investment Banking Analyst</div>
-                </div>
-              </div>
-            </div>
+        </section>
 
-            {/* Review 2 - Sarah Ucuzoglu */}
-            <div className="flex flex-col justify-between bg-black/50 backdrop-blur-sm rounded-2xl p-10 border border-gray-700 mx-4 w-[480px] h-[500px]">
-              <div>
-                <div className="flex items-start mb-8">
-                  <img
-                    src={FiveStarReview}
-                    alt="5 star rating"
-                    className="w-[130px] h-auto object-contain"
-                  />
-                </div>
-                <p className="text-gray-300 mb-10 italic text-xl leading-relaxed">
-                  "Having the ability to automate the cold reach out process allows for more time spent face to face with a professional and less time behind spreadsheets. It's been a game-changer for my networking."
-                </p>
-              </div>
-              <div className="flex items-center gap-5">
-                <img
-                  src={SaraUcuzoglu}
-                  alt="Sarah Ucuzoglu"
-                  className="w-20 h-20 rounded-full object-cover border border-gray-600 shadow-md"
-                />
-                <div>
-                  <div className="font-semibold text-xl">Sarah Ucuzoglu</div>
-                  <div className="text-gray-400 text-base">PwC, Financial Advisory Intern</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Review 3 - Jackson Leck */}
-            <div className="flex flex-col justify-between bg-black/50 backdrop-blur-sm rounded-2xl p-10 border border-gray-700 mx-4 w-[480px] h-[500px]">
-              <div>
-                <div className="flex items-start mb-8">
-                  <img
-                    src={FiveStarReview}
-                    alt="5 star rating"
-                    className="w-[130px] h-auto object-contain"
-                  />
-                </div>
-                <p className="text-gray-300 mb-10 italic text-xl leading-relaxed">
-                  "I would have so many recruiting tabs open with LinkedIn, Excel, Gmail, Google, Chat GPT... with Offerloop I have one. Everything I need in a single place makes my workflow so much smoother."
-                </p>
-              </div>
-              <div className="flex items-center gap-5">
-                <img
-                  src={JacksonLeck}
-                  alt="Jackson Leck"
-                  className="w-20 h-20 rounded-full object-cover border border-gray-600 shadow-md"
-                />
-                <div>
-                  <div className="font-semibold text-xl">Jackson Leck</div>
-                  <div className="text-gray-400 text-base">Blackstone, Private Equity Intern</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Review 4 - Eli Hamou */}
-            <div className="flex flex-col justify-between bg-black/50 backdrop-blur-sm rounded-2xl p-10 border border-gray-700 mx-4 w-[480px] h-[500px]">
-              <div>
-                <div className="flex items-start mb-8">
-                  <img
-                    src={FiveStarReview}
-                    alt="5 star rating"
-                    className="w-[130px] h-auto object-contain"
-                  />
-                </div>
-                <p className="text-gray-300 mb-10 italic text-xl leading-relaxed">
-                  "This platform completely transformed how I approach networking. The time I save allows me to focus on what really matters—building genuine connections and preparing for interviews."
-                </p>
-              </div>
-              <div className="flex items-center gap-5">
-                <img
-                  src={EliHamou}
-                  alt="Eli Hamou"
-                  className="w-20 h-20 rounded-full object-cover border border-gray-600 shadow-md"
-                />
-                <div>
-                  <div className="font-semibold text-xl">Eli Hamou</div>
-                  <div className="text-gray-400 text-base">Deloitte, Audit Intern</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Review 5 - Lucas Turcuato */}
-            <div className="flex flex-col justify-between bg-black/50 backdrop-blur-sm rounded-2xl p-10 border border-gray-700 mx-4 w-[480px] h-[500px]">
-              <div>
-                <div className="flex items-start mb-8">
-                  <img
-                    src={FiveStarReview}
-                    alt="5 star rating"
-                    className="w-[130px] h-auto object-contain"
-                  />
-                </div>
-                <p className="text-gray-300 mb-10 italic text-xl leading-relaxed">
-                  "Game changer for recruiting season. I went from stressed to organized in minutes. Highly recommend to anyone serious about landing offers at top firms. This tool is essential."
-                </p>
-              </div>
-              <div className="flex items-center gap-5">
-                <img
-                  src={LucasTurcuato}
-                  alt="Lucas Turcuato"
-                  className="w-20 h-20 rounded-full object-cover border border-gray-600 shadow-md"
-                />
-                <div>
-                  <div className="font-semibold text-xl">Lucas Turcuato</div>
-                  <div className="text-gray-400 text-base">Barclays, Investment Banking Analyst</div>
-                </div>
-              </div>
-            </div>
-          </Marquee>
-        </div>
-      </section>
-      
-      {/* Pricing Section */}
-      <section id="pricing" className="py-24 px-6 bg-[#0a0d1a]">
-        <div className="max-w-6xl mx-auto">
-           <div className="text-center mb-24">
-            <h2 className="text-5xl lg:text-7xl font-bold mb-6">
-              Start <span className="bg-gradient-to-r from-blue-400 via-purple-400 to-blue-400 bg-[length:200%_auto] bg-clip-text text-transparent animate-gradient">Connecting</span> Today
+        {/* Pricing Section */}
+        <section 
+          ref={(el) => { sectionRefs.current[4] = el; }}
+          id="pricing" 
+          className="py-24 px-6 relative"
+          data-scene="4"
+          style={{ marginTop: '-1px' }}
+        >
+          <div className="max-w-5xl mx-auto">
+            <h2 className="text-display-lg text-center mb-16 text-white dark:text-white text-slate-900 dark:text-white">
+              Start <span className="gradient-text-teal">Connecting</span> Today
             </h2>
-          </div>
 
-
-          <div className="flex justify-center">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-6xl w-full scale-110">
+            <div className="grid md:grid-cols-2 gap-8">
               {/* Free Plan */}
-              <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-8 backdrop-blur-sm">
-                <div className="text-center mb-8">
-                  <h3 className="text-3xl font-bold mb-3 text-white">Free</h3>
-                  <p className="text-gray-400">Try out platform risk free</p>
+              <div className="glass-card p-8 rounded-3xl">
+                <div className="mb-6">
+                  <h3 className="text-2xl font-bold text-white dark:text-white text-slate-900 dark:text-white">Free</h3>
+                  <p className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">Try out platform risk free</p>
                 </div>
-
-                <div className="space-y-4 mb-8">
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300">150 credits (10 emails)</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300">Estimated time saved: 250 minutes</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300">Try out platform risk free</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300">Limited Features</span>
-                  </div>
+                <div className="space-y-3 mb-8">
+                  {[
+                    '150 credits (10 emails)',
+                    'Estimated time saved: 250 minutes',
+                    'Try out platform risk free',
+                    'Limited Features'
+                  ].map((item) => (
+                    <div key={item} className="flex items-center gap-3">
+                      <Check className="h-5 w-5 text-blue-400 dark:text-blue-400 text-blue-600 dark:text-blue-400" />
+                      <span className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">{item}</span>
+                    </div>
+                  ))}
                 </div>
-
                 <button 
-                  className="w-full py-4 px-6 rounded-lg font-semibold text-white bg-slate-700 hover:bg-slate-600 transition-colors"
                   onClick={() => navigate("/signin?mode=signup")}
+                  className="btn-secondary-glass w-full py-4"
                 >
                   Start for free
                 </button>
               </div>
 
               {/* Pro Plan */}
-              <div className="relative bg-gradient-to-br from-blue-600/20 to-purple-600/20 border-2 border-blue-500/50 rounded-xl p-8 backdrop-blur-sm">
-                <div className="absolute top-4 right-4">
-                  <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded-full font-medium">
-                    RECOMMENDED
+              <div className="relative">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-gradient-to-r from-blue-500 to-cyan-500 dark:from-blue-500 dark:to-cyan-500 rounded-full text-xs font-semibold text-white z-10">
+                  RECOMMENDED
+                </div>
+                <div className="glass-card p-8 rounded-3xl border-blue-500/30 dark:border-blue-500/30 border-blue-300/50 dark:border-blue-500/30 glow-teal">
+                  <div className="mb-6">
+                    <h3 className="text-2xl font-bold text-white dark:text-white text-slate-900 dark:text-white">Pro</h3>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-gray-500 dark:text-gray-500 text-slate-500 dark:text-gray-500 line-through">$34.99</span>
+                      <span className="text-3xl font-bold text-blue-400 dark:text-blue-400 text-blue-600 dark:text-blue-400">$8.99</span>
+                      <span className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">/month</span>
+                    </div>
+                    <p className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">1800 credits</p>
+                  </div>
+                  <div className="space-y-3 mb-8">
+                    {[
+                      '1800 credits (120 emails)',
+                      'Estimated time saved: 2500 minutes',
+                      'Everything in free plus:',
+                      'Directory permanently saves',
+                      'Priority Support',
+                      'Advanced features'
+                    ].map((item) => (
+                      <div key={item} className="flex items-center gap-3">
+                        <Check className="h-5 w-5 text-blue-400 dark:text-blue-400 text-blue-600 dark:text-blue-400" />
+                        <span className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">{item}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button 
+                    onClick={() => navigate("/signin?mode=signup")}
+                    className="btn-primary-glass w-full py-4"
+                  >
+                    Start now
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* About Section */}
+        <section 
+          ref={(el) => { sectionRefs.current[5] = el; }}
+          id="about" 
+          className="py-24 px-6 relative"
+          data-scene="5"
+          style={{ marginTop: '-1px' }}
+        >
+          <div className="max-w-7xl mx-auto">
+            <div className="grid md:grid-cols-2 gap-16">
+              {/* Mission */}
+              <div className="glass-card p-10 rounded-3xl">
+                <h2 className="text-4xl font-bold mb-6 text-white dark:text-white text-slate-900 dark:text-white">
+                  Our <span className="gradient-text-teal">Mission</span>
+                </h2>
+                <p className="text-lg text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 leading-relaxed mb-6">
+                  To make it easier for students and young professionals to connect, stand out and land better opportunities.
+                </p>
+                <p className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 leading-relaxed">
+                  By cutting down the time to send emails and prep for calls by 90%, we save our users hundreds of hours of work and stress, giving them back time to focus on what matters: learning, growing and enjoying your best years.
+                </p>
+              </div>
+
+              {/* Story */}
+              <div className="glass-card p-10 rounded-3xl">
+                <h3 className="text-3xl font-bold mb-6 text-white dark:text-white text-slate-900 dark:text-white">Our Story</h3>
+                <div className="space-y-4 text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 leading-relaxed">
+                  <p>
+                    Offerloop is a platform built by students, for students and young professionals, with one goal: to make it easier to connect with professionals, stand out, and land great opportunities.
+                  </p>
+                  <p>
+                    At USC, we saw countless students spending hours filling out spreadsheets and sending emails. Networking is essential — but the process is slow, stressful, and exhausting.
+                  </p>
+                  <p>
+                    We built Offerloop to fix that. Our platform automates outreach and organizes your recruiting workflow, helping you spend less time on tedious work and more time building real connections.
+                  </p>
+                </div>
+                <button
+                  onClick={() => navigate("/signin?mode=signup")}
+                  className="btn-primary-glass mt-8 px-6 py-3"
+                >
+                  Get started today →
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Footer */}
+        <footer className="py-16 px-6 border-t border-white/5 dark:border-white/5 border-slate-300/20 dark:border-white/5">
+          <div className="max-w-7xl mx-auto">
+            <div className="grid md:grid-cols-4 gap-8 mb-12">
+              <div className="md:col-span-2" id="privacy-lock">
+                <ExpandablePrivacyLock />
+                <div className="flex items-center gap-2 mb-6">
+                  <span className="text-2xl font-bold text-white dark:text-white text-slate-900 dark:text-white">
+                    offer<span className="gradient-text-teal">loop</span>
                   </span>
                 </div>
-                
-                <div className="text-center mb-8">
-                  <h3 className="text-3xl font-bold mb-3 text-blue-400">Pro</h3>
-                  <div className="mb-2">
-                    <span className="text-gray-500 text-xl line-through mr-2">$34.99</span>
-                    <span className="text-3xl font-bold text-white">$8.99</span>
-                    <span className="text-gray-400 text-lg ml-1">/month</span>
-                  </div>
-                  <p className="text-gray-300">1800 credits</p>
-                </div>
-
-                <div className="space-y-4 mb-8">
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300">1800 credits (120 emails) </span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300">Estimated time saved: 2500 minutes</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300">Everything in free plus:</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300">Directory permanently saves</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300">Priority Support</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300">Advanced features</span>
+                <p className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 mb-6 max-w-md">
+                  Fundamentally changing how you recruit by taking the tedious, repetitive work out of the process. Connect with professionals and build the career you're excited about.
+                </p>
+                <div>
+                  <h4 className="font-semibold text-white dark:text-white text-slate-900 dark:text-white mb-3">Follow Us</h4>
+                  <div className="flex gap-4">
+                    <a 
+                      href="https://twitter.com/offerloop" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="w-10 h-10 glass-card-light rounded-lg flex items-center justify-center hover:bg-blue-500/10 hover:border-blue-400/30 transition-all group"
+                    >
+                      <Twitter className="h-4 w-4 text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 group-hover:text-blue-400 transition-colors" />
+                    </a>
+                    <a 
+                      href="https://linkedin.com/company/offerloop-ai" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="w-10 h-10 glass-card-light rounded-lg flex items-center justify-center hover:bg-blue-500/10 hover:border-blue-400/30 transition-all group"
+                    >
+                      <Linkedin className="h-4 w-4 text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 group-hover:text-blue-400 transition-colors" />
+                    </a>
+                    <a 
+                      href="https://instagram.com/offerloop.ai" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="w-10 h-10 glass-card-light rounded-lg flex items-center justify-center hover:bg-blue-500/10 hover:border-blue-400/30 transition-all group"
+                    >
+                      <Instagram className="h-4 w-4 text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 group-hover:text-blue-400 transition-colors" />
+                    </a>
                   </div>
                 </div>
+              </div>
 
-                <button 
-                  className="w-full py-4 px-6 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-500 via-purple-500 to-blue-500 bg-[length:200%_auto] hover:from-blue-600 hover:to-purple-600 transition-all shadow-lg animate-gradient"
-                  onClick={() => navigate("/signin?mode=signup")}
-                >
-                  Start now
-                </button>
+              <div className="pt-16">
+                <h3 className="font-semibold text-white dark:text-white text-slate-900 dark:text-white mb-4">Company</h3>
+                <ul className="space-y-2">
+                  <li>
+                    <Link to="/about" className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 hover:text-blue-400 transition-colors text-sm link-slide">About Us</Link>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="pt-16">
+                <h3 className="font-semibold text-white dark:text-white text-slate-900 dark:text-white mb-4">Support</h3>
+                <ul className="space-y-2">
+                  <li>
+                    <Link to="/contact-us" className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 hover:text-blue-400 transition-colors text-sm link-slide">Contact Us</Link>
+                  </li>
+                  <li>
+                    <Link to="/contact-us" className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 hover:text-blue-400 transition-colors text-sm link-slide">Help Center</Link>
+                  </li>
+                  <li>
+                    <Link to="/privacy" className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 hover:text-blue-400 transition-colors text-sm link-slide">Privacy Policy</Link>
+                  </li>
+                  <li>
+                    <Link to="/terms-of-service" className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 hover:text-blue-400 transition-colors text-sm link-slide">Terms of Service</Link>
+                  </li>
+                </ul>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
-      
 
-
-
-      {/* About & Mission Section Preview */}
-      <section id="about" className="py-24 px-6 bg-[#0a0d1a]">
-        <div className="max-w-7xl mx-auto">
-          {/* Mission Section */}
-          <div className="mb-20">
-          {/* Centered Mission Text */}
-          <div className="text-center mx-auto max-w-4xl">
-            <h2 className="text-4xl md:text-6xl font-bold mb-6">
-              Our{" "}
-              <span className="bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-                Mission
-              </span>
-            </h2>
-            <p className="text-lg md:text-xl text-gray-300 leading-relaxed mb-8">
-              To make it easier for students and young professionals to connect, stand out and land better opportunities.
-
-            </p>
-            <p className="text-lg md:text-xl text-gray-300 leading-relaxed mb-8">
-              By cutting down the time to send emails and prep for calls by 90%, we save our users hundreds of hours of work and stress, giving them back time to focus on what matters: learning, growing and enjoying your best years
-
-            </p>
-
-            
-          </div>
-    </div>
-
-    {/* About / Our Story Section */}
-    <div className="max-w-5xl mx-auto text-center">
-      <h3 className="text-4xl md:text-5xl font-bold mb-6 text-white">
-        Our Story
-      </h3>
-      <p className="text-lg md:text-xl text-gray-300 leading-relaxed mb-6">
-        Offerloop is a platform built by students, for students and young professionals, with one goal: to make it easier to connect with professionals, stand out, and land great opportunities.
-      </p>
-      <p className="text-lg md:text-xl text-gray-300 leading-relaxed mb-6">
-        At USC, we saw countless students spending hours filling out spreadsheets and sending emails, and we went through the same thing ourselves. With so many applicants for every competitive role, networking is essential — but the process is slow, stressful, and exhausting. Worst of all, it takes away from what’s supposed to be the most exciting time of your life.
-      </p>
-      <p className="text-lg md:text-xl text-gray-300 leading-relaxed mb-6">
-        We built Offerloop to fix that. Our platform automates outreach and organizes your recruiting workflow, helping you spend less time on tedious work and more time building real connections and preparing for what truly matters in your career.
-      </p>
-
-
-      {/* Optional Call-to-Action */}
-      <div className="mt-10">
-        <button
-          className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white px-8 py-4 rounded-2xl font-semibold text-lg transition-all transform hover:scale-105 shadow-lg shadow-blue-900/30"
-        >
-          Get started today →
-        </button>
-      </div>
-    </div>
-  </div>
-</section>
-
-       
-
-      {/* Data Privacy Section */}
-      <section id="privacy" className="relative py-28 bg-[#0a0d1a]">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center md:space-x-16 px-6">
-    
-         {/* Icon without heavy gradient */}
-         <div className="flex-shrink-0 mb-10 md:mb-0">
-          <div className="w-40 h-40 flex items-center justify-center rounded-2xl bg-transparent shadow-lg">
-            <img 
-              src={lockImg} 
-              alt="Data Privacy Lock Icon" 
-              className="w-24 h-24 object-contain drop-shadow-[0_4px_12px_rgba(99,102,241,0.6)]" 
-            />
-         </div>
-        </div>
-
-    {/* Text */}
-        <div className="text-center md:text-left">
-          <h2 className="text-4xl font-extrabold mb-6 bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">
-            Your Privacy, Our Priority
-          </h2>
-          <p className="text-gray-300 leading-relaxed max-w-2xl text-lg">
-            At Offerloop.ai, your data is yours — always. We never sell or share your information. 
-            Authentication is handled securely through Google sign-in, and all data is encrypted 
-            in transit and at rest. You can export or delete your information at any time, giving 
-            you complete control and peace of mind.
-          </p>
-        </div>
-      </div>
-    </section>
-
-      {/* FAQ */}
-      <section className="py-20 px-6 bg-[#0a0d1a]">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-16">
-           
-          </div>
-
-          <div className="space-y-4">
-            {[
-              {
-                question: "How does Offerloop.ai work?",
-                answer: "Offerloop.ai streamlines your job search by automating applications, tracking responses, and connecting you with relevant opportunities. Our AI matches your profile with suitable positions and handles the repetitive tasks so you can focus on preparing for interviews."
-              },
-              {
-                question: "What makes Offerloop.ai different?",
-                answer: "We focus on quality over quantity. Instead of sending generic applications everywhere, we use smart matching to connect you with roles that truly fit your skills and career goals, resulting in higher response rates and better opportunities."
-              },
-              {
-                question: "Is my data secure?",
-                answer: "Absolutely. We use enterprise-grade security measures to protect your personal information and job search data. Your privacy is our top priority, and we never share your information without your explicit consent."
-              },
-              {
-                question: "Can I cancel anytime?",
-                answer: "Yes, you can cancel your subscription at any time. There are no long-term contracts or cancellation fees. Your access will continue until the end of your current billing period."
-              }
-            ].map((faq, index) => (
-              <div key={index} className="bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700 overflow-hidden">
-                <button
-                  className="w-full p-6 text-left flex items-center justify-between hover:bg-gray-700/30 transition-colors"
-                  onClick={() => toggleFaq(index)}
-                >
-                  <span className="text-lg font-semibold">{faq.question}</span>
-                  <ChevronDown 
-                    className={`w-5 h-5 text-gray-400 transition-transform ${
-                      openFaq === index ? 'rotate-180' : ''
-                    }`} 
-                  />
-                </button>
-                {openFaq === index && (
-                  <div className="px-6 pb-6">
-                    <p className="text-gray-300 leading-relaxed">{faq.answer}</p>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="py-16 px-6 border-t border-gray-800">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid md:grid-cols-4 gap-8 mb-12">
-            <div className="md:col-span-2">
-              <div className="flex items-center gap-4 mb-8">
-                <span className="text-2xl font-bold">
-                  Offer<span className="bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">loop</span>.ai
-                </span>
-              </div>
-              
-              <p className="text-gray-400 leading-relaxed mb-8">
-                Fundamentally changing how you recruit by taking the tedious, repetitive work out of the process. 
-                Connect with professionals and build the career you're excited about.
-              </p>
-              
-              <div>
-                <h4 className="font-semibold mb-4 text-white">Follow Us</h4>
-                <div className="flex items-center gap-4">
-                  <a href="#" className="w-12 h-12 bg-gray-700 hover:bg-blue-600 rounded-full flex items-center justify-center transition-colors group">
-                    <svg className="w-5 h-5 text-gray-300 group-hover:text-white" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M24 4.557c-.883.392-1.832.656-2.828.775 1.017-.609 1.798-1.574 2.165-2.724-.951.564-2.005.974-3.127 1.195-.897-.957-2.178-1.555-3.594-1.555-3.179 0-5.515 2.966-4.797 6.045-4.091-.205-7.719-2.165-10.148-5.144-1.29 2.213-.669 5.108 1.523 6.574-.806-.026-1.566-.247-2.229-.616-.054 2.281 1.581 4.415 3.949 4.89-.693.188-1.452.232-2.224.084.626 1.956 2.444 3.379 4.6 3.419-2.07 1.623-4.678 2.348-7.29 2.04 2.179 1.397 4.768 2.212 7.548 2.212 9.142 0 14.307-7.721 13.995-14.646.962-.695 1.797-1.562 2.457-2.549z"/>
-                    </svg>
-                  </a>
-                  <a href="#" className="w-12 h-12 bg-gray-700 hover:bg-blue-700 rounded-full flex items-center justify-center transition-colors group">
-                    <svg className="w-5 h-5 text-gray-300 group-hover:text-white" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
-                    </svg>
-                  </a>
-                  <a href="#" className="w-12 h-12 bg-gray-700 hover:bg-blue-600 rounded-full flex items-center justify-center transition-colors group">
-                    <svg className="w-5 h-5 text-gray-300 group-hover:text-white" fill="currentColor" viewBox="0 0 24 24">
-                      <path fill="currentColor" d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-                    </svg>
-                  </a>
-                  <a href="#" className="w-12 h-12 bg-gray-700 hover:bg-purple-600 rounded-full flex items-center justify-center transition-colors group">
-                    <svg className="w-5 h-5 text-gray-300 group-hover:text-white" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.59-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
-                    </svg>
-                  </a>
-                </div>
-              </div>
-            </div>
-            
-            <div>
-              <h3 className="font-semibold mb-4 text-white">Company</h3>
-              <ul className="space-y-3 text-gray-400">
-                <li><a href="#about" className="hover:text-white transition-colors">About Us</a></li>
-                <li><a href="/careers" className="hover:text-white transition-colors">Careers</a></li>
-                <li><a href="/blog" className="hover:text-white transition-colors">Blog</a></li>
-                <li><a href="/press" className="hover:text-white transition-colors">Press</a></li>
-              </ul>
-            </div>
-            
-            <div>
-              <h3 className="font-semibold mb-4 text-white">Support</h3>
-              <ul className="space-y-3 text-gray-400">
-                <li><a href="/contact" className="hover:text-white transition-colors">Contact Us</a></li>
-                <li><a href="/help" className="hover:text-white transition-colors">Help Center</a></li>
-                <li><a href="/privacy" className="hover:text-white transition-colors">Privacy Policy</a></li>
-                <li><a href="/terms" className="hover:text-white transition-colors">Terms of Service</a></li>
-              </ul>
-            </div>
-          </div>
-          
-          <div className="border-t border-gray-800 pt-8 text-center">
-            <p className="text-gray-400">
-              © {new Date().getFullYear()} Offerloop.ai. All rights reserved. Connecting talent with opportunity through intelligent recruiting solutions.
+            <p className="text-center text-gray-500 dark:text-gray-500 text-slate-500 dark:text-gray-500 text-sm">
+              © 2025 offerloop. All rights reserved. Connecting talent with opportunity through intelligent recruiting solutions.
             </p>
           </div>
-        </div>
-      </footer>
-      <div className="fixed bottom-6 right-6 z-50 animate-pulse">
-        <div className="bg-gray-900/95 backdrop-blur-sm border-2 border-blue-400/50 rounded-full px-4 py-2 flex items-center gap-2 shadow-xl shadow-blue-500/30">
-          <div className="relative">
-            <div className="absolute inset-0 bg-blue-500 rounded-full blur-sm opacity-50"></div>
-            <Sparkles className="relative h-4 w-4 text-blue-400" />
-          </div>
-          <span className="text-sm font-semibold text-blue-300">BETA</span>
-        </div>
+        </footer>
+
       </div>
     </div>
   );

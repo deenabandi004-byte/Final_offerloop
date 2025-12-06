@@ -1,7 +1,6 @@
 import { useState } from "react";
 import {
   Home,
-  BarChart3,
   User,
   Zap,
   Info,
@@ -9,13 +8,13 @@ import {
   CreditCard,
   ChevronRight,
   ChevronDown,
-  Users,
   Coffee,
+  Search,
+  Briefcase,
+  Building2,
 } from "lucide-react";
-import { Mail } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import OfferloopLogo from "../assets/Offerloop-topleft.jpeg";
-import OfferloopIcon from "../assets/icon.png";
+import { Logo } from "./Logo";
 import LightningIcon from "../assets/Lightning.png";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 
@@ -30,8 +29,7 @@ import {
   SidebarFooter,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Tooltip,
   TooltipContent,
@@ -41,10 +39,10 @@ import {
 
 const navigationItems = [
   { title: "Home", url: "/home", icon: Home },
-  { title: "Dashboard", url: "/dashboard", icon: BarChart3 },
-  { title: "Contact Table", url: "/contact-directory", icon: Users },
-  { title: "Coffee Chat Library", url: "/coffee-chat-library", icon: Coffee },
-  { title: "Outbox", url: "/outbox", icon: Mail },
+  { title: "Contact Search", url: "/contact-search", icon: Search },
+  { title: "Coffee Chat Prep", url: "/coffee-chat-prep", icon: Coffee },
+  { title: "Interview Prep", url: "/interview-prep", icon: Briefcase },
+  { title: "Firm Search", url: "/firm-search", icon: Building2 },
   { title: "Pricing", url: "/pricing", icon: CreditCard },
 ];
 
@@ -69,13 +67,13 @@ export function AppSidebar() {
 
   const getNavClass = ({ isActive }: { isActive: boolean }) =>
     isActive
-      ? "bg-gradient-to-r from-blue-600/20 via-purple-600/20 to-purple-700/20 text-white font-medium"
-      : "hover:bg-gradient-to-r hover:from-blue-600/10 hover:via-purple-600/10 hover:to-purple-700/10 text-muted-foreground hover:text-foreground";
+      ? "!bg-gradient-to-r !from-cyan-400 !to-teal-600 !text-white !font-medium !bg-sidebar-accent/0 data-[active=true]:!bg-gradient-to-r data-[active=true]:!from-cyan-400 data-[active=true]:!to-teal-600 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0"
+      : "text-muted-foreground hover:!bg-gradient-to-r hover:!from-cyan-400 hover:!to-teal-600 hover:!text-white hover:!bg-sidebar-accent/0 data-[active=true]:!bg-gradient-to-r data-[active=true]:!from-cyan-400 data-[active=true]:!to-teal-600 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0";
 
   const getSettingsClass = () =>
     isSettingsActive || settingsExpanded
       ? "bg-primary text-primary-foreground font-medium"
-      : "hover:bg-gradient-to-r hover:from-blue-600/10 hover:via-purple-600/10 hover:to-purple-700/10 text-muted-foreground hover:text-foreground";
+      : "text-muted-foreground hover:!bg-gradient-to-r hover:!from-cyan-400 hover:!to-teal-600 hover:!text-white hover:!bg-[transparent]";
 
   // Status message for collapsed tooltip
   const getCreditStatus = () => {
@@ -105,17 +103,33 @@ export function AppSidebar() {
 
   return (
     <TooltipProvider>
+      <style>{`
+        [data-sidebar="menu-button"]:hover {
+          background: linear-gradient(to right, rgb(34, 211, 238), rgb(13, 148, 136)) !important;
+          color: white !important;
+        }
+        [data-sidebar="menu-button"][data-active="true"] {
+          background: linear-gradient(to right, rgb(34, 211, 238), rgb(13, 148, 136)) !important;
+          color: white !important;
+        }
+        [data-sidebar="menu-button"]:hover * {
+          color: white !important;
+        }
+        [data-sidebar="menu-button"][data-active="true"] * {
+          color: white !important;
+        }
+      `}</style>
       <Sidebar className={state === "collapsed" ? "w-20" : "w-60"} collapsible="icon">
         <SidebarContent className="bg-background border-r">
           {/* Brand */}
-          <div className="p-3 border-b">
+          <div className="p-3 border-b border-gray-200">
             {state !== "collapsed" ? (
               <div className="flex items-center justify-center gap-2">
-                <img src={OfferloopLogo} alt="Offerloop" className="h-8" />
+                <Logo size="md" />
               </div>
             ) : (
               <div className="flex items-center justify-center p-1">
-                <img src={OfferloopIcon} alt="Offerloop" className="h-14 w-14 object-contain" />
+                <Logo size="sm" />
               </div>
             )}
           </div>
@@ -125,7 +139,10 @@ export function AppSidebar() {
               <SidebarMenu>
                 {navigationItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild>
+                    <SidebarMenuButton 
+                      asChild
+                      className="hover:!bg-gradient-to-r hover:!from-cyan-400 hover:!to-teal-600 hover:!text-white hover:!bg-sidebar-accent/0 data-[active=true]:!bg-gradient-to-r data-[active=true]:!from-cyan-400 data-[active=true]:!to-teal-600 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0"
+                    >
                       <NavLink
                         to={item.url}
                         end
@@ -144,7 +161,10 @@ export function AppSidebar() {
 
                 {/* Settings Dropdown */}
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild>
+                  <SidebarMenuButton 
+                    asChild
+                    className="hover:!bg-gradient-to-r hover:!from-cyan-400 hover:!to-teal-600 hover:!text-white hover:!bg-sidebar-accent/0"
+                  >
                     <button
                       onClick={() => setSettingsExpanded(!settingsExpanded)}
                       className={`flex items-center justify-between w-full gap-3 px-3 py-2 rounded-md transition-colors ${getSettingsClass()}`}
@@ -168,7 +188,10 @@ export function AppSidebar() {
                   <div className="ml-6 space-y-1">
                     {settingsItems.map((item) => (
                       <SidebarMenuItem key={item.title}>
-                        <SidebarMenuButton asChild>
+                        <SidebarMenuButton 
+                          asChild
+                          className="hover:!bg-gradient-to-r hover:!from-cyan-400 hover:!to-teal-600 hover:!text-white hover:!bg-sidebar-accent/0 data-[active=true]:!bg-gradient-to-r data-[active=true]:!from-cyan-400 data-[active=true]:!to-teal-600 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0"
+                        >
                           <NavLink
                             to={item.url}
                             end
@@ -190,28 +213,30 @@ export function AppSidebar() {
           </SidebarGroup>
         </SidebarContent>
 
-        <SidebarFooter className="border-t bg-background">
+        <SidebarFooter className="border-t border-gray-200 bg-white">
           {/* Credits */}
-          <div className="p-4">
+          <div className="p-4 space-y-3">
             {state !== "collapsed" ? (
               <>
                 {/* Credits Display */}
-                <div className="text-lg font-medium mb-2 text-white">
-                  {user?.credits ?? 0}/{user?.maxCredits ?? 120} credits
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-semibold text-gray-900">
+                    {user?.credits ?? 0}/{user?.maxCredits ?? 120} credits
+                  </span>
                 </div>
 
                 {/* Progress Bar */}
-                <div className="mb-4 w-full h-2 bg-transparent border border-white rounded-full overflow-hidden">
+                <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
                   <div 
-                    className="h-full bg-gradient-to-r from-blue-600 via-purple-600 to-purple-700 transition-all duration-300"
-                    style={{ width: `${((user?.credits ?? 0) / (user?.maxCredits ?? 120)) * 100}%` }}
+                    className="h-full bg-gradient-to-r from-blue-500 via-purple-500 to-cyan-400 transition-all duration-300 rounded-full"
+                    style={{ width: `${Math.min(((user?.credits ?? 0) / (user?.maxCredits ?? 120)) * 100, 100)}%` }}
                   />
                 </div>
 
                 {/* Gradient Upgrade Button */}
                 <button
                   onClick={() => navigate("/pricing")}
-                  className="w-full bg-gradient-to-r from-blue-600 via-purple-600 to-purple-700 rounded-xl py-3 px-4 mb-4 text-white hover:opacity-90 transition-opacity"
+                  className="w-full bg-gradient-to-r from-blue-600 via-cyan-500 to-purple-600 rounded-xl py-3 px-4 mb-4 text-white hover:opacity-90 transition-opacity"
                 >
                   <div className="flex items-center justify-center gap-2">
                     <Zap className="w-5 h-5 text-white" />
@@ -226,7 +251,7 @@ export function AppSidebar() {
                   <TooltipTrigger asChild>
                     <button
                       onClick={() => navigate("/pricing")}
-                      className="w-full bg-gradient-to-r from-blue-600 via-purple-600 to-purple-700 rounded-xl p-2 text-white hover:opacity-90 transition-opacity flex items-center justify-center"
+                      className="w-full bg-gradient-to-r from-blue-600 via-cyan-500 to-purple-600 rounded-xl p-2 text-white hover:opacity-90 transition-opacity flex items-center justify-center"
                     >
                       <img src={LightningIcon} alt="Upgrade" className="h-10 w-10 object-contain brightness-0 invert" />
                       {user?.credits === 0 && (
@@ -248,22 +273,19 @@ export function AppSidebar() {
             )}
 
             {/* User Profile */}
-            <div className="flex items-center justify-center">
-              <Avatar className="h-10 w-10">
-                {user?.picture ? (
-                  <img
-                    src={user.picture}
-                    alt={user.name}
-                    className="w-full h-full object-cover rounded-full"
-                  />
-                ) : (
-                  <AvatarFallback>{user?.name?.charAt(0) || "U"}</AvatarFallback>
+            <div className="flex items-center gap-3 pt-3 border-t border-gray-200">
+              <Avatar className="h-10 w-10 flex-shrink-0">
+                {user?.picture && (
+                  <AvatarImage src={user.picture} alt={user.name} />
                 )}
+                <AvatarFallback className="bg-blue-500 text-white font-medium">
+                  {user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || user?.email?.[0]?.toUpperCase() || "U"}
+                </AvatarFallback>
               </Avatar>
               {state !== "collapsed" && (
                 <div className="flex-1 min-w-0">
-                  <p className="text-lg font-medium truncate">{user?.name || "User"}</p>
-                  <p className="text-xs text-muted-foreground truncate">
+                  <p className="text-sm font-medium truncate text-gray-900">{user?.name || "User"}</p>
+                  <p className="text-xs text-gray-500 truncate">
                     {user?.tier === "pro" ? "Pro Member" : "Free Tier"}
                   </p>
                 </div>

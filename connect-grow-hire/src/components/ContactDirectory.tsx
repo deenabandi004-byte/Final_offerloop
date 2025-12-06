@@ -8,7 +8,8 @@ import {
   RefreshCw,
   Trash2,
   ExternalLink,
-  ArrowLeft
+  ArrowLeft,
+  Download
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from '../contexts/FirebaseAuthContext';
@@ -348,6 +349,73 @@ const SpreadsheetContactDirectory: React.FC = () => {
     return 'Unknown Contact';
   };
 
+  const handleExportCsv = () => {
+    if (!contacts || contacts.length === 0) {
+      return;
+    }
+
+    // Define CSV headers based on Contact interface
+    const headers = [
+      'First Name',
+      'Last Name',
+      'Email',
+      'LinkedIn',
+      'Job Title',
+      'Company',
+      'Location',
+      'College',
+      'Status',
+      'First Contact Date',
+      'Last Contact Date',
+      'Email Subject',
+      'Email Body',
+      'Gmail Draft URL'
+    ] as const;
+
+    const headerRow = headers.join(',');
+
+    // Map contacts to CSV rows
+    const rows = contacts.map((contact) => {
+      const escapeCsv = (val: string | undefined | null) => {
+        if (!val) return '';
+        const str = String(val);
+        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      };
+
+      return [
+        escapeCsv(contact.firstName),
+        escapeCsv(contact.lastName),
+        escapeCsv(contact.email),
+        escapeCsv(contact.linkedinUrl),
+        escapeCsv(contact.jobTitle),
+        escapeCsv(contact.company),
+        escapeCsv(contact.location),
+        escapeCsv(contact.college),
+        escapeCsv(contact.status),
+        escapeCsv(contact.firstContactDate),
+        escapeCsv(contact.lastContactDate),
+        escapeCsv(contact.emailSubject),
+        escapeCsv(contact.emailBody),
+        escapeCsv(contact.gmailDraftUrl)
+      ].join(',');
+    });
+
+    const csvContent = [headerRow, ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+
+    link.setAttribute('href', url);
+    link.setAttribute('download', `contact_library_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const clearAllContacts = async () => {
     if (window.confirm('Are you sure you want to delete all contacts? This action cannot be undone.')) {
       try {
@@ -397,6 +465,17 @@ const SpreadsheetContactDirectory: React.FC = () => {
             </Button>
           </div>
           <div className="flex gap-2">
+            {contacts.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportCsv}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+              >
+                <Download className="h-4 w-4" />
+                Export CSV
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"

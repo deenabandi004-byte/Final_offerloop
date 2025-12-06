@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { Logo } from "./Logo";
 
 const Footer = () => {
   return (
@@ -6,11 +7,7 @@ const Footer = () => {
       <div className="container px-6 mx-auto">
         <div className="grid md:grid-cols-2 gap-8 items-start">
           <div className="flex items-center gap-8">
-            <img 
-              src="logo.png" 
-              alt="Offerloop.ai" 
-              className="h-28 w-auto object-contain"
-            />
+            <Logo size="lg" />
             <p className="text-muted-foreground text-lg leading-relaxed ml-4">
               Connecting <span className="font-bold">talent</span> with <span className="font-bold">opportunity</span> through intelligent recruiting solutions.
             </p>

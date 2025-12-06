@@ -32,7 +32,7 @@ interface ChatMessage {
 }
 
 interface ScoutChatbotProps {
-  onJobTitleSuggestion: (title: string, company?: string, location?: string) => void;
+  onJobTitleSuggestion?: (title: string, company?: string, location?: string) => void;
 }
 
 const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => {
@@ -108,7 +108,7 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
 
       // Debug: Log job listings to check if URLs are present
       if (data.job_listings && data.job_listings.length > 0) {
-        console.log('[Scout] Job listings received:', data.job_listings.map(j => ({
+        console.log('[Scout] Job listings received:', data.job_listings.map((j: JobListing) => ({
           title: j.title,
           company: j.company,
           url: j.url,
@@ -121,7 +121,7 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
       // Auto-populate fields if returned
       if (data.fields) {
         const { job_title, company, location } = data.fields;
-        if (job_title || company || location) {
+        if ((job_title || company || location) && onJobTitleSuggestion) {
           onJobTitleSuggestion(
             job_title || '',
             company || undefined,
@@ -152,7 +152,9 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
   };
 
   const handleJobClick = (job: JobListing) => {
-    onJobTitleSuggestion(job.title, job.company, job.location || undefined);
+    if (onJobTitleSuggestion) {
+      onJobTitleSuggestion(job.title, job.company, job.location || undefined);
+    }
   };
 
   const formatMessage = (content: string) => {
@@ -163,7 +165,7 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
   };
 
   return (
-    <div className="flex flex-col h-full bg-gray-900">
+    <div className="flex flex-col h-full bg-background">
       {/* Messages Area */}
       <div className="flex-1 p-4 overflow-y-auto">
         <div className="space-y-4">
@@ -176,7 +178,7 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
                 className={`max-w-[85%] rounded-lg p-3 ${
                   message.role === 'user'
                     ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white'
-                    : 'bg-gray-800 text-gray-100 border border-gray-700'
+                    : 'bg-muted text-foreground border border-border'
                 }`}
               >
                 {/* Message content */}
@@ -188,11 +190,11 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
                 {/* Fields badge */}
                 {message.fields && Object.keys(message.fields).length > 0 && (
                   <div className="mt-3 p-2 bg-green-500/20 border border-green-500/40 rounded-md">
-                    <div className="flex items-center gap-1 text-green-400 text-xs font-medium mb-1">
+                    <div className="flex items-center gap-1 text-green-700 text-xs font-medium mb-1">
                       <Sparkles className="h-3 w-3" />
                       Search fields updated!
                     </div>
-                    <div className="text-xs text-green-300/80">
+                    <div className="text-xs text-green-600/80">
                       {message.fields.job_title && <span>Title: {message.fields.job_title}</span>}
                       {message.fields.company && <span> • Company: {message.fields.company}</span>}
                       {message.fields.location && <span> • Location: {message.fields.location}</span>}
@@ -203,19 +205,19 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
                 {/* Job listings */}
                 {message.jobListings && message.jobListings.length > 0 && (
                   <div className="mt-3 space-y-2">
-                    <div className="text-xs text-gray-400 font-medium">Click to use for search:</div>
+                    <div className="text-xs text-muted-foreground font-medium">Click to use for search:</div>
                     {message.jobListings.slice(0, 5).map((job, idx) => (
                       <div
                         key={idx}
-                        className="w-full p-3 bg-gray-700/50 rounded border border-gray-600 hover:border-purple-500 transition-colors"
+                        className="w-full p-3 bg-muted/50 rounded border border-border hover:border-purple-500 transition-colors"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <button
                             onClick={() => handleJobClick(job)}
                             className="flex-1 text-left min-w-0"
                           >
-                            <div className="text-sm font-medium text-white">{job.title}</div>
-                            <div className="text-xs text-gray-400">
+                            <div className="text-sm font-medium text-foreground">{job.title}</div>
+                            <div className="text-xs text-muted-foreground">
                               {job.company}
                               {job.location && ` • ${job.location}`}
                             </div>
@@ -238,7 +240,7 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
                           ) : (
                             <button
                               disabled
-                              className="flex-shrink-0 px-3 py-1.5 text-xs font-medium bg-gray-600/30 text-gray-500 rounded cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap opacity-50"
+                              className="flex-shrink-0 px-3 py-1.5 text-xs font-medium bg-muted text-muted-foreground rounded cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap opacity-50"
                               title="Job URL not available"
                             >
                               <ExternalLink className="h-3.5 w-3.5" />
@@ -260,8 +262,8 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
           {/* Loading indicator */}
           {isLoading && (
           <div className="flex justify-start">
-              <div className="bg-gray-800 border border-gray-700 rounded-lg p-3">
-                <div className="flex items-center gap-2 text-gray-400">
+              <div className="bg-muted border border-border rounded-lg p-3">
+                <div className="flex items-center gap-2 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <span className="text-sm">Scout is thinking...</span>
                 </div>
@@ -272,7 +274,7 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
       </div>
 
       {/* Input Area */}
-      <div className="p-4 border-t border-gray-700 bg-gray-900/95">
+      <div className="p-4 border-t border-border bg-background">
         <div className="flex gap-2">
           <Input
             ref={inputRef}
@@ -280,7 +282,7 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder="Paste a job URL or describe what you're looking for..."
-            className="flex-1 bg-gray-800 border-gray-600 text-white placeholder-gray-400 focus:border-purple-500"
+            className="flex-1 bg-background border-input text-foreground placeholder:text-muted-foreground focus:border-purple-500"
             disabled={isLoading}
           />
           <Button
@@ -295,7 +297,7 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
             )}
           </Button>
         </div>
-        <div className="mt-2 text-xs text-gray-500 text-center">
+        <div className="mt-2 text-xs text-muted-foreground text-center">
           Try: "data analyst jobs in NYC" or paste a LinkedIn/Greenhouse job URL
         </div>
       </div>
