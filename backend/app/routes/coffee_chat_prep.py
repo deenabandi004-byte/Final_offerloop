@@ -9,7 +9,9 @@ from flask import Blueprint, jsonify, request
 
 from app.config import COFFEE_CHAT_CREDITS
 from ..extensions import get_db, require_firebase_auth
-from app.services.auth import check_and_reset_credits
+from app.services.auth import check_and_reset_credits, deduct_credits_atomic
+from app.utils.exceptions import ValidationError, OfferloopException, InsufficientCreditsError
+from app.utils.validation import CoffeeChatPrepRequest, validate_request
 from app.services.coffee_chat import (
     fetch_serp_research,
     format_news_for_storage,
@@ -222,13 +224,13 @@ def process_coffee_chat_prep_background(
             }
         )
 
-        # Step 8: Deduct credits
+        # Step 8: Deduct credits atomically
         print("Step 8: Deducting credits...")
-        user_ref = db.collection("users").document(user_id)
-        new_credits = max(0, credits_available - COFFEE_CHAT_CREDITS)
-        user_ref.update({"credits": new_credits})
-
-        print(f"✅ Credits deducted: {credits_available} -> {new_credits}")
+        success, new_credits = deduct_credits_atomic(user_id, COFFEE_CHAT_CREDITS, "coffee_chat_prep")
+        if not success:
+            print(f"⚠️ Credit deduction failed - user may have insufficient credits")
+        else:
+            print(f"✅ Credits deducted: {credits_available} -> {new_credits}")
         print(f"=== PREP {prep_id} COMPLETED SUCCESSFULLY ===\n")
 
     except Exception as e:
@@ -326,12 +328,12 @@ def create_coffee_chat_prep():
         prep_id = prep_ref.id
 
         extra_context = {
-            "time_window": data.get("timeWindow"),
-            "geo": data.get("geo"),
-            "language": data.get("language"),
-            "division": data.get("division"),
-            "office": data.get("office"),
-            "industry": data.get("industry"),
+            "time_window": validated_data.get("timeWindow"),
+            "geo": validated_data.get("geo"),
+            "language": validated_data.get("language"),
+            "division": validated_data.get("division"),
+            "office": validated_data.get("office"),
+            "industry": validated_data.get("industry"),
         }
 
         # Start background processing
@@ -441,7 +443,11 @@ def get_all_coffee_chat_preps():
         return jsonify({"preps": all_preps})
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"Error getting all coffee chat preps: {e}")
+        import traceback
+        traceback.print_exc()
+        from app.utils.exceptions import OfferloopException
+        raise OfferloopException(f"Failed to load coffee chat preps: {str(e)}", error_code="COFFEE_CHAT_PREPS_ERROR")
 
 
 @coffee_chat_bp.route("/<prep_id>/download", methods=["GET"])

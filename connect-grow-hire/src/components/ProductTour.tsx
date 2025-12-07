@@ -48,19 +48,19 @@ export const ProductTour: React.FC = () => {
             {/* Text - Minimal */}
             <div className="space-y-6">
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 dark:from-blue-500/20 dark:to-cyan-500/20 from-blue-100 to-cyan-100 dark:from-blue-500/20 dark:to-cyan-500/20 flex items-center justify-center border border-blue-200/50 dark:border-transparent">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500/20 to-indigo-500/20 dark:from-purple-500/20 dark:to-indigo-500/20 from-purple-100 to-indigo-100 dark:from-purple-500/20 dark:to-indigo-500/20 flex items-center justify-center border border-purple-200/50 dark:border-transparent">
                   <Search className="h-6 w-6 text-blue-400 dark:text-blue-400 text-blue-600 dark:text-blue-400" />
                 </div>
-                <h3 className="text-4xl font-bold text-white dark:text-white text-slate-900 dark:text-white">Contact Search</h3>
+                <h3 className="text-4xl font-bold text-section-heading">Contact Search</h3>
               </div>
-              <p className="text-xl text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 leading-relaxed">
+              <p className="text-xl text-section-body leading-relaxed">
                 Turn "who should I reach out to?" into a real list — in one click.
               </p>
             </div>
             
             {/* Large Demo Area - Video */}
             <div className="relative">
-              <div className="aspect-video rounded-2xl overflow-hidden border border-blue-500/20 dark:border-blue-500/20 border-blue-300/60 dark:border-blue-500/20 bg-gradient-to-br from-blue-500/5 to-cyan-500/5 dark:from-blue-500/5 dark:to-cyan-500/5 from-blue-50/80 to-cyan-50/80 dark:from-blue-500/5 dark:to-cyan-500/5 shadow-lg dark:shadow-none shadow-blue-100/50 dark:shadow-none">
+              <div className="aspect-video rounded-2xl overflow-hidden border border-purple-500/20 dark:border-purple-500/20 border-purple-300/60 dark:border-purple-500/20 bg-gradient-to-br from-purple-500/5 to-indigo-500/5 dark:from-purple-500/5 dark:to-indigo-500/5 from-purple-50/80 to-indigo-50/80 dark:from-purple-500/5 dark:to-indigo-500/5 shadow-lg dark:shadow-none shadow-purple-100/50 dark:shadow-none">
                 <video
                   src={proSearchVideo}
                   autoPlay
@@ -99,13 +99,13 @@ export const ProductTour: React.FC = () => {
                 <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 dark:from-emerald-500/20 dark:to-teal-500/20 from-emerald-100 to-teal-100 dark:from-emerald-500/20 dark:to-teal-500/20 flex items-center justify-center border border-emerald-200/50 dark:border-transparent">
                   <Building2 className="h-6 w-6 text-emerald-400 dark:text-emerald-400 text-emerald-600 dark:text-emerald-400" />
                 </div>
-                <h3 className="text-4xl font-bold text-white dark:text-white text-slate-900 dark:text-white">Firm Search</h3>
+                <h3 className="text-4xl font-bold text-section-heading">Firm Search</h3>
               </div>
-              <p className="text-xl text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 leading-relaxed">
+              <p className="text-xl text-section-body leading-relaxed">
                 Not sure what you want to do? Start with what you're interested in.
               </p>
               <div className="p-6 bg-emerald-500/10 dark:bg-emerald-500/10 bg-emerald-50/80 dark:bg-emerald-500/10 rounded-xl border border-emerald-500/20 dark:border-emerald-500/20 border-emerald-200/60 dark:border-emerald-500/20">
-                <p className="text-lg text-gray-200 dark:text-gray-200 text-slate-800 dark:text-gray-200">
+                <p className="text-lg text-foreground">
                   I don't know what to do but I'm interested in{' '}
                   <AnimatedInterestText className="text-emerald-400 dark:text-emerald-400 text-emerald-600 dark:text-emerald-400" />
                   .
@@ -126,18 +126,18 @@ export const ProductTour: React.FC = () => {
         >
           <div className="max-w-4xl mx-auto text-center space-y-8">
             <div className="flex items-center justify-center gap-3 mb-6">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500/20 to-cyan-400/20 dark:from-purple-500/20 dark:to-cyan-400/20 from-purple-100 to-cyan-100 dark:from-purple-500/20 dark:to-cyan-400/20 flex items-center justify-center border border-purple-200/50 dark:border-transparent">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500/20 to-indigo-500/20 dark:from-purple-500/20 dark:to-indigo-500/20 from-purple-100 to-indigo-100 dark:from-purple-500/20 dark:to-indigo-500/20 flex items-center justify-center border border-purple-200/50 dark:border-transparent">
                 <Library className="h-6 w-6 text-purple-400 dark:text-purple-400 text-purple-600 dark:text-purple-400" />
               </div>
-              <h3 className="text-4xl font-bold text-white dark:text-white text-slate-900 dark:text-white">Contact Library</h3>
+              <h3 className="text-4xl font-bold text-section-heading">Contact Library</h3>
             </div>
-            <p className="text-2xl text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">
+            <p className="text-2xl text-section-body">
               All your outreach — organized in one place.
             </p>
             
             {/* Large Centered Demo - Contact Library video */}
             <div className="relative mt-12">
-              <div className="aspect-video rounded-2xl overflow-hidden border border-purple-500/20 dark:border-purple-500/20 border-purple-300/60 dark:border-purple-500/20 bg-gradient-to-br from-purple-500/5 to-cyan-400/5 dark:from-purple-500/5 dark:to-cyan-400/5 from-purple-50/80 to-cyan-50/80 dark:from-purple-500/5 dark:to-cyan-400/5 shadow-lg dark:shadow-none shadow-purple-100/50 dark:shadow-none">
+              <div className="aspect-video rounded-2xl overflow-hidden border border-purple-500/20 dark:border-purple-500/20 border-purple-300/60 dark:border-purple-500/20 bg-gradient-to-br from-purple-500/5 to-indigo-500/5 dark:from-purple-500/5 dark:to-indigo-500/5 from-purple-50/80 to-indigo-50/80 dark:from-purple-500/5 dark:to-indigo-500/5 shadow-lg dark:shadow-none shadow-purple-100/50 dark:shadow-none">
                 <video
                   src={directoryVideo}
                   autoPlay
@@ -148,7 +148,7 @@ export const ProductTour: React.FC = () => {
                 />
               </div>
               <div className="absolute -top-8 -left-8 w-40 h-40 bg-purple-500/10 dark:bg-purple-500/10 bg-purple-200/40 dark:bg-purple-500/10 rounded-full blur-3xl"></div>
-              <div className="absolute -bottom-8 -right-8 w-40 h-40 bg-cyan-400/10 dark:bg-cyan-400/10 bg-cyan-200/40 dark:bg-cyan-400/10 rounded-full blur-3xl"></div>
+              <div className="absolute -bottom-8 -right-8 w-40 h-40 bg-indigo-500/10 dark:bg-indigo-500/10 bg-indigo-200/40 dark:bg-indigo-500/10 rounded-full blur-3xl"></div>
             </div>
           </div>
         </motion.div>
@@ -162,17 +162,17 @@ export const ProductTour: React.FC = () => {
           transition={{ duration: 0.8, delay: 0.4 }}
           className="mb-32"
         >
-          <div className="glass-card p-12 rounded-3xl border-2 border-purple-500/30 dark:border-purple-500/30 border-purple-300/60 dark:border-purple-500/30 bg-gradient-to-br from-purple-500/5 to-cyan-400/5 dark:from-purple-500/5 dark:to-cyan-400/5 from-purple-50/60 to-cyan-50/60 dark:from-purple-500/5 dark:to-cyan-400/5 shadow-xl dark:shadow-none shadow-purple-100/30 dark:shadow-none">
+          <div className="glass-card p-12 rounded-3xl border-2 border-purple-500/30 dark:border-purple-500/30 border-purple-300/60 dark:border-purple-500/30 bg-gradient-to-br from-purple-500/5 to-indigo-500/5 dark:from-purple-500/5 dark:to-indigo-500/5 from-purple-50/60 to-indigo-50/60 dark:from-purple-500/5 dark:to-indigo-500/5 shadow-xl dark:shadow-none shadow-purple-100/30 dark:shadow-none">
             <div className="grid lg:grid-cols-[1.2fr,1fr] gap-16 items-center">
               {/* Text Side */}
               <div className="space-y-8">
                 <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500/20 to-cyan-400/20 dark:from-purple-500/20 dark:to-cyan-400/20 from-purple-100 to-cyan-100 dark:from-purple-500/20 dark:to-cyan-400/20 flex items-center justify-center border border-purple-200/50 dark:border-transparent">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500/20 to-indigo-500/20 dark:from-purple-500/20 dark:to-indigo-500/20 from-purple-100 to-indigo-100 dark:from-purple-500/20 dark:to-indigo-500/20 flex items-center justify-center border border-purple-200/50 dark:border-transparent">
                     <Coffee className="h-8 w-8 text-purple-400 dark:text-purple-400 text-purple-600 dark:text-purple-400" />
                   </div>
-                  <h3 className="text-5xl font-bold text-white dark:text-white text-slate-900 dark:text-white">Coffee Chat Prep</h3>
+                  <h3 className="text-5xl font-bold text-section-heading">Coffee Chat Prep</h3>
                 </div>
-                <p className="text-2xl text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 leading-relaxed">
+                <p className="text-2xl text-section-body leading-relaxed">
                   Paste a LinkedIn URL. Walk in prepared.
                 </p>
               </div>
@@ -221,7 +221,7 @@ export const ProductTour: React.FC = () => {
             <div className="flex-1 space-y-6">
               <div>
                 <h4 className="text-3xl md:text-4xl font-bold mb-3">
-                  <span className="text-white dark:text-white text-slate-900 dark:text-white">Meet </span>
+                  <span className="text-section-heading">Meet </span>
                   <motion.span
                     className="gradient-text-teal inline-block"
                     initial={{ scale: 0, rotate: -180 }}
@@ -236,7 +236,7 @@ export const ProductTour: React.FC = () => {
                     Scout
                   </motion.span>
                 </h4>
-                <p className="text-lg text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 leading-relaxed">
+                <p className="text-lg text-section-body leading-relaxed">
                   Your built-in guide when you're stuck — Scout suggests prompts and helps you decide what to type at every step.
                 </p>
               </div>
@@ -270,9 +270,9 @@ export const ProductTour: React.FC = () => {
                 >
                   <div className="flex items-center gap-2 mb-3">
                     <div className="w-2 h-2 bg-green-400 dark:bg-green-400 bg-green-500 dark:bg-green-400 rounded-full animate-pulse"></div>
-                    <span className="text-sm font-medium text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">Scout</span>
+                    <span className="text-sm font-medium text-muted-foreground">Scout</span>
                   </div>
-                  <p className="text-base text-gray-200 dark:text-gray-200 text-slate-800 dark:text-gray-200 leading-relaxed">
+                  <p className="text-base text-foreground leading-relaxed">
                     Try searching for{' '}
                     <TextType
                       text={[

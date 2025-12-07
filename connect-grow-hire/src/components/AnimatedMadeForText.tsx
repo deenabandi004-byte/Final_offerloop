@@ -24,7 +24,7 @@ export const AnimatedMadeForText: React.FC = () => {
 
   return (
     <div className="text-center" style={{ overflow: 'visible', padding: '0.5rem 0' }}>
-      <h2 className="text-5xl md:text-6xl lg:text-7xl font-semibold mb-4 text-white dark:text-white text-slate-900 dark:text-white" style={{ lineHeight: '1.2', overflow: 'visible', padding: '0.25rem 0' }}>
+      <h2 className="text-5xl md:text-6xl lg:text-7xl font-semibold mb-4 text-section-heading" style={{ lineHeight: '1.2', overflow: 'visible', padding: '0.25rem 0' }}>
         Made for
       </h2>
       <div className="h-24 md:h-28 lg:h-32 flex items-center justify-center" style={{ overflow: 'visible', padding: '0.5rem 0' }}>

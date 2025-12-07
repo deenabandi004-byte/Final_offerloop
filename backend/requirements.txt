@@ -1,5 +1,6 @@
 Flask==3.0.0
 flask-cors==4.0.0
+Flask-Limiter==3.5.0
 gunicorn==21.2.0
 google-search-results==2.4.2
 openai==1.54.0
@@ -16,6 +17,18 @@ email-validator==2.1.0
 PyPDF2==3.0.1
 reportlab==4.0.7
 Werkzeug==3.0.1
+pydantic==2.5.0
+pydantic-settings==2.1.0
+# Optional: Error tracking (install with: pip install sentry-sdk[flask])
+# sentry-sdk[flask]==1.38.0
+
+# Optional: API documentation (install with: pip install flasgger)
+# flasgger==0.9.7.1
+
+# Optional: Testing (install with: pip install pytest pytest-cov pytest-mock)
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-mock==3.12.0
 aiohttp
 asyncpraw
 beautifulsoup4

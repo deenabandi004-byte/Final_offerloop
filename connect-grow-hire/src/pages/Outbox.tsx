@@ -53,7 +53,7 @@ interface StatCardProps {
 }
 
 const StatCard = ({ icon: Icon, label, value }: StatCardProps) => (
-  <div className="flex items-center gap-3 px-4 py-3 bg-card rounded-lg border border-border">
+  <div className="flex items-center gap-3 px-4 py-3 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow">
     <Icon className="w-5 h-5 text-muted-foreground" />
     <div>
       <p className="text-xl font-semibold text-foreground">{value}</p>
@@ -239,12 +239,12 @@ export default function Outbox() {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-background text-foreground">
+      <div className="flex min-h-screen w-full bg-white text-foreground">
         <AppSidebar />
 
         <div className="flex-1 flex flex-col">
           {/* Header */}
-          <header className="h-16 flex items-center justify-between border-b border-border px-6 bg-background">
+          <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-white shadow-sm">
             <div className="flex items-center gap-4">
               <SidebarTrigger className="text-foreground hover:bg-accent" />
               <div className="flex items-center gap-2">
@@ -283,28 +283,28 @@ export default function Outbox() {
                 <Button
                   variant="outline"
                   onClick={() => navigate("/contact-search")}
-                  className="border-input text-foreground hover:bg-accent"
+                  className="border-0 shadow-sm hover:shadow-md bg-white text-foreground hover:bg-gray-50"
                 >
                   <Search className="w-4 h-4 mr-2" /> Find Contacts
                 </Button>
                 <Button
                   variant="outline"
                   onClick={() => navigate("/coffee-chat-prep")}
-                  className="border-input text-foreground hover:bg-accent"
+                  className="border-0 shadow-sm hover:shadow-md bg-white text-foreground hover:bg-gray-50"
                 >
                   <Coffee className="w-4 h-4 mr-2" /> Coffee Chat Prep
                 </Button>
                 <Button
                   variant="outline"
                   onClick={() => navigate("/interview-prep")}
-                  className="border-input text-foreground hover:bg-accent"
+                  className="border-0 shadow-sm hover:shadow-md bg-white text-foreground hover:bg-gray-50"
                 >
                   <Briefcase className="w-4 h-4 mr-2" /> Interview Prep
                 </Button>
               </div>
 
               {/* Divider */}
-              <div className="border-t border-border pt-6">
+              <div className="border-t border-gray-100/30 pt-6">
                 <div className="flex gap-6">
 
               {/* LEFT: Thread list */}
@@ -315,7 +315,7 @@ export default function Outbox() {
                     size="icon"
                     variant="outline"
                     onClick={loadThreads}
-                    className="border-input"
+                    className="border-0 shadow-sm hover:shadow-md bg-white"
                   >
                     {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   </Button>
@@ -323,9 +323,9 @@ export default function Outbox() {
 
                 {/* Search */}
                 <div className="relative">
-                  <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground z-10" />
                   <Input
-                    className="pl-9 bg-background border-input"
+                    className="pl-9 bg-white shadow-sm hover:shadow-md transition-shadow border-0 focus:ring-2 focus:ring-purple-500/20"
                     placeholder="Search by name, firm, subject…"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
@@ -373,10 +373,10 @@ export default function Outbox() {
                       <button
                         key={t.id}
                         onClick={() => setSelectedThread(t)}
-                        className={`w-full text-left p-4 rounded-xl border transition ${
+                        className={`w-full text-left p-4 rounded-xl transition-all duration-200 ${
                           selectedThread?.id === t.id
-                            ? "border-blue-500/70 bg-blue-500/10"
-                            : "border-border hover:border-input hover:bg-muted"
+                            ? "bg-gradient-to-r from-blue-50 to-indigo-50 shadow-md ring-2 ring-blue-500/30"
+                            : "bg-white shadow-sm hover:shadow-md hover:bg-gray-50/50"
                         }`}
                       >
                         <div className="flex justify-between items-start">
@@ -412,11 +412,14 @@ export default function Outbox() {
               {/* RIGHT: Thread detail + Suggested reply */}
               <div className="w-1/2">
                 {!selectedThread ? (
-                  <div className="h-full border border-dashed border-border rounded-xl p-6 text-center text-muted-foreground text-sm">
-                    Select a conversation to view the reply and your AI-generated response draft.
+                  <div className="h-full rounded-2xl p-6 text-center text-muted-foreground text-sm bg-gradient-to-br from-gray-50/50 to-white shadow-inner">
+                    <div className="flex flex-col items-center justify-center h-full">
+                      <Inbox className="w-16 h-16 text-muted-foreground/30 mb-4" />
+                      <p>Select a conversation to view the reply and your AI-generated response draft.</p>
+                    </div>
                   </div>
                 ) : (
-                  <div className="h-full border border-border rounded-xl p-6 bg-card flex flex-col">
+                  <div className="h-full rounded-2xl p-6 bg-white shadow-lg flex flex-col">
                     {/* Header */}
                     <div className="mb-3">
                       <p className="font-semibold text-sm text-foreground">{selectedThread.contactName}</p>
@@ -427,7 +430,7 @@ export default function Outbox() {
                     </div>
 
                     {/* Latest message snippet */}
-                    <div className="rounded-xl border border-border bg-muted/30 p-3 mb-4">
+                    <div className="rounded-xl border border-gray-100 bg-white p-3 mb-4">
                       <p className="text-[11px] font-medium text-foreground mb-2">
                         {selectedThread.status === "no_reply_yet" 
                           ? "Draft content" 
@@ -442,7 +445,7 @@ export default function Outbox() {
                     </div>
 
                     {/* Suggested Reply */}
-                    <div className="border border-border rounded-xl p-4 bg-muted/30 flex flex-col flex-1">
+                    <div className="border border-gray-100 rounded-xl p-4 bg-white flex flex-col flex-1">
                       <div className="flex justify-between items-center mb-2">
                         <div className="flex items-center gap-2">
                           <Sparkles className="h-4 w-4 text-primary" />
@@ -467,7 +470,7 @@ export default function Outbox() {
                           <textarea
                             readOnly
                             value={selectedThread.suggestedReply}
-                            className="flex-1 w-full text-xs bg-background border border-input rounded-xl p-3 resize-none text-foreground whitespace-pre-wrap"
+                            className="flex-1 w-full text-xs bg-white rounded-xl p-3 resize-none text-foreground whitespace-pre-wrap shadow-inner focus:ring-2 focus:ring-purple-500/20"
                           />
                         </>
                       ) : (
@@ -476,7 +479,7 @@ export default function Outbox() {
                             Generate an AI-powered reply based on their message. We'll analyze their
                             tone and content to craft an appropriate response.
                           </p>
-                          <div className="flex-1 flex items-center justify-center border border-dashed border-border rounded-xl p-6 bg-muted/20">
+                          <div className="flex-1 flex items-center justify-center border border-dashed border-gray-100 rounded-xl p-6 bg-white">
                             <div className="text-center">
                               <Sparkles className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
                               <p className="text-xs text-muted-foreground">

@@ -357,9 +357,9 @@ const SignIn: React.FC = () => {
   return (
     <PageWrapper>
       <div className="max-w-3xl mx-auto px-4 py-8">
-        <button
+          <button
           onClick={() => navigate("/")}
-          className="inline-flex items-center gap-2 text-sm text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 hover:text-blue-400 transition-colors mb-6"
+          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors mb-6"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Home
@@ -368,10 +368,10 @@ const SignIn: React.FC = () => {
         <GlassCard className="mt-10 p-8 rounded-2xl">
           <div className="mb-8 text-center">
             <Logo size="lg" className="justify-center mb-4" />
-            <h1 className="text-display-lg text-white dark:text-white text-slate-900 dark:text-white mb-2">
+            <h1 className="text-display-lg text-foreground mb-2">
               {activeTab === "signup" ? "Create your account" : "Welcome back"}
             </h1>
-            <p className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">
+            <p className="text-muted-foreground">
               {activeTab === "signup" 
                 ? "Get started with Offerloop in seconds" 
                 : "Sign in to continue to your account"}
@@ -381,8 +381,8 @@ const SignIn: React.FC = () => {
             <button
               className={`px-4 py-2 rounded-xl border transition-all ${
                 activeTab === "signin"
-                  ? "bg-white/10 border-blue-400/50 text-white"
-                  : "border-white/10 text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 hover:border-blue-400/30"
+                  ? "bg-primary/10 border-primary/50 text-foreground font-medium"
+                  : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
               }`}
               onClick={() => setActiveTab("signin")}
               disabled={submitting}
@@ -392,8 +392,8 @@ const SignIn: React.FC = () => {
             <button
               className={`px-4 py-2 rounded-xl border transition-all ${
                 activeTab === "signup"
-                  ? "bg-white/10 border-blue-400/50 text-white"
-                  : "border-white/10 text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 hover:border-blue-400/30"
+                  ? "bg-primary/10 border-primary/50 text-foreground font-medium"
+                  : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
               }`}
               onClick={() => setActiveTab("signup")}
               disabled={submitting}
@@ -433,13 +433,13 @@ const SignIn: React.FC = () => {
             {/* NEW: Connect Gmail (server-side OAuth for drafts) */}
              
 
-            <div className="text-xs text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 space-y-2">
+            <div className="text-xs text-muted-foreground space-y-2">
               <p>
                 {activeTab === "signup"
                   ? "Step 1: Sign in to Offerloop. Step 2: Connect Gmail to allow draft creation."
                   : "Sign in, then connect Gmail to allow draft creation in your account."}
               </p>
-              <p className="text-gray-500 dark:text-gray-500 text-slate-500 dark:text-gray-500">
+              <p className="text-muted-foreground/80">
                 ✓ We'll never send emails without your permission<br />
                 ✓ We only create drafts in your Gmail<br />
                 ✓ You review and send all emails yourself

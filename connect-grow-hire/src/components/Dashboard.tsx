@@ -3,6 +3,7 @@ import { Users, Building2, Coffee, Mail, Clock, TrendingUp, Target, ArrowRight, 
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { motion } from 'framer-motion';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
+import { useTheme } from '@/contexts/ThemeContext';
 import { firebaseApi } from '@/services/firebaseApi';
 import { type Firm, apiService } from '@/services/api';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -101,7 +102,7 @@ function KPICard({ icon, label, value, subtitle, progress, showProgress }: {
   const offset = circumference - (progressValue / 100) * circumference;
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-8 hover:border-gray-300 transition-colors h-[180px] flex flex-col overflow-visible shadow-sm">
+    <div className="bg-card border border-border rounded-xl p-6 hover:border-primary/30 transition-colors h-[180px] flex flex-col overflow-visible shadow-sm">
       <div className="flex items-start justify-between mb-2">
         <div className={`rounded-lg bg-purple-soft flex items-center justify-center ${isValidElement(icon) && icon.type === 'div' ? 'px-3 py-2' : 'w-10 h-10'}`}>
           {isValidElement(icon) && icon.type === 'div' ? (
@@ -165,20 +166,20 @@ function KPICard({ icon, label, value, subtitle, progress, showProgress }: {
             </svg>
             {/* Centered number */}
             <div className="absolute inset-0 flex items-center justify-center z-10">
-              <div className="text-xl font-bold text-gray-900">{value}</div>
+              <div className="text-xl font-bold text-foreground">{value}</div>
             </div>
           </div>
             <div className="text-center mt-1">
-            <div className="text-sm text-gray-600">{label}</div>
-            {subtitle && <div className="text-xs text-gray-500 mt-0.5">{subtitle}</div>}
+            <div className="text-sm text-muted-foreground">{label}</div>
+            {subtitle && <div className="text-xs text-muted-foreground mt-0.5">{subtitle}</div>}
           </div>
         </div>
       ) : (
         // Regular layout
         <div className="space-y-1.5 flex-1">
-          <div className="text-3xl font-bold text-gray-900">{value}</div>
-          <div className="text-sm text-gray-600">{label}</div>
-          {subtitle && <div className="text-xs text-gray-500">{subtitle}</div>}
+          <div className="text-3xl font-bold text-foreground">{value}</div>
+          <div className="text-sm text-muted-foreground">{label}</div>
+          {subtitle && <div className="text-xs text-muted-foreground">{subtitle}</div>}
         </div>
       )}
     </div>
@@ -227,17 +228,17 @@ function ActivityFeed() {
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-8 h-full flex flex-col shadow-sm">
+    <div className="bg-card border border-border rounded-xl p-6 h-full flex flex-col shadow-sm">
       <div className="flex items-center gap-2 mb-6">
         <Clock size={18} className="text-purple-600" />
-        <h3 className="text-gray-900">Recent Activity</h3>
+        <h3 className="text-foreground">Recent Activity</h3>
       </div>
       
       <div className="space-y-5 flex-1">
         {isLoading ? (
-          <div className="text-sm text-gray-500">Loading activities...</div>
+          <div className="text-sm text-muted-foreground">Loading activities...</div>
         ) : activities.length === 0 ? (
-          <div className="text-sm text-gray-500">No recent activity</div>
+          <div className="text-sm text-muted-foreground">No recent activity</div>
         ) : (
           activities.map((activity) => (
             <div
@@ -249,15 +250,15 @@ function ActivityFeed() {
                 {getActivityIcon(activity.type)}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm text-gray-900 leading-relaxed">{activity.summary}</div>
-                <div className="text-xs text-gray-500 mt-1">{formatTimeAgo(activity.timestamp)}</div>
+                <div className="text-sm text-foreground leading-relaxed break-words line-clamp-2">{activity.summary}</div>
+                <div className="text-xs text-muted-foreground mt-1">{formatTimeAgo(activity.timestamp)}</div>
               </div>
             </div>
           ))
         )}
       </div>
       
-      <button className="w-full mt-6 text-sm text-purple-600 hover:text-cyan-400 transition-colors pt-4 border-t border-gray-200">
+      <button className="w-full mt-6 text-sm text-purple-600 hover:text-purple-700 transition-colors pt-4 border-t border-border">
         View all activity
       </button>
     </div>
@@ -271,7 +272,7 @@ function RecruitingTimeline() {
   const youAreHerePosition = ((currentMonthIndex + progressWithinMonth) / totalMonths) * 100;
 
   return (
-    <div className="w-full bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+    <div className="w-full bg-card border border-border rounded-xl overflow-hidden shadow-sm">
       <div className="px-8 py-8">
         <div className="relative" style={{ height: '220px' }}>
           <div className="absolute top-[70px] left-0 right-0 h-[2px]">
@@ -291,7 +292,7 @@ function RecruitingTimeline() {
                   className="flex flex-col items-center"
                   style={{ position: 'absolute', left: `${position}%`, transform: 'translateX(-50%)', width: '150px' }}
                 >
-                  <div className="font-medium text-gray-900 mb-3">{phase.month}</div>
+                  <div className="font-medium text-foreground mb-3">{phase.month}</div>
 
                   <div className="relative z-10 mb-3">
                     {phase.isActive ? (
@@ -303,21 +304,21 @@ function RecruitingTimeline() {
                         transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
                       />
                     ) : (
-                      <div className="w-[10px] h-[10px] rounded-full bg-white border-2 border-gray-300" />
+                      <div className="w-[10px] h-[10px] rounded-full bg-card border-2 border-border" />
                     )}
                   </div>
 
-                  <div className="w-[1px] h-10 bg-gray-200" />
+                  <div className="w-[1px] h-10 bg-border" />
 
                   <motion.div
                     className={`mt-2 px-4 py-3 rounded-xl border text-center text-sm transition-all ${
                       phase.isActive
-                        ? 'bg-gradient-to-r from-purple/10 to-cyan-400/10 border-purple/30 shadow-sm'
-                        : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                        ? 'bg-gradient-to-r from-purple/10 to-indigo-500/10 border-purple/30 shadow-sm'
+                        : 'bg-card border-border hover:border-primary/30 shadow-sm hover:shadow-md'
                     }`}
                     whileHover={{ y: -2, transition: { duration: 0.2 } }}
                   >
-                    <div className={phase.isActive ? 'text-gray-900 font-medium' : 'text-gray-500'}>
+                    <div className={phase.isActive ? 'text-foreground font-medium' : 'text-muted-foreground'}>
                       {phase.description}
                     </div>
                   </motion.div>
@@ -386,8 +387,8 @@ function USMap({ locations }: { locations: Array<{ id: number; name: string; cit
     L 4.5 28 Z`;
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-8 shadow-sm">
-      <div className="relative bg-gray-50 rounded-lg p-10 border border-gray-200">
+    <div className="bg-card border border-border rounded-xl p-8 shadow-sm">
+      <div className="relative bg-card rounded-lg p-10 border border-border shadow-sm">
         <svg 
           viewBox="0 0 100 65" 
           className="w-full h-auto" 
@@ -430,7 +431,7 @@ function USMap({ locations }: { locations: Array<{ id: number; name: string; cit
         </svg>
       </div>
 
-      <div className="flex items-center gap-6 mt-6 text-xs text-text-muted">
+      <div className="flex items-center gap-6 mt-6 text-xs text-muted-foreground">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-purple"></div>
           <span>Firms searched</span>
@@ -450,6 +451,7 @@ function USMap({ locations }: { locations: Array<{ id: number; name: string; cit
 
 export function Dashboard() {
   const { user } = useFirebaseAuth();
+  const { theme } = useTheme();
   const navigate = useNavigate();
   const firstName = user?.name?.split(' ')[0] || 'Your';
   const [contactCount, setContactCount] = useState<number>(0);
@@ -810,60 +812,60 @@ export function Dashboard() {
       </svg>
       {/* Header Section */}
       <div className="pt-6 text-center">
-        <h2 className="text-gray-900">{firstName}'s Recruiting Snapshot</h2>
-        <p className="text-gray-600 mt-1">Track your progress and stay on top of your recruiting pipeline</p>
+        <h2 className="text-foreground">{firstName}'s Recruiting Snapshot</h2>
+        <p className="text-muted-foreground mt-1">Track your progress and stay on top of your recruiting pipeline</p>
       </div>
 
       {/* Weekly Summary & Streak Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Weekly Summary Card */}
-        <div className="lg:col-span-2 bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+        <div className="lg:col-span-2 bg-card border border-border rounded-xl p-6 shadow-sm">
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp size={18} className="text-purple-600" />
-            <h3 className="text-lg font-semibold text-gray-900">This Week</h3>
+            <h3 className="text-lg font-semibold text-foreground">This Week</h3>
           </div>
           {weeklySummary ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div>
-                <div className="text-2xl font-bold text-gray-900">{weeklySummary.contactsGenerated}</div>
-                <div className="text-sm text-gray-600">Contacts</div>
+                <div className="text-2xl font-bold text-foreground">{weeklySummary.contactsGenerated}</div>
+                <div className="text-sm text-muted-foreground">Contacts</div>
               </div>
               <div>
-                <div className="text-2xl font-bold text-gray-900">{weeklySummary.firmsSearched}</div>
-                <div className="text-sm text-gray-600">Firms</div>
+                <div className="text-2xl font-bold text-foreground">{weeklySummary.firmsSearched}</div>
+                <div className="text-sm text-muted-foreground">Firms</div>
               </div>
               <div>
-                <div className="text-2xl font-bold text-gray-900">{weeklySummary.coffeeChatsCreated}</div>
-                <div className="text-sm text-gray-600">Coffee Chats</div>
+                <div className="text-2xl font-bold text-foreground">{weeklySummary.coffeeChatsCreated}</div>
+                <div className="text-sm text-muted-foreground">Coffee Chats</div>
               </div>
               <div>
-                <div className="text-2xl font-bold text-gray-900">{weeklySummary.totalActivities}</div>
-                <div className="text-sm text-gray-600">Total Activities</div>
+                <div className="text-2xl font-bold text-foreground">{weeklySummary.totalActivities}</div>
+                <div className="text-sm text-muted-foreground">Total Activities</div>
               </div>
             </div>
           ) : (
-            <div className="text-sm text-text-muted">Loading weekly summary...</div>
+            <div className="text-sm text-muted-foreground">Loading weekly summary...</div>
           )}
         </div>
 
         {/* Streak Card */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+        <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
           <div className="flex items-center gap-2 mb-4">
             <Flame size={18} className="text-orange-500" />
-            <h3 className="text-lg font-semibold text-gray-900">Streak</h3>
+            <h3 className="text-lg font-semibold text-foreground">Streak</h3>
           </div>
           {streakData ? (
             <div>
-              <div className="text-3xl font-bold mb-1 text-gray-900">{streakData.currentStreak}</div>
-              <div className="text-sm text-gray-600 mb-4">days in a row!</div>
+              <div className="text-3xl font-bold mb-1 text-foreground">{streakData.currentStreak}</div>
+              <div className="text-sm text-muted-foreground mb-4">days in a row!</div>
               {streakData.longestStreak > streakData.currentStreak && (
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-muted-foreground">
                   Best: {streakData.longestStreak} days
                 </div>
               )}
             </div>
           ) : (
-            <div className="text-sm text-text-muted">Loading streak...</div>
+            <div className="text-sm text-muted-foreground">Loading streak...</div>
           )}
         </div>
       </div>
@@ -872,8 +874,8 @@ export function Dashboard() {
       {goalProgress.length > 0 && (
         <div className="pt-6">
           <div className="mb-6">
-            <h3 className="text-lg text-gray-900">Monthly Goals</h3>
-            <p className="text-gray-600 text-sm mt-1">Track your progress toward this month's targets</p>
+            <h3 className="text-lg text-foreground">Monthly Goals</h3>
+            <p className="text-muted-foreground text-sm mt-1">Track your progress toward this month's targets</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {goalProgress.map((progress) => {
@@ -885,24 +887,24 @@ export function Dashboard() {
               }[progress.goal.type];
               
               return (
-                <div key={progress.goal.id} className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                <div key={progress.goal.id} className="bg-card border border-border rounded-xl p-6 shadow-sm">
                   <div className="flex items-center gap-2 mb-4">
                     <Target size={16} className="text-purple-600" />
-                    <h4 className="font-medium text-gray-900">{goalLabel}</h4>
+                    <h4 className="font-medium text-foreground">{goalLabel}</h4>
                   </div>
                   <div className="mb-2">
                     <div className="flex items-baseline gap-2 mb-1">
-                      <span className="text-2xl font-bold text-gray-900">{progress.current}</span>
-                      <span className="text-sm text-gray-600">/ {progress.target}</span>
+                      <span className="text-2xl font-bold text-foreground">{progress.current}</span>
+                      <span className="text-sm text-muted-foreground">/ {progress.target}</span>
                     </div>
-                    <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+                    <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
                       <div
-                        className="h-full bg-gradient-to-r from-cyan-400 to-purple-500 transition-all duration-500"
+                        className="h-full bg-gradient-to-r from-purple-600 to-indigo-600 transition-all duration-500"
                         style={{ width: `${progress.percentage}%` }}
                       />
                     </div>
                   </div>
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-muted-foreground">
                     {Math.round(progress.percentage)}% complete
                   </div>
                 </div>
@@ -945,8 +947,8 @@ export function Dashboard() {
       {/* Activity & Analytics Section */}
       <div className="pt-6">
         <div className="mb-6">
-          <h3 className="text-lg text-gray-900">Activity & Analytics</h3>
-          <p className="text-gray-600 text-sm mt-1">Your recent activity and performance trends</p>
+          <h3 className="text-lg text-foreground">Activity & Analytics</h3>
+          <p className="text-muted-foreground text-sm mt-1">Your recent activity and performance trends</p>
         </div>
         
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -955,52 +957,69 @@ export function Dashboard() {
           </div>
 
           <div className="lg:col-span-8 space-y-8">
-            <div className="bg-white border border-gray-200 rounded-xl p-8 shadow-sm">
+            <div className="bg-card border border-border rounded-xl p-8 shadow-sm">
               <div className="flex items-center gap-2 mb-6">
                 <TrendingUp size={18} className="text-purple-600" />
-                <h3 className="text-gray-900">Outreach vs Replies</h3>
+                <h3 className="text-foreground">Outreach vs Replies</h3>
               </div>
               {timeSeriesData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={240}>
-                  <LineChart data={timeSeriesData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
-                    <XAxis dataKey="month" stroke="#a3a3a3" style={{ fontSize: '12px' }} />
-                    <YAxis stroke="#a3a3a3" style={{ fontSize: '12px' }} />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: '#ffffff', 
-                        border: '1px solid #e5e5e5',
-                        borderRadius: '8px',
-                        fontSize: '12px'
-                      }}
-                    />
-                    <Line type="monotone" dataKey="outreach" stroke="#8B5CF6" strokeWidth={2} dot={{ fill: '#8B5CF6' }} />
-                    <Line type="monotone" dataKey="replies" stroke="#D946EF" strokeWidth={2} dot={{ fill: '#D946EF' }} />
-                  </LineChart>
-                </ResponsiveContainer>
+                <div className="w-full overflow-x-auto overflow-y-visible -mx-2 px-2" style={{ paddingBottom: '20px' }}>
+                  <div style={{ minWidth: `${Math.max(100, timeSeriesData.length * 80)}px`, height: '280px' }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={timeSeriesData} margin={{ top: 5, right: 10, left: 0, bottom: 20 }}>
+                        <CartesianGrid 
+                          strokeDasharray="3 3" 
+                          stroke={theme === 'dark' ? 'hsl(var(--border))' : 'hsl(214.3, 31.8%, 91.4%)'} 
+                        />
+                        <XAxis 
+                          dataKey="month" 
+                          stroke={theme === 'dark' ? 'hsl(var(--muted-foreground))' : 'hsl(215.4, 16.3%, 46.9%)'} 
+                          style={{ fontSize: '12px' }}
+                          tick={{ fill: theme === 'dark' ? 'hsl(var(--muted-foreground))' : 'hsl(215.4, 16.3%, 46.9%)' }}
+                        />
+                        <YAxis 
+                          stroke={theme === 'dark' ? 'hsl(var(--muted-foreground))' : 'hsl(215.4, 16.3%, 46.9%)'} 
+                          style={{ fontSize: '12px' }}
+                          tick={{ fill: theme === 'dark' ? 'hsl(var(--muted-foreground))' : 'hsl(215.4, 16.3%, 46.9%)' }}
+                        />
+                        <Tooltip 
+                          contentStyle={{ 
+                            backgroundColor: theme === 'dark' ? 'hsl(var(--card))' : 'hsl(var(--card))', 
+                            border: `1px solid hsl(var(--border))`,
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                            color: theme === 'dark' ? 'hsl(var(--card-foreground))' : 'hsl(var(--card-foreground))'
+                          }}
+                        />
+                        <Line type="monotone" dataKey="outreach" stroke="#8B5CF6" strokeWidth={2} dot={{ fill: '#8B5CF6' }} />
+                        <Line type="monotone" dataKey="replies" stroke="#D946EF" strokeWidth={2} dot={{ fill: '#D946EF' }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
               ) : (
-                <div className="h-[240px] flex items-center justify-center text-sm text-gray-500">
+                <div className="h-[280px] flex items-center justify-center text-sm text-muted-foreground">
                   Loading chart data...
                 </div>
               )}
             </div>
 
             {/* AI Recommendations */}
-            <div className="bg-white border border-gray-200 rounded-xl p-8 shadow-sm">
+            <div className="bg-card border border-border rounded-xl p-8 shadow-sm">
               <div className="mb-6">
-                <h3 className="text-lg mb-1 text-gray-900">AI Recommendations</h3>
-                <p className="text-gray-600 text-sm">Personalized insights to accelerate your search</p>
+                <h3 className="text-lg mb-1 text-foreground">AI Recommendations</h3>
+                <p className="text-muted-foreground text-sm">Personalized insights to accelerate your search</p>
               </div>
               <div className="space-y-4">
                 {recommendations.length === 0 ? (
-                  <div className="text-sm text-gray-500 text-center py-4">
+                  <div className="text-sm text-muted-foreground text-center py-4">
                     No recommendations at this time
                   </div>
                 ) : (
                   recommendations.map((rec, index) => (
                     <div 
                       key={index}
-                      className="p-4 rounded-xl bg-gray-50 border border-gray-200 hover:border-purple-300 transition-all cursor-pointer group"
+                      className="p-4 rounded-xl bg-card border border-border hover:border-purple-300 transition-all cursor-pointer group shadow-sm hover:shadow-md"
                       onClick={() => {
                         if (rec.contactId) {
                           navigate('/outbox');
@@ -1016,9 +1035,9 @@ export function Dashboard() {
                           {rec.icon}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="font-medium text-sm mb-1 leading-snug">{rec.title}</div>
-                          <div className="text-xs text-gray-500 mb-3 leading-relaxed">{rec.description}</div>
-                          <button className="text-xs text-purple-600 hover:text-cyan-400 transition-colors flex items-center gap-1 group-hover:gap-2">
+                          <div className="font-medium text-sm mb-1 leading-snug text-foreground">{rec.title}</div>
+                          <div className="text-xs text-muted-foreground mb-3 leading-relaxed">{rec.description}</div>
+                          <button className="text-xs text-purple-600 hover:text-purple-700 transition-colors flex items-center gap-1 group-hover:gap-2">
                             {rec.action}
                             <ArrowRight size={12} className="transition-all" />
                           </button>
@@ -1036,8 +1055,8 @@ export function Dashboard() {
       {/* Recruiting Timeline Section */}
       <div className="py-16">
         <div className="mb-6">
-          <h3 className="text-lg text-gray-900">Recruiting Timeline</h3>
-          <p className="text-gray-600 text-sm mt-1">Track your progress through recruiting season</p>
+          <h3 className="text-lg text-foreground">Recruiting Timeline</h3>
+          <p className="text-muted-foreground text-sm mt-1">Track your progress through recruiting season</p>
         </div>
         <PersonalizedRecruitingTimeline />
       </div>

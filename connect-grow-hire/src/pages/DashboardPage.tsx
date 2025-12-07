@@ -28,28 +28,29 @@ export default function DashboardPage() {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-background">
+      <div className="min-h-screen flex w-full bg-background overflow-x-auto">
         <AppSidebar />
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-w-[800px]">
           {/* Header */}
-          <div className="bg-background flex items-center border-b border-border">
-            <div className="px-4 border-r border-border">
+          <div className="glass-nav flex items-center border-b border-border w-full">
+            <div className="px-4 border-r border-border flex-shrink-0">
               <SidebarTrigger />
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <Header />
             </div>
           </div>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto p-6 bg-white">
-        <div className="max-w-[1280px] mx-auto">
+      <main className="flex-1 overflow-y-auto overflow-x-auto p-6 bg-background">
+        <div style={{ width: '100%', minWidth: 'fit-content' }}>
+          <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%' }}>
           {/* Tabs */}
           <div className="flex justify-center mb-8">
             <div className="relative grid w-full grid-cols-3 max-w-lg bg-card border border-border p-1 rounded-xl h-14 overflow-hidden">
               {/* Animated sliding background */}
               <motion.div
-                className="absolute bg-gradient-to-r from-cyan-400 to-purple-500 rounded-lg h-12"
+                className="absolute bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg h-12"
                 initial={false}
                 animate={{ 
                   left: getTabPosition(),
@@ -120,6 +121,7 @@ export default function DashboardPage() {
           {activeTab === 'dashboard' && <Dashboard />}
           {activeTab === 'outbox' && <OutboxEmbedded />}
           {activeTab === 'calendar' && <Calendar />}
+          </div>
         </div>
       </main>
         </div>

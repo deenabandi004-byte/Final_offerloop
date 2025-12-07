@@ -14,6 +14,7 @@ import { toast } from "@/hooks/use-toast";
 import { apiService } from "@/services/api";
 import type { Firm, FirmSearchResult, SearchHistoryItem } from "@/services/api";
 import FirmSearchResults from "@/components/FirmSearchResults";
+import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 
 // Example prompts to show users
 const EXAMPLE_PROMPTS = [
@@ -330,11 +331,11 @@ const FirmSearchPage: React.FC = () => {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-background text-foreground">
+      <div className="flex min-h-screen w-full bg-white text-foreground">
         <AppSidebar />
 
         <div className="flex-1">
-          <header className="h-16 flex items-center justify-between border-b border-border px-6 bg-background">
+          <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-white shadow-sm">
             <div className="flex items-center gap-4">
               <SidebarTrigger className="text-foreground hover:bg-accent" />
               <h1 className="text-xl font-semibold">Firm Search</h1>
@@ -353,14 +354,14 @@ const FirmSearchPage: React.FC = () => {
                   <TabsList className="h-14 bg-card border border-border grid grid-cols-2 max-w-lg w-full">
                     <TabsTrigger
                       value="firm-search"
-                      className="h-12 data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-purple-500 data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
+                      className="h-12 data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-600 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
                     >
                       <Search className="h-4 w-4 mr-2" />
                       Firm Search
                     </TabsTrigger>
                     <TabsTrigger
                       value="firm-library"
-                      className="h-12 data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-purple-500 data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
+                      className="h-12 data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-600 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
                     >
                       <Sheet className="h-4 w-4 mr-2" />
                       Firm Library ({results.length})
@@ -543,9 +544,10 @@ const FirmSearchPage: React.FC = () => {
 
                     {/* Loading State */}
                     {isSearching && (
-                      <Card className="bg-card border-border p-12 text-center">
-                        <Loader2 className="h-10 w-10 text-primary animate-spin mx-auto mb-4" />
-                        <p className="text-foreground">Searching for matching firms...</p>
+                      <Card className="bg-card border-border">
+                        <CardContent className="p-6">
+                          <LoadingSkeleton variant="card" count={3} />
+                        </CardContent>
                       </Card>
                     )}
 
@@ -562,6 +564,13 @@ const FirmSearchPage: React.FC = () => {
 
                 {/* TAB 2: Firm Library */}
                 <TabsContent value="firm-library">
+                  {loadingSavedFirms ? (
+                    <Card className="bg-card border-border">
+                      <CardContent className="p-6">
+                        <LoadingSkeleton variant="card" count={5} />
+                      </CardContent>
+                    </Card>
+                  ) : (
                   <div className="space-y-4">
                     {/* Export CSV Button */}
                     {results.length > 0 && (
@@ -586,9 +595,10 @@ const FirmSearchPage: React.FC = () => {
 
                     {/* Loading State */}
                     {loadingSavedFirms ? (
-                      <Card className="bg-card border-border p-12 text-center">
-                        <Loader2 className="h-10 w-10 text-primary animate-spin mx-auto mb-4" />
-                        <p className="text-foreground">Loading your saved firms...</p>
+                      <Card className="bg-card border-border">
+                        <CardContent className="p-6">
+                          <LoadingSkeleton variant="card" count={5} />
+                        </CardContent>
                       </Card>
                     ) : results.length > 0 ? (
                       <FirmSearchResults
@@ -607,6 +617,7 @@ const FirmSearchPage: React.FC = () => {
                       </Card>
                     )}
                   </div>
+                  )}
                 </TabsContent>
               </Tabs>
             </div>

@@ -24,6 +24,7 @@ import { CreditPill } from "@/components/credits";
 import { BackToHomeButton } from "@/components/BackToHomeButton";
 import { BetaBadge } from "@/components/BetaBadges";
 import { apiService } from "@/services/api";
+import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import type { CoffeeChatPrep, CoffeeChatPrepStatus } from "@/services/api";
 import { toast } from "@/hooks/use-toast";
 import { COFFEE_CHAT_CREDITS } from "@/lib/constants";
@@ -357,11 +358,11 @@ const CoffeeChatPrepPage: React.FC = () => {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-background text-foreground">
+      <div className="flex min-h-screen w-full bg-white text-foreground">
         <AppSidebar />
 
         <div className="flex-1">
-          <header className="h-16 flex items-center justify-between border-b border-border px-6 bg-background">
+          <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-white shadow-sm">
             <div className="flex items-center gap-4">
               <SidebarTrigger className="text-foreground hover:bg-accent" />
               <h1 className="text-xl font-semibold">Coffee Chat Prep</h1>
@@ -380,14 +381,14 @@ const CoffeeChatPrepPage: React.FC = () => {
                   <TabsList className="h-14 bg-card border border-border grid grid-cols-2">
                     <TabsTrigger
                       value="coffee-chat-prep"
-                      className="h-12 data-[state=active]:bg-gradient-to-r data-[state=active]:from-cyan-400 data-[state=active]:to-purple-500 data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
+                      className="h-12 data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-600 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
                     >
                       <Coffee className="h-4 w-4 mr-2" />
                       Coffee Chat Prep
                     </TabsTrigger>
                     <TabsTrigger
                       value="coffee-library"
-                      className="h-12 data-[state=active]:bg-gradient-to-r data-[state=active]:from-cyan-400 data-[state=active]:to-purple-500 data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
+                      className="h-12 data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-600 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
                     >
                       <FileText className="h-4 w-4 mr-2" />
                       Coffee Library
@@ -549,12 +550,11 @@ const CoffeeChatPrepPage: React.FC = () => {
                 <TabsContent value="coffee-library" className="mt-6">
                   <div className="space-y-6">
                     {libraryLoading ? (
-                      <div className="flex items-center justify-center h-48 rounded-xl border border-border bg-card">
-                        <div className="flex items-center gap-3 text-foreground">
-                          <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                          Loading your library...
-                        </div>
-                      </div>
+                      <Card className="bg-card border-border">
+                        <CardContent className="p-6">
+                          <LoadingSkeleton variant="card" count={3} />
+                        </CardContent>
+                      </Card>
                     ) : preps.length === 0 ? (
                       <div className="rounded-xl border border-border bg-card p-10 text-center space-y-4">
                         <Coffee className="h-10 w-10 mx-auto text-primary" />

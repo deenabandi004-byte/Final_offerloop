@@ -18,6 +18,7 @@ import { BetaBadge } from "@/components/BetaBadges";
 import { INTERVIEW_PREP_CREDITS } from "@/lib/constants";
 import { flushSync } from "react-dom";
 import { logActivity, generateInterviewPrepSummary } from "@/utils/activityLogger";
+import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 
 const InterviewPrepPage: React.FC = () => {
   const { user, checkCredits } = useFirebaseAuth();
@@ -432,11 +433,11 @@ const InterviewPrepPage: React.FC = () => {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-background text-foreground">
+      <div className="flex min-h-screen w-full bg-white text-foreground">
         <AppSidebar />
 
         <div className="flex-1">
-          <header className="h-16 flex items-center justify-between border-b border-border px-6 bg-background">
+          <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-white shadow-sm">
             <div className="flex items-center gap-4">
               <SidebarTrigger className="text-foreground hover:bg-accent" />
               <h1 className="text-xl font-semibold">Interview Prep</h1>
@@ -455,14 +456,14 @@ const InterviewPrepPage: React.FC = () => {
                   <TabsList className="h-14 bg-card border border-border grid grid-cols-2">
                     <TabsTrigger
                       value="interview-prep"
-                      className="h-12 data-[state=active]:bg-gradient-to-r data-[state=active]:from-cyan-400 data-[state=active]:to-purple-500 data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
+                      className="h-12 data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-600 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
                     >
                       <Briefcase className="h-4 w-4 mr-2" />
                       Interview Prep
                     </TabsTrigger>
                     <TabsTrigger
                       value="interview-library"
-                      className="h-12 data-[state=active]:bg-gradient-to-r data-[state=active]:from-cyan-400 data-[state=active]:to-purple-500 data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
+                      className="h-12 data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-600 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
                     >
                       <FileText className="h-4 w-4 mr-2" />
                       Interview Library
@@ -642,7 +643,7 @@ const InterviewPrepPage: React.FC = () => {
                               effectiveUser.credits < INTERVIEW_PREP_CREDITS ||
                               (!jobPostingUrl.trim() && (!manualCompanyName.trim() || !manualJobTitle.trim()))
                             }
-                            className="w-full bg-gradient-to-r from-purple-600 to-cyan-500 hover:from-purple-700 hover:to-cyan-600 text-white font-semibold py-6 text-base shadow-lg shadow-purple-500/30 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold py-6 text-base shadow-lg shadow-purple-500/30 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {interviewPrepLoading ? (
                               <>
@@ -769,7 +770,7 @@ const InterviewPrepPage: React.FC = () => {
 
                               <Button
                                 onClick={() => downloadInterviewPrepPDF()}
-                                className="w-full bg-gradient-to-r from-purple-600 to-cyan-500 hover:from-purple-700 hover:to-cyan-600 text-white font-semibold py-6 text-base shadow-lg shadow-purple-500/30"
+                                className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold py-6 text-base shadow-lg shadow-purple-500/30"
                               >
                                 <Download className="h-5 w-5 mr-2" />
                                 Download Full PDF
@@ -793,12 +794,11 @@ const InterviewPrepPage: React.FC = () => {
                 <TabsContent value="interview-library" className="mt-6">
                   <div className="space-y-6">
                     {libraryLoading ? (
-                      <div className="flex items-center justify-center h-48 rounded-xl border border-border bg-card">
-                        <div className="flex items-center gap-3 text-foreground">
-                          <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                          Loading your library...
-                        </div>
-                      </div>
+                      <Card className="bg-card border-border">
+                        <CardContent className="p-6">
+                          <LoadingSkeleton variant="card" count={3} />
+                        </CardContent>
+                      </Card>
                     ) : preps.length === 0 ? (
                       <div className="rounded-xl border border-border bg-card p-10 text-center space-y-4">
                         <Briefcase className="h-10 w-10 mx-auto text-primary" />

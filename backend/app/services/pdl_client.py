@@ -6,12 +6,14 @@ import json
 import hashlib
 from functools import lru_cache
 from datetime import datetime
+import requests.exceptions
 
 from app.config import (
     PEOPLE_DATA_LABS_API_KEY, PDL_BASE_URL, PDL_METRO_AREAS,
     pdl_cache, CACHE_DURATION
 )
 from app.services.openai_client import get_openai_client
+from app.utils.retry import retry_with_backoff
 
 
 """
@@ -1300,6 +1302,16 @@ def add_pdl_enrichment_fields_optimized(contact, person_data):
         print(f"Error adding enrichment fields: {e}")
 
 
+@retry_with_backoff(
+    max_retries=3,
+    initial_delay=1.0,
+    max_delay=60.0,
+    retryable_exceptions=(
+        requests.exceptions.RequestException,
+        requests.exceptions.Timeout,
+        requests.exceptions.ConnectionError,
+    ),
+)
 def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page_size=50, verbose=False, skip_count=0):
     """
     Execute PDL search with pagination
@@ -1348,11 +1360,11 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
         print(f"   - Try a different location or just state instead of city")
         return []  # Return empty list to allow other search strategies
     
-    # ✅ HANDLE OTHER ERRORS
+    # ✅ HANDLE OTHER ERRORS - raise_for_status will handle 4xx/5xx (except 404)
     if r.status_code != 200:
         print(f"\n❌ PDL ERROR {r.status_code}:")
         print(f"Response: {r.text[:1000]}")
-        return []  # Return empty instead of raising to allow fallback
+        r.raise_for_status()  # Raise exception for retry logic to catch
     
     j = r.json()
 

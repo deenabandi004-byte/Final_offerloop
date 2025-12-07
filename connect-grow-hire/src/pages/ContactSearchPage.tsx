@@ -19,6 +19,7 @@ import type { Contact as ContactApi } from '../services/firebaseApi';
 import { toast } from "@/hooks/use-toast";
 import { TIER_CONFIGS } from "@/lib/constants";
 import { logActivity, generateContactSearchSummary } from "@/utils/activityLogger";
+import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 
 const ContactSearchPage: React.FC = () => {
   const { user, checkCredits, updateCredits } = useFirebaseAuth();
@@ -604,11 +605,11 @@ const ContactSearchPage: React.FC = () => {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-background text-foreground">
+      <div className="flex min-h-screen w-full bg-white text-foreground">
         <AppSidebar />
 
         <div className="flex-1">
-          <header className="h-16 flex items-center justify-between border-b border-border px-6 bg-background">
+          <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-white shadow-sm">
             <div className="flex items-center gap-4">
               <SidebarTrigger className="text-foreground hover:bg-accent" />
               <h1 className="text-xl font-semibold">Contact Search</h1>
@@ -627,14 +628,14 @@ const ContactSearchPage: React.FC = () => {
                   <TabsList className="h-14 bg-card border border-border grid grid-cols-2">
                     <TabsTrigger
                       value="contact-search"
-                      className="h-12 data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-purple-500 data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
+                      className="h-12 data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-600 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
                     >
                       <Search className="h-4 w-4 mr-2" />
                       Contact Search
                     </TabsTrigger>
                     <TabsTrigger
                       value="contact-library"
-                      className="h-12 data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-purple-500 data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
+                      className="h-12 data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-600 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
                     >
                       <FileText className="h-4 w-4 mr-2" />
                       Contact Library
@@ -665,8 +666,8 @@ const ContactSearchPage: React.FC = () => {
                           variant={gmailConnected ? "outline" : "default"}
                           size="sm"
                           className={gmailConnected 
-                            ? "border-input text-foreground hover:bg-accent" 
-                            : "bg-blue-600 hover:bg-blue-700 text-white"}
+                            ? "bg-white border border-gray-200 text-gray-700 hover:bg-gray-50" 
+                            : "bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white shadow-sm"}
                         >
                           {gmailConnected ? 'Reconnect' : 'Connect Gmail'}
                         </Button>
@@ -692,7 +693,7 @@ const ContactSearchPage: React.FC = () => {
                             placeholder="e.g. Analyst, unsure of exact title in company? Ask Scout"
                             dataType="job_title"
                             disabled={isSearching}
-                            className="bg-background border-input text-foreground placeholder:text-muted-foreground focus:border-cyan-400 hover:border-purple-400 transition-colors"
+                            className="bg-background border-input text-foreground placeholder:text-muted-foreground focus:border-purple-500 hover:border-purple-400 transition-colors"
                           />
                         </div>
 
@@ -704,7 +705,7 @@ const ContactSearchPage: React.FC = () => {
                             placeholder="e.g. Google, Meta, or any preferred firm"
                             dataType="company"
                             disabled={isSearching}
-                            className="bg-background border-input text-foreground placeholder:text-muted-foreground focus:border-cyan-400 hover:border-purple-400 transition-colors"
+                            className="bg-background border-input text-foreground placeholder:text-muted-foreground focus:border-purple-500 hover:border-purple-400 transition-colors"
                           />
                         </div>
 
@@ -718,7 +719,7 @@ const ContactSearchPage: React.FC = () => {
                             placeholder="e.g. Los Angeles, CA, New York, NY, city of office"
                             dataType="location"
                             disabled={isSearching}
-                            className="bg-background border-input text-foreground placeholder:text-muted-foreground focus:border-cyan-400 hover:border-purple-400 transition-colors"
+                            className="bg-background border-input text-foreground placeholder:text-muted-foreground focus:border-purple-500 hover:border-purple-400 transition-colors"
                           />
                         </div>
 
@@ -732,7 +733,7 @@ const ContactSearchPage: React.FC = () => {
                             placeholder="e.g. Stanford, USC, preferred college they attended"
                             dataType="school"
                             disabled={isSearching}
-                            className="bg-background border-input text-foreground placeholder:text-muted-foreground focus:border-cyan-400 hover:border-purple-400 transition-colors"
+                            className="bg-background border-input text-foreground placeholder:text-muted-foreground focus:border-purple-500 hover:border-purple-400 transition-colors"
                           />
                         </div>
                       </div>
@@ -749,8 +750,8 @@ const ContactSearchPage: React.FC = () => {
 
                         <div className="bg-muted/30 rounded-xl p-6 border border-border shadow-lg">
                           <div className="flex items-center gap-6">
-                            <div className="bg-gradient-to-br from-purple-500/20 to-cyan-400/20 border border-purple-400/40 rounded-xl px-4 py-3 min-w-[70px] text-center shadow-inner">
-                              <span className="text-2xl font-bold bg-gradient-to-r from-purple-300 to-cyan-300 bg-clip-text text-transparent">
+                            <div className="bg-gradient-to-br from-purple-500/20 to-indigo-500/20 border border-purple-400/40 rounded-xl px-4 py-3 min-w-[70px] text-center shadow-inner">
+                              <span className="text-2xl font-bold bg-gradient-to-r from-purple-300 to-indigo-300 bg-clip-text text-transparent">
                                 {batchSize}
                               </span>
                             </div>
@@ -851,7 +852,7 @@ const ContactSearchPage: React.FC = () => {
                             (effectiveUser.credits ?? 0) < 15
                           }
                           size="lg"
-                          className="bg-gradient-to-r from-cyan-400 to-purple-500 hover:from-cyan-500 hover:to-purple-600 text-white font-medium px-8 transition-all hover:scale-105"
+                          className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-medium px-8 transition-all hover:scale-105 shadow-sm"
                         >
                           {isSearching ? "Searching..." : "Find Contacts"}
                         </Button>
@@ -895,6 +896,14 @@ const ContactSearchPage: React.FC = () => {
                         </Card>
                       )}
 
+                      {isSearching && !hasResults && (
+                        <Card className="mt-6 bg-card border-border">
+                          <CardContent className="p-6">
+                            <LoadingSkeleton variant="contacts" count={3} />
+                          </CardContent>
+                        </Card>
+                      )}
+
                       {hasResults && lastSearchStats && (
                         <div className="mt-4 p-4 bg-gradient-to-r from-green-500/10 to-blue-500/10 border-2 border-green-500/50 rounded-lg">
                           <div className="flex items-center justify-between mb-2">
@@ -929,9 +938,7 @@ const ContactSearchPage: React.FC = () => {
                 </TabsContent>
 
                 <TabsContent value="contact-library" className="mt-6">
-                  <div className="max-w-full -mx-8 -my-6">
-                    <ContactDirectoryComponent />
-                  </div>
+                  <ContactDirectoryComponent />
                 </TabsContent>
               </Tabs>
             </div>

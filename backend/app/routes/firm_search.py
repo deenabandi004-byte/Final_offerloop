@@ -14,8 +14,11 @@ from app.services.company_search import (
     get_available_industries,
     get_size_options
 )
-from app.services.auth import check_and_reset_credits
+from app.services.auth import check_and_reset_credits, deduct_credits_atomic
 from app.config import TIER_CONFIGS
+from app.utils.exceptions import ValidationError, OfferloopException, InsufficientCreditsError, ExternalAPIError
+from app.utils.validation import FirmSearchRequest, validate_request
+from firebase_admin import firestore
 
 # Credit constants
 CREDITS_PER_FIRM = 5
@@ -46,21 +49,21 @@ def get_user_credits_and_tier(db, uid):
 
 
 def deduct_credits(db, uid, amount):
-    """Deduct credits from user's account."""
-    try:
-        user_ref = db.collection('users').document(uid)
-        user_doc = user_ref.get()
-        
-        if user_doc.exists:
-            user_data = user_doc.to_dict()
-            current_credits = check_and_reset_credits(user_ref, user_data)
-            new_credits = max(0, current_credits - amount)
-            user_ref.update({'credits': new_credits})
-            return new_credits
-        
-        return 0
-    except Exception as e:
-        print(f"Error deducting credits: {e}")
+    """Deduct credits from user's account (DEPRECATED - use deduct_credits_atomic instead)."""
+    # Use atomic function to prevent race conditions
+    success, remaining = deduct_credits_atomic(uid, amount, "firm_search")
+    if success:
+        return remaining
+    else:
+        # If deduction failed, return current balance (for backward compatibility)
+        try:
+            user_ref = db.collection('users').document(uid)
+            user_doc = user_ref.get()
+            if user_doc.exists:
+                user_data = user_doc.to_dict()
+                return check_and_reset_credits(user_ref, user_data)
+        except:
+            pass
         return 0
 
 
@@ -103,6 +106,7 @@ def save_search_to_history(uid: str, query: str, parsed_filters: dict, results: 
 @firm_search_bp.route('/search', methods=['POST'])
 @require_firebase_auth
 def search_firms_route():
+    # Rate limiting is handled globally by Flask-Limiter (default: 50/hour, 200/day)
     """
     Natural language firm search WITH CREDIT SYSTEM.
     
@@ -115,77 +119,70 @@ def search_firms_route():
     try:
         uid = request.firebase_user.get('uid')
         db = get_db()
-        data = request.get_json()
+        data = request.get_json() or {}
         
-        if not data:
-            return jsonify({
-                'success': False,
-                'error': 'Request body is required'
-            }), 400
+        # Validate input
+        try:
+            validated_data = validate_request(FirmSearchRequest, data)
+        except ValidationError as ve:
+            return ve.to_response()
         
-        query = data.get('query', '').strip()
-        
-        if not query:
-            return jsonify({
-                'success': False,
-                'error': 'Search query is required. Try something like "investment banks in New York" or "mid-sized consulting firms in San Francisco focused on healthcare"'
-            }), 400
+        query = validated_data['query']
+        batch_size = validated_data.get('batchSize', 10)
         
         # Get user's tier and credits
         current_credits, tier, max_credits = get_user_credits_and_tier(db, uid)
         
-        # Get and validate batch size
-        requested_batch_size = data.get('batchSize', 10)
-        batch_size = int(requested_batch_size)
-        
+        # Validate batch size for tier
         is_valid, error_msg = validate_batch_size(tier, batch_size)
         if not is_valid:
-            return jsonify({
-                'success': False,
-                'error': error_msg
-            }), 400
+            raise ValidationError(error_msg, field="batchSize")
         
         # Calculate MAX credit cost
         max_credits_needed = calculate_firm_search_cost(batch_size)
         
         # Check if user has enough credits
         if current_credits < max_credits_needed:
-            return jsonify({
-                'success': False,
-                'error': f'Insufficient credits. You need {max_credits_needed} credits but only have {current_credits}.',
-                'creditsNeeded': max_credits_needed,
-                'currentCredits': current_credits,
-                'insufficientCredits': True
-            }), 402
+            raise InsufficientCreditsError(max_credits_needed, current_credits)
         
         # Perform the search
         result = search_firms(query, limit=batch_size)
         
-        if not result['success'] or not result.get('firms'):
+        if not result.get('success'):
+            error_msg = result.get('error', 'Firm search failed')
+            raise ExternalAPIError("Firm Search", error_msg)
+        
+        firms = result.get('firms', [])
+        if not firms:
+            # No firms found - return empty result but don't charge credits
             return jsonify({
-                'success': result['success'],
-                'firms': result.get('firms', []),
-                'total': result.get('total', 0),
+                'success': True,
+                'firms': [],
+                'total': 0,
                 'parsedFilters': result.get('parsedFilters'),
-                'error': result.get('error'),
+                'message': 'No firms found matching your search criteria. Try broadening your search.',
                 'batchSize': batch_size,
                 'creditsCharged': 0,
                 'remainingCredits': current_credits
             })
         
         # Calculate ACTUAL credit cost based on firms returned
-        actual_firms_returned = len(result['firms'])
+        actual_firms_returned = len(firms)
         actual_credits_to_charge = calculate_firm_search_cost(actual_firms_returned)
         
-        # Charge credits for actual firms returned
-        new_credit_balance = deduct_credits(db, uid, actual_credits_to_charge)
+        # Charge credits atomically
+        success, new_credit_balance = deduct_credits_atomic(uid, actual_credits_to_charge, "firm_search")
+        if not success:
+            # If deduction failed, user may have spent credits elsewhere
+            current_credits, _, _ = get_user_credits_and_tier(db, uid)
+            raise InsufficientCreditsError(actual_credits_to_charge, current_credits)
         
         # Save to history
         search_id = save_search_to_history(
             uid=uid,
             query=query,
             parsed_filters=result.get('parsedFilters', {}),
-            results=result['firms']
+            results=firms
         )
         
         print(f"✅ Firm search successful for user {uid}:")
@@ -197,8 +194,8 @@ def search_firms_route():
         
         return jsonify({
             'success': True,
-            'firms': result.get('firms', []),
-            'total': len(result.get('firms', [])),
+            'firms': firms,
+            'total': len(firms),
             'parsedFilters': result.get('parsedFilters'),
             'searchId': search_id,
             'batchSize': batch_size,
@@ -207,14 +204,13 @@ def search_firms_route():
             'remainingCredits': new_credit_balance
         })
     
+    except (ValidationError, InsufficientCreditsError, ExternalAPIError, OfferloopException):
+        raise
     except Exception as e:
         print(f"Firm search error: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({
-            'success': False,
-            'error': 'An unexpected error occurred. Please try again.'
-        }), 500
+        raise OfferloopException(f"Firm search failed: {str(e)}", error_code="FIRM_SEARCH_ERROR")
 
 
 @firm_search_bp.route('/history', methods=['GET'])
@@ -233,11 +229,11 @@ def get_search_history():
         for doc in query.stream():
             search_data = doc.to_dict()
             searches.append({
-                'id': search_data.get('id'),
+                'id': doc.id,  # Use document ID, not from data
                 'query': search_data.get('query'),
                 'parsedFilters': search_data.get('parsedFilters'),
                 'resultsCount': search_data.get('resultsCount', 0),
-                'createdAt': search_data.get('createdAt').isoformat() if search_data.get('createdAt') else None
+                'createdAt': search_data.get('createdAt').isoformat() if hasattr(search_data.get('createdAt'), 'isoformat') else str(search_data.get('createdAt', ''))
             })
         
         return jsonify({
@@ -247,10 +243,10 @@ def get_search_history():
     
     except Exception as e:
         print(f"Error getting search history: {e}")
-        return jsonify({
-            'success': False,
-            'error': 'Failed to load search history'
-        }), 500
+        import traceback
+        traceback.print_exc()
+        from app.utils.exceptions import OfferloopException
+        raise OfferloopException(f"Failed to load search history: {str(e)}", error_code="FIRM_SEARCH_HISTORY_ERROR")
 
 
 @firm_search_bp.route('/history/<search_id>', methods=['GET'])

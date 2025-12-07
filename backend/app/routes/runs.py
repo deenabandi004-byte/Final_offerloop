@@ -3,6 +3,7 @@ Run routes - free and pro tier search endpoints
 """
 import json
 import csv
+from datetime import datetime
 from app.services.pdl_client import search_contacts_with_smart_location_strategy, get_contact_identity
 from io import StringIO
 from flask import Blueprint, request, jsonify, send_file
@@ -15,6 +16,8 @@ from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, cr
 from app.services.auth import check_and_reset_credits
 from app.services.hunter import enrich_contacts_with_hunter
 from app.config import TIER_CONFIGS
+from app.utils.exceptions import ValidationError, OfferloopException, InsufficientCreditsError, ExternalAPIError
+from app.utils.validation import ContactSearchRequest, validate_request
 from firebase_admin import firestore
 def _is_valid_email(value: str) -> bool:
     """Basic sanity check for emails."""
@@ -561,41 +564,84 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
 @runs_bp.route("/free-run", methods=["POST"])
 @require_firebase_auth
 def free_run():
-    """Free tier search endpoint"""
+    """Free tier search endpoint with validation"""
     try:
+        user_email = request.firebase_user.get('email')
+        user_id = request.firebase_user['uid']
+        
+        # Get request data
         if request.is_json:
             data = request.get_json(silent=True) or {}
-            job_title = (data.get("jobTitle") or "").strip()
-            company = (data.get("company") or "").strip()
-            location = (data.get("location") or "").strip()
-            user_profile = data.get("userProfile") or None
-            resume_text = data.get("resumeText") or None
-            career_interests = data.get("careerInterests") or []
-            college_alumni = (data.get("collegeAlumni") or "").strip()
-            batch_size = data.get("batchSize")
         else:
-            job_title = (request.form.get("jobTitle") or "").strip()
-            company = (request.form.get("company") or "").strip()
-            location = (request.form.get("location") or "").strip()
-            user_profile = request.form.get("userProfile") or None
-            resume_text = request.form.get("resumeText") or None
-            career_interests = request.form.get("careerInterests") or []
-            college_alumni = (request.form.get("collegeAlumni") or "").strip()
-            batch_size = request.form.get("batchSize")
+            # Handle form data
+            data = {
+                'jobTitle': request.form.get('jobTitle', '').strip(),
+                'company': request.form.get('company', '').strip(),
+                'location': request.form.get('location', '').strip(),
+                'collegeAlumni': request.form.get('collegeAlumni', '').strip() or None,
+                'batchSize': request.form.get('batchSize'),
+                'userProfile': None,
+                'careerInterests': []
+            }
+            # Parse JSON fields from form data
+            user_profile_raw = request.form.get('userProfile')
+            if user_profile_raw:
+                try:
+                    data['userProfile'] = json.loads(user_profile_raw)
+                except:
+                    pass
+            career_interests_raw = request.form.get('careerInterests')
+            if career_interests_raw:
+                try:
+                    data['careerInterests'] = json.loads(career_interests_raw)
+                except:
+                    pass
+            if data.get('batchSize'):
+                try:
+                    data['batchSize'] = int(data['batchSize'])
+                except:
+                    data['batchSize'] = None
         
-        if batch_size is not None:
+        # Validate input
+        try:
+            validated_data = validate_request(ContactSearchRequest, data)
+        except ValidationError as ve:
+            return ve.to_response()
+        
+        # Extract validated fields
+        job_title = validated_data['jobTitle']
+        company = validated_data['company']
+        location = validated_data['location']
+        college_alumni = validated_data.get('collegeAlumni')
+        batch_size = validated_data.get('batchSize')
+        user_profile = validated_data.get('userProfile')
+        career_interests = validated_data.get('careerInterests', [])
+        
+        # Get resume text if provided (not in validation schema as it's optional)
+        resume_text = None
+        if request.is_json:
+            resume_text = (data.get('resumeText') or '').strip() or None
+        else:
+            resume_text = request.form.get('resumeText', '').strip() or None
+        
+        # Save search to history
+        db = get_db()
+        if db:
             try:
-                batch_size = int(batch_size)
-            except (ValueError, TypeError):
-                batch_size = None
-        
-        user_email = (request.firebase_user or {}).get("email") or ""
-        
-        print(f"New unified email system Free search for {user_email}: {job_title} at {company} in {location}")
-        if resume_text:
-            print(f"Resume provided for enhanced personalization ({len(resume_text)} chars)")
-        print(f"DEBUG - college_alumni received: {college_alumni!r}")
-        print(f"DEBUG - batch_size received: {batch_size}")
+                search_data = {
+                    'jobTitle': job_title,
+                    'company': company,
+                    'location': location,
+                    'collegeAlumni': college_alumni,
+                    'batchSize': batch_size,
+                    'tier': 'free',
+                    'createdAt': datetime.now().isoformat(),
+                    'userId': user_id
+                }
+                db.collection('users').document(user_id).collection('searchHistory').add(search_data)
+            except Exception as history_error:
+                print(f"⚠️ Failed to save search history: {history_error}")
+                # Don't fail the search if history save fails
         
         result = run_free_tier_enhanced_optimized(
             job_title,
@@ -617,8 +663,13 @@ def free_run():
                     "message": result.get("message"),
                     "require_reauth": True,
                     "contacts": result.get("contacts", [])
-                }), 401  # 401 = Unauthorized (need to re-auth)
-            return jsonify({"error": result["error"]}), 500
+                }), 401
+            elif "insufficient" in error_type.lower() or "credits" in error_type.lower():
+                required = result.get('credits_needed', 15)
+                available = result.get('current_credits', 0)
+                raise InsufficientCreditsError(required, available)
+            else:
+                raise ExternalAPIError("Contact Search", result.get("error", "Search failed"))
         
         response_data = {
             "contacts": result["contacts"],
@@ -629,11 +680,13 @@ def free_run():
         }
         return jsonify(response_data)
         
+    except (ValidationError, InsufficientCreditsError, ExternalAPIError, OfferloopException):
+        raise
     except Exception as e:
         print(f"Free endpoint error: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        raise OfferloopException(f"Search failed: {str(e)}", error_code="SEARCH_ERROR")
 
 
 @runs_bp.route('/free-run-csv', methods=['POST'])

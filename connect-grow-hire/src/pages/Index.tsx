@@ -5,7 +5,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { Check, ArrowRight, Twitter, Linkedin, Instagram } from 'lucide-react';
 import { ExpandablePrivacyLock } from '@/components/ExpandablePrivacyLock';
 import { ProductTour } from '@/components/ProductTour';
-import CircularGallery from '@/components/CircularGallery';
+import ScreenshotGallery from '@/components/ScreenshotGallery';
 import DylanRoby from "@/assets/DylanRoby.png";
 import SaraUcuzoglu from "@/assets/SaraU.png";
 import JacksonLeck from "@/assets/JacksonLeck.png";
@@ -13,6 +13,14 @@ import FiveStarReview from "@/assets/5StarReview.png";
 import EliHamou from "@/assets/EliHamou.png";
 import LucasTurcuato from "@/assets/LucasTurcuato.png";
 import Marquee from "react-fast-marquee";
+// Screenshot imports - New screenshots from Dec 6, 2025
+import Screenshot1 from "@/assets/Screenshot_2025-12-06_at_5.53.16_PM.png";
+import Screenshot2 from "@/assets/Screenshot_2025-12-06_at_5.54.11_PM.png";
+import Screenshot3 from "@/assets/Screenshot_2025-12-06_at_5.54.48_PM.png";
+import Screenshot4 from "@/assets/Screenshot_2025-12-06_at_5.55.01_PM.png";
+import Screenshot5 from "@/assets/Screenshot_2025-12-06_at_5.55.15_PM.png";
+import Screenshot6 from "@/assets/Screenshot_2025-12-06_at_5.55.27_PM.png";
+import Screenshot7 from "@/assets/Screenshot_2025-12-06_at_5.55.52_PM.png";
 import DynamicBackground from '@/components/background/DynamicBackground';
 import { DynamicGradientBackground } from '@/components/background/DynamicGradientBackground';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -142,7 +150,7 @@ const Index = () => {
                     <a
                       key={item}
                       href={href}
-                      className="text-sm text-gray-300 hover:text-blue-400 transition-colors link-slide"
+                      className="text-sm text-section-body hover:text-blue-400 transition-colors link-slide"
                     >
                       {item}
                     </a>
@@ -177,13 +185,13 @@ const Index = () => {
           {/* Hero Text - Full Width Centered */}
           <div className="max-w-7xl mx-auto px-12 text-center mb-20">
             <h1 className="text-hero mb-10 max-w-5xl mx-auto" style={{ overflow: 'visible', lineHeight: '1.2', padding: '0.5rem 1rem' }}>
-              <span className="block text-white tracking-tight" style={{ padding: '0.25rem 0.5rem' }}>Recruiting</span>
+              <span className="block text-hero-primary tracking-tight" style={{ padding: '0.25rem 0.5rem' }}>Recruiting</span>
               <span className="block tracking-tight" style={{ padding: '0.25rem 0.5rem' }}>
-                <span className="text-white">On </span>
+                <span className="text-hero-primary">On </span>
                 <span className="text-autopilot-gradient italic" style={{ padding: '0.125rem 0.5rem', overflow: 'visible', marginRight: '0.25rem' }}>Autopilot</span>
               </span>
             </h1>
-            <p className="text-2xl text-gray-300 mb-12 max-w-3xl mx-auto">
+            <p className="text-2xl text-hero-subtitle mb-12 max-w-3xl mx-auto">
               We take the tedious, repetitive work out of recruiting.
             </p>
             <button
@@ -193,32 +201,58 @@ const Index = () => {
               Try it out <ArrowRight className="h-5 w-5" />
             </button>
             
-            {/* CircularGallery Component - 3D circular gallery showing screenshots */}
-            <div className="w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] mt-12 overflow-visible" style={{ minHeight: '600px', height: '700px', zIndex: 100, isolation: 'isolate', transform: 'translateZ(0)', willChange: 'transform' }}>
-              <CircularGallery
+            {/* Revolutionary Screenshot Gallery - 3D Interactive Display */}
+            <div className="w-full max-w-7xl mx-auto mt-16 px-6">
+              <ScreenshotGallery
                 items={[
-                  { image: 'https://picsum.photos/seed/1/800/600', text: 'Screenshot 1' },
-                  { image: 'https://picsum.photos/seed/2/800/600', text: 'Screenshot 2' },
-                  { image: 'https://picsum.photos/seed/3/800/600', text: 'Screenshot 3' },
-                  { image: 'https://picsum.photos/seed/4/800/600', text: 'Screenshot 4' },
-                  { image: 'https://picsum.photos/seed/5/800/600', text: 'Screenshot 5' },
+                  { 
+                    image: Screenshot1,
+                    title: 'Smart Contact Search',
+                    description: 'Find professionals instantly with AI-powered search'
+                  },
+                  { 
+                    image: Screenshot2,
+                    title: 'Automated Outreach',
+                    description: 'Send personalized emails in seconds, not hours'
+                  },
+                  { 
+                    image: Screenshot3,
+                    title: 'Interview Preparation',
+                    description: 'AI-powered prep for every conversation'
+                  },
+                  { 
+                    image: Screenshot4,
+                    title: 'Coffee Chat Prep',
+                    description: 'Never walk into a conversation unprepared'
+                  },
+                  { 
+                    image: Screenshot5,
+                    title: 'Contact Directory',
+                    description: 'Organize and manage all your connections'
+                  },
+                  { 
+                    image: Screenshot6,
+                    title: 'Dashboard Overview',
+                    description: 'Track your progress and stay organized'
+                  },
+                  { 
+                    image: Screenshot7,
+                    title: 'Professional Network',
+                    description: 'Build meaningful connections effortlessly'
+                  },
                 ]}
-                bend={3}
-                textColor={theme === 'light' ? '#1e293b' : '#ffffff'}
-                borderRadius={0.05}
-                font="bold 24px sans-serif"
-                scrollSpeed={2}
-                scrollEase={0.05}
+                autoPlay={true}
+                autoPlayInterval={4000}
               />
             </div>
             
             {/* Title underneath carousel */}
             <div className="text-center mt-8 mb-16">
-              <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-3 text-white dark:text-white text-slate-900 dark:text-white">
-                <span className="text-cyan-400 dark:text-cyan-400 text-cyan-600 dark:text-cyan-400">Search</span> to <span className="text-cyan-400 dark:text-cyan-400 text-cyan-600 dark:text-cyan-400">success</span>
+              <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-3 text-section-heading">
+                <span className="text-blue-600 dark:text-cyan-400">Search</span> to <span className="text-blue-600 dark:text-cyan-400">success</span>
               </h2>
-              <p className="text-lg md:text-xl text-gray-300 dark:text-gray-300 text-slate-600 dark:text-gray-300 max-w-2xl mx-auto">
-                We guide you <span className="text-cyan-400 dark:text-cyan-400 text-cyan-600 dark:text-cyan-400">every step</span>
+              <p className="text-lg md:text-xl text-section-body max-w-2xl mx-auto">
+                We guide you <span className="text-blue-600 dark:text-cyan-400">every step</span>
               </p>
             </div>
           </div>
@@ -245,10 +279,10 @@ const Index = () => {
         >
           <div className="max-w-full mx-auto">
             <div className="text-center mb-16">
-              <h2 className="text-display-lg mb-4 text-white dark:text-white text-slate-900 dark:text-white">
+              <h2 className="text-display-lg mb-4 text-section-heading">
                 Hear from our <span className="gradient-text-teal">Real Customers</span>
               </h2>
-              <p className="text-xl text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">
+              <p className="text-xl text-section-body">
                 Used by hundreds of students across the country with offers received from top tier firms
               </p>
             </div>
@@ -317,7 +351,7 @@ const Index = () => {
                   <div className="relative z-10 flex flex-col h-full">
                     <div className="flex-1">
                       <img src={FiveStarReview} alt="5 star rating" className="w-24 mb-4" />
-                      <p className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 italic text-lg leading-relaxed">"{quote}"</p>
+                      <p className="text-section-body italic text-lg leading-relaxed">"{quote}"</p>
                     </div>
                     <div className="flex items-center gap-4 mt-auto pt-6">
                       <img 
@@ -329,8 +363,8 @@ const Index = () => {
                         }}
                       />
                       <div>
-                        <div className="font-semibold text-white dark:text-white text-slate-900 dark:text-white">{name}</div>
-                        <div className="text-sm text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">{role}</div>
+                        <div className="font-semibold text-section-heading">{name}</div>
+                        <div className="text-sm text-section-body">{role}</div>
                       </div>
                     </div>
                   </div>
@@ -350,7 +384,7 @@ const Index = () => {
           style={{ marginTop: '-1px' }}
         >
           <div className="max-w-5xl mx-auto">
-            <h2 className="text-display-lg text-center mb-16 text-white dark:text-white text-slate-900 dark:text-white">
+            <h2 className="text-display-lg text-center mb-16 text-section-heading">
               Start <span className="gradient-text-teal">Connecting</span> Today
             </h2>
 
@@ -358,8 +392,8 @@ const Index = () => {
               {/* Free Plan */}
               <div className="glass-card p-8 rounded-3xl">
                 <div className="mb-6">
-                  <h3 className="text-2xl font-bold text-white dark:text-white text-slate-900 dark:text-white">Free</h3>
-                  <p className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">Try out platform risk free</p>
+                  <h3 className="text-2xl font-bold text-section-heading">Free</h3>
+                  <p className="text-section-body">Try out platform risk free</p>
                 </div>
                 <div className="space-y-3 mb-8">
                   {[
@@ -370,7 +404,7 @@ const Index = () => {
                   ].map((item) => (
                     <div key={item} className="flex items-center gap-3">
                       <Check className="h-5 w-5 text-blue-400 dark:text-blue-400 text-blue-600 dark:text-blue-400" />
-                      <span className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">{item}</span>
+                      <span className="text-section-body">{item}</span>
                     </div>
                   ))}
                 </div>
@@ -389,13 +423,13 @@ const Index = () => {
                 </div>
                 <div className="glass-card p-8 rounded-3xl border-blue-500/30 dark:border-blue-500/30 border-blue-300/50 dark:border-blue-500/30 glow-teal">
                   <div className="mb-6">
-                    <h3 className="text-2xl font-bold text-white dark:text-white text-slate-900 dark:text-white">Pro</h3>
+                    <h3 className="text-2xl font-bold text-section-heading">Pro</h3>
                     <div className="flex items-baseline gap-2">
-                      <span className="text-gray-500 dark:text-gray-500 text-slate-500 dark:text-gray-500 line-through">$34.99</span>
+                      <span className="text-muted-foreground line-through">$34.99</span>
                       <span className="text-3xl font-bold text-blue-400 dark:text-blue-400 text-blue-600 dark:text-blue-400">$8.99</span>
-                      <span className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">/month</span>
+                      <span className="text-section-body">/month</span>
                     </div>
-                    <p className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">1800 credits</p>
+                    <p className="text-section-body">1800 credits</p>
                   </div>
                   <div className="space-y-3 mb-8">
                     {[
@@ -408,7 +442,7 @@ const Index = () => {
                     ].map((item) => (
                       <div key={item} className="flex items-center gap-3">
                         <Check className="h-5 w-5 text-blue-400 dark:text-blue-400 text-blue-600 dark:text-blue-400" />
-                        <span className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">{item}</span>
+                        <span className="text-section-body">{item}</span>
                       </div>
                     ))}
                   </div>
@@ -436,21 +470,21 @@ const Index = () => {
             <div className="grid md:grid-cols-2 gap-16">
               {/* Mission */}
               <div className="glass-card p-10 rounded-3xl">
-                <h2 className="text-4xl font-bold mb-6 text-white dark:text-white text-slate-900 dark:text-white">
+                <h2 className="text-4xl font-bold mb-6 text-section-heading">
                   Our <span className="gradient-text-teal">Mission</span>
                 </h2>
-                <p className="text-lg text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 leading-relaxed mb-6">
+                <p className="text-lg text-section-body leading-relaxed mb-6">
                   To make it easier for students and young professionals to connect, stand out and land better opportunities.
                 </p>
-                <p className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 leading-relaxed">
+                <p className="text-section-body leading-relaxed">
                   By cutting down the time to send emails and prep for calls by 90%, we save our users hundreds of hours of work and stress, giving them back time to focus on what matters: learning, growing and enjoying your best years.
                 </p>
               </div>
 
               {/* Story */}
               <div className="glass-card p-10 rounded-3xl">
-                <h3 className="text-3xl font-bold mb-6 text-white dark:text-white text-slate-900 dark:text-white">Our Story</h3>
-                <div className="space-y-4 text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 leading-relaxed">
+                <h3 className="text-3xl font-bold mb-6 text-section-heading">Our Story</h3>
+                <div className="space-y-4 text-section-body leading-relaxed">
                   <p>
                     Offerloop is a platform built by students, for students and young professionals, with one goal: to make it easier to connect with professionals, stand out, and land great opportunities.
                   </p>
@@ -479,15 +513,15 @@ const Index = () => {
               <div className="md:col-span-2" id="privacy-lock">
                 <ExpandablePrivacyLock />
                 <div className="flex items-center gap-2 mb-6">
-                  <span className="text-2xl font-bold text-white dark:text-white text-slate-900 dark:text-white">
+                  <span className="text-2xl font-bold text-section-heading">
                     offer<span className="gradient-text-teal">loop</span>
                   </span>
                 </div>
-                <p className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 mb-6 max-w-md">
+                <p className="text-section-body mb-6 max-w-md">
                   Fundamentally changing how you recruit by taking the tedious, repetitive work out of the process. Connect with professionals and build the career you're excited about.
                 </p>
                 <div>
-                  <h4 className="font-semibold text-white dark:text-white text-slate-900 dark:text-white mb-3">Follow Us</h4>
+                  <h4 className="font-semibold text-section-heading mb-3">Follow Us</h4>
                   <div className="flex gap-4">
                     <a 
                       href="https://twitter.com/offerloop" 
@@ -495,7 +529,7 @@ const Index = () => {
                       rel="noopener noreferrer"
                       className="w-10 h-10 glass-card-light rounded-lg flex items-center justify-center hover:bg-blue-500/10 hover:border-blue-400/30 transition-all group"
                     >
-                      <Twitter className="h-4 w-4 text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 group-hover:text-blue-400 transition-colors" />
+                      <Twitter className="h-4 w-4 text-section-body group-hover:text-blue-400 transition-colors" />
                     </a>
                     <a 
                       href="https://linkedin.com/company/offerloop-ai" 
@@ -503,7 +537,7 @@ const Index = () => {
                       rel="noopener noreferrer"
                       className="w-10 h-10 glass-card-light rounded-lg flex items-center justify-center hover:bg-blue-500/10 hover:border-blue-400/30 transition-all group"
                     >
-                      <Linkedin className="h-4 w-4 text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 group-hover:text-blue-400 transition-colors" />
+                      <Linkedin className="h-4 w-4 text-section-body group-hover:text-blue-400 transition-colors" />
                     </a>
                     <a 
                       href="https://instagram.com/offerloop.ai" 
@@ -511,41 +545,41 @@ const Index = () => {
                       rel="noopener noreferrer"
                       className="w-10 h-10 glass-card-light rounded-lg flex items-center justify-center hover:bg-blue-500/10 hover:border-blue-400/30 transition-all group"
                     >
-                      <Instagram className="h-4 w-4 text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 group-hover:text-blue-400 transition-colors" />
+                      <Instagram className="h-4 w-4 text-section-body group-hover:text-blue-400 transition-colors" />
                     </a>
                   </div>
                 </div>
               </div>
 
               <div className="pt-16">
-                <h3 className="font-semibold text-white dark:text-white text-slate-900 dark:text-white mb-4">Company</h3>
+                <h3 className="font-semibold text-section-heading mb-4">Company</h3>
                 <ul className="space-y-2">
                   <li>
-                    <Link to="/about" className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 hover:text-blue-400 transition-colors text-sm link-slide">About Us</Link>
+                    <Link to="/about" className="text-section-body hover:text-blue-400 transition-colors text-sm link-slide">About Us</Link>
                   </li>
                 </ul>
               </div>
 
               <div className="pt-16">
-                <h3 className="font-semibold text-white dark:text-white text-slate-900 dark:text-white mb-4">Support</h3>
+                <h3 className="font-semibold text-section-heading mb-4">Support</h3>
                 <ul className="space-y-2">
                   <li>
-                    <Link to="/contact-us" className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 hover:text-blue-400 transition-colors text-sm link-slide">Contact Us</Link>
+                    <Link to="/contact-us" className="text-section-body hover:text-blue-400 transition-colors text-sm link-slide">Contact Us</Link>
                   </li>
                   <li>
-                    <Link to="/contact-us" className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 hover:text-blue-400 transition-colors text-sm link-slide">Help Center</Link>
+                    <Link to="/contact-us" className="text-section-body hover:text-blue-400 transition-colors text-sm link-slide">Help Center</Link>
                   </li>
                   <li>
-                    <Link to="/privacy" className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 hover:text-blue-400 transition-colors text-sm link-slide">Privacy Policy</Link>
+                    <Link to="/privacy" className="text-section-body hover:text-blue-400 transition-colors text-sm link-slide">Privacy Policy</Link>
                   </li>
                   <li>
-                    <Link to="/terms-of-service" className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 hover:text-blue-400 transition-colors text-sm link-slide">Terms of Service</Link>
+                    <Link to="/terms-of-service" className="text-section-body hover:text-blue-400 transition-colors text-sm link-slide">Terms of Service</Link>
                   </li>
                 </ul>
               </div>
             </div>
 
-            <p className="text-center text-gray-500 dark:text-gray-500 text-slate-500 dark:text-gray-500 text-sm">
+            <p className="text-center text-muted-foreground text-sm">
               © 2025 offerloop. All rights reserved. Connecting talent with opportunity through intelligent recruiting solutions.
             </p>
           </div>

@@ -24,28 +24,28 @@ const features = [
     icon: BarChart,
     title: "Progress Tracking",
     description: "Visualize your job search journey, track every application and response, and stay organized all the way to your next offer.",
-    iconColor: "text-cyan-500"
+    iconColor: "text-indigo-500"
   }
 ];
 
 const Hero = () => {
   return (
     <>
-      <section className="relative py-20 lg:py-32 bg-slate-800">
+      <section className="relative py-20 lg:py-32 bg-background">
         <div className="container px-6 mx-auto text-center">
           <div className="max-w-3xl mx-auto">
-            <h1 className="text-4xl lg:text-6xl font-bold tracking-tight mb-6 text-white">
+            <h1 className="text-4xl lg:text-6xl font-bold tracking-tight mb-6 text-foreground">
               Join the <span className="bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">Loop</span>
             </h1>
             
-            <p className="text-xl text-gray-300 mb-8 leading-relaxed">
-              We're here to help you land better offers, faster—by taking the tedious, repetitive work out of recruiting. Spend <span className="font-bold text-white">less time</span> stuck behind a screen and more time where it matters: connecting with professionals and <span className="font-bold text-white">living your life</span>. We handle the busywork, so you can focus on your growth, your passions, and your next big opportunity.
+            <p className="text-xl text-muted-foreground mb-8 leading-relaxed">
+              We're here to help you land better offers, faster—by taking the tedious, repetitive work out of recruiting. Spend <span className="font-bold text-foreground">less time</span> stuck behind a screen and more time where it matters: connecting with professionals and <span className="font-bold text-foreground">living your life</span>. We handle the busywork, so you can focus on your growth, your passions, and your next big opportunity.
             </p>
           </div>
         </div>
       </section>
       
-      <section className="py-20 bg-white">
+      <section className="py-20 bg-background">
         <div className="container px-6 mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-3xl lg:text-4xl font-bold mb-4">

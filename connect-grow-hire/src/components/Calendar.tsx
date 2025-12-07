@@ -401,14 +401,14 @@ export function Calendar() {
                   <div className="flex items-center gap-2 mt-2">
                     <button
                       onClick={() => window.open(generateGoogleCalendarLink(event), '_blank')}
-                      className="flex items-center gap-1 text-xs text-purple hover:text-cyan-400 transition-colors"
+                      className="flex items-center gap-1 text-xs bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 px-2 py-1 rounded transition-colors"
                     >
                       <ExternalLink size={12} />
                       Add to Google
                     </button>
                     <button
                       onClick={() => downloadICS(event)}
-                      className="flex items-center gap-1 text-xs text-purple hover:text-cyan-400 transition-colors"
+                      className="flex items-center gap-1 text-xs bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 px-2 py-1 rounded transition-colors"
                     >
                       <Download size={12} />
                       Download .ics
@@ -429,7 +429,7 @@ export function Calendar() {
           
           <button
             onClick={() => setIsModalOpen(true)}
-            className="w-full mt-4 gradient-bg text-white px-4 py-2 rounded-lg font-medium text-sm hover:opacity-90 transition-opacity"
+            className="w-full mt-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-4 py-2 rounded-lg font-medium text-sm shadow-sm transition-all"
           >
             Schedule New Chat
           </button>
@@ -452,7 +452,7 @@ export function Calendar() {
               {reminders.map((reminder) => (
                 <div key={reminder.id} className="p-3 rounded-lg bg-background">
                   <div className="flex items-start gap-2">
-                    <div className="w-2 h-2 rounded-full bg-cyan-400 mt-1.5 flex-shrink-0"></div>
+                    <div className="w-2 h-2 rounded-full bg-purple-500 mt-1.5 flex-shrink-0"></div>
                     <div>
                       <div className="text-sm mb-1">Follow up with {reminder.contactName}</div>
                       <div className="text-xs text-text-muted">

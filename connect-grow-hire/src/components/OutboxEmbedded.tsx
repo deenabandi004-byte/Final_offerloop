@@ -25,11 +25,11 @@ const statusLabel: Record<OutboxStatus, string> = {
 };
 
 const statusColor: Record<OutboxStatus, string> = {
-  no_reply_yet: "bg-gray-800 text-gray-300 border-gray-700",
+  no_reply_yet: "bg-muted text-muted-foreground border-border",
   new_reply: "bg-blue-500/10 text-blue-300 border-blue-500/40",
   waiting_on_them: "bg-emerald-500/10 text-emerald-300 border-emerald-500/40",
   waiting_on_you: "bg-amber-500/10 text-amber-300 border-amber-500/40",
-  closed: "bg-gray-800 text-gray-400 border-gray-700",
+  closed: "bg-muted text-muted-foreground border-border",
 };
 
 export function OutboxEmbedded() {
@@ -159,30 +159,30 @@ export function OutboxEmbedded() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="w-full h-full p-0 m-0">
+      <div className="flex justify-between items-center mb-4">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Your Conversations</h2>
-          <p className="text-sm text-gray-600 mt-1">Manage your email threads and replies</p>
+          <h2 className="text-lg font-semibold text-foreground">Your Conversations</h2>
+          <p className="text-sm text-muted-foreground mt-1">Manage your email threads and replies</p>
         </div>
         <Button
           size="sm"
           variant="outline"
           onClick={loadThreads}
-          className="border-gray-300"
+          className="border-0 shadow-sm hover:shadow-md bg-card"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
         </Button>
       </div>
 
-      <div className="grid grid-cols-12 gap-6">
+      <div className="grid grid-cols-12 gap-6 w-full h-full">
         {/* LEFT: Thread list */}
-        <div className="col-span-4 space-y-4">
+        <div className="col-span-4 space-y-4 h-full">
           {/* Search */}
           <div className="relative">
-            <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground z-10" />
             <Input
-              className="pl-9 bg-white border-gray-300"
+              className="pl-9 bg-card shadow-sm hover:shadow-md transition-shadow border-0 focus:ring-2 focus:ring-purple-500/20"
               placeholder="Search by name, firm, subject…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -192,7 +192,7 @@ export function OutboxEmbedded() {
           {/* Thread list */}
           <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
             {loading && (
-              <div className="py-10 text-center text-gray-400 text-sm">
+              <div className="py-10 text-center text-muted-foreground text-sm">
                 <Loader2 className="h-4 w-4 animate-spin mb-2 mx-auto" />
                 Loading conversations…
               </div>
@@ -200,11 +200,11 @@ export function OutboxEmbedded() {
 
             {!loading && filteredThreads.length === 0 && threads.length === 0 && (
               <div className="text-center py-12">
-                <Inbox className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                <Inbox className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-foreground mb-2">
                   No drafts yet
                 </h3>
-                <p className="text-gray-500 mb-4">
+                <p className="text-muted-foreground mb-4">
                   Find contacts and start building your network
                 </p>
                 <Button onClick={() => navigate("/contact-search")}>
@@ -215,11 +215,11 @@ export function OutboxEmbedded() {
 
             {!loading && filteredThreads.length === 0 && threads.length > 0 && (
               <div className="text-center py-12">
-                <Search className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                <Search className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-foreground mb-2">
                   No results found
                 </h3>
-                <p className="text-gray-500 mb-4">
+                <p className="text-muted-foreground mb-4">
                   Try adjusting your search query
                 </p>
               </div>
@@ -230,28 +230,28 @@ export function OutboxEmbedded() {
                 <button
                   key={t.id}
                   onClick={() => setSelectedThread(t)}
-                  className={`w-full text-left p-4 rounded-xl border transition ${
+                  className={`w-full text-left p-4 rounded-none transition-all duration-200 ${
                     selectedThread?.id === t.id
-                      ? "border-purple-500 bg-purple-50"
-                      : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                      ? "bg-gradient-to-r from-purple-50 to-indigo-50"
+                      : "bg-card hover:bg-muted/50"
                   }`}
                 >
                   <div className="flex justify-between items-start">
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-sm text-gray-900">{t.contactName}</div>
-                      <div className="text-xs text-gray-500">
+                      <div className="font-semibold text-sm text-foreground">{t.contactName}</div>
+                      <div className="text-xs text-muted-foreground">
                         {t.jobTitle} · {t.company}
                       </div>
-                      <p className="mt-1 text-xs text-gray-600 line-clamp-2">
+                      <p className="mt-1 text-xs text-muted-foreground line-clamp-2">
                         {t.lastMessageSnippet}
                       </p>
                     </div>
 
                     <div className="flex flex-col items-end gap-1 ml-2">
-                      <span className="text-[11px] text-gray-500">
+                      <span className="text-[11px] text-muted-foreground">
                         {formatLastActivity(t.lastActivityAt)}
                       </span>
-                      <Badge className={`border ${statusColor[t.status]} text-[10px]`}>
+                      <Badge className={`border-0 ${statusColor[t.status]} text-[10px] shadow-sm`}>
                         {statusLabel[t.status]}
                       </Badge>
                       {t.hasDraft && (
@@ -267,30 +267,33 @@ export function OutboxEmbedded() {
         </div>
 
         {/* RIGHT: Thread detail + Suggested reply */}
-        <div className="col-span-8">
+        <div className="col-span-8 h-full">
           {!selectedThread ? (
-            <div className="h-full border border-dashed border-gray-300 rounded-xl p-12 text-center text-gray-500 text-sm bg-gray-50">
-              Select a conversation to view the reply and your AI-generated response draft.
+            <div className="h-full rounded-none p-12 text-center text-muted-foreground text-sm bg-card">
+              <div className="flex flex-col items-center justify-center h-full">
+                <Inbox className="w-16 h-16 text-muted-foreground mb-4" />
+                <p>Select a conversation to view the reply and your AI-generated response draft.</p>
+              </div>
             </div>
           ) : (
-            <div className="h-full border border-gray-200 rounded-xl p-6 bg-white flex flex-col">
+            <div className="h-full rounded-none p-6 bg-card flex flex-col">
               {/* Header */}
-              <div className="mb-4 pb-4 border-b border-gray-200">
-                <p className="font-semibold text-base text-gray-900">{selectedThread.contactName}</p>
-                <p className="text-sm text-gray-600">
+              <div className="mb-4 pb-4 border-b border-border">
+                <p className="font-semibold text-base text-foreground">{selectedThread.contactName}</p>
+                <p className="text-sm text-muted-foreground">
                   {selectedThread.jobTitle} · {selectedThread.company}
                 </p>
-                <p className="text-xs text-gray-500 mt-1">{selectedThread.email}</p>
+                <p className="text-xs text-muted-foreground mt-1">{selectedThread.email}</p>
               </div>
 
               {/* Latest message snippet */}
-              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 mb-4">
-                <p className="text-xs font-medium text-gray-700 mb-2">
+              <div className="rounded-none bg-gradient-to-br from-blue-50/50 to-purple-50/30 p-4 mb-4">
+                <p className="text-xs font-medium text-foreground mb-2">
                   {selectedThread.status === "no_reply_yet" 
                     ? "Draft content" 
                     : "Latest message"}
                 </p>
-                <p className="text-sm text-gray-600 whitespace-pre-wrap line-clamp-4">
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap line-clamp-4">
                   {selectedThread.lastMessageSnippet || 
                    (selectedThread.status === "no_reply_yet" 
                      ? "Draft is ready to send in Gmail" 
@@ -299,16 +302,16 @@ export function OutboxEmbedded() {
               </div>
 
               {/* Suggested Reply */}
-              <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 flex flex-col flex-1">
+              <div className="rounded-none p-4 bg-card flex flex-col flex-1">
                 <div className="flex justify-between items-center mb-3">
                   <div className="flex items-center gap-2">
                     <Sparkles className="h-4 w-4 text-purple-600" />
-                    <h3 className="text-sm font-semibold text-gray-900">Suggested reply</h3>
+                    <h3 className="text-sm font-semibold text-foreground">Suggested reply</h3>
                   </div>
                   {selectedThread.hasDraft && selectedThread.suggestedReply && (
                     <Badge
                       variant="outline"
-                      className="border-blue-500 bg-blue-50 text-[10px] text-blue-700"
+                      className="border-0 bg-blue-50 text-[10px] text-blue-700 shadow-sm"
                     >
                       Draft saved in Gmail
                     </Badge>
@@ -317,29 +320,29 @@ export function OutboxEmbedded() {
 
                 {selectedThread.suggestedReply ? (
                   <>
-                    <p className="text-xs text-gray-600 mb-3">
+                    <p className="text-xs text-muted-foreground mb-3">
                       We drafted this response based on their message. Review and edit before
                       sending — you're always in control.
                     </p>
                     <textarea
                       readOnly
                       value={selectedThread.suggestedReply}
-                      className="flex-1 w-full text-sm bg-white border border-gray-300 rounded-xl p-3 resize-none text-gray-900 whitespace-pre-wrap"
+                      className="flex-1 w-full text-sm bg-card rounded-none p-3 resize-none text-foreground whitespace-pre-wrap focus:ring-2 focus:ring-purple-500/20"
                     />
                   </>
                 ) : (
                   <>
-                    <p className="text-xs text-gray-600 mb-3">
+                    <p className="text-xs text-muted-foreground mb-3">
                       Generate an AI-powered reply based on their message. We'll analyze their
                       tone and content to craft an appropriate response.
                     </p>
-                    <div className="flex-1 flex items-center justify-center border border-dashed border-gray-300 rounded-xl p-6 bg-white">
+                    <div className="flex-1 flex items-center justify-center rounded-none p-6 bg-card">
                       <div className="text-center">
-                        <Sparkles className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                        <p className="text-sm text-gray-500">
+                        <Sparkles className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground">
                           No suggested reply yet
                         </p>
-                        <p className="text-xs text-gray-400 mt-1">
+                        <p className="text-xs text-muted-foreground mt-1">
                           Click "Regenerate" to create one
                         </p>
                       </div>
@@ -384,7 +387,7 @@ export function OutboxEmbedded() {
                   </Button>
                 </div>
 
-                <p className="text-xs text-gray-500 mt-3">
+                <p className="text-xs text-muted-foreground mt-3">
                   Tip: personalize your first line — it's the one they read carefully.
                 </p>
               </div>

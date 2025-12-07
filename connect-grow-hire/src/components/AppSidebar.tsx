@@ -67,13 +67,13 @@ export function AppSidebar() {
 
   const getNavClass = ({ isActive }: { isActive: boolean }) =>
     isActive
-      ? "!bg-gradient-to-r !from-cyan-400 !to-teal-600 !text-white !font-medium !bg-sidebar-accent/0 data-[active=true]:!bg-gradient-to-r data-[active=true]:!from-cyan-400 data-[active=true]:!to-teal-600 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0"
-      : "text-muted-foreground hover:!bg-gradient-to-r hover:!from-cyan-400 hover:!to-teal-600 hover:!text-white hover:!bg-sidebar-accent/0 data-[active=true]:!bg-gradient-to-r data-[active=true]:!from-cyan-400 data-[active=true]:!to-teal-600 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0";
+      ? "!bg-gradient-to-r !from-purple-600 !to-indigo-600 !text-white !font-medium !bg-sidebar-accent/0 data-[active=true]:!bg-gradient-to-r data-[active=true]:!from-purple-600 data-[active=true]:!to-indigo-600 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0"
+      : "text-muted-foreground hover:!bg-gradient-to-r hover:!from-purple-600 hover:!to-indigo-600 hover:!text-white hover:!bg-sidebar-accent/0 data-[active=true]:!bg-gradient-to-r data-[active=true]:!from-purple-600 data-[active=true]:!to-indigo-600 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0";
 
   const getSettingsClass = () =>
     isSettingsActive || settingsExpanded
       ? "bg-primary text-primary-foreground font-medium"
-      : "text-muted-foreground hover:!bg-gradient-to-r hover:!from-cyan-400 hover:!to-teal-600 hover:!text-white hover:!bg-[transparent]";
+      : "text-muted-foreground hover:!bg-gradient-to-r hover:!from-purple-600 hover:!to-indigo-600 hover:!text-white hover:!bg-[transparent]";
 
   // Status message for collapsed tooltip
   const getCreditStatus = () => {
@@ -94,7 +94,7 @@ export function AppSidebar() {
         message: `${Math.floor(credits / 15)} searches available`,
       };
     return {
-      color: "text-emerald-500",
+      color: "text-green-500",
       message: `${Math.floor(credits / 15)} searches available`,
     };
   };
@@ -105,11 +105,11 @@ export function AppSidebar() {
     <TooltipProvider>
       <style>{`
         [data-sidebar="menu-button"]:hover {
-          background: linear-gradient(to right, rgb(34, 211, 238), rgb(13, 148, 136)) !important;
+          background: linear-gradient(to right, rgb(147, 51, 234), rgb(79, 70, 229)) !important;
           color: white !important;
         }
         [data-sidebar="menu-button"][data-active="true"] {
-          background: linear-gradient(to right, rgb(34, 211, 238), rgb(13, 148, 136)) !important;
+          background: linear-gradient(to right, rgb(147, 51, 234), rgb(79, 70, 229)) !important;
           color: white !important;
         }
         [data-sidebar="menu-button"]:hover * {
@@ -120,9 +120,9 @@ export function AppSidebar() {
         }
       `}</style>
       <Sidebar className={state === "collapsed" ? "w-20" : "w-60"} collapsible="icon">
-        <SidebarContent className="bg-background border-r">
+        <SidebarContent className="bg-background border-r overflow-x-hidden">
           {/* Brand */}
-          <div className="p-3 border-b border-gray-200">
+          <div className="p-3 border-b border-border">
             {state !== "collapsed" ? (
               <div className="flex items-center justify-center gap-2">
                 <Logo size="md" />
@@ -141,7 +141,7 @@ export function AppSidebar() {
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton 
                       asChild
-                      className="hover:!bg-gradient-to-r hover:!from-cyan-400 hover:!to-teal-600 hover:!text-white hover:!bg-sidebar-accent/0 data-[active=true]:!bg-gradient-to-r data-[active=true]:!from-cyan-400 data-[active=true]:!to-teal-600 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0"
+                      className="hover:!bg-gradient-to-r hover:!from-purple-600 hover:!to-indigo-600 hover:!text-white hover:!bg-sidebar-accent/0 data-[active=true]:!bg-gradient-to-r data-[active=true]:!from-purple-600 data-[active=true]:!to-indigo-600 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0"
                     >
                       <NavLink
                         to={item.url}
@@ -163,7 +163,7 @@ export function AppSidebar() {
                 <SidebarMenuItem>
                   <SidebarMenuButton 
                     asChild
-                    className="hover:!bg-gradient-to-r hover:!from-cyan-400 hover:!to-teal-600 hover:!text-white hover:!bg-sidebar-accent/0"
+                    className="hover:!bg-gradient-to-r hover:!from-purple-600 hover:!to-indigo-600 hover:!text-white hover:!bg-sidebar-accent/0"
                   >
                     <button
                       onClick={() => setSettingsExpanded(!settingsExpanded)}
@@ -190,7 +190,7 @@ export function AppSidebar() {
                       <SidebarMenuItem key={item.title}>
                         <SidebarMenuButton 
                           asChild
-                          className="hover:!bg-gradient-to-r hover:!from-cyan-400 hover:!to-teal-600 hover:!text-white hover:!bg-sidebar-accent/0 data-[active=true]:!bg-gradient-to-r data-[active=true]:!from-cyan-400 data-[active=true]:!to-teal-600 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0"
+                          className="hover:!bg-gradient-to-r hover:!from-purple-600 hover:!to-indigo-600 hover:!text-white hover:!bg-sidebar-accent/0 data-[active=true]:!bg-gradient-to-r data-[active=true]:!from-purple-600 data-[active=true]:!to-indigo-600 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0"
                         >
                           <NavLink
                             to={item.url}
@@ -213,7 +213,7 @@ export function AppSidebar() {
           </SidebarGroup>
         </SidebarContent>
 
-        <SidebarFooter className="border-t border-gray-200 bg-white">
+        <SidebarFooter className="border-t border-border bg-card">
           {/* Credits */}
           <div className="p-4 space-y-3">
             {state !== "collapsed" ? (
@@ -226,9 +226,9 @@ export function AppSidebar() {
                 </div>
 
                 {/* Progress Bar */}
-                <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                <div className="w-full h-2.5 bg-muted rounded-full overflow-hidden">
                   <div 
-                    className="h-full bg-gradient-to-r from-blue-500 via-purple-500 to-cyan-400 transition-all duration-300 rounded-full"
+                    className="h-full bg-gradient-to-r from-purple-600 to-indigo-600 transition-all duration-300 rounded-full"
                     style={{ width: `${Math.min(((user?.credits ?? 0) / (user?.maxCredits ?? 120)) * 100, 100)}%` }}
                   />
                 </div>
@@ -236,7 +236,7 @@ export function AppSidebar() {
                 {/* Gradient Upgrade Button */}
                 <button
                   onClick={() => navigate("/pricing")}
-                  className="w-full bg-gradient-to-r from-blue-600 via-cyan-500 to-purple-600 rounded-xl py-3 px-4 mb-4 text-white hover:opacity-90 transition-opacity"
+                  className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl py-3 px-4 mb-4 text-white hover:from-purple-700 hover:to-indigo-700 transition-all shadow-sm"
                 >
                   <div className="flex items-center justify-center gap-2">
                     <Zap className="w-5 h-5 text-white" />
@@ -251,7 +251,7 @@ export function AppSidebar() {
                   <TooltipTrigger asChild>
                     <button
                       onClick={() => navigate("/pricing")}
-                      className="w-full bg-gradient-to-r from-blue-600 via-cyan-500 to-purple-600 rounded-xl p-2 text-white hover:opacity-90 transition-opacity flex items-center justify-center"
+                      className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl p-2 text-white hover:from-purple-700 hover:to-indigo-700 transition-all shadow-sm flex items-center justify-center"
                     >
                       <img src={LightningIcon} alt="Upgrade" className="h-10 w-10 object-contain brightness-0 invert" />
                       {user?.credits === 0 && (
@@ -273,19 +273,19 @@ export function AppSidebar() {
             )}
 
             {/* User Profile */}
-            <div className="flex items-center gap-3 pt-3 border-t border-gray-200">
+            <div className="flex items-center gap-3 pt-3 border-t border-border">
               <Avatar className="h-10 w-10 flex-shrink-0">
                 {user?.picture && (
                   <AvatarImage src={user.picture} alt={user.name} />
                 )}
-                <AvatarFallback className="bg-blue-500 text-white font-medium">
+                <AvatarFallback className="bg-primary text-primary-foreground font-medium">
                   {user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || user?.email?.[0]?.toUpperCase() || "U"}
                 </AvatarFallback>
               </Avatar>
               {state !== "collapsed" && (
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate text-gray-900">{user?.name || "User"}</p>
-                  <p className="text-xs text-gray-500 truncate">
+                  <p className="text-sm font-medium truncate text-foreground">{user?.name || "User"}</p>
+                  <p className="text-xs text-muted-foreground truncate">
                     {user?.tier === "pro" ? "Pro Member" : "Free Tier"}
                   </p>
                 </div>

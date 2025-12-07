@@ -1,6 +1,8 @@
 import requests
 import os
 from functools import lru_cache
+from app.utils.retry import retry_with_backoff, retry_on_rate_limit
+import requests.exceptions
 
 HUNTER_API_KEY = os.getenv('HUNTER_API_KEY')
 
@@ -112,8 +114,19 @@ def find_email_hunter(first_name: str, last_name: str, company: str, api_key: st
         'api_key': api_key
     }
     
-    try:
+    @retry_on_rate_limit(max_retries=2, initial_delay=5.0, max_delay=300.0)
+    def _make_request():
         response = requests.get(url, params=params, timeout=10)
+        # Don't raise for 401 (invalid API key) or 429 (rate limit - handled by retry)
+        if response.status_code == 401:
+            raise requests.exceptions.HTTPError("Invalid API key", response=response)
+        if response.status_code == 429:
+            raise requests.exceptions.HTTPError("Rate limit exceeded", response=response)
+        response.raise_for_status()  # Raise for other 4xx/5xx errors
+        return response
+    
+    try:
+        response = _make_request()
         
         if response.status_code == 200:
             data = response.json()
@@ -129,21 +142,27 @@ def find_email_hunter(first_name: str, last_name: str, company: str, api_key: st
                     'company': email_data.get('company')
                 }
         
-        elif response.status_code == 401:
+    except requests.exceptions.HTTPError as e:
+        if e.response and e.response.status_code == 401:
             print("❌ Hunter.io: Invalid API key")
-        elif response.status_code == 429:
-            # Rate limit exceeded - check if we can retry
-            rate_limit_info = response.headers.get('X-RateLimit-Remaining', 'unknown')
-            reset_time = response.headers.get('X-RateLimit-Reset', 'unknown')
+            find_email_hunter._last_rate_limit = False
+        elif e.response and e.response.status_code == 429:
+            # Rate limit exceeded - retry logic will handle this
+            rate_limit_info = e.response.headers.get('X-RateLimit-Remaining', 'unknown')
+            reset_time = e.response.headers.get('X-RateLimit-Reset', 'unknown')
             print(f"⚠️ Hunter.io: Rate limit exceeded (remaining: {rate_limit_info}, reset: {reset_time})")
             print(f"   💡 Consider upgrading Hunter.io plan or reducing enrichment frequency")
-            # Mark that we hit rate limit
             find_email_hunter._last_rate_limit = True
+            # Re-raise to trigger retry
+            raise
         else:
-            print(f"⚠️ Hunter.io returned status {response.status_code}")
-        
+            print(f"⚠️ Hunter.io HTTP error {e.response.status_code if e.response else 'unknown'}: {e}")
     except requests.exceptions.Timeout:
         print(f"⚠️ Hunter.io timeout for {first_name} {last_name}")
+    except requests.exceptions.RequestException as e:
+        # Retry logic will handle this
+        print(f"⚠️ Hunter.io request error: {e}")
+        raise
     except Exception as e:
         print(f"⚠️ Hunter.io error: {e}")
     

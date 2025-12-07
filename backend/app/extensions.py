@@ -6,10 +6,40 @@ import firebase_admin
 from firebase_admin import credentials, firestore, auth as fb_auth
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import functools
 
 # Global Firestore client
 db = None
+limiter = None
+
+def get_limiter():
+    """Get the rate limiter instance."""
+    global limiter
+    return limiter
+
+def rate_limit_by_user(fn):
+    """
+    Rate limit decorator that uses user ID from Firebase auth.
+    Falls back to IP address if user not authenticated.
+    """
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        # Try to get user ID from request
+        user_id = None
+        if hasattr(request, 'firebase_user'):
+            user_id = request.firebase_user.get('uid')
+        
+        # Use user ID for rate limiting if available, otherwise use IP
+        key_func = lambda: f"user:{user_id}" if user_id else get_remote_address()
+        
+        # Apply rate limit
+        if limiter:
+            limiter.limit("100 per minute", key_func=key_func)(fn)(*args, **kwargs)
+        
+        return fn(*args, **kwargs)
+    return wrapper
 
 def init_firebase(app):
     """Initialize Firebase and set up Firestore client."""
@@ -115,14 +145,12 @@ def require_firebase_auth(fn):
             return jsonify({'error': error_msg}), 500
         
         auth_header = request.headers.get('Authorization', '')
-        print(f"🔐 Auth header received: {auth_header[:50]}...")  # Print first 50 chars
         
         if not auth_header.startswith('Bearer '):
             print("❌ Missing or invalid Authorization header format")
             return jsonify({'error': 'Missing Authorization header'}), 401
 
         id_token = auth_header.split(' ', 1)[1].strip()
-        print(f"🎫 Token extracted (first 20 chars): {id_token[:20]}...")
 
         try:
             decoded = fb_auth.verify_id_token(id_token)
@@ -134,29 +162,33 @@ def require_firebase_auth(fn):
             if 'initialize' in error_str.lower() or 'init' in error_str.lower():
                 error_msg = "Firebase Admin SDK not initialized. Call init_firebase() first."
                 print(f"❌ {error_msg}")
-                print(f"❌ Original error: {error_str}")
                 return jsonify({'error': error_msg}), 500
             else:
                 print(f"❌ Token verification failed: {ve}")
                 return jsonify({'error': 'Invalid or expired token'}), 401
         except Exception as token_error:
             print(f"❌ Token verification failed: {token_error}")
-            # Beta fallback: accept token if it looks valid but can't be verified
-            if len(id_token) > 20:  # Basic length check
-                request.firebase_user = {
-                    'uid': 'beta_user_' + id_token[:10],
-                    'email': 'beta@offerloop.ai'
-                }
-                print("⚠️ Using beta authentication fallback")
-            else:
-                return jsonify({'error': 'Invalid token format'}), 401
+            # SECURITY: No fallback - all tokens must be valid
+            return jsonify({'error': 'Invalid or expired token. Please sign in again.'}), 401
 
         # Call the route handler - let its exceptions bubble up normally
         return fn(*args, **kwargs)
     return wrapper
 
 def init_app_extensions(app: Flask):
-    """Initializes Flask extensions like CORS and Firebase."""
+    """Initializes Flask extensions like CORS, Rate Limiting, and Firebase."""
+    global limiter
+    # Initialize rate limiter
+    limiter = Limiter(
+        app=app,
+        key_func=get_remote_address,
+        default_limits=["200 per day", "50 per hour"],
+        storage_uri="memory://",  # Use in-memory storage (can upgrade to Redis later)
+        strategy="fixed-window",
+        headers_enabled=True  # Include rate limit headers in response
+    )
+    app.limiter = limiter
+    
     # Check if we're in development mode
     is_dev = (
         os.getenv("FLASK_ENV") == "development" or 

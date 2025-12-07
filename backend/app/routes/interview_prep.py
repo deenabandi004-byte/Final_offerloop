@@ -10,7 +10,9 @@ from flask import Blueprint, jsonify, request
 
 from app.config import INTERVIEW_PREP_CREDITS
 from ..extensions import get_db, require_firebase_auth
-from app.services.auth import check_and_reset_credits
+from app.services.auth import check_and_reset_credits, deduct_credits_atomic
+from app.utils.exceptions import ValidationError, OfferloopException, InsufficientCreditsError
+from app.utils.validation import InterviewPrepRequest, validate_request
 from app.services.interview_prep.job_posting_parser import parse_job_posting_url
 from app.services.interview_prep.reddit_scraper import search_reddit
 from app.services.interview_prep.content_processor import process_interview_content
@@ -223,13 +225,13 @@ def process_interview_prep_background(
             }
         )
 
-        # Step 6: Deduct credits
+        # Step 6: Deduct credits atomically
         print("Step 6: Deducting credits...")
-        user_ref = db.collection("users").document(user_id)
-        new_credits = max(0, credits_available - INTERVIEW_PREP_CREDITS)
-        user_ref.update({"credits": new_credits})
-
-        print(f"✅ Credits deducted: {credits_available} -> {new_credits}")
+        success, new_credits = deduct_credits_atomic(user_id, INTERVIEW_PREP_CREDITS, "interview_prep")
+        if not success:
+            print(f"⚠️ Credit deduction failed - user may have insufficient credits")
+        else:
+            print(f"✅ Credits deducted: {credits_available} -> {new_credits}")
         print(f"=== INTERVIEW PREP {prep_id} COMPLETED SUCCESSFULLY ===\n")
 
     except Exception as e:
@@ -247,26 +249,32 @@ def process_interview_prep_background(
 @interview_prep_bp.route("/generate", methods=["POST"])
 @require_firebase_auth
 def generate_interview_prep():
-    """Create a new interview prep"""
+    """Create a new interview prep with validation"""
     try:
         print("\n=== INTERVIEW PREP START ===")
         db = get_db()
 
         data = request.get_json() or {}
-        job_posting_url = data.get("job_posting_url", "").strip()
-        company_name = data.get("company_name", "").strip()
-        job_title = data.get("job_title", "").strip()
         
-        # Either URL or manual input required
-        if not job_posting_url and (not company_name or not job_title):
-            return jsonify({"error": "Either job posting URL or both company name and job title are required"}), 400
+        # Validate input
+        try:
+            validated_data = validate_request(InterviewPrepRequest, data)
+        except ValidationError as ve:
+            return ve.to_response()
+        
+        job_posting_url = validated_data.get("job_posting_url")
+        company_name = validated_data.get("company_name")
+        job_title = validated_data.get("job_title")
 
         user_id = request.firebase_user.get("uid")
         user_email = request.firebase_user.get("email")
 
+        if not db:
+            raise OfferloopException("Database not initialized", error_code="DATABASE_ERROR")
+
         # Check credits
         credits_available = 120
-        if db and user_id:
+        if user_id:
             user_ref = db.collection("users").document(user_id)
             user_doc = user_ref.get()
             if user_doc.exists:
@@ -274,16 +282,7 @@ def generate_interview_prep():
                 credits_available = check_and_reset_credits(user_ref, user_data)
 
                 if credits_available < INTERVIEW_PREP_CREDITS:
-                    return (
-                        jsonify(
-                            {
-                                "error": f"Insufficient credits. You need {INTERVIEW_PREP_CREDITS} credits.",
-                                "credits_needed": INTERVIEW_PREP_CREDITS,
-                                "current_credits": credits_available,
-                            }
-                        ),
-                        400,
-                    )
+                    raise InsufficientCreditsError(INTERVIEW_PREP_CREDITS, credits_available)
 
         # Create prep record
         prep_data = {
@@ -330,9 +329,11 @@ def generate_interview_prep():
             "message": "Analyzing job posting and gathering interview insights..."
         }), 200
 
+    except (ValidationError, InsufficientCreditsError, OfferloopException):
+        raise
     except Exception as e:
         print(f"Error: {e}")
-        return jsonify({"error": str(e)}), 500
+        raise OfferloopException(f"Failed to create interview prep: {str(e)}", error_code="INTERVIEW_PREP_ERROR")
 
 
 @interview_prep_bp.route("/status/<prep_id>", methods=["GET"])

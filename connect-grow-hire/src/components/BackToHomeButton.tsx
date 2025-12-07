@@ -10,7 +10,7 @@ export const BackToHomeButton = () => {
       size="sm"
       onClick={() => navigate("/home")}
       variant="outline"
-      className="border-gray-600 hover:border-gray-500"
+      className="bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
     >
       <ArrowLeft className="h-4 w-4 mr-2" />
       Back to Home

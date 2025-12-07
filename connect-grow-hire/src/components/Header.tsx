@@ -2,10 +2,12 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
+import { useTheme } from "@/contexts/ThemeContext";
 
 const Header = () => {
   const navigate = useNavigate();
   const { user, signOut, isLoading } = useFirebaseAuth();
+  const { theme } = useTheme();
 
   const handleSignOut = () => {
     signOut();
@@ -13,25 +15,25 @@ const Header = () => {
   };
 
   return (
-    <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 relative z-10">
-      <div className="container flex h-16 items-center justify-end px-6 relative">
+    <header className="glass-nav border-b border-border relative z-10 rounded-none">
+      <div className="w-full flex h-16 items-center justify-between px-6 relative">
+        <div className="flex items-center gap-6">
+          {/* Navigation can go here if needed */}
+        </div>
         <div className="flex items-center gap-4">
           {isLoading ? (
-            // Loading state
             <div className="flex items-center gap-2">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
-              <span className="text-sm text-gray-500">Loading...</span>
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+              <span className="text-sm text-muted-foreground">Loading...</span>
             </div>
           ) : user ? (
-            // User is signed in - show profile and sign out
             <div className="flex items-center gap-4">
-              {/* User Profile */}
               <div className="flex items-center gap-2">
-                <Avatar className="w-8 h-8 border-2 border-blue-500">
+                <Avatar className="w-8 h-8 border-2 border-primary">
                   {user.picture ? (
                     <AvatarImage src={user.picture} alt={user.name} />
                   ) : null}
-                  <AvatarFallback className="bg-blue-500 text-white text-xs font-medium">
+                  <AvatarFallback className="bg-primary text-primary-foreground text-xs font-medium">
                     {user.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || user.email?.[0]?.toUpperCase() || 'U'}
                   </AvatarFallback>
                 </Avatar>
@@ -41,22 +43,20 @@ const Header = () => {
                 </div>
               </div>
               
-              {/* Sign Out Button */}
               <Button 
                 variant="ghost" 
                 onClick={handleSignOut}
-                className="text-gray-700 hover:text-gray-900"
+                className="text-foreground hover:text-primary"
               >
                 Sign Out
               </Button>
             </div>
           ) : (
-            // User is NOT signed in - show sign in/up buttons
             <>
-              <Button variant="ghost" onClick={() => navigate("/signin")}>
+              <Button variant="ghost" onClick={() => navigate("/signin")} className="text-foreground hover:text-primary">
                 Sign In
               </Button>
-              <Button onClick={() => navigate("/signin")}>
+              <Button onClick={() => navigate("/signin")} className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white">
                 Sign Up
               </Button>
             </>

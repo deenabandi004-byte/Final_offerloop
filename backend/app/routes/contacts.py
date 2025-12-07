@@ -9,6 +9,8 @@ from firebase_admin import firestore
 from ..extensions import require_firebase_auth
 from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, check_for_replies
 from ..extensions import get_db
+from app.utils.exceptions import NotFoundError, ValidationError, OfferloopException
+from app.utils.validation import ContactCreateRequest, ContactUpdateRequest, validate_request
 
 contacts_bp = Blueprint('contacts', __name__, url_prefix='/api/contacts')
 
@@ -16,52 +18,88 @@ contacts_bp = Blueprint('contacts', __name__, url_prefix='/api/contacts')
 @contacts_bp.route('', methods=['GET'])
 @require_firebase_auth
 def get_contacts():
-    """Get all contacts for a user"""
+    """Get contacts for a user with pagination"""
     try:
         db = get_db()
         user_id = request.firebase_user['uid']
         
         if not db:
-            return jsonify({'error': 'Firebase not initialized'}), 500
+            raise OfferloopException("Database not initialized", error_code="DATABASE_ERROR")
+        
+        # Get pagination parameters
+        page = request.args.get('page', 1, type=int)
+        per_page = min(request.args.get('per_page', 50, type=int), 100)  # Max 100 per page
+        page = max(1, page)  # Ensure page is at least 1
         
         contacts_ref = db.collection('users').document(user_id).collection('contacts')
-        docs = contacts_ref.order_by('createdAt', direction=firestore.Query.DESCENDING).stream()
         
+        # Get total count (for pagination metadata)
+        # Note: Firestore doesn't have efficient count queries, so we'll estimate
+        # For better performance, consider maintaining a count field
+        
+        # Query with pagination
+        query = contacts_ref.order_by('createdAt', direction=firestore.Query.DESCENDING)
+        
+        # Calculate offset
+        offset = (page - 1) * per_page
+        
+        # Firestore pagination: get one extra to check if there's a next page
+        docs = list(query.limit(per_page + 1).offset(offset).stream())
+        
+        has_next = len(docs) > per_page
         items = []
-        for doc in docs:
+        
+        for doc in docs[:per_page]:  # Only return requested page size
             d = doc.to_dict()
             d['id'] = doc.id
             items.append(d)
         
-        return jsonify({'contacts': items})
+        return jsonify({
+            'contacts': items,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total_items': len(items),  # Approximate (Firestore limitation)
+                'has_next': has_next,
+                'has_prev': page > 1
+            }
+        })
         
+    except OfferloopException:
+        raise
     except Exception as e:
         print(f"Error getting contacts: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        raise OfferloopException(f"Failed to retrieve contacts: {str(e)}", error_code="CONTACTS_FETCH_ERROR")
 
 
 @contacts_bp.route('', methods=['POST'])
 @require_firebase_auth
 def create_contact():
-    """Create a new contact"""
+    """Create a new contact with validation"""
     try:
         db = get_db()
-        data = request.get_json()
+        data = request.get_json() or {}
         user_id = request.firebase_user['uid']
         
         if not db:
-            return jsonify({'error': 'Firebase not initialized'}), 500
+            raise OfferloopException("Database not initialized", error_code="DATABASE_ERROR")
+        
+        # Validate input
+        try:
+            validated_data = validate_request(ContactCreateRequest, data)
+        except ValidationError as ve:
+            return ve.to_response()
         
         today = datetime.now().strftime('%m/%d/%Y')
         contact = {
-            'firstName': data.get('firstName', ''),
-            'lastName': data.get('lastName', ''),
-            'linkedinUrl': data.get('linkedinUrl', ''),
-            'email': data.get('email', ''),
-            'company': data.get('company', ''),
-            'jobTitle': data.get('jobTitle', ''),
-            'college': data.get('college', ''),
-            'location': data.get('location', ''),
+            'firstName': validated_data.get('firstName', ''),
+            'lastName': validated_data.get('lastName', ''),
+            'linkedinUrl': validated_data.get('linkedinUrl', ''),
+            'email': validated_data.get('email', ''),
+            'company': validated_data.get('company', ''),
+            'jobTitle': validated_data.get('jobTitle', ''),
+            'college': validated_data.get('college', ''),
+            'location': validated_data.get('location', ''),
             'firstContactDate': today,
             'status': 'Not Contacted',
             'lastContactDate': today,
@@ -74,46 +112,63 @@ def create_contact():
         
         return jsonify({'contact': contact}), 201
         
+    except OfferloopException:
+        raise
     except Exception as e:
         print(f"Error creating contact: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        raise OfferloopException(f"Failed to create contact: {str(e)}", error_code="CONTACT_CREATE_ERROR")
 
 
 @contacts_bp.route('/<contact_id>', methods=['PUT'])
 @require_firebase_auth
 def update_contact(contact_id):
-    """Update an existing contact"""
+    """Update an existing contact with validation"""
     try:
         db = get_db()
-        data = request.get_json()
+        data = request.get_json() or {}
         user_id = request.firebase_user['uid']
         
         if not db:
-            return jsonify({'error': 'Firebase not initialized'}), 500
+            raise OfferloopException("Database not initialized", error_code="DATABASE_ERROR")
+        
+        # Validate input
+        try:
+            validated_data = validate_request(ContactUpdateRequest, data)
+        except ValidationError as ve:
+            return ve.to_response()
         
         ref = db.collection('users').document(user_id).collection('contacts').document(contact_id)
         doc = ref.get()
         
         if not doc.exists:
-            return jsonify({'error': 'Contact not found'}), 404
+            raise NotFoundError("Contact")
         
-        update = {k: data[k] for k in ['firstName', 'lastName', 'linkedinUrl', 'email', 'company', 'jobTitle', 'college', 'location'] if k in data}
+        # Build update dict from validated data
+        update = {}
+        allowed_fields = ['firstName', 'lastName', 'linkedinUrl', 'email', 'company', 'jobTitle', 'college', 'location', 'status']
+        for field in allowed_fields:
+            if field in validated_data:
+                update[field] = validated_data[field]
         
-        if 'status' in data:
+        # Handle status change - update lastContactDate
+        if 'status' in update:
             current = doc.to_dict()
-            if current.get('status') != data['status']:
+            if current.get('status') != update['status']:
                 update['lastContactDate'] = datetime.now().strftime('%m/%d/%Y')
-            update['status'] = data['status']
         
-        ref.update(update)
+        if update:
+            ref.update(update)
+        
         out = ref.get().to_dict()
         out['id'] = contact_id
         
         return jsonify({'contact': out})
         
+    except (OfferloopException, NotFoundError):
+        raise
     except Exception as e:
         print(f"Error updating contact: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        raise OfferloopException(f"Failed to update contact: {str(e)}", error_code="CONTACT_UPDATE_ERROR")
 
 
 @contacts_bp.route('/<contact_id>', methods=['DELETE'])
@@ -125,20 +180,22 @@ def delete_contact(contact_id):
         user_id = request.firebase_user['uid']
         
         if not db:
-            return jsonify({'error': 'Firebase not initialized'}), 500
+            raise OfferloopException("Database not initialized", error_code="DATABASE_ERROR")
         
         ref = db.collection('users').document(user_id).collection('contacts').document(contact_id)
         
         if not ref.get().exists:
-            return jsonify({'error': 'Contact not found'}), 404
+            raise NotFoundError("Contact")
         
         ref.delete()
         
         return jsonify({'message': 'Contact deleted successfully'})
         
+    except (OfferloopException, NotFoundError):
+        raise
     except Exception as e:
         print(f"Error deleting contact: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        raise OfferloopException(f"Failed to delete contact: {str(e)}", error_code="CONTACT_DELETE_ERROR")
 
 
 @contacts_bp.route('/<contact_id>/check-replies', methods=['GET'])
@@ -376,7 +433,7 @@ def generate_reply_draft(contact_id):
 @contacts_bp.route('/bulk', methods=['POST'])
 @require_firebase_auth
 def bulk_create_contacts():
-    """Bulk create contacts with deduplication"""
+    """Bulk create contacts with validation and deduplication"""
     try:
         db = get_db()
         data = request.get_json() or {}
@@ -520,11 +577,13 @@ def bulk_create_contacts():
             'contacts': created_contacts
         })
         
+    except OfferloopException:
+        raise
     except Exception as e:
         print(f"Error bulk creating contacts: {str(e)}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        raise OfferloopException(f"Failed to bulk create contacts: {str(e)}", error_code="BULK_CREATE_ERROR")
 
 
 @contacts_bp.route('/<contact_id>', methods=['GET'])
@@ -536,20 +595,67 @@ def get_contact(contact_id):
         user_id = request.firebase_user['uid']
         
         if not db:
-            return jsonify({'error': 'Firebase not initialized'}), 500
+            raise OfferloopException("Database not initialized", error_code="DATABASE_ERROR")
         
         contact_ref = db.collection('users').document(user_id).collection('contacts').document(contact_id)
         contact_doc = contact_ref.get()
         
         if not contact_doc.exists:
-            return jsonify({'error': 'Contact not found'}), 404
+            raise NotFoundError("Contact")
         
         contact = contact_doc.to_dict()
         contact['id'] = contact_id
         
         return jsonify({'contact': contact})
         
+    except (OfferloopException, NotFoundError):
+        raise
     except Exception as e:
         print(f"Error getting contact: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        raise OfferloopException(f"Failed to retrieve contact: {str(e)}", error_code="CONTACT_FETCH_ERROR")
+
+
+@contacts_bp.route('/bulk-delete', methods=['POST'])
+@require_firebase_auth
+def bulk_delete_contacts():
+    """Bulk delete contacts by IDs"""
+    try:
+        db = get_db()
+        user_id = request.firebase_user['uid']
+        data = request.get_json() or {}
+        contact_ids = data.get('contactIds', [])
+        
+        if not db:
+            raise OfferloopException("Database not initialized", error_code="DATABASE_ERROR")
+        
+        if not contact_ids or not isinstance(contact_ids, list):
+            raise ValidationError("contactIds must be a non-empty array", field="contactIds")
+        
+        if len(contact_ids) > 100:
+            raise ValidationError("Cannot delete more than 100 contacts at once", field="contactIds")
+        
+        deleted_count = 0
+        not_found = []
+        
+        contacts_ref = db.collection('users').document(user_id).collection('contacts')
+        
+        for contact_id in contact_ids:
+            contact_ref = contacts_ref.document(contact_id)
+            if contact_ref.get().exists:
+                contact_ref.delete()
+                deleted_count += 1
+            else:
+                not_found.append(contact_id)
+        
+        return jsonify({
+            'deleted': deleted_count,
+            'not_found': not_found,
+            'message': f'Successfully deleted {deleted_count} contact(s)'
+        })
+        
+    except (OfferloopException, ValidationError):
+        raise
+    except Exception as e:
+        print(f"Error bulk deleting contacts: {str(e)}")
+        raise OfferloopException(f"Failed to bulk delete contacts: {str(e)}", error_code="BULK_DELETE_ERROR")
 

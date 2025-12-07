@@ -20,6 +20,7 @@ from .app.routes.scout import scout_bp
 from .app.routes.firm_search import firm_search_bp
 from .app.routes.dashboard import dashboard_bp
 from .app.routes.timeline import timeline_bp
+from .app.routes.search_history import search_history_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -37,6 +38,20 @@ def create_app() -> Flask:
     print("🚀 Initializing app extensions...")
     init_app_extensions(app)
     print("✅ App extensions initialized")
+    
+    # Initialize Sentry error tracking
+    from app.utils.sentry_config import init_sentry
+    init_sentry(app)
+    
+    # Initialize Swagger API documentation (only in development)
+    if os.environ.get('FLASK_ENV') == 'development':
+        from app.utils.swagger_config import init_swagger
+        init_swagger(app)
+    
+    # Register error handlers
+    from app.utils.exceptions import register_error_handlers
+    register_error_handlers(app)
+    print("✅ Error handlers registered")
     
     # Check if db was initialized
     from .app.extensions import db
@@ -84,6 +99,7 @@ def create_app() -> Flask:
     app.register_blueprint(firm_search_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(timeline_bp)
+    app.register_blueprint(search_history_bp)
 
     # --- Debug route to check frontend build ---
     @app.route('/api/debug/frontend')

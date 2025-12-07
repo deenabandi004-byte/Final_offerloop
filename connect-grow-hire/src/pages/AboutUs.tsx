@@ -52,8 +52,8 @@ const AboutUs = () => {
 
             {/* Innovation First */}
             <GlassCard className="text-center p-8 rounded-2xl hover:glow-teal transition-all duration-300">
-              <div className="w-14 h-14 bg-cyan-500/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-6 border border-cyan-500/30">
-                <Lightbulb className="h-7 w-7 text-cyan-400" strokeWidth={2} />
+              <div className="w-14 h-14 bg-purple-500/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-6 border border-purple-500/30">
+                <Lightbulb className="h-7 w-7 text-purple-500" strokeWidth={2} />
               </div>
               <h3 className="font-bold text-xl mb-3 text-white dark:text-white text-slate-900 dark:text-white">Innovation First</h3>
               <p className="text-sm text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 leading-relaxed">
@@ -63,8 +63,8 @@ const AboutUs = () => {
 
             {/* Human Connection */}
             <GlassCard className="text-center p-8 rounded-2xl hover:glow-teal transition-all duration-300">
-              <div className="w-14 h-14 bg-emerald-500/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-6 border border-emerald-500/30">
-                <Heart className="h-7 w-7 text-emerald-400" strokeWidth={2} />
+              <div className="w-14 h-14 bg-indigo-500/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-6 border border-indigo-500/30">
+                <Heart className="h-7 w-7 text-indigo-500" strokeWidth={2} />
               </div>
               <h3 className="font-bold text-xl mb-3 text-white dark:text-white text-slate-900 dark:text-white">Human Connection</h3>
               <p className="text-sm text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 leading-relaxed">
