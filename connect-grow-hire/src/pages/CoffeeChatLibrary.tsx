@@ -140,14 +140,14 @@ const CoffeeChatLibrary: React.FC = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-2xl font-semibold text-white flex items-center gap-2">
-                    <Coffee className="h-5 w-5 text-green-400" />
+                    <Coffee className="h-5 w-5 text-blue-400" />
                     Saved Coffee Chat Preps
                   </h2>
                   <p className="text-sm text-gray-400 mt-1">
                     Review, download, or delete the one-pagers you’ve generated.
                   </p>
                 </div>
-                <Button onClick={() => navigate("/home?tab=coffee-chat")} className="bg-green-500/80 hover:bg-green-500 text-white">
+                <Button onClick={() => navigate("/home?tab=coffee-chat")} className="text-white hover:opacity-90" style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}>
                   <FileText className="h-4 w-4 mr-2" />
                   Create New Prep
                 </Button>
@@ -162,12 +162,12 @@ const CoffeeChatLibrary: React.FC = () => {
                 </div>
               ) : preps.length === 0 ? (
                 <div className="rounded-xl border border-gray-800 bg-gray-900/80 p-10 text-center space-y-4">
-                  <Coffee className="h-10 w-10 mx-auto text-green-400" />
+                  <Coffee className="h-10 w-10 mx-auto text-blue-400" />
                   <h3 className="text-lg font-semibold text-white">No preps yet</h3>
                   <p className="text-sm text-gray-400">
                     Generate your first coffee chat prep to see it appear here.
                   </p>
-                  <Button onClick={() => navigate("/home?tab=coffee-chat")} className="bg-green-500/80 hover:bg-green-500 text-white">
+                  <Button onClick={() => navigate("/home?tab=coffee-chat")} className="text-white hover:opacity-90" style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}>
                     Create Coffee Chat Prep
                   </Button>
                 </div>
@@ -213,7 +213,7 @@ const CoffeeChatLibrary: React.FC = () => {
                           >
                             <div className="space-y-2">
                               <div className="flex items-center gap-2 text-sm text-white font-medium">
-                                <BadgeCheck className="h-4 w-4 text-green-400" />
+                                <BadgeCheck className="h-4 w-4 text-blue-400" />
                                 {prep.contactName}
                               </div>
                               <div className="text-sm text-gray-300">

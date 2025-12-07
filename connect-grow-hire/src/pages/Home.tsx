@@ -7,5 +7,6 @@
 import DashboardPage from './DashboardPage';
 
 export default function Home() {
+  console.log("🏡 [HOME] Component rendering");
   return <DashboardPage />;
 }

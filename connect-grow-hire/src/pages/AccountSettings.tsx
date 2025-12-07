@@ -1,22 +1,106 @@
-import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText } from "lucide-react";
+import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText, Save, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Badge } from "@/components/ui/badge";
 import { GlassCard } from "@/components/GlassCard";
 import { PageWrapper } from "@/components/PageWrapper";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
-import { db, storage } from '@/lib/firebase';
+import { db, storage, auth } from '@/lib/firebase';
+import { signOut as firebaseSignOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
+import { Check, ChevronsUpDown } from "lucide-react";
 
+// Constants for dropdowns
+const months = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"
+];
 
+const degrees = [
+  "High School", "Associate's", "Bachelor's", "Master's", "PhD", "JD", "MD", "Other"
+];
+
+const jobTypesOptions = ["Internship", "Part-Time", "Full-Time"];
+
+const interests = [
+  "Accounting", "Advertising (Traditional Media)", "Advertising Technology (AdTech)", "Aerospace & Aviation",
+  "Agriculture & Agribusiness", "Animation", "Apparel & Footwear Retail", "Architecture",
+  "Artificial Intelligence / Machine Learning", "Auditing", "Automotive Industry", "Banking",
+  "Beauty & Cosmetics", "Biotech Research", "Biotechnology", "Blockchain & Web3",
+  "Childcare & Early Education", "Chemical Engineering", "Civil Engineering", "Cloud Computing",
+  "Commercial Real Estate", "Construction Management", "Consumer Packaged Goods (CPG)", "Corporate Training",
+  "Cyber-Physical Systems (IoT)", "Cybersecurity", "Data Science & Analytics", "Defense Contracting",
+  "Digital Media & Streaming", "E-commerce", "EdTech", "Educational Technology", "Electrical Engineering",
+  "Energy (Oil, Gas, Renewables)", "Entertainment (Film & TV Production)", "Environmental Consulting",
+  "Event Planning", "Fashion & Apparel", "Film & Television Production",
+  "Finance (Wealth Management, Private Equity, Hedge Funds)", "FinTech", "Fitness & Wellness",
+  "Food & Beverage Production", "Food & Restaurants", "Freight & Shipping Services", "Gaming & Esports",
+  "Government Administration", "Graphic Design", "Green Technology", "Health Insurance", "HealthTech",
+  "Hedge Funds", "Higher Education / Universities", "Homeland Security", "Hospitals & Clinical Care",
+  "Hospitality Management", "Human Resources / Recruiting", "Humanitarian Aid & Relief", "Immigration Services",
+  "Industrial Manufacturing", "Influencer Marketing", "Insurance", "Intelligence & National Security",
+  "International Development", "International Relations", "Investment Banking", "Journalism",
+  "K–12 Education", "Law (Corporate, Criminal, Civil)", "Legal Tech", "Logistics & Transportation",
+  "Luxury Goods", "Management Consulting", "Manufacturing Automation", "Marine & Shipping Industry",
+  "Marketing & Advertising", "Mechanical Engineering", "Medical Devices", "Mental Health Services",
+  "Military & Defense", "Mining & Natural Resources", "Music Industry", "Nonprofit Management",
+  "Nursing", "Performing Arts", "Pharmaceuticals", "Philanthropy", "Physical Therapy & Rehabilitation",
+  "Photography", "Political Campaigns", "Policy & Advocacy", "Private Equity", "Property Management",
+  "Public Health", "Public Policy", "Public Transit Systems", "Publishing & Writing",
+  "Real Estate Development", "Real Estate Finance", "Renewable Energy (Solar, Wind, Hydro)",
+  "Residential Real Estate", "Retail & Consumer Services", "Robotics", "Social Media Management",
+  "Social Work", "Software Development", "Space Exploration & Commercial Space", "Sports Management",
+  "Strategy Consulting", "Supply Chain & Logistics", "Sustainability & Climate Tech", "Tax Services",
+  "Telecommunications", "Telemedicine", "Transportation Infrastructure", "Travel & Tourism",
+  "Urban Planning", "UX/UI Design", "Venture Capital", "Veterinary Services",
+  "Virtual & Augmented Reality", "Waste Management & Recycling", "Wealth Management",
+  "Wholesale & Distribution", "Wine, Beer & Spirits"
+];
+
+const locations = [
+  "Akron, OH", "Albany, NY", "Albuquerque, NM", "Alexandria, VA", "Allentown, PA", "Anaheim, CA",
+  "Ann Arbor, MI", "Arlington, TX", "Arlington, VA", "Atlanta, GA", "Austin, TX", "Bakersfield, CA",
+  "Baltimore, MD", "Baton Rouge, LA", "Birmingham, AL", "Boise, ID", "Boston, MA", "Boulder, CO",
+  "Buffalo, NY", "Burlington, VT", "Chapel Hill, NC", "Charleston, SC", "Charleston, WV", "Charlotte, NC",
+  "Chattanooga, TN", "Chicago, IL", "Cincinnati, OH", "Cleveland, OH", "College Station, TX", "Colorado Springs, CO",
+  "Columbia, MO", "Columbia, SC", "Columbus, OH", "Dallas, TX", "Dayton, OH", "Denver, CO",
+  "Des Moines, IA", "Detroit, MI", "Durham, NC", "El Paso, TX", "Evansville, IN", "Evanston, IL",
+  "Fayetteville, AR", "Fort Collins, CO", "Fort Lauderdale, FL", "Fort Worth, TX", "Fresno, CA", "Gainesville, FL",
+  "Grand Rapids, MI", "Greensboro, NC", "Greenville, SC", "Harrisburg, PA", "Hartford, CT", "Houston, TX",
+  "Huntsville, AL", "Indianapolis, IN", "Irvine, CA", "Ithaca, NY", "Jacksonville, FL", "Jersey City, NJ",
+  "Kansas City, MO", "Knoxville, TN", "Lafayette, IN", "Lancaster, PA", "Lansing, MI", "Las Vegas, NV",
+  "Lexington, KY", "Lincoln, NE", "Little Rock, AR", "Long Beach, CA", "Los Angeles, CA", "Louisville, KY",
+  "Madison, WI", "Manchester, NH", "Memphis, TN", "Mesa, AZ", "Miami, FL", "Milwaukee, WI",
+  "Minneapolis, MN", "Mobile, AL", "Morgantown, WV", "Nashville, TN", "Naples, FL", "Naperville, IL",
+  "New Haven, CT", "New Orleans, LA", "New York, NY", "Newark, NJ", "Norfolk, VA", "Oakland, CA",
+  "Oklahoma City, OK", "Omaha, NE", "Orlando, FL", "Pasadena, CA", "Peoria, IL", "Philadelphia, PA",
+  "Phoenix, AZ", "Pittsburgh, PA", "Plano, TX", "Portland, OR", "Providence, RI", "Provo, UT",
+  "Raleigh, NC", "Reno, NV", "Richmond, VA", "Riverside, CA", "Rochester, NY", "Sacramento, CA",
+  "Salt Lake City, UT", "San Antonio, TX", "San Diego, CA", "San Francisco, CA", "San Jose, CA", "San Luis Obispo, CA",
+  "Santa Ana, CA", "Santa Barbara, CA", "Santa Clara, CA", "Sarasota, FL", "Savannah, GA", "Scottsdale, AZ",
+  "Seattle, WA", "Shreveport, LA", "Springfield, IL", "Springfield, MA", "Springfield, MO", "Stamford, CT",
+  "State College, PA", "St. Louis, MO", "St. Paul, MN", "St. Petersburg, FL", "Syracuse, NY", "Tallahassee, FL",
+  "Tampa, FL", "Tempe, AZ", "Toledo, OH", "Topeka, KS", "Tucson, AZ", "Tulsa, OK",
+  "Virginia Beach, VA", "Washington, DC", "West Palm Beach, FL", "White Plains, NY", "Wichita, KS", "Wilmington, DE",
+  "Winston-Salem, NC", "Worcester, MA", "Ypsilanti, MI", "San Bernardino, CA", "Glendale, AZ", "Alexandria, LA"
+];
 
 export default function AccountSettings() {
+  console.log("⚙️ [ACCOUNT SETTINGS] Component rendering");
   const navigate = useNavigate();
   const { user, signOut } = useFirebaseAuth();
+  console.log("⚙️ [ACCOUNT SETTINGS] User state:", { hasUser: !!user, email: user?.email || "none" });
   
   // State for form data populated from onboarding
   const [personalInfo, setPersonalInfo] = useState({
@@ -24,6 +108,7 @@ export default function AccountSettings() {
     lastName: "",
     email: "",
     university: "",
+    phone: "",
   });
 
   const [academicInfo, setAcademicInfo] = useState({
@@ -39,6 +124,14 @@ export default function AccountSettings() {
     preferredLocations: [] as string[],
     jobTypes: [] as string[],
   });
+
+  // State for saving
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // State for multi-select popovers
+  const [industriesOpen, setIndustriesOpen] = useState(false);
+  const [locationsOpen, setLocationsOpen] = useState(false);
  
   
 
@@ -245,6 +338,81 @@ export default function AccountSettings() {
     }
   };
 
+  // Save onboarding data handler
+  const handleSaveOnboardingData = async () => {
+    if (!user?.uid) {
+      toast({
+        title: "Error",
+        description: "You must be signed in to save changes.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveSuccess(false);
+
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      
+      // Prepare update payload - only update the fields we're editing
+      const updates: any = {
+        // Personal info
+        firstName: personalInfo.firstName,
+        lastName: personalInfo.lastName,
+        name: `${personalInfo.firstName} ${personalInfo.lastName}`.trim(),
+        university: personalInfo.university,
+        phone: personalInfo.phone,
+        
+        // Academic info
+        graduationMonth: academicInfo.graduationMonth,
+        graduationYear: academicInfo.graduationYear,
+        fieldOfStudy: academicInfo.fieldOfStudy,
+        major: academicInfo.fieldOfStudy, // Also update major for backward compatibility
+        currentDegree: academicInfo.currentDegree,
+        degree: academicInfo.currentDegree, // Also update degree for backward compatibility
+        
+        // Career info
+        industriesOfInterest: careerInfo.industriesOfInterest,
+        interests: careerInfo.industriesOfInterest, // Also update interests for backward compatibility
+        careerInterests: careerInfo.industriesOfInterest, // Also update careerInterests
+        preferredJobRole: careerInfo.preferredJobRole,
+        preferredJobRolesOrTitles: careerInfo.preferredJobRole, // Also update preferredJobRolesOrTitles
+        preferredLocations: careerInfo.preferredLocations,
+        preferredLocation: careerInfo.preferredLocations, // Also update preferredLocation
+        jobTypes: careerInfo.jobTypes,
+        jobTypesInterestedIn: careerInfo.jobTypes, // Also update jobTypesInterestedIn
+      };
+
+      // Remove undefined values
+      Object.keys(updates).forEach(key => {
+        if (updates[key] === undefined) {
+          delete updates[key];
+        }
+      });
+
+      await updateDoc(userRef, updates);
+
+      setSaveSuccess(true);
+      toast({
+        title: "Success",
+        description: "Your profile information has been saved.",
+      });
+
+      // Clear success message after 3 seconds
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (error) {
+      console.error("Error saving onboarding data:", error);
+      toast({
+        title: "Error",
+        description: "Failed to save changes. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Load user data on mount
   useEffect(() => {
     const loadUserData = async () => {
@@ -262,24 +430,25 @@ export default function AccountSettings() {
           if (data) {
             const { firstName, lastName } = parseName(data.name);
             setPersonalInfo({
-              firstName: firstName || data.firstName || "",
-              lastName: lastName || data.lastName || "",
+              firstName: firstName || data.firstName || data.profile?.firstName || "",
+              lastName: lastName || data.lastName || data.profile?.lastName || "",
               email: data.email || user?.email || "",
-              university: data.university || "",
+              university: data.university || data.academics?.university || data.college || "",
+              phone: data.phone || data.profile?.phone || "",
             });
 
             setAcademicInfo({
-              graduationMonth: data.graduationMonth || "",
-              graduationYear: data.graduationYear || "",
-              fieldOfStudy: data.fieldOfStudy || data.major || "",
-              currentDegree: data.currentDegree || "",
+              graduationMonth: data.graduationMonth || data.academics?.graduationMonth || "",
+              graduationYear: data.graduationYear || data.academics?.graduationYear || "",
+              fieldOfStudy: data.fieldOfStudy || data.major || data.academics?.major || "",
+              currentDegree: data.currentDegree || data.degree || data.academics?.degree || "",
             });
 
             setCareerInfo({
-              industriesOfInterest: data.industriesOfInterest || [],
-              preferredJobRole: data.preferredJobRole || "",
-              preferredLocations: data.preferredLocations || [],
-              jobTypes: data.jobTypes || [],
+              industriesOfInterest: data.industriesOfInterest || data.interests || data.careerInterests || data.location?.interests || [],
+              preferredJobRole: data.preferredJobRole || data.preferredJobRolesOrTitles || "",
+              preferredLocations: data.preferredLocations || data.preferredLocation || data.location?.preferredLocation || [],
+              jobTypes: data.jobTypes || data.jobTypesInterestedIn || data.location?.jobTypes || [],
             });
           }
         }
@@ -339,10 +508,94 @@ export default function AccountSettings() {
 
   const handleSignOut = async () => {
     try {
+      console.log("🔐 [SIGN OUT] Starting sign out process...");
+      console.log("🔐 [SIGN OUT] Current user:", user?.email || "none");
+      console.log("🔐 [SIGN OUT] Current path:", window.location.pathname);
+      
+      // Clear React context first to prevent any state issues
+      console.log("🔐 [SIGN OUT] Step 1: Clearing React context...");
       await signOut();
-      navigate('/');
+      console.log("✅ [SIGN OUT] Step 1 complete: Context state cleared");
+      
+      // Sign out from Firebase
+      console.log("🔐 [SIGN OUT] Step 2: Signing out from Firebase...");
+      await firebaseSignOut(auth);
+      console.log("✅ [SIGN OUT] Step 2 complete: Firebase signOut() called");
+      
+      // Wait for Firebase auth state to actually be null
+      // This ensures Firebase doesn't re-authenticate from persisted storage
+      console.log("🔐 [SIGN OUT] Step 3: Waiting for Firebase auth state to clear...");
+      await new Promise<void>((resolve) => {
+        let authStateChecked = false;
+        const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+          console.log("🔐 [SIGN OUT] Auth state changed:", firebaseUser ? `User: ${firebaseUser.email}` : "null");
+          if (firebaseUser === null && !authStateChecked) {
+            authStateChecked = true;
+            console.log("✅ [SIGN OUT] Step 3 complete: Firebase auth state confirmed null");
+            unsubscribe();
+            resolve();
+          }
+        });
+        
+        // Timeout after 2 seconds if auth state doesn't clear
+        setTimeout(() => {
+          if (!authStateChecked) {
+            console.warn("⚠️ [SIGN OUT] Step 3 timeout: Auth state clear timeout, proceeding anyway");
+            authStateChecked = true;
+            unsubscribe();
+            resolve();
+          }
+        }, 2000);
+      });
+      
+      // Clear any Firebase auth persistence from localStorage
+      console.log("🔐 [SIGN OUT] Step 4: Clearing Firebase auth from localStorage...");
+      try {
+        const keys = Object.keys(localStorage);
+        const firebaseKeys = keys.filter(key => 
+          key.startsWith('firebase:authUser:') || 
+          key.startsWith('firebase:host:') || 
+          key.includes('firebase')
+        );
+        console.log("🔐 [SIGN OUT] Found Firebase keys in localStorage:", firebaseKeys);
+        firebaseKeys.forEach(key => {
+          localStorage.removeItem(key);
+          console.log("🔐 [SIGN OUT] Removed localStorage key:", key);
+        });
+        console.log("✅ [SIGN OUT] Step 4 complete: Cleared Firebase auth from localStorage");
+      } catch (e) {
+        console.warn("⚠️ [SIGN OUT] Step 4 error: Could not clear localStorage:", e);
+      }
+      
+      // Use window.location.href with signedOut flag to force a full page reload
+      // This ensures all state is cleared and the PublicRoute can properly handle the signedOut state
+      console.log("🔐 [SIGN OUT] Step 5: Redirecting to landing page with signedOut=true...");
+      console.log("🔐 [SIGN OUT] Final redirect URL: /?signedOut=true");
+      window.location.href = '/?signedOut=true';
     } catch (error) {
-      console.error("Error signing out:", error);
+      console.error("❌ [SIGN OUT] Error in sign out process:", error);
+      console.error("❌ [SIGN OUT] Error details:", {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      // Even on error, try to clear and redirect
+      try {
+        console.log("🔐 [SIGN OUT] Attempting cleanup after error...");
+        await signOut();
+        await firebaseSignOut(auth);
+        // Clear localStorage on error too
+        const keys = Object.keys(localStorage);
+        keys.forEach(key => {
+          if (key.startsWith('firebase:authUser:') || key.startsWith('firebase:host:') || key.includes('firebase')) {
+            localStorage.removeItem(key);
+          }
+        });
+        console.log("✅ [SIGN OUT] Cleanup complete, redirecting...");
+      } catch (e) {
+        console.error("❌ [SIGN OUT] Error during cleanup:", e);
+      }
+      console.log("🔐 [SIGN OUT] Redirecting to /?signedOut=true (error path)");
+      window.location.href = '/?signedOut=true';
     }
   };
 
@@ -363,7 +616,7 @@ export default function AccountSettings() {
                 Back
               </Button>
               <div>
-                <h1 className="text-2xl font-semibold text-white dark:text-white text-slate-900 dark:text-white">Account Settings</h1>
+                <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-900">Account Settings</h1>
                 <p className="text-sm text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">Manage your account and preferences</p>
               </div>
             </div>
@@ -381,9 +634,37 @@ export default function AccountSettings() {
       {/* Main Content */}
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto space-y-6">
-          {/* Personal Information Card */}
+          {/* Career & Profile Info Card */}
           <GlassCard className="p-6 rounded-2xl">
-            <h2 className="text-xl font-semibold mb-6 text-white dark:text-white text-slate-900 dark:text-white">Personal Information</h2>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold text-white dark:text-white text-slate-900 dark:text-white">Career & Profile Info</h2>
+              <Button
+                onClick={handleSaveOnboardingData}
+                disabled={isSaving}
+                className="gap-2"
+                style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4" />
+                    Save changes
+                  </>
+                )}
+              </Button>
+            </div>
+            {saveSuccess && (
+              <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                <p className="text-sm text-green-700 dark:text-green-400">✓ Changes saved successfully!</p>
+              </div>
+            )}
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-lg font-semibold mb-4 text-white dark:text-white text-slate-900 dark:text-white">Personal Information</h3>
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -391,7 +672,7 @@ export default function AccountSettings() {
                   <Input
                     id="firstName"
                     value={personalInfo.firstName}
-                    readOnly
+                    onChange={(e) => setPersonalInfo({ ...personalInfo, firstName: e.target.value })}
                     className="bg-white/5 border border-white/10 focus:border-blue-400/50"
                   />
                 </div>
@@ -400,7 +681,7 @@ export default function AccountSettings() {
                   <Input
                     id="lastName"
                     value={personalInfo.lastName}
-                    readOnly
+                    onChange={(e) => setPersonalInfo({ ...personalInfo, lastName: e.target.value })}
                     className="bg-white/5 border border-white/10 focus:border-blue-400/50"
                   />
                 </div>
@@ -422,34 +703,56 @@ export default function AccountSettings() {
                 <Input
                   id="university"
                   value={personalInfo.university}
-                  readOnly
+                  onChange={(e) => setPersonalInfo({ ...personalInfo, university: e.target.value })}
                   className="bg-muted/30"
                 />
               </div>
-            </div>
-          </GlassCard>
 
-          {/* Academic Information Card */}
-          <GlassCard className="p-6 rounded-2xl">
-            <h2 className="text-xl font-semibold mb-6 text-white dark:text-white text-slate-900 dark:text-white">Academic Information</h2>
-            <div className="space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone</Label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  value={personalInfo.phone}
+                  onChange={(e) => setPersonalInfo({ ...personalInfo, phone: e.target.value })}
+                  className="bg-muted/30"
+                  placeholder="(555) 123-4567"
+                />
+              </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold mb-4 text-white dark:text-white text-slate-900 dark:text-white">Academic Information</h3>
+                <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="graduationMonth">Graduation Month</Label>
-                  <Input
-                    id="graduationMonth"
+                  <Select
                     value={academicInfo.graduationMonth}
-                    readOnly
-                    className="bg-white/5 border border-white/10 focus:border-blue-400/50"
-                  />
+                    onValueChange={(value) => setAcademicInfo({ ...academicInfo, graduationMonth: value })}
+                  >
+                    <SelectTrigger className="bg-white/5 border border-white/10 focus:border-blue-400/50">
+                      <SelectValue placeholder="Select month" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {months.map((month) => (
+                        <SelectItem key={month} value={month}>
+                          {month}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="graduationYear">Graduation Year</Label>
                   <Input
                     id="graduationYear"
+                    type="number"
                     value={academicInfo.graduationYear}
-                    readOnly
+                    onChange={(e) => setAcademicInfo({ ...academicInfo, graduationYear: e.target.value })}
                     className="bg-white/5 border border-white/10 focus:border-blue-400/50"
+                    placeholder="2024"
                   />
                 </div>
               </div>
@@ -459,27 +762,36 @@ export default function AccountSettings() {
                 <Input
                   id="fieldOfStudy"
                   value={academicInfo.fieldOfStudy}
-                  readOnly
+                  onChange={(e) => setAcademicInfo({ ...academicInfo, fieldOfStudy: e.target.value })}
                   className="bg-muted/30"
+                  placeholder="e.g. Computer Science, Business Administration"
                 />
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="currentDegree">Current Degree</Label>
-                <Input
-                  id="currentDegree"
+                <Select
                   value={academicInfo.currentDegree}
-                  readOnly
-                  className="bg-muted/30"
-                />
+                  onValueChange={(value) => setAcademicInfo({ ...academicInfo, currentDegree: value })}
+                >
+                  <SelectTrigger className="bg-muted/30">
+                    <SelectValue placeholder="Select degree" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {degrees.map((degree) => (
+                      <SelectItem key={degree} value={degree}>
+                        {degree}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            </div>
-          </GlassCard>
+                </div>
+              </div>
 
-          {/* Professional Profile Card */}
-          <GlassCard className="p-6 rounded-2xl">
-            <h2 className="text-xl font-semibold mb-6 text-white dark:text-white text-slate-900 dark:text-white">Professional Profile</h2>
-            <div className="space-y-6">
+              <div>
+                <h3 className="text-lg font-semibold mb-4 text-white dark:text-white text-slate-900 dark:text-white">Professional Profile</h3>
+                <div className="space-y-6">
               <div className="space-y-4">
                 {/* Resume Upload Section */}
                 <div className="space-y-2">
@@ -627,36 +939,196 @@ export default function AccountSettings() {
                   <Label className="text-sm font-medium text-foreground">Career Interests</Label>
                   
                   <div className="space-y-4">
-                    <div>
+                    <div className="space-y-2">
                       <Label className="text-xs font-medium text-muted-foreground">Industries of Interest</Label>
-                      <p className="text-sm text-foreground mt-1">
-                        {careerInfo.industriesOfInterest.length ? careerInfo.industriesOfInterest.join(", ") : "Investment Banking and Management Consulting"}
-                      </p>
+                      <Popover open={industriesOpen} onOpenChange={setIndustriesOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            className="w-full justify-between bg-muted/30"
+                          >
+                            {careerInfo.industriesOfInterest.length > 0
+                              ? `${careerInfo.industriesOfInterest.length} selected`
+                              : "Select industries..."}
+                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-full p-0" align="start">
+                          <Command>
+                            <CommandInput placeholder="Search industries..." />
+                            <CommandList>
+                              <CommandEmpty>No industry found.</CommandEmpty>
+                              <CommandGroup>
+                                {interests.map((interest) => (
+                                  <CommandItem
+                                    key={interest}
+                                    value={interest}
+                                    onSelect={() => {
+                                      const isSelected = careerInfo.industriesOfInterest.includes(interest);
+                                      setCareerInfo({
+                                        ...careerInfo,
+                                        industriesOfInterest: isSelected
+                                          ? careerInfo.industriesOfInterest.filter(i => i !== interest)
+                                          : [...careerInfo.industriesOfInterest, interest]
+                                      });
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4",
+                                        careerInfo.industriesOfInterest.includes(interest)
+                                          ? "opacity-100"
+                                          : "opacity-0"
+                                      )}
+                                    />
+                                    {interest}
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                      {careerInfo.industriesOfInterest.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {careerInfo.industriesOfInterest.map((industry) => (
+                            <Badge key={industry} variant="secondary" className="text-xs">
+                              {industry}
+                              <button
+                                onClick={() => {
+                                  setCareerInfo({
+                                    ...careerInfo,
+                                    industriesOfInterest: careerInfo.industriesOfInterest.filter(i => i !== industry)
+                                  });
+                                }}
+                                className="ml-1 hover:text-destructive"
+                              >
+                                ×
+                              </button>
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     
-                    <div>
+                    <div className="space-y-2">
                       <Label className="text-xs font-medium text-muted-foreground">Preferred Job Roles/Titles</Label>
-                      <p className="text-sm text-foreground mt-1">
-                        {careerInfo.preferredJobRole || "Associate Consulting and Investment Banking Analyst"}
-                      </p>
+                      <Input
+                        value={careerInfo.preferredJobRole}
+                        onChange={(e) => setCareerInfo({ ...careerInfo, preferredJobRole: e.target.value })}
+                        className="bg-muted/30"
+                        placeholder="e.g. Investment Banking Analyst, Software Engineer"
+                      />
                     </div>
                     
-                    <div>
+                    <div className="space-y-2">
                       <Label className="text-xs font-medium text-muted-foreground">Preferred Locations</Label>
-                      <p className="text-sm text-foreground mt-1">
-                        {careerInfo.preferredLocations.length ? careerInfo.preferredLocations.join(" and ") : "Los Angeles and New York"}
-                      </p>
+                      <Popover open={locationsOpen} onOpenChange={setLocationsOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            className="w-full justify-between bg-muted/30"
+                          >
+                            {careerInfo.preferredLocations.length > 0
+                              ? `${careerInfo.preferredLocations.length} selected`
+                              : "Select locations..."}
+                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-full p-0" align="start">
+                          <Command>
+                            <CommandInput placeholder="Search locations..." />
+                            <CommandList>
+                              <CommandEmpty>No location found.</CommandEmpty>
+                              <CommandGroup>
+                                {locations.map((location) => (
+                                  <CommandItem
+                                    key={location}
+                                    value={location}
+                                    onSelect={() => {
+                                      const isSelected = careerInfo.preferredLocations.includes(location);
+                                      setCareerInfo({
+                                        ...careerInfo,
+                                        preferredLocations: isSelected
+                                          ? careerInfo.preferredLocations.filter(l => l !== location)
+                                          : [...careerInfo.preferredLocations, location]
+                                      });
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4",
+                                        careerInfo.preferredLocations.includes(location)
+                                          ? "opacity-100"
+                                          : "opacity-0"
+                                      )}
+                                    />
+                                    {location}
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                      {careerInfo.preferredLocations.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {careerInfo.preferredLocations.map((location) => (
+                            <Badge key={location} variant="secondary" className="text-xs">
+                              {location}
+                              <button
+                                onClick={() => {
+                                  setCareerInfo({
+                                    ...careerInfo,
+                                    preferredLocations: careerInfo.preferredLocations.filter(l => l !== location)
+                                  });
+                                }}
+                                className="ml-1 hover:text-destructive"
+                              >
+                                ×
+                              </button>
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     
-                    <div>
+                    <div className="space-y-2">
                       <Label className="text-xs font-medium text-muted-foreground">Job Type(s) Interested in</Label>
-                      <p className="text-sm text-foreground mt-1">
-                        {careerInfo.jobTypes.length ? careerInfo.jobTypes.join(", ") : "Full-time"}
-                      </p>
+                      <div className="space-y-2">
+                        {jobTypesOptions.map((jobType) => (
+                          <div key={jobType} className="flex items-center space-x-2">
+                            <Checkbox
+                              id={`jobType-${jobType}`}
+                              checked={careerInfo.jobTypes.includes(jobType)}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setCareerInfo({
+                                    ...careerInfo,
+                                    jobTypes: [...careerInfo.jobTypes, jobType]
+                                  });
+                                } else {
+                                  setCareerInfo({
+                                    ...careerInfo,
+                                    jobTypes: careerInfo.jobTypes.filter(type => type !== jobType)
+                                  });
+                                }
+                              }}
+                            />
+                            <Label htmlFor={`jobType-${jobType}`} className="text-sm font-normal cursor-pointer">
+                              {jobType}
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
+                </div>
               </div>
+            </div>
             </div>
           </GlassCard>
           

@@ -94,7 +94,7 @@ export default function PaymentSuccess() {
 
         {status === 'success' && (
           <div className="bg-slate-900 p-8 rounded-lg">
-            <CheckCircle2 className="h-16 w-16 text-green-400 mx-auto mb-4" />
+            <CheckCircle2 className="h-16 w-16 text-blue-400 mx-auto mb-4" />
             <h1 className="text-3xl font-bold mb-2">Welcome to Pro!</h1>
             <p className="text-gray-400 mb-2">{message}</p>
             <p className="text-sm text-gray-500 mb-6">

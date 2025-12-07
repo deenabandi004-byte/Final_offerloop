@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { LayoutDashboard, Mail, Calendar as CalendarIcon } from 'lucide-react';
 import { AppSidebar } from '@/components/AppSidebar';
@@ -7,11 +7,22 @@ import Header from '@/components/Header';
 import { Dashboard } from '@/components/Dashboard';
 import { OutboxEmbedded } from '@/components/OutboxEmbedded';
 import { Calendar } from '@/components/Calendar';
+import { PageHeaderActions } from '@/components/PageHeaderActions';
+import { useSearchParams } from 'react-router-dom';
 
 type TabType = 'dashboard' | 'outbox' | 'calendar';
 
 export default function DashboardPage() {
-  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  console.log("📊 [DASHBOARD PAGE] Component rendering");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab') as TabType | null;
+  const [activeTab, setActiveTab] = useState<TabType>(tabParam && ['dashboard', 'outbox', 'calendar'].includes(tabParam) ? tabParam : 'dashboard');
+
+  useEffect(() => {
+    if (tabParam && ['dashboard', 'outbox', 'calendar'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam]);
 
   const getTabPosition = () => {
     switch (activeTab) {
@@ -28,29 +39,31 @@ export default function DashboardPage() {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-background overflow-x-auto">
+      <div className="min-h-screen flex w-full bg-transparent">
         <AppSidebar />
-        <div className="flex-1 flex flex-col min-w-[800px]">
-          {/* Header */}
-          <div className="glass-nav flex items-center border-b border-border w-full">
-            <div className="px-4 border-r border-border flex-shrink-0">
-              <SidebarTrigger />
+        <div className="flex-1 flex flex-col">
+          {/* Header with Sidebar Toggle */}
+          <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-transparent shadow-sm flex-shrink-0 relative z-20">
+            <div className="flex items-center gap-4">
+              <SidebarTrigger className="text-foreground hover:bg-accent" />
+              <h1 className="text-xl font-semibold">Home</h1>
             </div>
-            <div className="flex-1 min-w-0">
-              <Header />
-            </div>
-          </div>
+            <PageHeaderActions />
+          </header>
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-y-auto overflow-x-auto p-6 bg-background">
+          <main className="flex-1 overflow-y-auto p-6 bg-transparent">
         <div style={{ width: '100%', minWidth: 'fit-content' }}>
           <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%' }}>
           {/* Tabs */}
           <div className="flex justify-center mb-8">
-            <div className="relative grid w-full grid-cols-3 max-w-lg bg-card border border-border p-1 rounded-xl h-14 overflow-hidden">
+            <div className="relative grid w-full grid-cols-3 max-w-lg border border-border p-1 rounded-xl h-14 overflow-hidden tabs-container-gradient bg-card">
               {/* Animated sliding background */}
               <motion.div
-                className="absolute bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg h-12"
+                className="absolute rounded-lg h-12"
+                style={{ 
+                  background: 'linear-gradient(135deg, #3B82F6, #60A5FA)',
+                  top: '4px'
+                }}
                 initial={false}
                 animate={{ 
                   left: getTabPosition(),
@@ -61,7 +74,6 @@ export default function DashboardPage() {
                   stiffness: 400, 
                   damping: 30 
                 }}
-                style={{ top: '4px' }}
               />
               
               <button

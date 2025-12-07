@@ -43,22 +43,7 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Initial greeting
-  useEffect(() => {
-    if (messages.length === 0) {
-      setMessages([{
-        id: 'greeting',
-        role: 'assistant',
-        content: "Hey! I'm Scout 🐕 Ready to help you find professionals to network with!\n\n" +
-                 "You can:\n" +
-                 "• **Paste a job posting URL** and I'll fill in the search for you\n" +
-                 "• **Tell me what you're looking for** (e.g., 'data analyst jobs in SF')\n" +
-                 "• **Ask me anything** about companies or roles\n\n" +
-                 "What would you like to do?",
-        timestamp: new Date(),
-      }]);
-    }
-  }, []);
+  // No initial greeting message - using static bubble instead
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -164,22 +149,73 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
       .replace(/\n/g, '<br />');
   };
 
+  const handleQuickAction = (action: string) => {
+    if (action === 'paste-url') {
+      setInput('Paste job URL here...');
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    } else if (action === 'describe-role') {
+      setInput('Describe the role you\'re looking for...');
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    } else if (action === 'ask-company') {
+      setInput('Ask about a company...');
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  };
+
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div className="flex flex-col h-full bg-white">
       {/* Messages Area */}
-      <div className="flex-1 p-4 overflow-y-auto">
-        <div className="space-y-4">
+      <div className="flex-1 overflow-y-auto">
+        {/* Static Scout Message Bubble */}
+        {messages.length === 0 && (
+          <div className="mt-3 mx-4 p-3 rounded-2xl bg-[#F5F7FF]">
+            <p className="text-sm text-slate-800">
+              Hey! I'm Scout. Paste a job posting URL or describe a role and I'll fill in your search filters for you.
+            </p>
+          </div>
+        )}
+
+        {/* Quick Action Chips */}
+        {messages.length === 0 && (
+          <div className="mt-3 flex flex-wrap gap-2 px-4">
+            <button
+              onClick={() => handleQuickAction('paste-url')}
+              className="inline-flex items-center px-3 py-1.5 rounded-full bg-white border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer transition-colors"
+            >
+              Paste job URL
+            </button>
+            <button
+              onClick={() => handleQuickAction('describe-role')}
+              className="inline-flex items-center px-3 py-1.5 rounded-full bg-white border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer transition-colors"
+            >
+              Describe a role
+            </button>
+            <button
+              onClick={() => handleQuickAction('ask-company')}
+              className="inline-flex items-center px-3 py-1.5 rounded-full bg-white border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer transition-colors"
+            >
+              Ask about a company
+            </button>
+          </div>
+        )}
+
+        {/* Chat Messages */}
+        <div className="px-4 py-4 space-y-4">
         {messages.map((message) => (
           <div
             key={message.id}
               className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div
-                className={`max-w-[85%] rounded-lg p-3 ${
+                className={`max-w-[85%] rounded-2xl p-3 ${
                   message.role === 'user'
-                    ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white'
-                    : 'bg-muted text-foreground border border-border'
+                    ? 'text-white'
+                    : 'bg-[#F5F7FF] text-slate-800'
                 }`}
+                style={message.role === 'user' ? { background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' } : undefined}
               >
                 {/* Message content */}
                 <div
@@ -189,12 +225,12 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
 
                 {/* Fields badge */}
                 {message.fields && Object.keys(message.fields).length > 0 && (
-                  <div className="mt-3 p-2 bg-green-500/20 border border-green-500/40 rounded-md">
-                    <div className="flex items-center gap-1 text-green-700 text-xs font-medium mb-1">
+                  <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-center gap-1 text-blue-700 text-xs font-medium mb-1">
                       <Sparkles className="h-3 w-3" />
                       Search fields updated!
                     </div>
-                    <div className="text-xs text-green-600/80">
+                    <div className="text-xs text-blue-600">
                       {message.fields.job_title && <span>Title: {message.fields.job_title}</span>}
                       {message.fields.company && <span> • Company: {message.fields.company}</span>}
                       {message.fields.location && <span> • Location: {message.fields.location}</span>}
@@ -205,19 +241,19 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
                 {/* Job listings */}
                 {message.jobListings && message.jobListings.length > 0 && (
                   <div className="mt-3 space-y-2">
-                    <div className="text-xs text-muted-foreground font-medium">Click to use for search:</div>
+                    <div className="text-xs text-slate-600 font-medium">Click to use for search:</div>
                     {message.jobListings.slice(0, 5).map((job, idx) => (
                       <div
                         key={idx}
-                        className="w-full p-3 bg-muted/50 rounded border border-border hover:border-purple-500 transition-colors"
+                        className="w-full p-3 bg-white rounded-lg border border-slate-200 hover:border-blue-400 transition-colors"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <button
                             onClick={() => handleJobClick(job)}
                             className="flex-1 text-left min-w-0"
                           >
-                            <div className="text-sm font-medium text-foreground">{job.title}</div>
-                            <div className="text-xs text-muted-foreground">
+                            <div className="text-sm font-medium text-slate-900">{job.title}</div>
+                            <div className="text-xs text-slate-500">
                               {job.company}
                               {job.location && ` • ${job.location}`}
                             </div>
@@ -227,7 +263,8 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
                               href={job.url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="flex-shrink-0 px-3 py-1.5 text-xs font-medium bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white rounded transition-all shadow-sm hover:shadow-md flex items-center gap-1.5 whitespace-nowrap"
+                              className="flex-shrink-0 px-3 py-1.5 text-xs font-medium text-white rounded transition-all shadow-sm hover:shadow-md hover:opacity-90 flex items-center gap-1.5 whitespace-nowrap"
+                              style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
                               title="View job posting"
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -240,7 +277,7 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
                           ) : (
                             <button
                               disabled
-                              className="flex-shrink-0 px-3 py-1.5 text-xs font-medium bg-muted text-muted-foreground rounded cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap opacity-50"
+                              className="flex-shrink-0 px-3 py-1.5 text-xs font-medium bg-slate-100 text-slate-400 rounded cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
                               title="Job URL not available"
                             >
                               <ExternalLink className="h-3.5 w-3.5" />
@@ -262,8 +299,8 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
           {/* Loading indicator */}
           {isLoading && (
           <div className="flex justify-start">
-              <div className="bg-muted border border-border rounded-lg p-3">
-                <div className="flex items-center gap-2 text-muted-foreground">
+              <div className="bg-slate-100 border border-slate-200 rounded-lg p-3">
+                <div className="flex items-center gap-2 text-slate-600">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <span className="text-sm">Scout is thinking...</span>
                 </div>
@@ -274,7 +311,7 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
       </div>
 
       {/* Input Area */}
-      <div className="p-4 border-t border-border bg-background">
+      <div className="px-4 py-3 border-t border-[#E3E8F0] bg-white">
         <div className="flex gap-2">
           <Input
             ref={inputRef}
@@ -282,13 +319,14 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder="Paste a job URL or describe what you're looking for..."
-            className="flex-1 bg-background border-input text-foreground placeholder:text-muted-foreground focus:border-purple-500"
+            className="flex-1 bg-white border-[#E3E8F0] text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500/20 rounded-md"
             disabled={isLoading}
           />
           <Button
             onClick={sendMessage}
             disabled={!input.trim() || isLoading}
-            className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
+            className="hover:opacity-90 rounded-md"
+            style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
           >
             {isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -296,9 +334,6 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
               <Send className="h-4 w-4" />
             )}
           </Button>
-        </div>
-        <div className="mt-2 text-xs text-muted-foreground text-center">
-          Try: "data analyst jobs in NYC" or paste a LinkedIn/Greenhouse job URL
         </div>
       </div>
     </div>

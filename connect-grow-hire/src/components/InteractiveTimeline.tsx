@@ -259,9 +259,9 @@ export function InteractiveTimeline({ phases, startDate, targetDeadline, onUpdat
                           (() => {
                             const isActive = phaseAtMonth.startIndex <= currentMonthIndex && phaseAtMonth.endIndex >= currentMonthIndex;
                             if (isActive) {
-                              return 'bg-gradient-to-br from-purple-500/20 via-pink-500/20 to-purple-600/20 border-purple-400 shadow-lg shadow-purple-500/20';
+                              return 'bg-gradient-to-br from-blue-500/20 via-blue-400/20 to-blue-600/20 border-blue-400 shadow-lg shadow-blue-500/20';
                             } else {
-                              return 'bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 border-slate-300 dark:border-slate-600 hover:border-purple-300 dark:hover:border-purple-600 hover:shadow-md';
+                              return 'bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 border-slate-300 dark:border-slate-600 hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-md';
                             }
                           })()
                         }`}
@@ -296,7 +296,7 @@ export function InteractiveTimeline({ phases, startDate, targetDeadline, onUpdat
                               (() => {
                                 const isActive = phaseAtMonth.startIndex <= currentMonthIndex && phaseAtMonth.endIndex >= currentMonthIndex;
                                 return isActive 
-                                  ? 'text-purple-700 dark:text-purple-300' 
+                                  ? 'text-blue-700 dark:text-blue-300' 
                                   : 'text-slate-700 dark:text-slate-300';
                               })()
                             }`}>
@@ -306,7 +306,7 @@ export function InteractiveTimeline({ phases, startDate, targetDeadline, onUpdat
                               (() => {
                                 const isActive = phaseAtMonth.startIndex <= currentMonthIndex && phaseAtMonth.endIndex >= currentMonthIndex;
                                 return isActive 
-                                  ? 'text-purple-600 dark:text-purple-400' 
+                                  ? 'text-blue-600 dark:text-blue-400' 
                                   : 'text-slate-600 dark:text-slate-400';
                               })()
                             }`}>
@@ -317,11 +317,11 @@ export function InteractiveTimeline({ phases, startDate, targetDeadline, onUpdat
                                 <div className="text-xs space-y-1 text-left">
                                   {phaseAtMonth.phase.goals.slice(0, 2).map((goal, idx) => (
                                     <div key={idx} className="flex items-start gap-1.5">
-                                      <span className="text-purple-500 dark:text-purple-400 mt-0.5">•</span>
+                                      <span className="text-blue-500 dark:text-blue-400 mt-0.5">•</span>
                                       <span className={(() => {
                                         const isActive = phaseAtMonth.startIndex <= currentMonthIndex && phaseAtMonth.endIndex >= currentMonthIndex;
                                         return isActive 
-                                          ? 'text-purple-600 dark:text-purple-400' 
+                                          ? 'text-blue-600 dark:text-blue-400' 
                                           : 'text-slate-500 dark:text-slate-400';
                                       })()}>
                                         {goal}

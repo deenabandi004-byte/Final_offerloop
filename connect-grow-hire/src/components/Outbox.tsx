@@ -69,7 +69,7 @@ export function Outbox() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'replied':
-        return 'text-green-500 bg-green-500/10';
+        return 'text-blue-500 bg-green-500/10';
       case 'needs-follow-up':
         return 'text-yellow-500 bg-yellow-500/10';
       case 'no-response':
@@ -206,7 +206,7 @@ export function Outbox() {
           {/* Firm Info */}
           <div className="space-y-3">
             <div className="flex items-start gap-3">
-              <Building2 size={16} className="text-purple mt-0.5" />
+              <Building2 size={16} className="text-blue-600 mt-0.5" />
               <div>
                 <div className="text-xs text-text-muted">Firm</div>
                 <div className="text-sm">{selectedThread.firmName}</div>
@@ -214,7 +214,7 @@ export function Outbox() {
             </div>
             
             <div className="flex items-start gap-3">
-              <MapPin size={16} className="text-purple mt-0.5" />
+              <MapPin size={16} className="text-blue-600 mt-0.5" />
               <div>
                 <div className="text-xs text-text-muted">Location</div>
                 <div className="text-sm">New York, NY</div>
@@ -222,7 +222,7 @@ export function Outbox() {
             </div>
             
             <div className="flex items-start gap-3">
-              <Briefcase size={16} className="text-purple mt-0.5" />
+              <Briefcase size={16} className="text-blue-600 mt-0.5" />
               <div>
                 <div className="text-xs text-text-muted">Industry</div>
                 <div className="text-sm">Investment Banking</div>

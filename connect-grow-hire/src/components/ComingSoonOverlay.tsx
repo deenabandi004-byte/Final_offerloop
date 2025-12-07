@@ -36,7 +36,7 @@ export const ComingSoonOverlay: React.FC<ComingSoonOverlayProps> = ({
       </p>
       
       <div className="flex items-center justify-center gap-2 text-sm text-gray-400">
-        <Rocket className="h-4 w-4 text-purple-400" />
+        <Rocket className="h-4 w-4 text-blue-400" />
         <span>Launching soon - stay tuned!</span>
       </div>
       

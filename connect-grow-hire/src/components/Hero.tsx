@@ -12,7 +12,7 @@ const features = [
     icon: Calendar,
     title: "Effortless Scheduling", 
     description: "Seamlessly coordinate interviews and networking calls without the back-and-forth. Our smart scheduler handles all the logistics for you.",
-    iconColor: "text-purple-500"
+    iconColor: "text-blue-500"
   },
   {
     icon: Handshake,
@@ -24,7 +24,7 @@ const features = [
     icon: BarChart,
     title: "Progress Tracking",
     description: "Visualize your job search journey, track every application and response, and stay organized all the way to your next offer.",
-    iconColor: "text-indigo-500"
+    iconColor: "text-blue-500"
   }
 ];
 

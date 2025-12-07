@@ -1,5 +1,4 @@
 import { ReactNode } from 'react';
-import { DynamicGradientBackground } from './background/DynamicGradientBackground';
 
 interface PageWrapperProps {
   children: ReactNode;
@@ -7,8 +6,7 @@ interface PageWrapperProps {
 }
 
 export const PageWrapper = ({ children, className = '' }: PageWrapperProps) => (
-  <div className={`min-h-screen text-foreground bg-background transition-colors duration-300 ${className}`}>
-    <DynamicGradientBackground />
+  <div className={`min-h-screen text-foreground bg-transparent transition-colors duration-300 ${className}`}>
     <div className="relative z-10">
       {children}
     </div>

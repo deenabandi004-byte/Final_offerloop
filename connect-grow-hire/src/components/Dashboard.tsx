@@ -102,7 +102,7 @@ function KPICard({ icon, label, value, subtitle, progress, showProgress }: {
   const offset = circumference - (progressValue / 100) * circumference;
 
   return (
-    <div className="bg-card border border-border rounded-xl p-6 hover:border-primary/30 transition-colors h-[180px] flex flex-col overflow-visible shadow-sm">
+    <div className="bg-card border border-border rounded-xl p-6 transition-all h-[180px] flex flex-col overflow-visible shadow-sm transform hover:scale-[1.02]">
       <div className="flex items-start justify-between mb-2">
         <div className={`rounded-lg bg-purple-soft flex items-center justify-center ${isValidElement(icon) && icon.type === 'div' ? 'px-3 py-2' : 'w-10 h-10'}`}>
           {isValidElement(icon) && icon.type === 'div' ? (
@@ -228,9 +228,9 @@ function ActivityFeed() {
   };
 
   return (
-    <div className="bg-card border border-border rounded-xl p-6 h-full flex flex-col shadow-sm">
+    <div className="bg-card border border-border rounded-xl p-6 h-full flex flex-col shadow-sm transform transition-all hover:scale-[1.02]">
       <div className="flex items-center gap-2 mb-6">
-        <Clock size={18} className="text-purple-600" />
+        <Clock size={18} className="text-blue-600" />
         <h3 className="text-foreground">Recent Activity</h3>
       </div>
       
@@ -258,7 +258,7 @@ function ActivityFeed() {
         )}
       </div>
       
-      <button className="w-full mt-6 text-sm text-purple-600 hover:text-purple-700 transition-colors pt-4 border-t border-border">
+      <button className="w-full mt-6 text-sm text-blue-600 hover:text-purple-700 transition-colors pt-4 border-t border-border">
         View all activity
       </button>
     </div>
@@ -387,7 +387,7 @@ function USMap({ locations }: { locations: Array<{ id: number; name: string; cit
     L 4.5 28 Z`;
 
   return (
-    <div className="bg-card border border-border rounded-xl p-8 shadow-sm">
+    <div className="bg-card border border-border rounded-xl p-8 shadow-sm transform transition-all hover:scale-[1.02]">
       <div className="relative bg-card rounded-lg p-10 border border-border shadow-sm">
         <svg 
           viewBox="0 0 100 65" 
@@ -659,8 +659,29 @@ export function Dashboard() {
           }
         }
         
-        // Calculate progress for each goal
-        const progressPromises = goals.map(async (goal) => {
+        // Deduplicate goals by type - keep only the most recent one for each type
+        // Also filter to only show the three main goal types: contacts, firms, coffeeChats
+        const mainGoalTypes: Array<'contacts' | 'firms' | 'coffeeChats'> = ['contacts', 'firms', 'coffeeChats'];
+        const filteredGoals = goals.filter(goal => mainGoalTypes.includes(goal.type as any));
+        
+        const uniqueGoals = filteredGoals.reduce((acc, goal) => {
+          const existingGoal = acc.find(g => g.type === goal.type);
+          if (!existingGoal) {
+            acc.push(goal);
+          } else {
+            // Keep the one with the most recent start date
+            const existingDate = existingGoal.startDate?.toMillis?.() || 0;
+            const currentDate = goal.startDate?.toMillis?.() || 0;
+            if (currentDate > existingDate) {
+              const index = acc.indexOf(existingGoal);
+              acc[index] = goal;
+            }
+          }
+          return acc;
+        }, [] as typeof goals);
+        
+        // Calculate progress for each unique goal
+        const progressPromises = uniqueGoals.map(async (goal) => {
           const goalObj: Goal = {
             id: goal.id,
             type: goal.type as Goal['type'],
@@ -812,16 +833,16 @@ export function Dashboard() {
       </svg>
       {/* Header Section */}
       <div className="pt-6 text-center">
-        <h2 className="text-foreground">{firstName}'s Recruiting Snapshot</h2>
+        <h2 className="text-foreground text-4xl md:text-5xl lg:text-6xl font-bold">{firstName}'s Recruiting Snapshot</h2>
         <p className="text-muted-foreground mt-1">Track your progress and stay on top of your recruiting pipeline</p>
       </div>
 
       {/* Weekly Summary & Streak Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Weekly Summary Card */}
-        <div className="lg:col-span-2 bg-card border border-border rounded-xl p-6 shadow-sm">
+        <div className="lg:col-span-2 bg-card border border-border rounded-xl p-6 shadow-sm transform transition-all hover:scale-[1.02]">
           <div className="flex items-center gap-2 mb-4">
-            <TrendingUp size={18} className="text-purple-600" />
+            <TrendingUp size={18} className="text-blue-600" />
             <h3 className="text-lg font-semibold text-foreground">This Week</h3>
           </div>
           {weeklySummary ? (
@@ -849,7 +870,7 @@ export function Dashboard() {
         </div>
 
         {/* Streak Card */}
-        <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
+        <div className="bg-card border border-border rounded-xl p-6 shadow-sm transform transition-all hover:scale-[1.02]">
           <div className="flex items-center gap-2 mb-4">
             <Flame size={18} className="text-orange-500" />
             <h3 className="text-lg font-semibold text-foreground">Streak</h3>
@@ -887,9 +908,9 @@ export function Dashboard() {
               }[progress.goal.type];
               
               return (
-                <div key={progress.goal.id} className="bg-card border border-border rounded-xl p-6 shadow-sm">
+                <div key={progress.goal.id} className="bg-card border border-border rounded-xl p-6 shadow-sm transform transition-all hover:scale-[1.02]">
                   <div className="flex items-center gap-2 mb-4">
-                    <Target size={16} className="text-purple-600" />
+                    <Target size={16} className="text-blue-600" />
                     <h4 className="font-medium text-foreground">{goalLabel}</h4>
                   </div>
                   <div className="mb-2">
@@ -899,8 +920,11 @@ export function Dashboard() {
                     </div>
                     <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
                       <div
-                        className="h-full bg-gradient-to-r from-purple-600 to-indigo-600 transition-all duration-500"
-                        style={{ width: `${progress.percentage}%` }}
+                        className="h-full transition-all duration-500"
+                        style={{ 
+                          background: 'linear-gradient(135deg, #3B82F6, #60A5FA)',
+                          width: `${progress.percentage}%` 
+                        }}
                       />
                     </div>
                   </div>
@@ -914,8 +938,13 @@ export function Dashboard() {
         </div>
       )}
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+      {/* Statistics Section */}
+      <div className="pt-6">
+        <div className="mb-6">
+          <h3 className="text-lg text-foreground">Statistics</h3>
+          <p className="text-muted-foreground text-sm mt-1">Total activity on site</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
         <KPICard 
           icon={
             <div className="flex items-center gap-1">
@@ -942,6 +971,7 @@ export function Dashboard() {
           value={interviewPrepStats?.total ?? 0} 
           subtitle={interviewPrepStats ? `${interviewPrepStats.completedThisMonth} completed this month` : undefined} 
         />
+        </div>
       </div>
 
       {/* Activity & Analytics Section */}
@@ -959,7 +989,7 @@ export function Dashboard() {
           <div className="lg:col-span-8 space-y-8">
             <div className="bg-card border border-border rounded-xl p-8 shadow-sm">
               <div className="flex items-center gap-2 mb-6">
-                <TrendingUp size={18} className="text-purple-600" />
+                <TrendingUp size={18} className="text-blue-600" />
                 <h3 className="text-foreground">Outreach vs Replies</h3>
               </div>
               {timeSeriesData.length > 0 ? (
@@ -1019,7 +1049,7 @@ export function Dashboard() {
                   recommendations.map((rec, index) => (
                     <div 
                       key={index}
-                      className="p-4 rounded-xl bg-card border border-border hover:border-purple-300 transition-all cursor-pointer group shadow-sm hover:shadow-md"
+                      className="p-4 rounded-xl bg-card border border-border transition-all cursor-pointer group shadow-sm transform hover:scale-[1.02]"
                       onClick={() => {
                         if (rec.contactId) {
                           navigate('/outbox');
@@ -1037,7 +1067,7 @@ export function Dashboard() {
                         <div className="flex-1 min-w-0">
                           <div className="font-medium text-sm mb-1 leading-snug text-foreground">{rec.title}</div>
                           <div className="text-xs text-muted-foreground mb-3 leading-relaxed">{rec.description}</div>
-                          <button className="text-xs text-purple-600 hover:text-purple-700 transition-colors flex items-center gap-1 group-hover:gap-2">
+                          <button className="text-xs text-blue-600 hover:text-purple-700 transition-colors flex items-center gap-1 group-hover:gap-2">
                             {rec.action}
                             <ArrowRight size={12} className="transition-all" />
                           </button>

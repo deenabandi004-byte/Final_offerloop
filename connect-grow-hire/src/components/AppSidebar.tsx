@@ -16,7 +16,10 @@ import {
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Logo } from "./Logo";
 import LightningIcon from "../assets/Lightning.png";
+import BlueLogo from "../assets/Blue_logo.png";
+import BlueIcon from "../assets/blue_icon.png";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
+import { useTheme } from "@/contexts/ThemeContext";
 
 import {
   Sidebar,
@@ -39,10 +42,10 @@ import {
 
 const navigationItems = [
   { title: "Home", url: "/home", icon: Home },
+  { title: "Firm Search", url: "/firm-search", icon: Building2 },
   { title: "Contact Search", url: "/contact-search", icon: Search },
   { title: "Coffee Chat Prep", url: "/coffee-chat-prep", icon: Coffee },
   { title: "Interview Prep", url: "/interview-prep", icon: Briefcase },
-  { title: "Firm Search", url: "/firm-search", icon: Building2 },
   { title: "Pricing", url: "/pricing", icon: CreditCard },
 ];
 
@@ -61,19 +64,20 @@ export function AppSidebar() {
   const currentPath = location.pathname;
   const [settingsExpanded, setSettingsExpanded] = useState(false);
   const { user } = useFirebaseAuth();
+  const { theme } = useTheme();
 
   const isActive = (path: string) => currentPath === path;
   const isSettingsActive = settingsItems.some((item) => isActive(item.url));
 
   const getNavClass = ({ isActive }: { isActive: boolean }) =>
     isActive
-      ? "!bg-gradient-to-r !from-purple-600 !to-indigo-600 !text-white !font-medium !bg-sidebar-accent/0 data-[active=true]:!bg-gradient-to-r data-[active=true]:!from-purple-600 data-[active=true]:!to-indigo-600 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0"
-      : "text-muted-foreground hover:!bg-gradient-to-r hover:!from-purple-600 hover:!to-indigo-600 hover:!text-white hover:!bg-sidebar-accent/0 data-[active=true]:!bg-gradient-to-r data-[active=true]:!from-purple-600 data-[active=true]:!to-indigo-600 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0";
+      ? "!text-white !font-medium !bg-sidebar-accent/0 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0"
+      : "text-muted-foreground hover:!text-white hover:!bg-sidebar-accent/0 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0";
 
   const getSettingsClass = () =>
     isSettingsActive || settingsExpanded
       ? "bg-primary text-primary-foreground font-medium"
-      : "text-muted-foreground hover:!bg-gradient-to-r hover:!from-purple-600 hover:!to-indigo-600 hover:!text-white hover:!bg-[transparent]";
+      : "text-muted-foreground hover:!text-white hover:!bg-[transparent]";
 
   // Status message for collapsed tooltip
   const getCreditStatus = () => {
@@ -94,7 +98,7 @@ export function AppSidebar() {
         message: `${Math.floor(credits / 15)} searches available`,
       };
     return {
-      color: "text-green-500",
+      color: "text-blue-500",
       message: `${Math.floor(credits / 15)} searches available`,
     };
   };
@@ -105,11 +109,11 @@ export function AppSidebar() {
     <TooltipProvider>
       <style>{`
         [data-sidebar="menu-button"]:hover {
-          background: linear-gradient(to right, rgb(147, 51, 234), rgb(79, 70, 229)) !important;
+          background: linear-gradient(135deg, #3B82F6, #60A5FA) !important;
           color: white !important;
         }
         [data-sidebar="menu-button"][data-active="true"] {
-          background: linear-gradient(to right, rgb(147, 51, 234), rgb(79, 70, 229)) !important;
+          background: linear-gradient(135deg, #3B82F6, #60A5FA) !important;
           color: white !important;
         }
         [data-sidebar="menu-button"]:hover * {
@@ -120,16 +124,34 @@ export function AppSidebar() {
         }
       `}</style>
       <Sidebar className={state === "collapsed" ? "w-20" : "w-60"} collapsible="icon">
-        <SidebarContent className="bg-background border-r overflow-x-hidden">
+        <SidebarContent className="bg-transparent border-r overflow-x-hidden">
           {/* Brand */}
-          <div className="p-3 border-b border-border">
+          <div className="p-3 border-b border-border bg-transparent">
             {state !== "collapsed" ? (
               <div className="flex items-center justify-center gap-2">
-                <Logo size="md" />
+                {theme === "light" ? (
+                  <img 
+                    src={BlueLogo} 
+                    alt="Offerloop" 
+                    className="h-12 cursor-pointer"
+                    onClick={() => navigate("/")}
+                  />
+                ) : (
+                  <Logo size="md" />
+                )}
               </div>
             ) : (
               <div className="flex items-center justify-center p-1">
-                <Logo size="sm" />
+                {theme === "light" ? (
+                  <img 
+                    src={BlueIcon} 
+                    alt="Offerloop" 
+                    className="h-8 w-auto cursor-pointer object-contain"
+                    onClick={() => navigate("/")}
+                  />
+                ) : (
+                  <Logo size="sm" />
+                )}
               </div>
             )}
           </div>
@@ -141,7 +163,7 @@ export function AppSidebar() {
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton 
                       asChild
-                      className="hover:!bg-gradient-to-r hover:!from-purple-600 hover:!to-indigo-600 hover:!text-white hover:!bg-sidebar-accent/0 data-[active=true]:!bg-gradient-to-r data-[active=true]:!from-purple-600 data-[active=true]:!to-indigo-600 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0"
+                      className="hover:!text-white hover:!bg-sidebar-accent/0 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0"
                     >
                       <NavLink
                         to={item.url}
@@ -163,7 +185,7 @@ export function AppSidebar() {
                 <SidebarMenuItem>
                   <SidebarMenuButton 
                     asChild
-                    className="hover:!bg-gradient-to-r hover:!from-purple-600 hover:!to-indigo-600 hover:!text-white hover:!bg-sidebar-accent/0"
+                    className="hover:!text-white hover:!bg-sidebar-accent/0"
                   >
                     <button
                       onClick={() => setSettingsExpanded(!settingsExpanded)}
@@ -190,7 +212,7 @@ export function AppSidebar() {
                       <SidebarMenuItem key={item.title}>
                         <SidebarMenuButton 
                           asChild
-                          className="hover:!bg-gradient-to-r hover:!from-purple-600 hover:!to-indigo-600 hover:!text-white hover:!bg-sidebar-accent/0 data-[active=true]:!bg-gradient-to-r data-[active=true]:!from-purple-600 data-[active=true]:!to-indigo-600 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0"
+                          className="hover:!text-white hover:!bg-sidebar-accent/0 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0"
                         >
                           <NavLink
                             to={item.url}
@@ -213,7 +235,7 @@ export function AppSidebar() {
           </SidebarGroup>
         </SidebarContent>
 
-        <SidebarFooter className="border-t border-border bg-card">
+        <SidebarFooter className="border-t border-border bg-transparent">
           {/* Credits */}
           <div className="p-4 space-y-3">
             {state !== "collapsed" ? (
@@ -228,15 +250,19 @@ export function AppSidebar() {
                 {/* Progress Bar */}
                 <div className="w-full h-2.5 bg-muted rounded-full overflow-hidden">
                   <div 
-                    className="h-full bg-gradient-to-r from-purple-600 to-indigo-600 transition-all duration-300 rounded-full"
-                    style={{ width: `${Math.min(((user?.credits ?? 0) / (user?.maxCredits ?? 120)) * 100, 100)}%` }}
+                    className="h-full transition-all duration-300 rounded-full"
+                    style={{ 
+                      width: `${Math.min(((user?.credits ?? 0) / (user?.maxCredits ?? 120)) * 100, 100)}%`,
+                      background: 'linear-gradient(135deg, #3B82F6, #60A5FA)'
+                    }}
                   />
                 </div>
 
                 {/* Gradient Upgrade Button */}
                 <button
                   onClick={() => navigate("/pricing")}
-                  className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl py-3 px-4 mb-4 text-white hover:from-purple-700 hover:to-indigo-700 transition-all shadow-sm"
+                  className="w-full rounded-xl py-3 px-4 mb-4 text-white transition-all shadow-sm hover:opacity-90"
+                  style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
                 >
                   <div className="flex items-center justify-center gap-2">
                     <Zap className="w-5 h-5 text-white" />
@@ -251,7 +277,8 @@ export function AppSidebar() {
                   <TooltipTrigger asChild>
                     <button
                       onClick={() => navigate("/pricing")}
-                      className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl p-2 text-white hover:from-purple-700 hover:to-indigo-700 transition-all shadow-sm flex items-center justify-center"
+                      className="w-full rounded-xl p-2 text-white transition-all shadow-sm hover:opacity-90 flex items-center justify-center"
+                      style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
                     >
                       <img src={LightningIcon} alt="Upgrade" className="h-10 w-10 object-contain brightness-0 invert" />
                       {user?.credits === 0 && (

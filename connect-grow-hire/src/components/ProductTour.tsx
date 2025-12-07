@@ -127,7 +127,7 @@ export const ProductTour: React.FC = () => {
           <div className="max-w-4xl mx-auto text-center space-y-8">
             <div className="flex items-center justify-center gap-3 mb-6">
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500/20 to-indigo-500/20 dark:from-purple-500/20 dark:to-indigo-500/20 from-purple-100 to-indigo-100 dark:from-purple-500/20 dark:to-indigo-500/20 flex items-center justify-center border border-purple-200/50 dark:border-transparent">
-                <Library className="h-6 w-6 text-purple-400 dark:text-purple-400 text-purple-600 dark:text-purple-400" />
+                <Library className="h-6 w-6 text-blue-400 dark:text-blue-400 text-blue-600 dark:text-blue-400" />
               </div>
               <h3 className="text-4xl font-bold text-section-heading">Contact Library</h3>
             </div>
@@ -168,7 +168,7 @@ export const ProductTour: React.FC = () => {
               <div className="space-y-8">
                 <div className="flex items-center gap-4">
                   <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500/20 to-indigo-500/20 dark:from-purple-500/20 dark:to-indigo-500/20 from-purple-100 to-indigo-100 dark:from-purple-500/20 dark:to-indigo-500/20 flex items-center justify-center border border-purple-200/50 dark:border-transparent">
-                    <Coffee className="h-8 w-8 text-purple-400 dark:text-purple-400 text-purple-600 dark:text-purple-400" />
+                    <Coffee className="h-8 w-8 text-blue-400 dark:text-blue-400 text-blue-600 dark:text-blue-400" />
                   </div>
                   <h3 className="text-5xl font-bold text-section-heading">Coffee Chat Prep</h3>
                 </div>
@@ -275,6 +275,7 @@ export const ProductTour: React.FC = () => {
                   <p className="text-base text-foreground leading-relaxed">
                     Try searching for{' '}
                     <TextType
+                      as="span"
                       text={[
                         '"Investment Banking Analyst at Goldman Sachs"',
                         '"Software Engineer at Google"',

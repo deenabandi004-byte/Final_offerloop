@@ -231,7 +231,7 @@ const Pricing = () => {
             </div>
           </div>
           <h1 className="text-display-lg mb-6 text-white dark:text-white text-slate-900 dark:text-white">
-            Choose <span className="gradient-text-teal">your plan</span> today
+            <span className="text-black dark:text-black">Choose</span> <span className="gradient-text-teal">your plan</span> <span className="text-black dark:text-black">today</span>
           </h1>
           <p className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 text-lg mb-8">
             15 credits per contact. When you run out of credits, no more contacts.

@@ -290,7 +290,7 @@ export function Calendar() {
         <div className="p-6">
           {loading ? (
             <div className="flex items-center justify-center h-64">
-              <Loader2 className="h-6 w-6 animate-spin text-purple" />
+              <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
             </div>
           ) : (
             <>
@@ -327,7 +327,7 @@ export function Calendar() {
                           : 'border-border-subtle hover:border-border bg-card'
                       }`}
                     >
-                      <div className={`text-sm ${day.isToday || isSelected ? 'text-purple font-medium' : 'text-text-primary'}`}>
+                      <div className={`text-sm ${day.isToday || isSelected ? 'text-blue-600 font-medium' : 'text-text-primary'}`}>
                         {day.date}
                       </div>
                       {day.hasEvent && (
@@ -336,7 +336,7 @@ export function Calendar() {
                         </div>
                       )}
                       {isSelected && dayEvents.length > 0 && (
-                        <div className="mt-1 text-[10px] text-purple font-medium">
+                        <div className="mt-1 text-[10px] text-blue-600 font-medium">
                           {dayEvents.length} event{dayEvents.length > 1 ? 's' : ''}
                         </div>
                       )}
@@ -354,13 +354,13 @@ export function Calendar() {
         {/* Upcoming Events */}
         <div className="bg-card border border-border rounded-xl p-6">
           <div className="flex items-center gap-2 mb-4">
-            <CalendarIcon size={18} className="text-purple" />
+            <CalendarIcon size={18} className="text-blue-600" />
             <h3 className="text-lg font-semibold">Upcoming Events</h3>
           </div>
           
           {loading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-5 w-5 animate-spin text-purple" />
+              <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
             </div>
           ) : upcomingEvents.length === 0 ? (
             <div className="text-center py-8 text-text-muted text-sm">
@@ -377,7 +377,7 @@ export function Calendar() {
                     <div className="font-medium text-sm flex-1">{event.title}</div>
                     <span className={`px-2 py-0.5 rounded-full text-xs ml-2 ${
                       event.status === 'confirmed'
-                        ? 'bg-green-500/10 text-green-500'
+                        ? 'bg-blue-500/10 text-blue-500'
                         : event.status === 'pending'
                         ? 'bg-yellow-500/10 text-yellow-500'
                         : 'bg-gray-500/10 text-gray-500'
@@ -393,9 +393,9 @@ export function Calendar() {
                       <Clock size={12} />
                       <span>{formatEventDate(event.date)} • {formatTime(event.time)}</span>
                     </div>
-                    {event.type === 'video' && <Video size={12} className="text-purple" />}
-                    {event.type === 'phone' && <Phone size={12} className="text-purple" />}
-                    {event.type === 'in-person' && <MapPin size={12} className="text-purple" />}
+                    {event.type === 'video' && <Video size={12} className="text-blue-600" />}
+                    {event.type === 'phone' && <Phone size={12} className="text-blue-600" />}
+                    {event.type === 'in-person' && <MapPin size={12} className="text-blue-600" />}
                   </div>
                   
                   <div className="flex items-center gap-2 mt-2">
@@ -429,7 +429,8 @@ export function Calendar() {
           
           <button
             onClick={() => setIsModalOpen(true)}
-            className="w-full mt-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-4 py-2 rounded-lg font-medium text-sm shadow-sm transition-all"
+            className="w-full mt-4 text-white px-4 py-2 rounded-lg font-medium text-sm shadow-sm transition-all hover:opacity-90"
+            style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
           >
             Schedule New Chat
           </button>
@@ -441,7 +442,7 @@ export function Calendar() {
           
           {loading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-5 w-5 animate-spin text-purple" />
+              <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
             </div>
           ) : reminders.length === 0 ? (
             <div className="text-center py-8 text-text-muted text-sm">

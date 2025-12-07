@@ -12,9 +12,14 @@ import {
   ExternalLink,
   RefreshCw,
   Sparkles,
+  FileText,
+  Send,
   Inbox,
+  LucideIcon,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+
+/* ---------- Status UI ---------- */
 
 const statusLabel: Record<OutboxStatus, string> = {
   no_reply_yet: "Draft (not sent)",
@@ -25,11 +30,46 @@ const statusLabel: Record<OutboxStatus, string> = {
 };
 
 const statusColor: Record<OutboxStatus, string> = {
-  no_reply_yet: "bg-muted text-muted-foreground border-border",
-  new_reply: "bg-blue-500/10 text-blue-300 border-blue-500/40",
-  waiting_on_them: "bg-emerald-500/10 text-emerald-300 border-emerald-500/40",
-  waiting_on_you: "bg-amber-500/10 text-amber-300 border-amber-500/40",
+  no_reply_yet: "bg-muted text-foreground border-border",
+  new_reply: "bg-blue-500/10 text-blue-700 border-blue-500/40",
+  waiting_on_them: "bg-emerald-500/10 text-emerald-700 border-emerald-500/40",
+  waiting_on_you: "bg-amber-500/10 text-amber-700 border-amber-500/40",
   closed: "bg-muted text-muted-foreground border-border",
+};
+
+/* ---------- StatCard Component ---------- */
+
+interface StatCardProps {
+  icon: LucideIcon;
+  label: string;
+  value: number | string;
+}
+
+const StatCard = ({ icon: Icon, label, value }: StatCardProps) => (
+  <div className="flex items-center gap-3 px-4 py-3 bg-white rounded-lg shadow-sm border border-border transform transition-all hover:scale-[1.02]">
+    <Icon className="w-5 h-5 text-muted-foreground" />
+    <div>
+      <p className="text-xl font-semibold text-foreground">{value}</p>
+      <p className="text-sm text-muted-foreground">{label}</p>
+    </div>
+  </div>
+);
+
+/* ---------- Helper Functions ---------- */
+
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+};
+
+const parseFirstName = (fullName: string | undefined): string => {
+  if (!fullName || typeof fullName !== 'string') {
+    return "";
+  }
+  const nameParts = fullName.trim().split(' ');
+  return nameParts[0] || "";
 };
 
 export function OutboxEmbedded() {
@@ -42,6 +82,8 @@ export function OutboxEmbedded() {
   const [selectedThread, setSelectedThread] = useState<OutboxThread | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [generating, setGenerating] = useState(false);
+
+  /* ---------- Load threads ---------- */
 
   const loadThreads = async () => {
     try {
@@ -79,6 +121,32 @@ export function OutboxEmbedded() {
         .includes(q)
     );
   }, [threads, searchQuery]);
+
+  /* ---------- Dashboard Stats ---------- */
+
+  const draftCount = useMemo(() => {
+    return threads.filter((t) => t.hasDraft).length;
+  }, [threads]);
+
+  const sentCount = useMemo(() => {
+    // Count threads that have been sent (status indicates sent, or has gmailThreadId)
+    // For now, we'll count threads that are not "no_reply_yet" as sent
+    return threads.filter((t) => t.status !== "no_reply_yet").length;
+  }, [threads]);
+
+  const firstName = parseFirstName(user?.name);
+  const greeting = getGreeting();
+  const contextualSubtitle = useMemo(() => {
+    if (draftCount > 0) {
+      return `You have ${draftCount} ${draftCount === 1 ? 'draft' : 'drafts'} ready to send`;
+    }
+    if (threads.length === 0) {
+      return "Ready to grow your network?";
+    }
+    return "Let's keep the conversation going";
+  }, [draftCount, threads.length]);
+
+  /* ---------- Helpers ---------- */
 
   const formatLastActivity = (iso: string) => {
     const d = new Date(iso);
@@ -158,31 +226,48 @@ export function OutboxEmbedded() {
     });
   };
 
+  /* ---------- Layout ---------- */
+
   return (
-    <div className="w-full h-full p-0 m-0">
-      <div className="flex justify-between items-center mb-4">
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">Your Conversations</h2>
-          <p className="text-sm text-muted-foreground mt-1">Manage your email threads and replies</p>
+    <div className="w-full space-y-8">
+      {/* Welcome Header - First thing users see after login */}
+      <div className="space-y-1">
+        <h1 className="text-2xl font-semibold text-foreground">
+          {greeting}{firstName ? `, ${firstName}` : ""}!
+        </h1>
+        <p className="text-muted-foreground">
+          {contextualSubtitle}
+        </p>
+      </div>
+
+      {/* Stats Row */}
+      <div className="flex flex-wrap gap-4">
+        <StatCard icon={FileText} label="Drafts" value={draftCount} />
+        <StatCard icon={Send} label="Sent" value={sentCount} />
         </div>
+
+      {/* Divider */}
+      <div className="border-t border-gray-100/30 pt-6">
+        <div className="flex gap-6">
+          {/* LEFT: Thread list */}
+          <div className="w-1/2 space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-medium text-foreground">Your Drafts</h2>
         <Button
-          size="sm"
+                size="icon"
           variant="outline"
           onClick={loadThreads}
-          className="border-0 shadow-sm hover:shadow-md bg-card"
+                className="border-0 shadow-sm hover:shadow-md bg-white"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
         </Button>
       </div>
 
-      <div className="grid grid-cols-12 gap-6 w-full h-full">
-        {/* LEFT: Thread list */}
-        <div className="col-span-4 space-y-4 h-full">
           {/* Search */}
           <div className="relative">
             <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground z-10" />
             <Input
-              className="pl-9 bg-card shadow-sm hover:shadow-md transition-shadow border-0 focus:ring-2 focus:ring-purple-500/20"
+                className="pl-9 bg-white shadow-sm hover:shadow-md transition-shadow border-0 focus:ring-2 focus:ring-purple-500/20"
               placeholder="Search by name, firm, subject…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -190,10 +275,10 @@ export function OutboxEmbedded() {
           </div>
 
           {/* Thread list */}
-          <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-[520px] overflow-y-auto pr-1">
             {loading && (
               <div className="py-10 text-center text-muted-foreground text-sm">
-                <Loader2 className="h-4 w-4 animate-spin mb-2 mx-auto" />
+                  <Loader2 className="h-4 w-4 animate-spin mb-2" />
                 Loading conversations…
               </div>
             )}
@@ -230,15 +315,15 @@ export function OutboxEmbedded() {
                 <button
                   key={t.id}
                   onClick={() => setSelectedThread(t)}
-                  className={`w-full text-left p-4 rounded-none transition-all duration-200 ${
+                    className={`w-full text-left p-4 rounded-xl transition-all duration-200 ${
                     selectedThread?.id === t.id
-                      ? "bg-gradient-to-r from-purple-50 to-indigo-50"
-                      : "bg-card hover:bg-muted/50"
+                        ? "bg-gradient-to-r from-blue-50 to-indigo-50 shadow-md ring-2 ring-blue-500/30"
+                        : "bg-white shadow-sm hover:shadow-md hover:bg-gray-50/50"
                   }`}
                 >
                   <div className="flex justify-between items-start">
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-sm text-foreground">{t.contactName}</div>
+                      <div>
+                        <div className="font-semibold text-sm">{t.contactName}</div>
                       <div className="text-xs text-muted-foreground">
                         {t.jobTitle} · {t.company}
                       </div>
@@ -247,15 +332,15 @@ export function OutboxEmbedded() {
                       </p>
                     </div>
 
-                    <div className="flex flex-col items-end gap-1 ml-2">
+                      <div className="flex flex-col items-end gap-1">
                       <span className="text-[11px] text-muted-foreground">
                         {formatLastActivity(t.lastActivityAt)}
                       </span>
-                      <Badge className={`border-0 ${statusColor[t.status]} text-[10px] shadow-sm`}>
+                        <Badge className={`border ${statusColor[t.status]} text-[10px]`}>
                         {statusLabel[t.status]}
                       </Badge>
                       {t.hasDraft && (
-                        <span className="text-[10px] text-blue-600 flex items-center gap-1">
+                          <span className="text-[10px] text-blue-700 flex items-center gap-1">
                           <Sparkles className="h-3 w-3" /> Draft ready
                         </span>
                       )}
@@ -267,33 +352,33 @@ export function OutboxEmbedded() {
         </div>
 
         {/* RIGHT: Thread detail + Suggested reply */}
-        <div className="col-span-8 h-full">
+          <div className="w-1/2">
           {!selectedThread ? (
-            <div className="h-full rounded-none p-12 text-center text-muted-foreground text-sm bg-card">
+              <div className="h-full rounded-2xl p-6 text-center text-muted-foreground text-sm bg-gradient-to-br from-gray-50/50 to-white shadow-inner">
               <div className="flex flex-col items-center justify-center h-full">
-                <Inbox className="w-16 h-16 text-muted-foreground mb-4" />
+                  <Inbox className="w-16 h-16 text-muted-foreground/30 mb-4" />
                 <p>Select a conversation to view the reply and your AI-generated response draft.</p>
               </div>
             </div>
           ) : (
-            <div className="h-full rounded-none p-6 bg-card flex flex-col">
+              <div className="h-full rounded-2xl p-6 bg-white shadow-lg flex flex-col">
               {/* Header */}
-              <div className="mb-4 pb-4 border-b border-border">
-                <p className="font-semibold text-base text-foreground">{selectedThread.contactName}</p>
-                <p className="text-sm text-muted-foreground">
+                <div className="mb-3">
+                  <p className="font-semibold text-sm text-foreground">{selectedThread.contactName}</p>
+                  <p className="text-xs text-muted-foreground">
                   {selectedThread.jobTitle} · {selectedThread.company}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">{selectedThread.email}</p>
               </div>
 
               {/* Latest message snippet */}
-              <div className="rounded-none bg-gradient-to-br from-blue-50/50 to-purple-50/30 p-4 mb-4">
-                <p className="text-xs font-medium text-foreground mb-2">
+                <div className="rounded-xl border border-gray-100 bg-white p-3 mb-4">
+                  <p className="text-[11px] font-medium text-foreground mb-2">
                   {selectedThread.status === "no_reply_yet" 
                     ? "Draft content" 
                     : "Latest message"}
                 </p>
-                <p className="text-sm text-muted-foreground whitespace-pre-wrap line-clamp-4">
+                  <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-4">
                   {selectedThread.lastMessageSnippet || 
                    (selectedThread.status === "no_reply_yet" 
                      ? "Draft is ready to send in Gmail" 
@@ -302,16 +387,16 @@ export function OutboxEmbedded() {
               </div>
 
               {/* Suggested Reply */}
-              <div className="rounded-none p-4 bg-card flex flex-col flex-1">
-                <div className="flex justify-between items-center mb-3">
+                <div className="border border-gray-100 rounded-xl p-4 bg-white flex flex-col flex-1">
+                  <div className="flex justify-between items-center mb-2">
                   <div className="flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-purple-600" />
+                      <Sparkles className="h-4 w-4 text-primary" />
                     <h3 className="text-sm font-semibold text-foreground">Suggested reply</h3>
                   </div>
                   {selectedThread.hasDraft && selectedThread.suggestedReply && (
                     <Badge
                       variant="outline"
-                      className="border-0 bg-blue-50 text-[10px] text-blue-700 shadow-sm"
+                        className="border-blue-500/60 bg-blue-500/10 text-[10px] text-blue-700"
                     >
                       Draft saved in Gmail
                     </Badge>
@@ -320,29 +405,29 @@ export function OutboxEmbedded() {
 
                 {selectedThread.suggestedReply ? (
                   <>
-                    <p className="text-xs text-muted-foreground mb-3">
+                      <p className="text-[11px] text-muted-foreground mb-3">
                       We drafted this response based on their message. Review and edit before
                       sending — you're always in control.
                     </p>
                     <textarea
                       readOnly
                       value={selectedThread.suggestedReply}
-                      className="flex-1 w-full text-sm bg-card rounded-none p-3 resize-none text-foreground whitespace-pre-wrap focus:ring-2 focus:ring-purple-500/20"
+                        className="flex-1 w-full text-xs bg-white rounded-xl p-3 resize-none text-foreground whitespace-pre-wrap shadow-inner focus:ring-2 focus:ring-purple-500/20"
                     />
                   </>
                 ) : (
                   <>
-                    <p className="text-xs text-muted-foreground mb-3">
+                      <p className="text-[11px] text-muted-foreground mb-3">
                       Generate an AI-powered reply based on their message. We'll analyze their
                       tone and content to craft an appropriate response.
                     </p>
-                    <div className="flex-1 flex items-center justify-center rounded-none p-6 bg-card">
+                      <div className="flex-1 flex items-center justify-center border border-dashed border-gray-100 rounded-xl p-6 bg-white">
                       <div className="text-center">
                         <Sparkles className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                        <p className="text-sm text-muted-foreground">
+                          <p className="text-xs text-muted-foreground">
                           No suggested reply yet
                         </p>
-                        <p className="text-xs text-muted-foreground mt-1">
+                          <p className="text-[10px] text-muted-foreground mt-1">
                           Click "Regenerate" to create one
                         </p>
                       </div>
@@ -351,7 +436,7 @@ export function OutboxEmbedded() {
                 )}
 
                 {/* Actions */}
-                <div className="mt-4 flex gap-2 flex-wrap">
+                  <div className="mt-3 flex gap-2 flex-wrap">
                   <Button
                     size="sm"
                     onClick={handleOpenDraft}
@@ -366,7 +451,7 @@ export function OutboxEmbedded() {
                     variant="outline"
                     onClick={handleCopy}
                     disabled={!selectedThread.suggestedReply}
-                    className="flex items-center gap-1"
+                      className="flex items-center gap-1 border-input"
                   >
                     <Mail className="h-4 w-4" /> Copy reply text
                   </Button>
@@ -376,7 +461,7 @@ export function OutboxEmbedded() {
                     variant="ghost"
                     onClick={handleRegenerate}
                     disabled={generating}
-                    className="flex items-center gap-1"
+                      className="flex items-center gap-1 text-foreground"
                   >
                     {generating ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -387,12 +472,13 @@ export function OutboxEmbedded() {
                   </Button>
                 </div>
 
-                <p className="text-xs text-muted-foreground mt-3">
+                  <p className="text-[10px] text-muted-foreground mt-3">
                   Tip: personalize your first line — it's the one they read carefully.
                 </p>
               </div>
             </div>
           )}
+          </div>
         </div>
       </div>
     </div>

@@ -228,6 +228,15 @@ const SignIn: React.FC = () => {
       // If user just completed OAuth flow, don't auto-trigger again
       // (handleGoogleAuth already handles OAuth for new/existing users)
       const params = new URLSearchParams(location.search);
+      
+      // CRITICAL: Check if coming from sign-out - don't auto-navigate if so
+      // This prevents auto-sign-in when user is redirected to /signin after signing out
+      const isSigningOut = params.get("signout") === "true";
+      if (isSigningOut) {
+        console.log("🚫 Coming from sign-out, skipping auto-navigation");
+        return;
+      }
+      
       const justCompletedOAuth = params.get("connected") === "gmail" || params.get("gmail_error");
       if (justCompletedOAuth) {
         console.log("📧 OAuth just completed, skipping auto-check");

@@ -763,7 +763,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
                             >
                               <Mail
                                 className={`h-4 w-4 ${
-                                  contact.emailSubject ? 'text-green-600' : 'text-blue-600'
+                                  contact.emailSubject ? 'text-blue-600' : 'text-blue-600'
                                 }`}
                               />
                             </Button>

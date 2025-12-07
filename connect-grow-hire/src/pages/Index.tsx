@@ -2,7 +2,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useTheme } from '@/contexts/ThemeContext';
-import { Check, ArrowRight, Twitter, Linkedin, Instagram } from 'lucide-react';
+import { Check, ArrowRight, Twitter, Linkedin, Instagram, Menu } from 'lucide-react';
+// Removed SidebarProvider and AppSidebar - landing page should be public without sidebar
+import { BackToHomeButton } from "@/components/BackToHomeButton";
+import { CreditPill } from "@/components/credits";
+import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { ExpandablePrivacyLock } from '@/components/ExpandablePrivacyLock';
 import { ProductTour } from '@/components/ProductTour';
 import ScreenshotGallery from '@/components/ScreenshotGallery';
@@ -23,7 +27,6 @@ import Screenshot6 from "@/assets/Screenshot_2025-12-06_at_5.55.27_PM.png";
 import Screenshot7 from "@/assets/Screenshot_2025-12-06_at_5.55.52_PM.png";
 import DynamicBackground from '@/components/background/DynamicBackground';
 import { DynamicGradientBackground } from '@/components/background/DynamicGradientBackground';
-import { ThemeToggle } from '@/components/ThemeToggle';
 import { Logo } from '@/components/Logo';
 // TODO: Add your three background images to the assets folder and import them here:
 // import cityscapeImage from '@/assets/cityscape.jpg';
@@ -72,8 +75,18 @@ const SCENE_BACKGROUNDS = [
 
 
 const Index = () => {
+  console.log("🏠 [INDEX] Component rendering");
   const navigate = useNavigate();
   const { theme } = useTheme();
+  const { user } = useFirebaseAuth();
+  console.log("🏠 [INDEX] User state:", { hasUser: !!user, email: user?.email || "none" });
+  const effectiveUser = user || {
+    credits: 0,
+    maxCredits: 0,
+    name: "User",
+    email: "user@example.com",
+    tier: "free",
+  } as const;
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [activeScene, setActiveScene] = useState(0);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -113,67 +126,41 @@ const Index = () => {
   ];
 
   return (
-    <div className="min-h-screen text-foreground bg-background transition-colors duration-300">
-      {/* ============================================
-          Dynamic Gradient Background (Theme-aware)
-          ============================================ */}
-      <DynamicGradientBackground />
-      
-      {/* ============================================
-          Dynamic Background - Cycles through office, coffee shop, and city
-          ============================================ */}
-      {backgroundImages.length > 0 && (
-        <DynamicBackground 
-          images={backgroundImages}
-          transitionDuration={8} // Each image displays for 8 seconds
-          fadeDuration={2} // 2 second crossfade transition
-        />
-      )}
-
-      {/* Theme Toggle Button */}
-      <ThemeToggle />
-
-      {/* ============================================
-          Content Layer
-          ============================================ */}
-      <div className="relative z-10">
-        
-        {/* Floating Glass Navigation */}
-        <header className="fixed top-4 left-4 right-4 z-50 glass-nav rounded-2xl max-w-7xl mx-auto">
-          <div className="px-6 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-8">
-              <Logo size="md" />
-              <nav className="hidden md:flex items-center gap-6">
-                {['Features', 'Pricing', 'Privacy', 'About'].map((item) => {
-                  const href = item === 'Privacy' ? '#privacy-lock' : `#${item.toLowerCase()}`;
-                  return (
-                    <a
-                      key={item}
-                      href={href}
-                      className="text-sm text-section-body hover:text-blue-400 transition-colors link-slide"
-                    >
-                      {item}
-                    </a>
-                  );
-                })}
-              </nav>
-            </div>
-            <div className="flex items-center gap-3">
+    <div className="min-h-screen w-full bg-transparent text-foreground">
+      {/* Public Landing Page - No Sidebar */}
+        <div className="flex-1 flex flex-col">
+        <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-transparent shadow-sm flex-shrink-0 relative z-20">
+          <div className="flex items-center gap-4">
+            {/* Logo or branding can go here */}
+          </div>
+            <div className="flex items-center gap-4">
+            {user ? (
               <button
-                onClick={() => navigate("/signin?mode=signin")}
-                className="btn-secondary-glass px-4 py-2 text-sm"
+                onClick={() => navigate("/home")}
+                className="btn-secondary-glass px-4 py-2"
               >
-                Sign in
+                Go to Dashboard
               </button>
-              <button
-                onClick={() => navigate("/signin?mode=signup")}
-                className="btn-primary-glass px-4 py-2 text-sm flex items-center gap-2"
-              >
-                Sign up <ArrowRight className="h-4 w-4" />
-              </button>
-            </div>
+            ) : (
+              <>
+                <button
+                  onClick={() => navigate("/signin?mode=signin")}
+                  className="btn-secondary-glass px-4 py-2"
+                >
+                  Sign In
+                </button>
+                <button
+                  onClick={() => navigate("/signin?mode=signup")}
+                  className="btn-primary-glass px-4 py-2"
+                >
+                  Sign Up
+                </button>
+              </>
+            )}
           </div>
         </header>
+
+          <div className="flex-1 relative z-10">
 
         {/* Hero Section */}
         <section 
@@ -182,17 +169,19 @@ const Index = () => {
           data-scene="0"
           style={{ overflow: 'clip' }}
         >
-          {/* Hero Text - Full Width Centered */}
-          <div className="max-w-7xl mx-auto px-12 text-center mb-20">
-            <h1 className="text-hero mb-10 max-w-5xl mx-auto" style={{ overflow: 'visible', lineHeight: '1.2', padding: '0.5rem 1rem' }}>
-              <span className="block text-hero-primary tracking-tight" style={{ padding: '0.25rem 0.5rem' }}>Recruiting</span>
-              <span className="block tracking-tight" style={{ padding: '0.25rem 0.5rem' }}>
-                <span className="text-hero-primary">On </span>
-                <span className="text-autopilot-gradient italic" style={{ padding: '0.125rem 0.5rem', overflow: 'visible', marginRight: '0.25rem' }}>Autopilot</span>
+          {/* Hero Text - Left-Aligned Linear Style */}
+          <div className="max-w-7xl mx-auto px-12 mb-20">
+            <div className="max-w-5xl">
+              <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold mb-6" style={{ overflow: 'visible', lineHeight: '1.1', letterSpacing: '-0.02em' }}>
+                <span className="text-hero-primary tracking-tight">
+                  Offerloop is your <span className="ai-copilot-text italic">AI co-pilot</span> for competitive recruiting.
               </span>
             </h1>
-            <p className="text-2xl text-hero-subtitle mb-12 max-w-3xl mx-auto">
-              We take the tedious, repetitive work out of recruiting.
+              <p className="text-lg md:text-xl text-hero-subtitle mb-4 max-w-3xl leading-relaxed">
+                Automate research, outreach, and interview prep all in one place.
+              </p>
+              <p className="text-lg md:text-xl text-hero-subtitle mb-12 max-w-3xl leading-relaxed">
+                Work smarter. Network faster. Land better opportunities.
             </p>
             <button
               onClick={() => navigate("/signin?mode=signup")}
@@ -200,6 +189,7 @@ const Index = () => {
             >
               Try it out <ArrowRight className="h-5 w-5" />
             </button>
+            </div>
             
             {/* Revolutionary Screenshot Gallery - 3D Interactive Display */}
             <div className="w-full max-w-7xl mx-auto mt-16 px-6">
@@ -587,6 +577,7 @@ const Index = () => {
 
       </div>
     </div>
+      </div>
   );
 };
 

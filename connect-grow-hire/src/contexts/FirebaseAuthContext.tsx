@@ -75,20 +75,33 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
     let unsub: undefined | (() => void);
     (async () => {
       try {
+        console.log("🔐 [AUTH CONTEXT] Setting up auth state listener...");
         await setPersistence(auth, browserLocalPersistence);
       } catch {}
       finally {
         unsub = onIdTokenChanged(auth, async (firebaseUser) => {
+          console.log("🔐 [AUTH CONTEXT] Auth state changed:", {
+            hasUser: !!firebaseUser,
+            userEmail: firebaseUser?.email || "none",
+            userId: firebaseUser?.uid || "none"
+          });
           if (firebaseUser) {
+            console.log("🔐 [AUTH CONTEXT] Loading user data for:", firebaseUser.email);
             await loadUserData(firebaseUser);
+            console.log("🔐 [AUTH CONTEXT] User data loaded");
           } else {
+            console.log("🔐 [AUTH CONTEXT] No Firebase user, setting user state to null");
             setUser(null);
           }
           setIsLoading(false);
+          console.log("🔐 [AUTH CONTEXT] Auth state update complete, isLoading set to false");
         });
       }
     })();
-    return () => { if (unsub) unsub(); };
+    return () => { 
+      console.log("🔐 [AUTH CONTEXT] Cleaning up auth state listener");
+      if (unsub) unsub(); 
+    };
   }, []);
 
   const loadUserData = async (firebaseUser: FirebaseUser) => {
@@ -193,10 +206,18 @@ const signIn = async (opts?: SignInOptions): Promise<NextRoute> => {
 
   const signOut = async () => {
     try {
+      console.log("🔐 [AUTH CONTEXT] signOut() called");
+      console.log("🔐 [AUTH CONTEXT] Current user before signOut:", user?.email || "none");
       await firebaseSignOut(auth);
+      console.log("🔐 [AUTH CONTEXT] Firebase signOut() completed, setting user state to null");
       setUser(null);
+      console.log("🔐 [AUTH CONTEXT] User state set to null");
     } catch (error) {
-      console.error("Sign out failed:", error);
+      console.error("❌ [AUTH CONTEXT] Sign out failed:", error);
+      console.error("❌ [AUTH CONTEXT] Error details:", {
+        message: error instanceof Error ? error.message : String(error),
+        code: (error as any)?.code
+      });
     }
   };
 
