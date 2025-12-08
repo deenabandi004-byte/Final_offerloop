@@ -9,40 +9,84 @@ import { CreditPill } from "@/components/credits";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { ExpandablePrivacyLock } from '@/components/ExpandablePrivacyLock';
 import { ProductTour } from '@/components/ProductTour';
-import ScreenshotGallery from '@/components/ScreenshotGallery';
-import DylanRoby from "@/assets/DylanRoby.png";
-import SaraUcuzoglu from "@/assets/SaraU.png";
-import JacksonLeck from "@/assets/JacksonLeck.png";
-import FiveStarReview from "@/assets/5StarReview.png";
-import EliHamou from "@/assets/EliHamou.png";
-import LucasTurcuato from "@/assets/LucasTurcuato.png";
-import Marquee from "react-fast-marquee";
-// Screenshot imports - New screenshots from Dec 6, 2025
-import Screenshot1 from "@/assets/Screenshot_2025-12-06_at_5.53.16_PM.png";
-import Screenshot2 from "@/assets/Screenshot_2025-12-06_at_5.54.11_PM.png";
-import Screenshot3 from "@/assets/Screenshot_2025-12-06_at_5.54.48_PM.png";
-import Screenshot4 from "@/assets/Screenshot_2025-12-06_at_5.55.01_PM.png";
-import Screenshot5 from "@/assets/Screenshot_2025-12-06_at_5.55.15_PM.png";
-import Screenshot6 from "@/assets/Screenshot_2025-12-06_at_5.55.27_PM.png";
-import Screenshot7 from "@/assets/Screenshot_2025-12-06_at_5.55.52_PM.png";
 import DynamicBackground from '@/components/background/DynamicBackground';
 import { DynamicGradientBackground } from '@/components/background/DynamicGradientBackground';
 import { Logo } from '@/components/Logo';
+import LowercaseLogo from '@/assets/lowercaseoloop.png';
+import RotatingImage from '@/components/RotatingImage';
+import AnimatedDots from '@/components/AnimatedDots';
+import TextType from '@/components/TextType';
+import { AnimatedMadeForText } from '@/components/AnimatedMadeForText';
+import FeatureCards from '@/components/FeatureCards';
+import ScoutAsleep from '@/assets/ScoutAsleep.mp4';
+import ScaredScout from '@/assets/scaredscout.mp4';
+import ScoutGirlSad from '@/assets/Scoutgirlsad.mp4';
+// Logo imports for Works With section
+import LinkedInLogo from '@/assets/LinkedIn_logo.png';
+import GoogleLogo from '@/assets/Googlelogo.png';
+import ExcelLogo from '@/assets/excel_logo.png';
+import OutlookLogo from '@/assets/outlook_logo.png';
+import ZoomLogo from '@/assets/zoom_logo.png';
+import AppleMailLogo from '@/assets/applemail.png';
+import AppleNumbersLogo from '@/assets/applenumberslogo-removebg-preview.png';
+import AppleCalendarLogo from '@/assets/applecalendarlogo.png';
+import GoogleCalendarLogo from '@/assets/Googlecalendar.png';
+import GmailLogo from '@/assets/Gmaillogopng.png';
+import GoogleSheetsLogo from '@/assets/sheetslogo.png';
+
+// Wrapper component to retrigger typing animation on scroll
+const RetriggerableTextType = ({ text, className, ...props }: { text: string; className?: string; [key: string]: any }) => {
+  const [key, setKey] = useState(0);
+  const wasOutOfViewRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            // If it was previously out of view and now comes back, retrigger the animation
+            if (wasOutOfViewRef.current) {
+              setKey((prev) => prev + 1);
+              wasOutOfViewRef.current = false;
+            }
+          } else {
+            // Mark that it went out of view
+            wasOutOfViewRef.current = true;
+          }
+        });
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(containerRef.current);
+
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={containerRef}>
+      <TextType
+        key={key}
+        text={text}
+        as="span"
+        className={className}
+        typingSpeed={100}
+        loop={false}
+        startOnVisible={true}
+        showCursor={false}
+        {...props}
+      />
+    </div>
+  );
+};
 // TODO: Add your three background images to the assets folder and import them here:
 // import cityscapeImage from '@/assets/cityscape.jpg';
 // import officeImage from '@/assets/office.jpg';
 // import coffeeShopImage from '@/assets/coffee-shop.jpg';
 
-// Company Logos
-import GoldmanSachsLogo from "@/assets/GoldmanSachs.png";
-import MorganStanleyLogo from "@/assets/MorganStanley.png";
-import JPMorganLogo from "@/assets/JPMorgan.png";
-import BarclaysLogo from "@/assets/Barclays.png";
-import EvercoreLogo from "@/assets/Evercore.png";
-import BlackstoneLogo from "@/assets/Blackstone.png";
-import PwCLogo from "@/assets/PwC.png";
-import McKinseyLogo from "@/assets/McKinsey.png";
-import BainLogo from "@/assets/McKinsey.png";
 
 // Environment scene backgrounds - Visible cityscape layers for glass effect (unused but kept for potential future use)
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -129,10 +173,63 @@ const Index = () => {
     <div className="min-h-screen w-full bg-transparent text-foreground">
       {/* Public Landing Page - No Sidebar */}
         <div className="flex-1 flex flex-col">
-        <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-transparent shadow-sm flex-shrink-0 relative z-20">
+        <header className="fixed top-4 left-4 right-4 h-16 flex items-center justify-between px-6 bg-[#ECF4FF] backdrop-blur-md shadow-xl rounded-2xl border border-blue-200/50 z-50">
           <div className="flex items-center gap-4">
-            {/* Logo or branding can go here */}
+            <img 
+              src={LowercaseLogo} 
+              alt="Offerloop" 
+              className="h-10 cursor-pointer"
+              onClick={() => navigate("/")}
+            />
           </div>
+          <nav className="flex items-center gap-6">
+            <button
+              onClick={() => {
+                const element = document.getElementById('features');
+                if (element) {
+                  element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+              }}
+              className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors"
+            >
+              Features
+            </button>
+            <button
+              onClick={() => {
+                const element = document.getElementById('pricing');
+                if (element) {
+                  element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+              }}
+              className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors"
+            >
+              Pricing
+            </button>
+            <button
+              onClick={() => {
+                const element = document.getElementById('about');
+                if (element) {
+                  element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+              }}
+              className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors"
+            >
+              About Us
+            </button>
+            <button
+              onClick={() => {
+                // Scroll to privacy lock and set hash to trigger animation
+                window.location.hash = '#privacy-lock';
+                const element = document.getElementById('privacy-lock');
+                if (element) {
+                  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+              }}
+              className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors"
+            >
+              Privacy
+            </button>
+          </nav>
             <div className="flex items-center gap-4">
             {user ? (
               <button
@@ -159,6 +256,9 @@ const Index = () => {
             )}
           </div>
         </header>
+        
+        {/* Spacer to account for fixed header with margin */}
+        <div className="h-24"></div>
 
           <div className="flex-1 relative z-10">
 
@@ -174,7 +274,14 @@ const Index = () => {
             <div className="max-w-5xl">
               <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold mb-6" style={{ overflow: 'visible', lineHeight: '1.1', letterSpacing: '-0.02em' }}>
                 <span className="text-hero-primary tracking-tight">
-                  Offerloop is your <span className="ai-copilot-text italic">AI co-pilot</span> for competitive recruiting.
+                  Offerloop is your <span
+                    style={{
+                      color: '#3B82F6',
+                      fontStyle: 'italic',
+                    }}
+                  >
+                    AI co-pilot
+                  </span> for competitive recruiting.
               </span>
             </h1>
               <p className="text-lg md:text-xl text-hero-subtitle mb-4 max-w-3xl leading-relaxed">
@@ -191,68 +298,107 @@ const Index = () => {
             </button>
             </div>
             
-            {/* Revolutionary Screenshot Gallery - 3D Interactive Display */}
-            <div className="w-full max-w-7xl mx-auto mt-16 px-6">
-              <ScreenshotGallery
-                items={[
-                  { 
-                    image: Screenshot1,
-                    title: 'Smart Contact Search',
-                    description: 'Find professionals instantly with AI-powered search'
-                  },
-                  { 
-                    image: Screenshot2,
-                    title: 'Automated Outreach',
-                    description: 'Send personalized emails in seconds, not hours'
-                  },
-                  { 
-                    image: Screenshot3,
-                    title: 'Interview Preparation',
-                    description: 'AI-powered prep for every conversation'
-                  },
-                  { 
-                    image: Screenshot4,
-                    title: 'Coffee Chat Prep',
-                    description: 'Never walk into a conversation unprepared'
-                  },
-                  { 
-                    image: Screenshot5,
-                    title: 'Contact Directory',
-                    description: 'Organize and manage all your connections'
-                  },
-                  { 
-                    image: Screenshot6,
-                    title: 'Dashboard Overview',
-                    description: 'Track your progress and stay organized'
-                  },
-                  { 
-                    image: Screenshot7,
-                    title: 'Professional Network',
-                    description: 'Build meaningful connections effortlessly'
-                  },
-                ]}
-                autoPlay={true}
-                autoPlayInterval={4000}
-              />
-            </div>
+            {/* 3D Rotating Image */}
+            <RotatingImage />
             
-            {/* Title underneath carousel */}
-            <div className="text-center mt-8 mb-16">
-              <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-3 text-section-heading">
-                <span className="text-blue-600 dark:text-cyan-400">Search</span> to <span className="text-blue-600 dark:text-cyan-400">success</span>
+            {/* Title section */}
+            <div className="text-center mt-8 mb-16" style={{ marginTop: '100px' }}>
+              <h2 className="text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-bold mb-3 text-section-heading whitespace-nowrap">
+                The Entire Recruiting Process, <span style={{ color: '#3B82F6' }}>Automated</span>
               </h2>
               <p className="text-lg md:text-xl text-section-body max-w-2xl mx-auto">
-                We guide you <span className="text-blue-600 dark:text-cyan-400">every step</span>
+                Cuts job search time by <strong className="text-red-600 text-xl md:text-2xl">90%</strong>
               </p>
             </div>
           </div>
+        </section>
 
+        {/* FeatureCards Section */}
+        <section className="py-16 px-6 relative">
+          <FeatureCards />
+        </section>
 
+          {/* No More Header */}
+          <div className="text-center mt-16 mb-8">
+            <h2 className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold text-section-heading flex items-baseline justify-center">
+              No More
+              <AnimatedDots />
+            </h2>
+          </div>
+
+          {/* Three Videos Section */}
+          <section className="mt-[82px] max-w-5xl mx-auto px-4">
+            <div className="flex flex-col gap-6">
+              {/* Row 1 - First Video on Left, Text Space on Right */}
+              <div className="flex flex-col md:flex-row items-center gap-6">
+                <video 
+                  src={ScoutAsleep}
+                  autoPlay 
+                  loop 
+                  muted 
+                  playsInline
+                  className="rounded-3xl shadow-lg w-full md:w-1/2 h-64 md:h-80 object-cover border-8 border-black"
+                />
+                <div className="w-full md:w-1/2 flex items-center justify-center">
+                  <RetriggerableTextType
+                    text="Burnout"
+                    className="gradient-text-teal text-6xl md:text-7xl lg:text-8xl font-bold"
+                  />
+                </div>
+              </div>
+              {/* Row 2 - Text Space on Left, Second Video on Right */}
+              <div className="flex flex-col md:flex-row items-center gap-6">
+                <div className="w-full md:w-1/2 flex items-center justify-center">
+                  <RetriggerableTextType
+                    text="Stress"
+                    className="gradient-text-teal text-6xl md:text-7xl lg:text-8xl font-bold"
+                  />
+                </div>
+                <video 
+                  src={ScaredScout}
+                  autoPlay 
+                  loop 
+                  muted 
+                  playsInline
+                  className="rounded-3xl shadow-lg w-full md:w-1/2 h-64 md:h-80 object-cover border-8 border-black"
+                />
+              </div>
+              {/* Row 3 - Third Video on Left, Text Space on Right */}
+              <div className="flex flex-col md:flex-row items-center gap-6">
+                <div className="w-full md:w-1/2 h-64 md:h-80 overflow-hidden rounded-3xl border-8 border-black">
+                  <video 
+                    src={ScoutGirlSad}
+                    autoPlay 
+                    loop 
+                    muted 
+                    playsInline
+                    className="w-full h-full object-cover shadow-lg"
+                    style={{ transform: 'scale(1.15)', objectPosition: 'center' }}
+                  />
+                </div>
+                <div className="w-full md:w-1/2 flex items-center justify-end md:justify-center">
+                  <RetriggerableTextType
+                    text="FOMO"
+                    className="gradient-text-teal text-6xl md:text-7xl lg:text-8xl font-bold md:ml-[100px]"
+                  />
+                </div>
+              </div>
+            </div>
+          </section>
+
+        {/* Made for Section */}
+        <section className="py-24 px-6 relative overflow-visible">
+          <div className="max-w-7xl mx-auto">
+            <div className="text-center mb-16 overflow-visible">
+              <AnimatedMadeForText />
+            </div>
+          </div>
         </section>
 
         {/* Product Tour Section */}
         <section 
           ref={(el) => { sectionRefs.current[1] = el; }}
+          id="features"
           data-scene="1"
           className="relative"
           style={{ marginTop: '-1px' }}
@@ -260,108 +406,37 @@ const Index = () => {
           <ProductTour />
         </section>
 
-        {/* Testimonials Section */}
-        <section 
-          ref={(el) => { sectionRefs.current[3] = el; }}
-          className="py-24 px-6 overflow-hidden relative"
-          data-scene="3"
-          style={{ marginTop: '-1px' }}
-        >
-          <div className="max-w-full mx-auto">
-            <div className="text-center mb-16">
-              <h2 className="text-display-lg mb-4 text-section-heading">
-                Hear from our <span className="gradient-text-teal">Real Customers</span>
-              </h2>
-              <p className="text-xl text-section-body">
-                Used by hundreds of students across the country with offers received from top tier firms
-              </p>
-            </div>
+        {/* Works With Section */}
+        <section>
+          {/* Works With Header */}
+          <div className="text-center mt-16 mb-8">
+            <h2 className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold text-section-heading">
+              Works With
+            </h2>
+            <p className="text-lg md:text-xl text-section-body max-w-4xl mx-auto mt-6 px-4">
+              Our product seamlessly integrates with your existing workflow: connect with professionals on LinkedIn, manage outreach through Gmail or Outlook, organize data in Google Sheets or Excel, schedule meetings via Apple or Google Calendar, and connect on Zoom.
+            </p>
+          </div>
 
-            {/* Company Logos */}
-            <div className="mb-16">
-              <Marquee 
-                gradient={true} 
-                gradientColor="hsl(var(--background))" 
-                gradientWidth={200} 
-                speed={50} 
-                direction="right"
-              >
-                {[
-                  { src: McKinseyLogo, alt: 'McKinsey' },
-                  { src: EvercoreLogo, alt: 'Evercore' },
-                  { src: GoldmanSachsLogo, alt: 'Goldman Sachs' },
-                  { src: BainLogo, alt: 'Bain' },
-                  { src: MorganStanleyLogo, alt: 'Morgan Stanley' },
-                  { src: BlackstoneLogo, alt: 'Blackstone' },
-                  { src: PwCLogo, alt: 'PwC' },
-                  { src: JPMorganLogo, alt: 'J.P. Morgan' },
-                  { src: BarclaysLogo, alt: 'Barclays' },
-                ].map(({ src, alt }) => (
-                  <div key={alt} className="flex items-center mx-12">
-                    <img src={src} alt={alt} className="h-12 md:h-14 w-auto opacity-60 hover:opacity-100 transition-opacity" />
-                  </div>
-                ))}
-              </Marquee>
+          {/* Works With Logos - Pyramid Layout */}
+          <div className="max-w-6xl mx-auto px-4 mb-16">
+            {/* First Row - 5 Logos */}
+            <div className="flex flex-wrap justify-center items-center gap-8 md:gap-12 mb-6">
+              <img src={LinkedInLogo} alt="LinkedIn" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
+              <img src={GoogleLogo} alt="Google" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
+              <img src={ExcelLogo} alt="Excel" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
+              <img src={OutlookLogo} alt="Outlook" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
+              <img src={ZoomLogo} alt="Zoom" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
             </div>
-
-            {/* Reviews */}
-            <Marquee 
-              gradient={true} 
-              gradientColor="hsl(var(--background))" 
-              gradientWidth={300} 
-              speed={80} 
-              pauseOnHover={true}
-            >
-              {[
-                { name: 'Dylan Roby', role: 'Evercore, Investment Banking Analyst', img: DylanRoby, quote: "Offerloop does the work that I had spent hundreds of hours doing to land my internship… in mere minutes." },
-                { name: 'Sarah Ucuzoglu', role: 'PwC, Financial Advisory Intern', img: SaraUcuzoglu, quote: "Having the ability to automate the cold reach out process allows for more time spent face to face with a professional." },
-                { name: 'Jackson Leck', role: 'Blackstone, Private Equity Intern', img: JacksonLeck, quote: "I would have so many recruiting tabs open... with Offerloop I have one. Everything I need in a single place." },
-                { name: 'Eli Hamou', role: 'Deloitte, Audit Intern', img: EliHamou, quote: "This platform completely transformed how I approach networking. The time I save allows me to focus on what really matters." },
-                { name: 'Lucas Turcuato', role: 'Barclays, Investment Banking Analyst', img: LucasTurcuato, quote: "Game changer for recruiting season. I went from stressed to organized in minutes." },
-              ].map(({ name, role, img, quote }) => {
-                // All testimonials use the same blue color scheme
-                const color = { light: 'rgba(59, 130, 246, 0.08)', border: 'rgba(59, 130, 246, 0.25)', class: 'testimonial-blue' };
-                return (
-                <div 
-                  key={name} 
-                  className={`glass-card rounded-2xl p-8 mx-4 w-[420px] h-[380px] flex flex-col justify-between relative overflow-hidden ${theme === 'light' ? color.class : ''}`}
-                  style={{
-                    borderColor: theme === 'light' ? color.border : 'var(--glass-border)',
-                  }}
-                >
-                  {/* Color accent overlay for light mode */}
-                  {theme === 'light' && (
-                    <div 
-                      className="absolute inset-0 pointer-events-none rounded-2xl"
-                      style={{
-                        background: `linear-gradient(135deg, ${color.light} 0%, transparent 50%)`,
-                      }}
-                    />
-                  )}
-                  <div className="relative z-10 flex flex-col h-full">
-                    <div className="flex-1">
-                      <img src={FiveStarReview} alt="5 star rating" className="w-24 mb-4" />
-                      <p className="text-section-body italic text-lg leading-relaxed">"{quote}"</p>
-                    </div>
-                    <div className="flex items-center gap-4 mt-auto pt-6">
-                      <img 
-                        src={img} 
-                        alt={name} 
-                        className="w-14 h-14 rounded-full object-cover border"
-                        style={{
-                          borderColor: theme === 'light' ? color.border : 'rgba(59, 130, 246, 0.3)',
-                        }}
-                      />
-                      <div>
-                        <div className="font-semibold text-section-heading">{name}</div>
-                        <div className="text-sm text-section-body">{role}</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                );
-              })}
-            </Marquee>
+            {/* Second Row - 6 Logos */}
+            <div className="flex flex-wrap justify-center items-center gap-8 md:gap-12">
+              <img src={AppleMailLogo} alt="Apple Mail" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
+              <img src={AppleNumbersLogo} alt="Apple Numbers" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
+              <img src={AppleCalendarLogo} alt="Apple Calendar" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
+              <img src={GoogleCalendarLogo} alt="Google Calendar" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
+              <img src={GmailLogo} alt="Gmail" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
+              <img src={GoogleSheetsLogo} alt="Google Sheets" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
+            </div>
           </div>
         </section>
 

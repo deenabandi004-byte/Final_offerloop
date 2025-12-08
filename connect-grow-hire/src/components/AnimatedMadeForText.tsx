@@ -7,7 +7,6 @@ const AUDIENCES = [
   'Graduates',
   'Young Professionals',
   'Career Switchers',
-  'First-Generation Students',
   "Anyone figuring out what's next",
 ];
 
@@ -27,7 +26,7 @@ export const AnimatedMadeForText: React.FC = () => {
       <h2 className="text-5xl md:text-6xl lg:text-7xl font-semibold mb-4 text-section-heading" style={{ lineHeight: '1.2', overflow: 'visible', padding: '0.25rem 0' }}>
         Made for
       </h2>
-      <div className="h-24 md:h-28 lg:h-32 flex items-center justify-center" style={{ overflow: 'visible', padding: '0.5rem 0' }}>
+      <div className="h-24 md:h-28 lg:h-32 flex items-center justify-center -mt-[50px]" style={{ overflow: 'visible', padding: '0.5rem 0' }}>
         <AnimatePresence mode="wait">
           <motion.div
             key={currentIndex}

@@ -38,7 +38,7 @@ export function PageHeaderActions({ onJobTitleSuggestion }: PageHeaderActionsPro
       >
         <Calendar className="h-5 w-5" />
       </Button>
-      
+
       {/* Ask Scout button - rightmost */}
       <ScoutHeaderButton onJobTitleSuggestion={onJobTitleSuggestion} />
     </div>

@@ -137,7 +137,7 @@ export function AppSidebar() {
                     onClick={() => navigate("/")}
                   />
                 ) : (
-                  <Logo size="md" />
+                <Logo size="md" />
                 )}
               </div>
             ) : (
@@ -150,7 +150,7 @@ export function AppSidebar() {
                     onClick={() => navigate("/")}
                   />
                 ) : (
-                  <Logo size="sm" />
+                <Logo size="sm" />
                 )}
               </div>
             )}
