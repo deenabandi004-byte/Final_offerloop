@@ -14,7 +14,6 @@ import {
   Building2,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { Logo } from "./Logo";
 import LightningIcon from "../assets/Lightning.png";
 import BlueLogo from "../assets/Blue_logo.png";
 import BlueIcon from "../assets/blue_icon.png";
@@ -142,9 +141,6 @@ export function AppSidebar() {
                   className="h-8 w-auto cursor-pointer object-contain"
                   onClick={() => navigate("/")}
                 />
-                ) : (
-                <Logo size="sm" />
-                )}
               </div>
             )}
           </div>
