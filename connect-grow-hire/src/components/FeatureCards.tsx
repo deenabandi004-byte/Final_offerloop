@@ -188,7 +188,7 @@ const FeatureCards: React.FC = () => {
                 <div className="flex-1 min-w-0" style={{ marginTop: '-40px' }}>
                   {/* Step Label */}
                   <div 
-                    className="mb-3 inline-block px-3 py-1 rounded-full text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/50"
+                    className="mb-3 inline-block px-3 py-1 rounded-full text-xs font-medium text-slate-500 bg-slate-100"
                     style={{
                       opacity: isActive ? 1 : 0,
                       transform: isActive ? 'translateY(0)' : 'translateY(-10px)',
@@ -211,7 +211,7 @@ const FeatureCards: React.FC = () => {
                       <React.Fragment key={i}>
                         {part}
                         {i < arr.length - 1 && (
-                          <span className="font-bold text-blue-600 dark:text-blue-400">
+                          <span className="font-bold text-blue-600">
                             {card.headerEmphasis}
                           </span>
                         )}
@@ -245,7 +245,7 @@ const FeatureCards: React.FC = () => {
                     <div className="w-full h-full relative">
                       {/* Background layer for depth effect */}
                       <div 
-                        className="absolute inset-0 rounded-xl bg-slate-200 dark:bg-slate-700"
+                        className="absolute inset-0 rounded-xl bg-slate-200"
                         style={{
                           transform: 'translate(3px, 3px)',
                           opacity: 0.3,
@@ -255,7 +255,7 @@ const FeatureCards: React.FC = () => {
                       />
                       {/* Main screenshot container with shadow/glow */}
                       <div 
-                        className="w-full h-full rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 flex items-center justify-center relative z-10"
+                        className="w-full h-full rounded-xl overflow-hidden bg-slate-100 flex items-center justify-center relative z-10"
                         style={{
                           boxShadow: '0 8px 32px rgba(59, 130, 246, 0.15), 0 4px 16px rgba(0, 0, 0, 0.1)',
                         }}
@@ -273,8 +273,8 @@ const FeatureCards: React.FC = () => {
                       </div>
                     </div>
                   ) : (
-                    <div className="w-full h-full bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center">
-                      <span className="text-slate-400 dark:text-slate-500 text-sm font-medium">
+                    <div className="w-full h-full bg-slate-100 rounded-xl flex items-center justify-center">
+                      <span className="text-slate-400 text-sm font-medium">
                         Screenshot {card.number}
                       </span>
                     </div>
@@ -290,18 +290,18 @@ const FeatureCards: React.FC = () => {
       <div className="flex items-center justify-center gap-3 mt-12">
         <button 
           onClick={handlePrev}
-          className="w-10 h-10 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 cursor-pointer flex items-center justify-center text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
+          className="w-10 h-10 rounded-full border border-slate-200 bg-white cursor-pointer flex items-center justify-center text-slate-700 hover:bg-slate-50 transition-all"
         >
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M15 18l-6-6 6-6" />
           </svg>
         </button>
-        <span className="text-sm text-slate-600 dark:text-slate-400 font-medium">
+        <span className="text-sm text-slate-600 font-medium">
           {activeIndex + 1} / {featureData.length}
         </span>
         <button 
           onClick={handleNext}
-          className="w-10 h-10 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 cursor-pointer flex items-center justify-center text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
+          className="w-10 h-10 rounded-full border border-slate-200 bg-white cursor-pointer flex items-center justify-center text-slate-700 hover:bg-slate-50 transition-all"
         >
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M9 18l6-6-6-6" />

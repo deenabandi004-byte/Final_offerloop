@@ -15,23 +15,23 @@ const PrivacyPolicy = () => {
         <div className="max-w-4xl mx-auto">
           <div className="mb-8">
             <Link to="/">
-              <Button variant="ghost" className="mb-6 text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 hover:text-blue-400">
+              <Button variant="ghost" className="mb-6 text-gray-300 text-slate-700 hover:text-blue-400">
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Back to Home
               </Button>
             </Link>
 
-            <h1 className="text-display-lg mb-2 text-white dark:text-white text-slate-900 dark:text-white">
+            <h1 className="text-display-lg mb-2 text-white text-slate-900">
               Privacy <span className="gradient-text-teal">Policy</span>
             </h1>
-            <p className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">
+            <p className="text-gray-400 text-slate-600">
               <strong>Last Updated:</strong> 09.24.25
             </p>
           </div>
 
           <GlassCard className="p-8 rounded-2xl">
           <div className="prose prose-lg max-w-none">
-            <p className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">
+            <p className="text-gray-300 text-slate-700">
               Welcome to Offerloop.ai ("Offerloop.ai," "we," "us," or "our"). This Privacy Policy
               explains how we collect, use, disclose, and protect your information when you use our
               application and services (collectively, the "Services"). Please read this Privacy
@@ -43,10 +43,10 @@ const PrivacyPolicy = () => {
               periodically to remain informed.
             </p>
 
-            <h2 className="text-white dark:text-white text-slate-900 dark:text-white">1. Information We Collect</h2>
+            <h2 className="text-white text-slate-900">1. Information We Collect</h2>
             <p>We may collect information about you in the following ways, depending on how you use the Services:</p>
 
-            <h3 className="text-white dark:text-white text-slate-900 dark:text-white">a. Personal Data You Provide to Us</h3>
+            <h3 className="text-white text-slate-900">a. Personal Data You Provide to Us</h3>
             <p>
               <strong>Account Information:</strong> When you register for an account, we collect your name, email
               address, and authentication information from your chosen provider (e.g., Google ID or Microsoft ID,

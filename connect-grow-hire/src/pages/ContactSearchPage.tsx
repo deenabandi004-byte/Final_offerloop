@@ -790,10 +790,10 @@ const ContactSearchPage: React.FC = () => {
                               </div>
                             </div>
 
-                            <div className="bg-blue-50 dark:bg-blue-500/10 rounded-xl px-4 py-3 min-w-[100px] border border-blue-400/20">
+                            <div className="bg-blue-50 rounded-xl px-4 py-3 min-w-[100px] border border-blue-400/20">
                               <div className="text-center">
-                                <span className="text-xl font-bold text-blue-600 dark:text-blue-400">{batchSize * 15}</span>
-                                <span className="text-sm text-blue-600/70 dark:text-blue-400/70 ml-2">credits</span>
+                                <span className="text-xl font-bold text-blue-600">{batchSize * 15}</span>
+                                <span className="text-sm text-blue-600/70 ml-2">credits</span>
                               </div>
                             </div>
                           </div>
@@ -911,13 +911,13 @@ const ContactSearchPage: React.FC = () => {
                             </div>
                           </div>
                           <div className="grid grid-cols-2 gap-4 mt-3">
-                            <div className="bg-blue-50 dark:bg-blue-500/10 rounded p-2 border border-blue-200/50 dark:border-blue-400/20">
-                              <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{lastResults.length}</div>
-                              <div className="text-xs text-blue-600/70 dark:text-blue-400/70">Contacts Found</div>
+                            <div className="bg-blue-50 rounded p-2 border border-blue-200/50">
+                              <div className="text-2xl font-bold text-blue-600">{lastResults.length}</div>
+                              <div className="text-xs text-blue-600/70">Contacts Found</div>
                             </div>
-                            <div className="bg-blue-50 dark:bg-blue-500/10 rounded p-2 border border-blue-200/50 dark:border-blue-400/20">
-                              <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{lastResults.length}</div>
-                              <div className="text-xs text-blue-600/70 dark:text-blue-400/70">Email Drafts</div>
+                            <div className="bg-blue-50 rounded p-2 border border-blue-200/50">
+                              <div className="text-2xl font-bold text-blue-600">{lastResults.length}</div>
+                              <div className="text-xs text-blue-600/70">Email Drafts</div>
                             </div>
                           </div>
                           <div className="text-sm text-blue-700 mt-3 flex items-center">

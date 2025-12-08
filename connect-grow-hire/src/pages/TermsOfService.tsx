@@ -14,16 +14,16 @@ const TermsOfService = () => {
       <div className="container mx-auto px-6 py-16 max-w-4xl">
         <button
           onClick={() => navigate("/")}
-          className="flex items-center gap-2 text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 hover:text-blue-400 transition-colors mb-8"
+          className="flex items-center gap-2 text-gray-300 text-slate-700 hover:text-blue-400 transition-colors mb-8"
         >
           <ArrowLeft size={20} />
           Back to Home
         </button>
 
-        <h1 className="text-display-lg mb-2 text-white dark:text-white text-slate-900 dark:text-white">
+        <h1 className="text-display-lg mb-2 text-white text-slate-900">
           Terms of <span className="gradient-text-teal">Service</span>
         </h1>
-        <p className="text-sm text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 mb-10">
+        <p className="text-sm text-gray-400 text-slate-600 mb-10">
           <strong>Last Updated:</strong> 09.24.25
         </p>
 
@@ -37,7 +37,7 @@ const TermsOfService = () => {
             Policy (incorporated by reference). If you do not agree, you must not use the Services.
           </p>
 
-          <h2 className="text-white dark:text-white text-slate-900 dark:text-white">1. Eligibility</h2>
+          <h2 className="text-white text-slate-900">1. Eligibility</h2>
           <p>
             You confirm that you are at least 18 years old (or the age of majority in your
             jurisdiction), legally capable of entering this agreement, not on any restricted party

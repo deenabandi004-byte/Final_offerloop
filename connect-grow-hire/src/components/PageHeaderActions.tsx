@@ -22,7 +22,7 @@ export function PageHeaderActions({ onJobTitleSuggestion }: PageHeaderActionsPro
         variant="ghost"
         size="icon"
         onClick={handleBellClick}
-        className="h-9 w-9 hover:bg-blue-100 hover:text-blue-600 dark:hover:bg-blue-900/30 dark:hover:text-blue-400 flex-shrink-0"
+        className="h-9 w-9 hover:bg-blue-100 hover:text-blue-600 flex-shrink-0"
         aria-label="View outbox"
       >
         <Bell className="h-5 w-5" />
@@ -33,7 +33,7 @@ export function PageHeaderActions({ onJobTitleSuggestion }: PageHeaderActionsPro
         variant="ghost"
         size="icon"
         onClick={() => navigate('/home?tab=calendar')}
-        className="h-9 w-9 hover:bg-blue-100 hover:text-blue-600 dark:hover:bg-blue-900/30 dark:hover:text-blue-400 flex-shrink-0"
+        className="h-9 w-9 hover:bg-blue-100 hover:text-blue-600 flex-shrink-0"
         aria-label="View calendar"
       >
         <Calendar className="h-5 w-5" />

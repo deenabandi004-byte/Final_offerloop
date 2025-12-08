@@ -1,7 +1,6 @@
 // src/pages/Index.tsx
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useTheme } from '@/contexts/ThemeContext';
 import { Check, ArrowRight, Twitter, Linkedin, Instagram, Menu } from 'lucide-react';
 // Removed SidebarProvider and AppSidebar - landing page should be public without sidebar
 import { BackToHomeButton } from "@/components/BackToHomeButton";
@@ -121,7 +120,6 @@ const SCENE_BACKGROUNDS = [
 const Index = () => {
   console.log("🏠 [INDEX] Component rendering");
   const navigate = useNavigate();
-  const { theme } = useTheme();
   const { user } = useFirebaseAuth();
   console.log("🏠 [INDEX] User state:", { hasUser: !!user, email: user?.email || "none" });
   const effectiveUser = user || {
@@ -468,7 +466,7 @@ const Index = () => {
                     'Limited Features'
                   ].map((item) => (
                     <div key={item} className="flex items-center gap-3">
-                      <Check className="h-5 w-5 text-blue-400 dark:text-blue-400 text-blue-600 dark:text-blue-400" />
+                      <Check className="h-5 w-5 text-blue-400 text-blue-600" />
                       <span className="text-section-body">{item}</span>
                     </div>
                   ))}
@@ -483,15 +481,15 @@ const Index = () => {
 
               {/* Pro Plan */}
               <div className="relative">
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-gradient-to-r from-blue-500 to-cyan-500 dark:from-blue-500 dark:to-cyan-500 rounded-full text-xs font-semibold text-white z-10">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full text-xs font-semibold text-white z-10">
                   RECOMMENDED
                 </div>
-                <div className="glass-card p-8 rounded-3xl border-blue-500/30 dark:border-blue-500/30 border-blue-300/50 dark:border-blue-500/30 glow-teal">
+                <div className="glass-card p-8 rounded-3xl border-blue-500/30 border-blue-300/50 glow-teal">
                   <div className="mb-6">
                     <h3 className="text-2xl font-bold text-section-heading">Pro</h3>
                     <div className="flex items-baseline gap-2">
                       <span className="text-muted-foreground line-through">$34.99</span>
-                      <span className="text-3xl font-bold text-blue-400 dark:text-blue-400 text-blue-600 dark:text-blue-400">$8.99</span>
+                      <span className="text-3xl font-bold text-blue-400 text-blue-600">$8.99</span>
                       <span className="text-section-body">/month</span>
                     </div>
                     <p className="text-section-body">1800 credits</p>
@@ -506,7 +504,7 @@ const Index = () => {
                       'Advanced features'
                     ].map((item) => (
                       <div key={item} className="flex items-center gap-3">
-                        <Check className="h-5 w-5 text-blue-400 dark:text-blue-400 text-blue-600 dark:text-blue-400" />
+                        <Check className="h-5 w-5 text-blue-400 text-blue-600" />
                         <span className="text-section-body">{item}</span>
                       </div>
                     ))}
@@ -572,7 +570,7 @@ const Index = () => {
         </section>
 
         {/* Footer */}
-        <footer className="py-16 px-6 border-t border-white/5 dark:border-white/5 border-slate-300/20 dark:border-white/5">
+        <footer className="py-16 px-6 border-t border-white/5 border-slate-300/20">
           <div className="max-w-7xl mx-auto">
             <div className="grid md:grid-cols-4 gap-8 mb-12">
               <div className="md:col-span-2" id="privacy-lock">

@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Maximize2, X, Pause, Play } from 'lucide-react';
-import { useTheme } from '@/contexts/ThemeContext';
 
 interface ScreenshotItem {
   image: string;
@@ -19,7 +18,6 @@ export default function ScreenshotGallery({
   autoPlay = true, 
   autoPlayInterval = 4000 
 }: ScreenshotGalleryProps) {
-  const { theme } = useTheme();
   const [activeIndex, setActiveIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -108,9 +106,7 @@ export default function ScreenshotGallery({
           <div 
             className="absolute w-[500px] h-[500px] rounded-full blur-[100px] transition-all duration-1000 ease-out animate-pulse-slow"
             style={{
-              background: theme === 'light' 
-                ? 'radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, transparent 70%)'
-                : 'radial-gradient(circle, rgba(59, 130, 246, 0.25) 0%, transparent 70%)',
+              background: 'radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, transparent 70%)',
               left: `calc(50% + ${parallaxX * 3}px - 250px)`,
               top: `calc(50% + ${parallaxY * 3}px - 250px)`,
             }}
@@ -118,9 +114,7 @@ export default function ScreenshotGallery({
           <div 
             className="absolute w-[400px] h-[400px] rounded-full blur-[80px] transition-all duration-700 ease-out"
             style={{
-              background: theme === 'light' 
-                ? 'radial-gradient(circle, rgba(6, 182, 212, 0.12) 0%, transparent 70%)'
-                : 'radial-gradient(circle, rgba(6, 182, 212, 0.2) 0%, transparent 70%)',
+              background: 'radial-gradient(circle, rgba(6, 182, 212, 0.12) 0%, transparent 70%)',
               right: `calc(20% + ${-parallaxX * 2}px)`,
               bottom: `calc(20% + ${-parallaxY * 2}px)`,
             }}
@@ -136,47 +130,27 @@ export default function ScreenshotGallery({
                 onClick={goToPrev}
                 className="absolute -left-4 md:-left-16 top-1/2 -translate-y-1/2 z-30 p-3 rounded-full transition-all duration-300 hover:scale-110 group opacity-0 hover:opacity-100 md:opacity-100"
                 style={{
-                  background: theme === 'light' 
-                    ? 'rgba(255, 255, 255, 0.95)'
-                    : 'rgba(30, 41, 59, 0.95)',
+                  background: 'rgba(255, 255, 255, 0.95)',
                   backdropFilter: 'blur(10px)',
-                  border: theme === 'light'
-                    ? '1px solid rgba(0, 0, 0, 0.08)'
-                    : '1px solid rgba(255, 255, 255, 0.1)',
-                  boxShadow: theme === 'light'
-                    ? '0 4px 20px rgba(0, 0, 0, 0.08)'
-                    : '0 4px 20px rgba(0, 0, 0, 0.3)',
+                  border: '1px solid rgba(0, 0, 0, 0.08)',
+                  boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
                 }}
                 aria-label="Previous screenshot"
               >
-                <ChevronLeft className={`h-5 w-5 transition-all duration-300 group-hover:-translate-x-0.5 ${
-                  theme === 'light' 
-                    ? 'text-foreground group-hover:text-blue-600' 
-                    : 'text-foreground group-hover:text-cyan-400'
-                }`} />
+                <ChevronLeft className="h-5 w-5 transition-all duration-300 group-hover:-translate-x-0.5 text-foreground group-hover:text-blue-600" />
               </button>
               <button
                 onClick={goToNext}
                 className="absolute -right-4 md:-right-16 top-1/2 -translate-y-1/2 z-30 p-3 rounded-full transition-all duration-300 hover:scale-110 group opacity-0 hover:opacity-100 md:opacity-100"
                 style={{
-                  background: theme === 'light' 
-                    ? 'rgba(255, 255, 255, 0.95)'
-                    : 'rgba(30, 41, 59, 0.95)',
+                  background: 'rgba(255, 255, 255, 0.95)',
                   backdropFilter: 'blur(10px)',
-                  border: theme === 'light'
-                    ? '1px solid rgba(0, 0, 0, 0.08)'
-                    : '1px solid rgba(255, 255, 255, 0.1)',
-                  boxShadow: theme === 'light'
-                    ? '0 4px 20px rgba(0, 0, 0, 0.08)'
-                    : '0 4px 20px rgba(0, 0, 0, 0.3)',
+                  border: '1px solid rgba(0, 0, 0, 0.08)',
+                  boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
                 }}
                 aria-label="Next screenshot"
               >
-                <ChevronRight className={`h-5 w-5 transition-all duration-300 group-hover:translate-x-0.5 ${
-                  theme === 'light' 
-                    ? 'text-foreground group-hover:text-blue-600' 
-                    : 'text-foreground group-hover:text-cyan-400'
-                }`} />
+                <ChevronRight className="h-5 w-5 transition-all duration-300 group-hover:translate-x-0.5 text-foreground group-hover:text-blue-600" />
               </button>
             </>
           )}
@@ -188,16 +162,10 @@ export default function ScreenshotGallery({
               transform: isHovered 
                 ? `perspective(1000px) rotateY(${parallaxX * 0.5}deg) rotateX(${-parallaxY * 0.5}deg) scale(1.01)`
                 : 'perspective(1000px) rotateY(0deg) rotateX(0deg) scale(1)',
-              background: theme === 'light' 
-                ? 'linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%)'
-                : 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)',
+              background: 'linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%)',
               boxShadow: isHovered
-                ? theme === 'light'
-                  ? '0 35px 60px -15px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.05)'
-                  : '0 35px 60px -15px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05), 0 0 100px -20px rgba(59, 130, 246, 0.2)'
-                : theme === 'light'
-                  ? '0 25px 50px -12px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05)'
-                  : '0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05)',
+                ? '0 35px 60px -15px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.05)'
+                : '0 25px 50px -12px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05)',
             }}
           >
             {/* Shine Effect on Hover */}
@@ -214,12 +182,8 @@ export default function ScreenshotGallery({
             <div 
               className="flex items-center px-4 py-3"
               style={{
-                background: theme === 'light' 
-                  ? 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)'
-                  : 'linear-gradient(180deg, #334155 0%, #1e293b 100%)',
-                borderBottom: theme === 'light' 
-                  ? '1px solid rgba(0, 0, 0, 0.06)'
-                  : '1px solid rgba(255, 255, 255, 0.06)',
+                background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+                borderBottom: '1px solid rgba(0, 0, 0, 0.06)',
               }}
             >
               {/* Window Controls */}
@@ -233,9 +197,7 @@ export default function ScreenshotGallery({
               <div 
                 className="flex-1 max-w-md mx-auto h-7 rounded-lg flex items-center justify-center gap-2 px-4"
                 style={{
-                  background: theme === 'light' 
-                    ? 'rgba(0, 0, 0, 0.04)'
-                    : 'rgba(0, 0, 0, 0.3)',
+                  background: 'rgba(0, 0, 0, 0.04)',
                 }}
               >
                 <svg className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -249,11 +211,7 @@ export default function ScreenshotGallery({
               {/* Play/Pause Button */}
               <button
                 onClick={() => setIsPaused(!isPaused)}
-                className={`p-1.5 rounded-md transition-all duration-200 hover:scale-110 ${
-                  theme === 'light' 
-                    ? 'hover:bg-muted text-muted-foreground' 
-                    : 'hover:bg-white/10 text-muted-foreground'
-                }`}
+                className="p-1.5 rounded-md transition-all duration-200 hover:scale-110 hover:bg-muted text-muted-foreground"
                 aria-label={isPaused ? 'Play' : 'Pause'}
               >
                 {isPaused ? (
@@ -269,9 +227,7 @@ export default function ScreenshotGallery({
               <div 
                 className="h-0.5 w-full"
                 style={{
-                  background: theme === 'light' 
-                    ? 'rgba(0, 0, 0, 0.05)'
-                    : 'rgba(255, 255, 255, 0.05)',
+                  background: 'rgba(0, 0, 0, 0.05)',
                 }}
               >
                 <div
@@ -310,7 +266,7 @@ export default function ScreenshotGallery({
                       alt={item.title}
                       className="w-full h-full object-contain transition-transform duration-500"
                       style={{
-                        backgroundColor: theme === 'light' ? '#f8fafc' : '#0f172a',
+                        backgroundColor: '#f8fafc',
                         transform: isHovered && index === activeIndex ? 'scale(1.02)' : 'scale(1)',
                       }}
                       loading={index === 0 ? 'eager' : 'lazy'}
@@ -347,9 +303,7 @@ export default function ScreenshotGallery({
           <div 
             className="absolute -bottom-8 left-1/2 -translate-x-1/2 w-[90%] h-12 rounded-full blur-2xl transition-all duration-500"
             style={{
-              background: theme === 'light'
-                ? 'radial-gradient(ellipse, rgba(0, 0, 0, 0.08) 0%, transparent 70%)'
-                : 'radial-gradient(ellipse, rgba(59, 130, 246, 0.15) 0%, transparent 70%)',
+              background: 'radial-gradient(ellipse, rgba(0, 0, 0, 0.08) 0%, transparent 70%)',
               transform: `translateX(calc(-50% + ${parallaxX}px))`,
             }}
           />
@@ -385,9 +339,7 @@ export default function ScreenshotGallery({
                   height: '10px',
                   background: index === activeIndex
                     ? 'linear-gradient(90deg, #3b82f6 0%, #06b6d4 100%)'
-                    : theme === 'light'
-                      ? 'rgba(0, 0, 0, 0.12)'
-                      : 'rgba(255, 255, 255, 0.15)',
+                    : 'rgba(0, 0, 0, 0.12)',
                 }}
                 aria-label={`Go to screenshot ${index + 1}`}
               >
@@ -397,9 +349,7 @@ export default function ScreenshotGallery({
                   style={{
                     background: index === activeIndex
                       ? 'linear-gradient(90deg, #3b82f6 0%, #06b6d4 100%)'
-                      : theme === 'light'
-                        ? 'rgba(0, 0, 0, 0.1)'
-                        : 'rgba(255, 255, 255, 0.1)',
+                      : 'rgba(0, 0, 0, 0.1)',
                     opacity: 0,
                   }}
                 />

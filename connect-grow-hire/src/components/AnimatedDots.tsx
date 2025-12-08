@@ -7,7 +7,7 @@ const AnimatedDots: React.FC = () => {
       {[0, 1, 2].map((index) => (
         <motion.span
           key={index}
-          className="inline-block w-6 h-6 rounded-full bg-black dark:bg-black"
+          className="inline-block w-6 h-6 rounded-full bg-black"
           style={{ marginBottom: '0.15em' }}
           animate={{
             y: [0, -10, 0],

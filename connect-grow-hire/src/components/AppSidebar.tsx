@@ -19,7 +19,6 @@ import LightningIcon from "../assets/Lightning.png";
 import BlueLogo from "../assets/Blue_logo.png";
 import BlueIcon from "../assets/blue_icon.png";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
-import { useTheme } from "@/contexts/ThemeContext";
 
 import {
   Sidebar,
@@ -64,7 +63,6 @@ export function AppSidebar() {
   const currentPath = location.pathname;
   const [settingsExpanded, setSettingsExpanded] = useState(false);
   const { user } = useFirebaseAuth();
-  const { theme } = useTheme();
 
   const isActive = (path: string) => currentPath === path;
   const isSettingsActive = settingsItems.some((item) => isActive(item.url));
@@ -129,26 +127,21 @@ export function AppSidebar() {
           <div className="p-3 border-b border-border bg-transparent">
             {state !== "collapsed" ? (
               <div className="flex items-center justify-center gap-2">
-                {theme === "light" ? (
-                  <img 
-                    src={BlueLogo} 
-                    alt="Offerloop" 
-                    className="h-12 cursor-pointer"
-                    onClick={() => navigate("/")}
-                  />
-                ) : (
-                <Logo size="md" />
-                )}
+                <img 
+                  src={BlueLogo} 
+                  alt="Offerloop" 
+                  className="h-12 cursor-pointer"
+                  onClick={() => navigate("/")}
+                />
               </div>
             ) : (
               <div className="flex items-center justify-center p-1">
-                {theme === "light" ? (
-                  <img 
-                    src={BlueIcon} 
-                    alt="Offerloop" 
-                    className="h-8 w-auto cursor-pointer object-contain"
-                    onClick={() => navigate("/")}
-                  />
+                <img 
+                  src={BlueIcon} 
+                  alt="Offerloop" 
+                  className="h-8 w-auto cursor-pointer object-contain"
+                  onClick={() => navigate("/")}
+                />
                 ) : (
                 <Logo size="sm" />
                 )}

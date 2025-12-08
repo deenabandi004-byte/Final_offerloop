@@ -3,7 +3,6 @@ import { Users, Building2, Coffee, Mail, Clock, TrendingUp, Target, ArrowRight, 
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { motion } from 'framer-motion';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
-import { useTheme } from '@/contexts/ThemeContext';
 import { firebaseApi } from '@/services/firebaseApi';
 import { type Firm, apiService } from '@/services/api';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -451,7 +450,6 @@ function USMap({ locations }: { locations: Array<{ id: number; name: string; cit
 
 export function Dashboard() {
   const { user } = useFirebaseAuth();
-  const { theme } = useTheme();
   const navigate = useNavigate();
   const firstName = user?.name?.split(' ')[0] || 'Your';
   const [contactCount, setContactCount] = useState<number>(0);
@@ -999,26 +997,26 @@ export function Dashboard() {
                       <LineChart data={timeSeriesData} margin={{ top: 5, right: 10, left: 0, bottom: 20 }}>
                         <CartesianGrid 
                           strokeDasharray="3 3" 
-                          stroke={theme === 'dark' ? 'hsl(var(--border))' : 'hsl(214.3, 31.8%, 91.4%)'} 
+                          stroke="hsl(214.3, 31.8%, 91.4%)" 
                         />
                         <XAxis 
                           dataKey="month" 
-                          stroke={theme === 'dark' ? 'hsl(var(--muted-foreground))' : 'hsl(215.4, 16.3%, 46.9%)'} 
+                          stroke="hsl(215.4, 16.3%, 46.9%)" 
                           style={{ fontSize: '12px' }}
-                          tick={{ fill: theme === 'dark' ? 'hsl(var(--muted-foreground))' : 'hsl(215.4, 16.3%, 46.9%)' }}
+                          tick={{ fill: 'hsl(215.4, 16.3%, 46.9%)' }}
                         />
                         <YAxis 
-                          stroke={theme === 'dark' ? 'hsl(var(--muted-foreground))' : 'hsl(215.4, 16.3%, 46.9%)'} 
+                          stroke="hsl(215.4, 16.3%, 46.9%)" 
                           style={{ fontSize: '12px' }}
-                          tick={{ fill: theme === 'dark' ? 'hsl(var(--muted-foreground))' : 'hsl(215.4, 16.3%, 46.9%)' }}
+                          tick={{ fill: 'hsl(215.4, 16.3%, 46.9%)' }}
                         />
                         <Tooltip 
                           contentStyle={{ 
-                            backgroundColor: theme === 'dark' ? 'hsl(var(--card))' : 'hsl(var(--card))', 
+                            backgroundColor: 'hsl(var(--card))', 
                             border: `1px solid hsl(var(--border))`,
                             borderRadius: '8px',
                             fontSize: '12px',
-                            color: theme === 'dark' ? 'hsl(var(--card-foreground))' : 'hsl(var(--card-foreground))'
+                            color: 'hsl(var(--card-foreground))'
                           }}
                         />
                         <Line type="monotone" dataKey="outreach" stroke="#8B5CF6" strokeWidth={2} dot={{ fill: '#8B5CF6' }} />

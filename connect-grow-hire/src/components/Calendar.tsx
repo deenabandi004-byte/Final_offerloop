@@ -345,7 +345,7 @@ export function Calendar() {
                       </div>
                       {day.hasEvent && (
                         <div className="mt-1.5 flex items-center justify-center">
-                          <Coffee className="w-5 h-5 text-red-500 dark:text-red-400" />
+                          <Coffee className="w-5 h-5 text-red-500" />
                         </div>
                       )}
                       {isSelected && dayEvents.length > 0 && (

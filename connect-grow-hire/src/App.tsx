@@ -6,7 +6,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { FirebaseAuthProvider, useFirebaseAuth } from "./contexts/FirebaseAuthContext";
-import { ThemeProvider } from "./contexts/ThemeContext";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DynamicGradientBackground } from "./components/background/DynamicGradientBackground";
 import UscBeta from "@/pages/UscBeta";
@@ -209,24 +208,22 @@ const AppRoutes: React.FC = () => {
 const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <TooltipProvider>
-          <FirebaseAuthProvider>
-            <div className="relative min-h-screen">
-              <DynamicGradientBackground />
-              <div className="relative z-10">
-                <Toaster />
-                <Sonner />
-                <ErrorBoundary>
-                  <BrowserRouter>
-                    <AppRoutes />
-                  </BrowserRouter>
-                </ErrorBoundary>
-              </div>
+      <TooltipProvider>
+        <FirebaseAuthProvider>
+          <div className="relative min-h-screen">
+            <DynamicGradientBackground />
+            <div className="relative z-10">
+              <Toaster />
+              <Sonner />
+              <ErrorBoundary>
+                <BrowserRouter>
+                  <AppRoutes />
+                </BrowserRouter>
+              </ErrorBoundary>
             </div>
-          </FirebaseAuthProvider>
-        </TooltipProvider>
-      </ThemeProvider>
+          </div>
+        </FirebaseAuthProvider>
+      </TooltipProvider>
     </QueryClientProvider>
   );
 };

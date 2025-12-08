@@ -279,9 +279,9 @@ export function InteractiveTimeline({ phases, startDate, targetDeadline, onUpdat
                   >
                     {/* Month Label - Black, not faded */}
                     <div className={`font-medium mb-3 ${
-                      isCurrent ? 'text-black dark:text-white font-semibold' :
-                      isPast ? 'text-black dark:text-gray-300' :
-                      'text-black dark:text-gray-400'
+                      isCurrent ? 'text-black font-semibold' :
+                      isPast ? 'text-black' :
+                      'text-black'
                     }`}>
                       {formatMonth(month)}
                     </div>
@@ -308,7 +308,7 @@ export function InteractiveTimeline({ phases, startDate, targetDeadline, onUpdat
                           );
                         } else {
                           return (
-                            <div className="w-[10px] h-[10px] rounded-full bg-black dark:bg-white border-2 border-black dark:border-white" />
+                            <div className="w-[10px] h-[10px] rounded-full bg-black border-2 border-black" />
                           );
                         }
                       })()}
@@ -328,7 +328,7 @@ export function InteractiveTimeline({ phases, startDate, targetDeadline, onUpdat
                               className={`px-4 py-3 rounded-xl border-2 text-center text-sm transition-all relative group ${
                                 isActive
                                   ? 'bg-gradient-to-br from-blue-500/20 via-blue-400/20 to-blue-600/20 border-blue-400 shadow-lg shadow-blue-500/20'
-                                  : 'bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 border-slate-300 dark:border-slate-600 hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-md'
+                                  : 'bg-gradient-to-br from-slate-50 to-slate-100 border-slate-300 hover:border-blue-300 hover:shadow-md'
                               }`}
                               initial={{ opacity: 0, y: 20 }}
                               animate={{ opacity: 1, y: 0 }}
@@ -347,7 +347,7 @@ export function InteractiveTimeline({ phases, startDate, targetDeadline, onUpdat
                                 onClick={() => handlePhaseEdit(phasePositions.indexOf(phasePos))}
                                 className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-white/20"
                               >
-                                <Edit2 className="h-3 w-3 text-gray-600 dark:text-gray-400" />
+                                <Edit2 className="h-3 w-3 text-gray-600" />
                               </button>
 
                               {editingPhase === phasePositions.indexOf(phasePos) ? (
@@ -360,27 +360,27 @@ export function InteractiveTimeline({ phases, startDate, targetDeadline, onUpdat
                                 <>
                                   <div className={`font-semibold mb-1 ${
                                     isActive 
-                                      ? 'text-blue-700 dark:text-blue-300' 
-                                      : 'text-slate-700 dark:text-slate-300'
+                                      ? 'text-blue-700' 
+                                      : 'text-slate-700'
                                   }`}>
                                     {phasePos.phase.name}
                                   </div>
                                   <div className={`text-xs leading-relaxed ${
                                     isActive 
-                                      ? 'text-blue-600 dark:text-blue-400' 
-                                      : 'text-slate-600 dark:text-slate-400'
+                                      ? 'text-blue-600' 
+                                      : 'text-slate-600'
                                   }`}>
                                     {phasePos.phase.description}
                                   </div>
                                   {phasePos.phase.goals && phasePos.phase.goals.length > 0 && (
-                                    <div className="mt-2 pt-2 border-t border-purple-200/50 dark:border-purple-700/50">
+                                    <div className="mt-2 pt-2 border-t border-purple-200/50">
                                       <div className="text-xs space-y-1 text-left">
                                         {phasePos.phase.goals.slice(0, 2).map((goal, idx) => (
                                           <div key={idx} className="flex items-start gap-1.5">
-                                            <span className="text-blue-500 dark:text-blue-400 mt-0.5">•</span>
+                                            <span className="text-blue-500 mt-0.5">•</span>
                                             <span className={isActive 
-                                              ? 'text-blue-600 dark:text-blue-400' 
-                                              : 'text-slate-500 dark:text-slate-400'
+                                              ? 'text-blue-600' 
+                                              : 'text-slate-500'
                                             }>
                                               {goal}
                                             </span>

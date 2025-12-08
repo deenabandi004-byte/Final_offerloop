@@ -610,14 +610,14 @@ export default function AccountSettings() {
                 variant="ghost"
                 size="sm"
                 onClick={() => navigate('/')}
-                className="gap-2 text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 hover:text-blue-400"
+                className="gap-2 text-gray-300 text-slate-700 hover:text-blue-400"
               >
                 <ArrowLeft className="h-4 w-4" />
                 Back
               </Button>
               <div>
-                <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-900">Account Settings</h1>
-                <p className="text-sm text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">Manage your account and preferences</p>
+                <h1 className="text-2xl font-semibold text-slate-900">Account Settings</h1>
+                <p className="text-sm text-gray-400 text-slate-600">Manage your account and preferences</p>
               </div>
             </div>
             <Avatar className="h-12 w-12">
@@ -637,7 +637,7 @@ export default function AccountSettings() {
           {/* Career & Profile Info Card */}
           <GlassCard className="p-6 rounded-2xl">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-white dark:text-white text-slate-900 dark:text-white">Career & Profile Info</h2>
+              <h2 className="text-xl font-semibold text-white text-slate-900">Career & Profile Info</h2>
               <Button
                 onClick={handleSaveOnboardingData}
                 disabled={isSaving}
@@ -658,17 +658,17 @@ export default function AccountSettings() {
               </Button>
             </div>
             {saveSuccess && (
-              <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-                <p className="text-sm text-green-700 dark:text-green-400">✓ Changes saved successfully!</p>
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-sm text-green-700">✓ Changes saved successfully!</p>
               </div>
             )}
             <div className="space-y-6">
               <div>
-                <h3 className="text-lg font-semibold mb-4 text-white dark:text-white text-slate-900 dark:text-white">Personal Information</h3>
+                <h3 className="text-lg font-semibold mb-4 text-white text-slate-900">Personal Information</h3>
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="firstName" className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">First Name</Label>
+                  <Label htmlFor="firstName" className="text-gray-300 text-slate-700">First Name</Label>
                   <Input
                     id="firstName"
                     value={personalInfo.firstName}
@@ -723,7 +723,7 @@ export default function AccountSettings() {
               </div>
 
               <div>
-                <h3 className="text-lg font-semibold mb-4 text-white dark:text-white text-slate-900 dark:text-white">Academic Information</h3>
+                <h3 className="text-lg font-semibold mb-4 text-white text-slate-900">Academic Information</h3>
                 <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -790,12 +790,12 @@ export default function AccountSettings() {
               </div>
 
               <div>
-                <h3 className="text-lg font-semibold mb-4 text-white dark:text-white text-slate-900 dark:text-white">Professional Profile</h3>
+                <h3 className="text-lg font-semibold mb-4 text-white text-slate-900">Professional Profile</h3>
                 <div className="space-y-6">
               <div className="space-y-4">
                 {/* Resume Upload Section */}
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium text-white dark:text-white text-slate-900 dark:text-white">Resume</Label>
+                  <Label className="text-sm font-medium text-white text-slate-900">Resume</Label>
                   {(() => {
                     if (resumeData) {
                       return (
@@ -1134,7 +1134,7 @@ export default function AccountSettings() {
           
           {/* Account Management Section */}
           <GlassCard className="p-6 rounded-2xl">
-            <h2 className="text-xl font-semibold mb-6 text-white dark:text-white text-slate-900 dark:text-white">Account Management</h2>
+            <h2 className="text-xl font-semibold mb-6 text-white text-slate-900">Account Management</h2>
             <div className="space-y-4">
               <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg border">
                 <div>

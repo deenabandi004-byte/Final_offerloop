@@ -5,9 +5,7 @@ import { FirmSearchDemoPlaceholder } from './demo/FirmSearchDemoPlaceholder';
 import { CoffeeChatDemoPlaceholder } from './demo/CoffeeChatDemoPlaceholder';
 import { InterviewPrepDemoPlaceholder } from './demo/InterviewPrepDemoPlaceholder';
 import { DashboardDemoPlaceholder } from './demo/DashboardDemoPlaceholder';
-import { useTheme } from '@/contexts/ThemeContext';
 import proSearchVideo from '@/assets/Offerloop Professional Search.mp4';
-import scoutWavingDark from '@/assets/ScoutWavingDark.mp4';
 import scoutWavingWhite from '@/assets/ScoutWavingWhite.mp4';
 import dashboardVideo from '@/assets/Dashboard.mov';
 import contactSearchVideo from '@/assets/Contact Search.mov';
@@ -33,7 +31,6 @@ import JPMorganLogo from "@/assets/JPMorgan.png";
 import BarclaysLogo from "@/assets/Barclays.png";
 
 export const ProductTour: React.FC = () => {
-  const { theme } = useTheme();
   const cardVariants = {
     hidden: { opacity: 0, y: 30 },
     visible: { opacity: 1, y: 0 },
@@ -62,7 +59,7 @@ export const ProductTour: React.FC = () => {
             
             {/* Video - Right Side */}
             <div className="relative">
-              <div className="aspect-video rounded-2xl overflow-hidden border border-blue-500/20 dark:border-blue-500/20 border-blue-300/60 dark:border-blue-500/20 bg-gradient-to-br from-blue-500/5 to-cyan-500/5 dark:from-blue-500/5 dark:to-cyan-500/5 from-blue-50/80 to-cyan-50/80 dark:from-blue-500/5 dark:to-cyan-500/5 shadow-lg dark:shadow-none shadow-blue-100/50 dark:shadow-none">
+              <div className="aspect-video rounded-2xl overflow-hidden border border-blue-500/20 border-blue-300/60 bg-gradient-to-br from-blue-500/5 to-cyan-500/5 from-blue-50/80 to-cyan-50/80 shadow-lg shadow-blue-100/50">
                 <video
                   src={dashboardVideo}
                   autoPlay
@@ -72,7 +69,7 @@ export const ProductTour: React.FC = () => {
                   className="w-full h-full object-cover"
                 />
               </div>
-              <div className="absolute -bottom-4 -left-4 w-24 h-24 bg-blue-500/10 dark:bg-blue-500/10 bg-blue-200/40 dark:bg-blue-500/10 rounded-full blur-3xl"></div>
+              <div className="absolute -bottom-4 -left-4 w-24 h-24 bg-blue-500/10 bg-blue-200/40 rounded-full blur-3xl"></div>
             </div>
           </div>
         </motion.div>
@@ -89,7 +86,7 @@ export const ProductTour: React.FC = () => {
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             {/* Video - Left Side */}
             <div className="relative">
-              <div className="aspect-video rounded-2xl overflow-hidden border border-purple-500/20 dark:border-purple-500/20 border-purple-300/60 dark:border-purple-500/20 bg-gradient-to-br from-purple-500/5 to-indigo-500/5 dark:from-purple-500/5 dark:to-indigo-500/5 from-purple-50/80 to-indigo-50/80 dark:from-purple-500/5 dark:to-indigo-500/5 shadow-lg dark:shadow-none shadow-purple-100/50 dark:shadow-none">
+              <div className="aspect-video rounded-2xl overflow-hidden border border-purple-500/20 border-purple-300/60 bg-gradient-to-br from-purple-500/5 to-indigo-500/5 from-purple-50/80 to-indigo-50/80 shadow-lg shadow-purple-100/50">
                 <video
                   src={contactSearchVideo}
                   autoPlay
@@ -99,7 +96,7 @@ export const ProductTour: React.FC = () => {
                   className="w-full h-full object-cover"
                 />
               </div>
-              <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-blue-500/10 dark:bg-blue-500/10 bg-blue-200/40 dark:bg-blue-500/10 rounded-full blur-3xl"></div>
+              <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-blue-500/10 bg-blue-200/40 rounded-full blur-3xl"></div>
             </div>
             
             {/* Text - Minimal */}
@@ -132,7 +129,7 @@ export const ProductTour: React.FC = () => {
             
             {/* Video - Right Side */}
             <div className="relative">
-              <div className="aspect-video rounded-2xl overflow-hidden border border-emerald-500/20 dark:border-emerald-500/20 border-emerald-300/60 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-500/5 to-teal-500/5 dark:from-emerald-500/5 dark:to-teal-500/5 from-emerald-50/80 to-teal-50/80 dark:from-emerald-500/5 dark:to-teal-500/5 shadow-lg dark:shadow-none shadow-emerald-100/50 dark:shadow-none">
+              <div className="aspect-video rounded-2xl overflow-hidden border border-emerald-500/20 border-emerald-300/60 bg-gradient-to-br from-emerald-500/5 to-teal-500/5 from-emerald-50/80 to-teal-50/80 shadow-lg shadow-emerald-100/50">
                 <video
                   src={firmSearchVideo}
                   autoPlay
@@ -142,7 +139,7 @@ export const ProductTour: React.FC = () => {
                   className="w-full h-full object-cover"
                 />
               </div>
-              <div className="absolute -bottom-4 -left-4 w-24 h-24 bg-emerald-500/10 dark:bg-emerald-500/10 bg-emerald-200/40 dark:bg-emerald-500/10 rounded-full blur-3xl"></div>
+              <div className="absolute -bottom-4 -left-4 w-24 h-24 bg-emerald-500/10 bg-emerald-200/40 rounded-full blur-3xl"></div>
             </div>
           </div>
         </motion.div>
@@ -159,7 +156,7 @@ export const ProductTour: React.FC = () => {
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             {/* Video - Left Side */}
             <div className="relative">
-              <div className="aspect-video rounded-2xl overflow-hidden border border-purple-500/20 dark:border-purple-500/20 border-purple-300/60 dark:border-purple-500/20 bg-gradient-to-br from-purple-500/5 to-indigo-500/5 dark:from-purple-500/5 dark:to-indigo-500/5 from-purple-50/80 to-indigo-50/80 dark:from-purple-500/5 dark:to-indigo-500/5 shadow-lg dark:shadow-none shadow-purple-100/50 dark:shadow-none">
+              <div className="aspect-video rounded-2xl overflow-hidden border border-purple-500/20 border-purple-300/60 bg-gradient-to-br from-purple-500/5 to-indigo-500/5 from-purple-50/80 to-indigo-50/80 shadow-lg shadow-purple-100/50">
                 <video
                   src={interviewPrepVideo}
                   autoPlay
@@ -169,7 +166,7 @@ export const ProductTour: React.FC = () => {
                   className="w-full h-full object-cover"
                 />
               </div>
-              <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-purple-500/10 dark:bg-purple-500/10 bg-purple-200/40 dark:bg-purple-500/10 rounded-full blur-3xl"></div>
+              <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-purple-500/10 bg-purple-200/40 rounded-full blur-3xl"></div>
             </div>
             
             {/* Text - Right Side */}
@@ -202,7 +199,7 @@ export const ProductTour: React.FC = () => {
             
             {/* Video - Right Side */}
             <div className="relative">
-              <div className="aspect-video rounded-2xl overflow-hidden border border-purple-500/20 dark:border-purple-500/20 border-purple-300/50 dark:border-purple-500/20 shadow-lg dark:shadow-none shadow-purple-100/40 dark:shadow-none">
+              <div className="aspect-video rounded-2xl overflow-hidden border border-purple-500/20 border-purple-300/50 shadow-lg shadow-purple-100/40">
                 <video
                   src={coffeeChatVideo}
                   autoPlay
@@ -212,7 +209,7 @@ export const ProductTour: React.FC = () => {
                   className="w-full h-full object-cover"
                 />
               </div>
-              <div className="absolute -top-6 -left-6 w-32 h-32 bg-purple-500/10 dark:bg-purple-500/10 bg-purple-200/40 dark:bg-purple-500/10 rounded-full blur-3xl"></div>
+              <div className="absolute -top-6 -left-6 w-32 h-32 bg-purple-500/10 bg-purple-200/40 rounded-full blur-3xl"></div>
             </div>
           </div>
         </motion.div>
@@ -279,13 +276,13 @@ export const ProductTour: React.FC = () => {
                 return (
                 <div 
                   key={name} 
-                  className={`glass-card rounded-2xl p-8 mx-4 w-[420px] h-[380px] flex flex-col justify-between relative overflow-hidden ${theme === 'light' ? color.class : ''}`}
+                  className={`glass-card rounded-2xl p-8 mx-4 w-[420px] h-[380px] flex flex-col justify-between relative overflow-hidden ${color.class}`}
                   style={{
-                    borderColor: theme === 'light' ? color.border : 'var(--glass-border)',
+                    borderColor: color.border,
                   }}
                 >
-                  {/* Color accent overlay for light mode */}
-                  {theme === 'light' && (
+                  {/* Color accent overlay */}
+                  {(
                     <div 
                       className="absolute inset-0 pointer-events-none rounded-2xl"
                       style={{
@@ -304,7 +301,7 @@ export const ProductTour: React.FC = () => {
                         alt={name} 
                         className="w-14 h-14 rounded-full object-cover border"
                         style={{
-                          borderColor: theme === 'light' ? color.border : 'rgba(59, 130, 246, 0.3)',
+                          borderColor: color.border,
                         }}
                       />
                       <div>
@@ -333,7 +330,7 @@ export const ProductTour: React.FC = () => {
             {/* Scout Video - Left side on desktop, top on mobile */}
             <div className="flex-shrink-0 w-[28rem] h-[32rem] md:w-[32rem] md:h-[36rem] relative overflow-hidden rounded-2xl">
               <video
-                src={theme === 'light' ? scoutWavingWhite : scoutWavingDark}
+                src={scoutWavingWhite}
                 autoPlay
                 loop
                 muted
@@ -379,9 +376,7 @@ export const ProductTour: React.FC = () => {
                 <div 
                   className="absolute -left-4 top-6 w-0 h-0 border-t-[12px] border-t-transparent border-r-[12px] border-b-[12px] border-b-transparent"
                   style={{
-                    borderRightColor: theme === 'light' 
-                      ? 'rgba(255, 255, 255, 0.95)' 
-                      : 'rgba(15, 23, 42, 0.9)'
+                    borderRightColor: 'rgba(255, 255, 255, 0.95)'
                   }}
                 />
                 
@@ -389,19 +384,13 @@ export const ProductTour: React.FC = () => {
                 <div 
                   className="relative p-5 rounded-2xl shadow-lg"
                   style={{
-                    backgroundColor: theme === 'light' 
-                      ? 'rgba(255, 255, 255, 0.95)' 
-                      : 'rgba(15, 23, 42, 0.9)',
-                    border: theme === 'light'
-                      ? '1px solid rgba(59, 130, 246, 0.2)'
-                      : '1px solid rgba(255, 255, 255, 0.1)',
-                    boxShadow: theme === 'light'
-                      ? '0 4px 12px rgba(59, 130, 246, 0.1)'
-                      : '0 4px 12px rgba(0, 0, 0, 0.3)'
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    border: '1px solid rgba(59, 130, 246, 0.2)',
+                    boxShadow: '0 4px 12px rgba(59, 130, 246, 0.1)'
                   }}
                 >
                   <div className="flex items-center gap-2 mb-3">
-                    <div className="w-2 h-2 bg-green-400 dark:bg-green-400 bg-green-500 dark:bg-green-400 rounded-full animate-pulse"></div>
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                     <span className="text-sm font-medium text-muted-foreground">Scout</span>
                   </div>
                   <p className="text-base text-foreground leading-relaxed">

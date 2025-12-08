@@ -196,7 +196,7 @@ const Pricing = () => {
         <Button
           variant="ghost"
           onClick={() => navigate("/home")}
-          className="mb-8 text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300 hover:text-blue-400"
+          className="mb-8 text-gray-300 text-slate-700 hover:text-blue-400"
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Home
@@ -207,7 +207,7 @@ const Pricing = () => {
             <div>
               <p className="font-semibold text-blue-400">Pro Subscription Active</p>
               {subscriptionStatus?.cancelAtPeriodEnd && (
-                <p className="text-sm text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">
+                <p className="text-sm text-gray-400 text-slate-600">
                   Cancels on {new Date(subscriptionStatus.currentPeriodEnd! * 1000).toLocaleDateString()}
                 </p>
               )}
@@ -230,10 +230,10 @@ const Pricing = () => {
               <span className="text-sm font-medium text-blue-400 uppercase tracking-wide">Our Pricing</span>
             </div>
           </div>
-          <h1 className="text-display-lg mb-6 text-white dark:text-white text-slate-900 dark:text-white">
-            <span className="text-black dark:text-black">Choose</span> <span className="gradient-text-teal">your plan</span> <span className="text-black dark:text-black">today</span>
+          <h1 className="text-display-lg mb-6 text-white text-slate-900">
+            <span className="text-black">Choose</span> <span className="gradient-text-teal">your plan</span> <span className="text-black">today</span>
           </h1>
-          <p className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 text-lg mb-8">
+          <p className="text-gray-400 text-slate-600 text-lg mb-8">
             15 credits per contact. When you run out of credits, no more contacts.
           </p>
         </div>
@@ -243,26 +243,26 @@ const Pricing = () => {
             {/* Free Plan */}
             <GlassCard className="rounded-2xl p-10 transform transition-all hover:scale-[1.02] hover:glow-teal">
               <div className="text-center mb-8">
-                <h3 className="text-3xl font-bold mb-3 text-white dark:text-white text-slate-900 dark:text-white">Free</h3>
-                <p className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400">Try out platform risk free</p>
+                <h3 className="text-3xl font-bold mb-3 text-white text-slate-900">Free</h3>
+                <p className="text-gray-400 text-slate-600">Try out platform risk free</p>
               </div>
 
               <div className="space-y-4 mb-8">
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">150 credits (10 emails) </span>
+                  <span className="text-gray-300 text-slate-700">150 credits (10 emails) </span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">Estimated time saved: 250 minutes</span>
+                  <span className="text-gray-300 text-slate-700">Estimated time saved: 250 minutes</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">Try out platform risk free</span>
+                  <span className="text-gray-300 text-slate-700">Try out platform risk free</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">Limited Features</span>
+                  <span className="text-gray-300 text-slate-700">Limited Features</span>
                 </div>
               </div>
 
@@ -286,37 +286,37 @@ const Pricing = () => {
               <div className="text-center mb-8">
                 <h3 className="text-3xl font-bold mb-3 gradient-text-teal">Pro</h3>
                 <div className="mb-2">
-                  <span className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 text-xl line-through mr-2">$34.99</span>
-                  <span className="text-3xl font-bold text-white dark:text-white text-slate-900 dark:text-white">$8.99</span>
-                  <span className="text-gray-400 dark:text-gray-400 text-slate-600 dark:text-gray-400 text-lg ml-1">/month</span>
+                  <span className="text-gray-400 text-slate-600 text-xl line-through mr-2">$34.99</span>
+                  <span className="text-3xl font-bold text-white text-slate-900">$8.99</span>
+                  <span className="text-gray-400 text-slate-600 text-lg ml-1">/month</span>
                 </div>
-                <p className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">1800 credits</p>
+                <p className="text-gray-300 text-slate-700">1800 credits</p>
               </div>
 
               <div className="space-y-4 mb-8">
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">1800 credits (120 emails) </span>
+                  <span className="text-gray-300 text-slate-700">1800 credits (120 emails) </span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">Estimated time saved: 2500 minutes</span>
+                  <span className="text-gray-300 text-slate-700">Estimated time saved: 2500 minutes</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">Everything in free plus:</span>
+                  <span className="text-gray-300 text-slate-700">Everything in free plus:</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">Directory permanently saves</span>
+                  <span className="text-gray-300 text-slate-700">Directory permanently saves</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">Priority Support</span>
+                  <span className="text-gray-300 text-slate-700">Priority Support</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 dark:text-gray-300 text-slate-700 dark:text-gray-300">Advanced features</span>
+                  <span className="text-gray-300 text-slate-700">Advanced features</span>
                 </div>
               </div>
 
