@@ -208,7 +208,7 @@ export default function FirmSearchResults({ firms, onViewContacts, onDelete, del
               {/* Company Name */}
               <th 
                 scope="col" 
-                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-accent transition-colors"
+                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-secondary transition-colors"
                 onClick={() => handleSort('name')}
               >
                 Company Name
@@ -228,7 +228,7 @@ export default function FirmSearchResults({ firms, onViewContacts, onDelete, del
               {/* Location */}
               <th 
                 scope="col" 
-                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-accent transition-colors"
+                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-secondary transition-colors"
                 onClick={() => handleSort('location')}
               >
                 Location
@@ -238,7 +238,7 @@ export default function FirmSearchResults({ firms, onViewContacts, onDelete, del
               {/* Industry */}
               <th 
                 scope="col" 
-                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-accent transition-colors"
+                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-secondary transition-colors"
                 onClick={() => handleSort('industry')}
               >
                 Industry
@@ -248,7 +248,7 @@ export default function FirmSearchResults({ firms, onViewContacts, onDelete, del
               {/* Employees */}
               <th 
                 scope="col" 
-                className="px-4 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-accent transition-colors"
+                className="px-4 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-secondary transition-colors"
                 onClick={() => handleSort('employeeCount')}
               >
                 Employees
@@ -258,7 +258,7 @@ export default function FirmSearchResults({ firms, onViewContacts, onDelete, del
               {/* Founded */}
               <th 
                 scope="col" 
-                className="px-4 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-accent transition-colors"
+                className="px-4 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-secondary transition-colors"
                 onClick={() => handleSort('founded')}
               >
                 Founded
@@ -276,7 +276,7 @@ export default function FirmSearchResults({ firms, onViewContacts, onDelete, del
             {sortedFirms.map((firm, index) => (
               <tr 
                 key={firm.id || index} 
-                className="hover:bg-accent transition-colors"
+                className="hover:bg-secondary transition-colors"
               >
                 {/* Company Name */}
                 <td className="px-6 py-4 whitespace-nowrap">

@@ -354,6 +354,11 @@ def regenerate(thread_id):
     if not thread_id_gmail:
         return jsonify({"success": False, "message": "No Gmail thread found for this contact"}), 400
 
+    # Get user email to verify message is not from user
+    user_email = request.firebase_user.get('email')
+    if not user_email:
+        return jsonify({"success": False, "message": "User email not found"}), 400
+    
     # Get Gmail service
     creds = _load_user_gmail_creds(uid)
     if not creds:
@@ -365,6 +370,16 @@ def regenerate(thread_id):
     latest_message = get_latest_message_from_thread(gmail_service, thread_id_gmail, contact_email)
     if not latest_message:
         return jsonify({"success": False, "message": "No messages found in thread"}), 400
+    
+    # Check if the latest message is from the contact (not from user)
+    headers = latest_message.get('payload', {}).get('headers', [])
+    from_header = next((h['value'] for h in headers if h['name'].lower() == 'from'), '')
+    
+    if user_email.lower() in from_header.lower():
+        return jsonify({
+            "success": False, 
+            "message": "No reply from contact yet. The latest message is from you."
+        }), 400
     
     # Extract message content
     message_content = extract_message_body(latest_message)

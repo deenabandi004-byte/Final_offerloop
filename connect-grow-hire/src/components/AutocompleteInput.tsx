@@ -128,7 +128,7 @@ export const AutocompleteInput = ({
                       key={`${suggestion}-${index}`}
                       value={suggestion}
                       onSelect={() => handleSuggestionSelect(suggestion)}
-                      className="cursor-pointer hover:bg-accent"
+                      className="cursor-pointer hover:bg-secondary"
                     >
                       <span className="truncate">{suggestion}</span>
                     </CommandItem>

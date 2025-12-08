@@ -246,7 +246,7 @@ export default function Outbox() {
           {/* Header */}
           <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-white shadow-sm">
             <div className="flex items-center gap-4">
-              <SidebarTrigger className="text-foreground hover:bg-accent" />
+              <SidebarTrigger className="text-foreground hover:bg-secondary" />
               <div className="flex items-center gap-2">
                 <Mail className="h-5 w-5 text-primary" />
                 <h1 className="text-xl font-semibold">Outbox</h1>

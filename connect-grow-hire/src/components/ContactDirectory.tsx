@@ -475,7 +475,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
               size="sm"
               onClick={loadContacts}
               disabled={isLoading}
-              className="border-border text-foreground hover:bg-accent"
+              className="border-border text-foreground hover:bg-secondary"
             >
               <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
             </Button>
@@ -589,7 +589,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
                     return (
                       <tr
                         key={contact.id}
-                        className="hover:bg-accent transition-colors"
+                        className="hover:bg-secondary transition-colors"
                       >
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">

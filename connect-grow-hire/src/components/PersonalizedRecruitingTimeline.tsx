@@ -98,6 +98,8 @@ export function PersonalizedRecruitingTimeline() {
       
       const result = await apiService.generateTimeline(prompt, hasExistingTimeline, existingTimeline);
       console.log('✅ Timeline result:', result);
+      console.log('📊 Timeline phases count:', result.timeline?.phases?.length || 0);
+      console.log('📊 Timeline phases:', result.timeline?.phases);
       
       // Set state first to ensure UI updates immediately
       setTimelineData(result.timeline);
@@ -106,6 +108,11 @@ export function PersonalizedRecruitingTimeline() {
       setLastPrompt(prompt); // Store the prompt used
       
       console.log('✅ State set - timelineData:', result.timeline, 'startDate:', result.startDate, 'targetDeadline:', result.targetDeadline);
+      console.log('📊 Phases in state:', result.timeline?.phases?.map((p: any) => ({
+        name: p.name,
+        startMonth: p.startMonth,
+        endMonth: p.endMonth
+      })));
       
       // Save to Firestore (don't await - let it save in background)
       saveTimeline(result.timeline.phases, result.startDate, result.targetDeadline, prompt).catch(err => {
@@ -140,7 +147,9 @@ export function PersonalizedRecruitingTimeline() {
     await saveTimeline(updatedPhases, startDate, targetDeadline);
   };
 
-  console.log('🔍 Render - timelineData:', timelineData, 'startDate:', startDate, 'targetDeadline:', targetDeadline);
+  console.log('🔍 Render - timelineData:', timelineData);
+  console.log('🔍 Render - phases count:', timelineData?.phases?.length || 0);
+  console.log('🔍 Render - startDate:', startDate, 'targetDeadline:', targetDeadline);
 
   if (isLoadingSaved) {
     return (

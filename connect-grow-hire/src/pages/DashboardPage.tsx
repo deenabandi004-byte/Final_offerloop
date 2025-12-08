@@ -45,7 +45,7 @@ export default function DashboardPage() {
           {/* Header with Sidebar Toggle */}
           <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-transparent shadow-sm flex-shrink-0 relative z-20">
             <div className="flex items-center gap-4">
-              <SidebarTrigger className="text-foreground hover:bg-accent" />
+              <SidebarTrigger className="text-foreground hover:bg-secondary" />
               <h1 className="text-xl font-semibold">Home</h1>
             </div>
             <PageHeaderActions />

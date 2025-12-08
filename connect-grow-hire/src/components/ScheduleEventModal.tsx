@@ -22,7 +22,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { CalendarIcon, Search, X } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, startOfDay } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 
@@ -198,19 +198,30 @@ export function ScheduleEventModal({
     setIsSubmitting(true);
 
     try {
-      // Format date manually to avoid timezone issues
-      // Extract year, month, day directly from the Date object
-      const year = date.getFullYear();
-      const month = date.getMonth() + 1; // getMonth() returns 0-11, we need 1-12
-      const day = date.getDate();
-      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      // Use date-fns to format the date, which handles timezones correctly
+      // First, normalize to start of day to avoid any time component issues
+      const normalizedDate = startOfDay(date);
+      
+      // Format using date-fns which respects local timezone
+      const dateStr = format(normalizedDate, 'yyyy-MM-dd');
+      
+      // Also extract components manually for verification
+      const year = normalizedDate.getFullYear();
+      const month = normalizedDate.getMonth() + 1;
+      const day = normalizedDate.getDate();
       
       console.log('📅 Creating event with date:', {
-        selectedDate: date,
+        inputDate: date,
+        inputDateISO: date.toISOString(),
+        inputDateLocal: date.toLocaleDateString(),
+        normalizedDate: normalizedDate.toISOString(),
+        normalizedLocal: normalizedDate.toLocaleDateString(),
         year,
         month,
         day,
         formattedDate: dateStr,
+        formattedViaDateFns: format(normalizedDate, 'yyyy-MM-dd'),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
       
       const eventData: Omit<CalendarEvent, 'id' | 'createdAt' | 'updatedAt'> = {
@@ -365,8 +376,49 @@ export function ScheduleEventModal({
                   <Calendar
                     mode="single"
                     selected={date}
-                    onSelect={setDate}
-                    disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                    onSelect={(selectedDate) => {
+                      // Handle date selection - use date-fns startOfDay to normalize
+                      if (selectedDate) {
+                        // Use date-fns startOfDay to ensure we get the date at local midnight
+                        // This handles any timezone issues from the calendar picker
+                        const normalized = startOfDay(selectedDate);
+                        
+                        console.log('📅 Date selected from calendar:', {
+                          original: selectedDate,
+                          originalISO: selectedDate.toISOString(),
+                          originalLocal: selectedDate.toLocaleDateString(),
+                          originalUTC: {
+                            year: selectedDate.getUTCFullYear(),
+                            month: selectedDate.getUTCMonth() + 1,
+                            day: selectedDate.getUTCDate(),
+                          },
+                          originalLocalValues: {
+                            year: selectedDate.getFullYear(),
+                            month: selectedDate.getMonth() + 1,
+                            day: selectedDate.getDate(),
+                          },
+                          normalized,
+                          normalizedISO: normalized.toISOString(),
+                          normalizedLocal: normalized.toLocaleDateString(),
+                          normalizedValues: {
+                            year: normalized.getFullYear(),
+                            month: normalized.getMonth() + 1,
+                            day: normalized.getDate(),
+                          },
+                          formatted: format(normalized, 'yyyy-MM-dd'),
+                        });
+                        
+                        setDate(normalized);
+                      } else {
+                        setDate(undefined);
+                      }
+                    }}
+                    disabled={(date) => {
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const checkDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                      return checkDate < today;
+                    }}
                     initialFocus
                   />
                 </PopoverContent>

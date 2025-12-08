@@ -72,6 +72,11 @@ const parseFirstName = (fullName: string | undefined): string => {
   return nameParts[0] || "";
 };
 
+const contactHasReplied = (thread: OutboxThread | null): boolean => {
+  if (!thread) return false;
+  return thread.status === "new_reply" || thread.status === "waiting_on_you";
+};
+
 export function OutboxEmbedded() {
   const { user } = useFirebaseAuth();
   const navigate = useNavigate();
@@ -159,10 +164,14 @@ export function OutboxEmbedded() {
   };
 
   const handleOpenDraft = () => {
-    // Get draft ID first
-    const draftId = selectedThread?.gmailDraftId;
+    if (!selectedThread) return;
     
-    if (!draftId) {
+    // Check for both gmailDraftId and gmailDraftUrl
+    const draftId = selectedThread.gmailDraftId;
+    let draftUrl = selectedThread.gmailDraftUrl;
+    
+    // If we have neither, show error
+    if (!draftId && !draftUrl) {
       toast({
         title: "No Gmail draft found",
         description: "Generate or regenerate a reply draft first.",
@@ -171,18 +180,23 @@ export function OutboxEmbedded() {
       return;
     }
     
-    // Always construct the correct URL format: #draft (singular) not #drafts (plural)
-    // The correct format opens the specific draft, not the drafts folder
-    let draftUrl = selectedThread?.gmailDraftUrl;
-    
     // If URL exists but uses wrong format (#drafts), fix it
     if (draftUrl && draftUrl.includes('#drafts/')) {
       draftUrl = draftUrl.replace('#drafts/', '#draft/');
     }
     
-    // If no URL or invalid format, construct correct one
+    // If no URL or invalid format, construct correct one from draftId
     if (!draftUrl || !draftUrl.includes('#draft/')) {
-      draftUrl = `https://mail.google.com/mail/u/0/#draft/${draftId}`;
+      if (draftId) {
+        draftUrl = `https://mail.google.com/mail/u/0/#draft/${draftId}`;
+      } else {
+        toast({
+          title: "No Gmail draft found",
+          description: "Generate or regenerate a reply draft first.",
+          variant: "destructive",
+        });
+        return;
+      }
     }
     
     console.log('Opening draft URL:', draftUrl);
@@ -191,6 +205,16 @@ export function OutboxEmbedded() {
 
   const handleRegenerate = async () => {
     if (!selectedThread) return;
+    
+    if (!contactHasReplied(selectedThread)) {
+      toast({
+        title: "No reply from contact",
+        description: "You can only generate a reply after the contact responds.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     try {
       setGenerating(true);
       const result = await apiService.regenerateOutboxReply(selectedThread.id);
@@ -387,60 +411,81 @@ export function OutboxEmbedded() {
               </div>
 
               {/* Suggested Reply */}
-                <div className="border border-gray-100 rounded-xl p-4 bg-white flex flex-col flex-1">
-                  <div className="flex justify-between items-center mb-2">
-                  <div className="flex items-center gap-2">
-                      <Sparkles className="h-4 w-4 text-primary" />
-                    <h3 className="text-sm font-semibold text-foreground">Suggested reply</h3>
-                  </div>
-                  {selectedThread.hasDraft && selectedThread.suggestedReply && (
-                    <Badge
-                      variant="outline"
-                        className="border-blue-500/60 bg-blue-500/10 text-[10px] text-blue-700"
-                    >
-                      Draft saved in Gmail
-                    </Badge>
-                  )}
-                </div>
+                {contactHasReplied(selectedThread) ? (
+                  <div className="border border-gray-100 rounded-xl p-4 bg-white flex flex-col flex-1">
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-primary" />
+                        <h3 className="text-sm font-semibold text-foreground">Suggested reply</h3>
+                      </div>
+                      {selectedThread.hasDraft && selectedThread.suggestedReply && (
+                        <Badge
+                          variant="outline"
+                          className="border-blue-500/60 bg-blue-500/10 text-[10px] text-blue-700"
+                        >
+                          Draft saved in Gmail
+                        </Badge>
+                      )}
+                    </div>
 
-                {selectedThread.suggestedReply ? (
-                  <>
-                      <p className="text-[11px] text-muted-foreground mb-3">
-                      We drafted this response based on their message. Review and edit before
-                      sending — you're always in control.
-                    </p>
-                    <textarea
-                      readOnly
-                      value={selectedThread.suggestedReply}
-                        className="flex-1 w-full text-xs bg-white rounded-xl p-3 resize-none text-foreground whitespace-pre-wrap shadow-inner focus:ring-2 focus:ring-purple-500/20"
-                    />
-                  </>
-                ) : (
-                  <>
-                      <p className="text-[11px] text-muted-foreground mb-3">
-                      Generate an AI-powered reply based on their message. We'll analyze their
-                      tone and content to craft an appropriate response.
-                    </p>
-                      <div className="flex-1 flex items-center justify-center border border-dashed border-gray-100 rounded-xl p-6 bg-white">
-                      <div className="text-center">
-                        <Sparkles className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                          <p className="text-xs text-muted-foreground">
-                          No suggested reply yet
+                    {selectedThread.suggestedReply ? (
+                      <>
+                        <p className="text-[11px] text-muted-foreground mb-3">
+                          We drafted this response based on their message. Review and edit before
+                          sending — you're always in control.
                         </p>
-                          <p className="text-[10px] text-muted-foreground mt-1">
-                          Click "Regenerate" to create one
+                        <textarea
+                          readOnly
+                          value={selectedThread.suggestedReply}
+                          className="flex-1 w-full text-xs bg-white rounded-xl p-3 resize-none text-foreground whitespace-pre-wrap shadow-inner focus:ring-2 focus:ring-purple-500/20"
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-[11px] text-muted-foreground mb-3">
+                          Generate an AI-powered reply based on their message. We'll analyze their
+                          tone and content to craft an appropriate response.
+                        </p>
+                        <div className="flex-1 flex items-center justify-center border border-dashed border-gray-100 rounded-xl p-6 bg-white">
+                          <div className="text-center">
+                            <Sparkles className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                            <p className="text-xs text-muted-foreground">
+                              No suggested reply yet
+                            </p>
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              Click "Regenerate" to create one
+                            </p>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="border border-gray-100 rounded-xl p-4 bg-white flex flex-col flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Sparkles className="h-4 w-4 text-muted-foreground" />
+                      <h3 className="text-sm font-semibold text-foreground">Suggested reply</h3>
+                    </div>
+                    <div className="flex-1 flex items-center justify-center border border-dashed border-gray-100 rounded-xl p-6 bg-white">
+                      <div className="text-center">
+                        <Mail className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-xs text-muted-foreground">
+                          Waiting for reply from contact
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mt-1">
+                          We'll generate a suggested reply once they respond
                         </p>
                       </div>
                     </div>
-                  </>
+                  </div>
                 )}
 
                 {/* Actions */}
-                  <div className="mt-3 flex gap-2 flex-wrap">
+                <div className="mt-3 flex gap-2 flex-wrap">
                   <Button
                     size="sm"
                     onClick={handleOpenDraft}
-                    disabled={!selectedThread.hasDraft}
+                    disabled={!selectedThread.gmailDraftId && !selectedThread.gmailDraftUrl}
                     className="flex items-center gap-1"
                   >
                     <ExternalLink className="h-4 w-4" /> Open Gmail draft
@@ -451,7 +496,7 @@ export function OutboxEmbedded() {
                     variant="outline"
                     onClick={handleCopy}
                     disabled={!selectedThread.suggestedReply}
-                      className="flex items-center gap-1 border-input"
+                    className="flex items-center gap-1 border-input"
                   >
                     <Mail className="h-4 w-4" /> Copy reply text
                   </Button>
@@ -460,8 +505,8 @@ export function OutboxEmbedded() {
                     size="sm"
                     variant="ghost"
                     onClick={handleRegenerate}
-                    disabled={generating}
-                      className="flex items-center gap-1 text-foreground"
+                    disabled={generating || !selectedThread || !contactHasReplied(selectedThread)}
+                    className="flex items-center gap-1 text-foreground"
                   >
                     {generating ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -472,12 +517,11 @@ export function OutboxEmbedded() {
                   </Button>
                 </div>
 
-                  <p className="text-[10px] text-muted-foreground mt-3">
+                <p className="text-[10px] text-muted-foreground mt-3">
                   Tip: personalize your first line — it's the one they read carefully.
                 </p>
               </div>
-            </div>
-          )}
+            )}
           </div>
         </div>
       </div>

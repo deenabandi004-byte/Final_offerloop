@@ -20,31 +20,52 @@ def create_checkout_session():
         data = request.get_json() or {}
         user_id = request.firebase_user.get('uid')
         user_email = request.firebase_user.get('email')
+        price_id = data.get('priceId')
+        success_url = data.get('successUrl') or (request.url_root + 'api/complete-upgrade?session_id={CHECKOUT_SESSION_ID}')
+        cancel_url = data.get('cancelUrl') or (request.url_root + 'api/complete-upgrade?canceled=true')
         
         # Create checkout session
-        session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
-            line_items=[{
-                'price_data': {
-                    'currency': 'usd',
-                    'product_data': {
-                        'name': 'Offerloop Pro',
-                    },
-                    'unit_amount': 1999,  # $19.99
-                    'recurring': {
-                        'interval': 'month',
-                    },
+        if price_id:
+            # Use the provided price ID
+            session = stripe.checkout.Session.create(
+                payment_method_types=['card'],
+                line_items=[{
+                    'price': price_id,
+                    'quantity': 1,
+                }],
+                mode='subscription',
+                success_url=success_url,
+                cancel_url=cancel_url,
+                customer_email=user_email,
+                metadata={
+                    'user_id': user_id,
                 },
-                'quantity': 1,
-            }],
-            mode='subscription',
-            success_url=request.url_root + 'api/complete-upgrade?session_id={CHECKOUT_SESSION_ID}',
-            cancel_url=request.url_root + 'api/complete-upgrade?canceled=true',
-            customer_email=user_email,
-            metadata={
-                'user_id': user_id,
-            },
-        )
+            )
+        else:
+            # Fallback to inline price data if no priceId provided
+            session = stripe.checkout.Session.create(
+                payment_method_types=['card'],
+                line_items=[{
+                    'price_data': {
+                        'currency': 'usd',
+                        'product_data': {
+                            'name': 'Offerloop Pro',
+                        },
+                        'unit_amount': 1999,  # $19.99
+                        'recurring': {
+                            'interval': 'month',
+                        },
+                    },
+                    'quantity': 1,
+                }],
+                mode='subscription',
+                success_url=success_url,
+                cancel_url=cancel_url,
+                customer_email=user_email,
+                metadata={
+                    'user_id': user_id,
+                },
+            )
         
         return jsonify({'sessionId': session.id, 'url': session.url})
         

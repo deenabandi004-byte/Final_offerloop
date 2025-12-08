@@ -339,7 +339,7 @@ const FirmSearchPage: React.FC = () => {
         <div className="flex-1 bg-transparent">
           <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-transparent shadow-sm relative z-20">
             <div className="flex items-center gap-4">
-              <SidebarTrigger className="text-foreground hover:bg-accent" />
+              <SidebarTrigger className="text-foreground hover:bg-secondary" />
               <h1 className="text-xl font-semibold">Firm Search</h1>
             </div>
             <PageHeaderActions />
@@ -390,7 +390,7 @@ const FirmSearchPage: React.FC = () => {
                               variant="outline"
                               size="sm"
                               onClick={() => setShowHistory(!showHistory)}
-                              className="border-input text-foreground hover:bg-accent"
+                              className="border-input text-foreground hover:bg-secondary"
                             >
                               <History className="h-4 w-4 mr-2" />
                               History
@@ -506,7 +506,7 @@ const FirmSearchPage: React.FC = () => {
                                   key={index}
                                   type="button"
                                   onClick={() => handleExampleClick(example)}
-                                  className="whitespace-nowrap rounded-full border border-border bg-white px-3 py-1.5 text-xs text-foreground hover:bg-accent hover:text-foreground transition-colors"
+                                  className="whitespace-nowrap rounded-full border border-border bg-white px-3 py-1.5 text-xs text-foreground hover:bg-secondary hover:text-foreground transition-colors"
                                 >
                                   {example}
                                 </button>
@@ -634,7 +634,7 @@ const FirmSearchPage: React.FC = () => {
                 <h2 className="text-lg font-semibold text-foreground">Search History</h2>
                 <button
                   onClick={() => setShowHistory(false)}
-                  className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-accent"
+                  className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary"
                 >
                   ✕
                 </button>
@@ -656,7 +656,7 @@ const FirmSearchPage: React.FC = () => {
                       <button
                         key={item.id}
                         onClick={() => handleHistoryClick(item)}
-                        className="w-full p-4 text-left hover:bg-accent transition-colors"
+                        className="w-full p-4 text-left hover:bg-secondary transition-colors"
                       >
                         <p className="text-sm font-medium text-foreground line-clamp-2">
                           {item.query}

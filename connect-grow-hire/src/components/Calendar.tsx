@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, MapPin, Video, Phone, Download, ExternalLink, Loader2, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, MapPin, Video, Phone, Download, ExternalLink, Loader2, Trash2, Coffee } from 'lucide-react';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 import { firebaseApi, type CalendarEvent, type FollowUpReminder } from '@/services/firebaseApi';
 import { ScheduleEventModal } from './ScheduleEventModal';
@@ -59,7 +59,10 @@ export function Calendar() {
       const updates: Array<{ id: string; updates: Partial<CalendarEvent> }> = [];
 
       events.forEach(event => {
-        const eventDate = new Date(`${event.date}T${event.time}`);
+        // Parse date string without timezone conversion
+        const [year, month, day] = event.date.split('-').map(Number);
+        const [hours, minutes] = event.time.split(':').map(Number);
+        const eventDate = new Date(year, month - 1, day, hours, minutes);
         if (
           eventDate < now &&
           event.status !== 'completed' &&
@@ -171,15 +174,22 @@ export function Calendar() {
     });
   };
 
+  // Helper to parse date and time without timezone conversion
+  const parseEventDateTime = (dateStr: string, timeStr: string): Date => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    return new Date(year, month - 1, day, hours, minutes);
+  };
+
   // Get upcoming events (sorted by date/time)
   const upcomingEvents = events
     .filter(event => {
-      const eventDate = new Date(`${event.date}T${event.time}`);
+      const eventDate = parseEventDateTime(event.date, event.time);
       return eventDate >= new Date() && event.status !== 'cancelled';
     })
     .sort((a, b) => {
-      const dateA = new Date(`${a.date}T${a.time}`);
-      const dateB = new Date(`${b.date}T${b.time}`);
+      const dateA = parseEventDateTime(a.date, a.time);
+      const dateB = parseEventDateTime(b.date, b.time);
       return dateA.getTime() - dateB.getTime();
     })
     .slice(0, 10); // Limit to 10 upcoming events
@@ -192,9 +202,12 @@ export function Calendar() {
     return `${hour}:${minutes.toString().padStart(2, '0')} ${ampm}`;
   };
 
-  // Format date for display
+  // Format date for display - parse date string without timezone conversion
   const formatEventDate = (dateStr: string): string => {
-    const date = new Date(dateStr);
+    // Parse date string (format: "yyyy-MM-dd") without timezone conversion
+    const [year, month, day] = dateStr.split('-').map(Number);
+    // Create date in local timezone to avoid timezone shift
+    const date = new Date(year, month - 1, day);
     return format(date, 'MMM d, yyyy');
   };
 
@@ -332,7 +345,7 @@ export function Calendar() {
                       </div>
                       {day.hasEvent && (
                         <div className="mt-1.5 flex items-center justify-center">
-                          <div className="w-2 h-2 rounded-full bg-purple shadow-sm ring-2 ring-purple/20"></div>
+                          <Coffee className="w-5 h-5 text-red-500 dark:text-red-400" />
                         </div>
                       )}
                       {isSelected && dayEvents.length > 0 && (

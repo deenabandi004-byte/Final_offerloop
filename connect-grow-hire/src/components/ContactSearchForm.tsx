@@ -306,7 +306,7 @@ ${userName || ''}`;
             </thead>
             <tbody className="bg-background divide-y divide-border">
               {contacts.map((contact, index) => (
-                <tr key={contact.id || index} className="hover:bg-accent/50">
+                <tr key={contact.id || index} className="hover:bg-secondary/50">
                   <td className="px-3 py-4 whitespace-nowrap text-sm text-foreground">{contact.firstName}</td>
                   <td className="px-3 py-4 whitespace-nowrap text-sm text-foreground">{contact.lastName}</td>
                   <td className="px-3 py-4 whitespace-nowrap text-sm">

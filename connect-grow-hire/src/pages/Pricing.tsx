@@ -131,7 +131,7 @@ const Pricing = () => {
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          priceId: "price_1S9ertERY2WrVHp1hyxo8qL6",
+          priceId: "price_1SQ0IJERY2WrVHp1Ul5OrP63",
           userId: user.uid,
           userEmail: user.email,
           successUrl: `${window.location.origin}/payment-success`,

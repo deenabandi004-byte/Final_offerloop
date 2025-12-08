@@ -441,7 +441,7 @@ const InterviewPrepPage: React.FC = () => {
         <div className="flex-1">
           <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-transparent shadow-sm relative z-20">
             <div className="flex items-center gap-4">
-              <SidebarTrigger className="text-foreground hover:bg-accent" />
+              <SidebarTrigger className="text-foreground hover:bg-secondary" />
               <h1 className="text-xl font-semibold">Interview Prep</h1>
             </div>
             <PageHeaderActions />
