@@ -135,9 +135,15 @@ def require_firebase_auth(fn):
     """
     Decorator to require Firebase authentication for an endpoint.
     Extracts and verifies the Firebase ID token from the Authorization header.
+    Allows OPTIONS requests (CORS preflight) to pass through without authentication.
     """
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
+        # Allow OPTIONS requests (CORS preflight) to pass through without authentication
+        # The CORS middleware will handle these requests
+        if request.method == 'OPTIONS':
+            return fn(*args, **kwargs)
+        
         # Check if Firebase Admin is initialized
         if not firebase_admin._apps:
             error_msg = "Firebase Admin SDK not initialized. Call init_firebase() first."

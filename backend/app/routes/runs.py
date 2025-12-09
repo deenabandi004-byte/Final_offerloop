@@ -799,10 +799,14 @@ def free_run_csv():
         return jsonify({'error': str(e)}), 500
 
 
-@runs_bp.route("/pro-run", methods=["POST"])
+@runs_bp.route("/pro-run", methods=["POST", "OPTIONS"])
 @require_firebase_auth
 def pro_run():
     """Pro tier search endpoint with validation"""
+    # OPTIONS requests are handled by CORS middleware, just return empty response
+    if request.method == 'OPTIONS':
+        return '', 200
+    
     try:
         user_email = request.firebase_user.get('email')
         user_id = request.firebase_user['uid']
@@ -941,10 +945,14 @@ def pro_run():
         raise OfferloopException(f"Search failed: {str(e)}", error_code="SEARCH_ERROR")
 
 
-@runs_bp.route('/pro-run-csv', methods=['POST'])
+@runs_bp.route('/pro-run-csv', methods=['POST', 'OPTIONS'])
 @require_firebase_auth
 def pro_run_csv():
     """Pro tier CSV download endpoint"""
+    # OPTIONS requests are handled by CORS middleware, just return empty response
+    if request.method == 'OPTIONS':
+        return '', 200
+    
     try:
         user_email = request.firebase_user.get('email')
         
