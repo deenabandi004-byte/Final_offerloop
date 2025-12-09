@@ -292,20 +292,40 @@ const ContactSearchPage: React.FC = () => {
     }
 
     setIsSearching(true);
-    setProgressValue(0);
+    setProgressValue(10); // Start at 10% to show search has begun
     setSearchComplete(false);
 
+    // Progress simulation interval - declared outside try block for proper cleanup
+    let progressInterval: NodeJS.Timeout | null = null;
+    const startProgressSimulation = () => {
+      let currentProgress = 10;
+      progressInterval = setInterval(() => {
+        if (currentProgress < 85) {
+          // Gradually increase progress up to 85% while waiting
+          currentProgress += Math.random() * 5 + 2; // Increment by 2-7%
+          currentProgress = Math.min(currentProgress, 85); // Cap at 85% until search completes
+          setProgressValue(Math.floor(currentProgress));
+        }
+      }, 500); // Update every 500ms
+    };
+
     try {
+      // Start progress simulation
+      startProgressSimulation();
+
       // ✅ FIXED: Parallelize API calls instead of sequential
-      // ✅ FIXED: Removed fake progress bars (setTimeout simulation)
-      // Use simple loading state - progress will be 100% when search completes
       const [userProfile, currentCredits] = await Promise.all([
         getUserProfileData(),
         checkCredits ? checkCredits() : Promise.resolve(effectiveUser.credits ?? 0)
       ]);
 
+      // Update progress after initial data fetch
+      setProgressValue(20);
+
       if (currentCredits < 15) {
+        if (progressInterval) clearInterval(progressInterval);
         setIsSearching(false);
+        setProgressValue(0);
         toast({
           title: "Insufficient Credits",
           description: `You have ${currentCredits} credits. You need at least 15 credits to search.`,
@@ -315,7 +335,9 @@ const ContactSearchPage: React.FC = () => {
       }
 
       if (userTier === "pro" && !uploadedFile) {
+        if (progressInterval) clearInterval(progressInterval);
         setIsSearching(false);
+        setProgressValue(0);
         toast({
           title: "Resume Required",
           description: "Pro tier requires a resume upload for similarity matching.",
@@ -323,6 +345,9 @@ const ContactSearchPage: React.FC = () => {
         });
         return;
       }
+
+      // Update progress before starting search
+      setProgressValue(30);
 
       if (userTier === "free") {
         const searchRequest = {
@@ -336,8 +361,11 @@ const ContactSearchPage: React.FC = () => {
           batchSize: batchSize,
         };
 
+        setProgressValue(40); // Progress update before API call
         const result = await apiService.runFreeSearch(searchRequest);
         if (!isSearchResult(result)) {
+          if (progressInterval) clearInterval(progressInterval);
+          setProgressValue(0);
           toast({
             title: "Search Failed",
             description: (result as any)?.error || "Please try again.",
@@ -345,6 +373,10 @@ const ContactSearchPage: React.FC = () => {
           });
           return;
         }
+
+        // Clear progress interval and update to 90% while processing results
+        if (progressInterval) clearInterval(progressInterval);
+        setProgressValue(90);
 
         const creditsUsed = result.contacts.length * 15;
         const newCredits = Math.max(0, currentCredits - creditsUsed);
@@ -415,8 +447,10 @@ const ContactSearchPage: React.FC = () => {
           batchSize: batchSize,
         };
 
+        setProgressValue(40); // Progress update before API call
         const result = await apiService.runProSearch(proRequest);
         if (isErrorResponse(result)) {
+          if (progressInterval) clearInterval(progressInterval);
           setIsSearching(false);
           setProgressValue(0);
           if (result.error?.includes("Insufficient credits")) {
@@ -435,6 +469,10 @@ const ContactSearchPage: React.FC = () => {
           });
           return;
         }
+
+        // Clear progress interval and update to 90% while processing results
+        if (progressInterval) clearInterval(progressInterval);
+        setProgressValue(90);
 
         const creditsUsed = result.contacts.length * 15;
         const newCredits = Math.max(0, currentCredits - creditsUsed);
@@ -504,6 +542,8 @@ const ContactSearchPage: React.FC = () => {
         }
       }
     } catch (error: any) {
+      // Clear progress interval on error
+      if (progressInterval) clearInterval(progressInterval);
       const isDev = import.meta.env.DEV;
       if (isDev) console.error("Search failed:", error);
       if (error?.needsAuth || error?.require_reauth) {
@@ -533,7 +573,10 @@ const ContactSearchPage: React.FC = () => {
         duration: 5000,
       });
       setSearchComplete(false);
+      setProgressValue(0);
     } finally {
+      // Ensure progress interval is cleared
+      if (progressInterval) clearInterval(progressInterval);
       setIsSearching(false);
       if (searchComplete) {
         setTimeout(() => {

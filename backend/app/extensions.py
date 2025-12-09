@@ -140,9 +140,12 @@ def require_firebase_auth(fn):
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         # Allow OPTIONS requests (CORS preflight) to pass through without authentication
-        # The CORS middleware will handle these requests
+        # Flask-CORS will automatically handle these and add the necessary headers
         if request.method == 'OPTIONS':
-            return fn(*args, **kwargs)
+            # Return empty response - Flask-CORS will add headers via after_request hook
+            response = jsonify({})
+            response.status_code = 200
+            return response
         
         # Check if Firebase Admin is initialized
         if not firebase_admin._apps:
