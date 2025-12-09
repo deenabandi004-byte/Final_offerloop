@@ -41,46 +41,65 @@ export default defineConfig(({ mode }) => {
           manualChunks: (id) => {
             // Group all node_modules into vendor chunk
             if (id.includes('node_modules')) {
-              // CRITICAL: React and React-DOM must be in the same chunk as UI components
-              // that depend on them (like @radix-ui) to avoid "forwardRef is undefined" errors
-              if (id.includes('react') || id.includes('react-dom')) {
-                // Keep React with UI components that use forwardRef
-                return 'vendor-react';
-              }
-              // Separate Firebase into its own chunk (large library)
-              if (id.includes('firebase')) {
-                return 'vendor-firebase';
-              }
-              // Group all Radix UI components with React to ensure React is available
-              // Note: This ensures React.forwardRef is accessible to Radix components
-              if (id.includes('@radix-ui')) {
-                return 'vendor-react'; // Put Radix UI in same chunk as React
-              }
-              // Group React Router with React
-              if (id.includes('react-router')) {
-                return 'vendor-react';
-              }
-              // Group React ecosystem libraries to avoid circular dependencies
-              if (id.includes('react-hook-form') || 
+              // CRITICAL: React and React-DOM must be in the same chunk as ALL libraries that use React
+              // This prevents "Cannot access 'z' before initialization" errors
+              // Put React and ALL React-dependent libraries together
+              if (id.includes('react') || 
+                  id.includes('react-dom') ||
+                  id.includes('@radix-ui') ||
+                  id.includes('react-router') ||
+                  id.includes('react-hook-form') || 
                   id.includes('@tanstack/react-query') ||
                   id.includes('react-day-picker') ||
                   id.includes('embla-carousel-react') ||
-                  id.includes('react-resizable-panels')) {
+                  id.includes('react-resizable-panels') ||
+                  id.includes('react-fast-marquee') ||
+                  id.includes('react-is') ||
+                  id.includes('framer-motion') || // Uses React
+                  id.includes('recharts') || // Uses React
+                  id.includes('@hookform/resolvers') || // Uses React
+                  id.includes('cmdk') || // Uses React
+                  id.includes('sonner') || // Uses React
+                  id.includes('vaul') || // Uses React
+                  id.includes('input-otp') || // Uses React
+                  id.includes('next-themes') || // Uses React
+                  id.includes('lucide-react')) { // Uses React
                 return 'vendor-react';
               }
-              // Group utility libraries that might have circular deps separately
+              // Separate Firebase into its own chunk (large library, no React)
+              if (id.includes('firebase')) {
+                return 'vendor-firebase';
+              }
+              // Group utility libraries that DON'T use React separately
               if (id.includes('clsx') || 
                   id.includes('tailwind-merge') ||
-                  id.includes('class-variance-authority') ||
-                  id.includes('lucide-react')) {
+                  id.includes('class-variance-authority')) {
                 return 'vendor-utils';
               }
-              // Group other vendor libraries together
+              // Animation library that doesn't use React
+              if (id.includes('gsap')) {
+                return 'vendor-animations';
+              }
+              // Form validation library that doesn't use React directly
+              if (id.includes('zod')) {
+                return 'vendor-forms';
+              }
+              // Date utilities (no React)
+              if (id.includes('date-fns')) {
+                return 'vendor-dates';
+              }
+              // Stripe (no React)
+              if (id.includes('@stripe')) {
+                return 'vendor-stripe';
+              }
+              // Group remaining vendor libraries together (NONE should use React)
               return 'vendor';
             }
           },
           // Ensure proper module format to prevent initialization issues
           format: 'es',
+          // Prevent hoisting transitive imports which can cause initialization order issues
+          hoistTransitiveImports: false,
           // Ensure proper chunk loading order
           generatedCode: {
             constBindings: true, // Use const instead of var to prevent hoisting issues
