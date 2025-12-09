@@ -127,7 +127,10 @@ def create_app() -> Flask:
     @app.route('/assets/<path:filename>')
     def vite_assets(filename):
         assets_dir = os.path.join(app.static_folder, 'assets')
-        return send_from_directory(assets_dir, filename)
+        response = send_from_directory(assets_dir, filename)
+        # Add caching headers for static assets (1 year cache)
+        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        return response
 
     # --- Serve root index.html ---
     @app.route('/')

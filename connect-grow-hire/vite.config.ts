@@ -17,16 +17,35 @@ export default defineConfig(({ mode }) => {
     build: { 
       outDir: 'dist', 
       assetsDir: 'assets',
-      // ✅ Optimize chunk splitting for better code splitting
+      // ✅ Optimize chunk splitting to reduce number of concurrent requests
       rollupOptions: {
         output: {
-          manualChunks: {
-            'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-            'vendor-ui': ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select'],
-            'vendor-utils': ['date-fns', 'zod', '@hookform/resolvers'],
+          // Strategy: Create fewer, larger chunks to reduce concurrent requests
+          manualChunks: (id) => {
+            // Group all node_modules into vendor chunk
+            if (id.includes('node_modules')) {
+              // Separate Firebase into its own chunk (large library)
+              if (id.includes('firebase')) {
+                return 'vendor-firebase';
+              }
+              // Group all Radix UI components together
+              if (id.includes('@radix-ui')) {
+                return 'vendor-ui';
+              }
+              // Group React ecosystem together
+              if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
+                return 'vendor-react';
+              }
+              // Group other vendor libraries together
+              return 'vendor';
+            }
           },
+          // Limit chunk size to encourage better splitting
+          chunkSizeWarningLimit: 1000,
         },
       },
+      // Optimize chunk size limits
+      chunkSizeWarningLimit: 1000,
     },
     server: {
       host: true,

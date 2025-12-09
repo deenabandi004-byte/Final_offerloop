@@ -175,13 +175,34 @@ def require_firebase_auth(fn):
         return fn(*args, **kwargs)
     return wrapper
 
+def get_rate_limit_key():
+    """
+    Custom key function for rate limiting that excludes static assets.
+    Returns None for static assets (which exempts them from rate limiting),
+    otherwise returns the remote address.
+    """
+    from flask import request
+    # Exclude static assets and root route from rate limiting
+    if (request.path.startswith('/assets/') or 
+        request.path == '/favicon.ico' or 
+        request.path == '/' or
+        request.path.endswith('.js') or
+        request.path.endswith('.css') or
+        request.path.endswith('.png') or
+        request.path.endswith('.jpg') or
+        request.path.endswith('.svg') or
+        request.path.endswith('.woff') or
+        request.path.endswith('.woff2')):
+        return None  # None exempts from rate limiting
+    return get_remote_address()
+
 def init_app_extensions(app: Flask):
     """Initializes Flask extensions like CORS, Rate Limiting, and Firebase."""
     global limiter
-    # Initialize rate limiter
+    # Initialize rate limiter with custom key function that excludes static assets
     limiter = Limiter(
         app=app,
-        key_func=get_remote_address,
+        key_func=get_rate_limit_key,
         default_limits=["200 per day", "50 per hour"],
         storage_uri="memory://",  # Use in-memory storage (can upgrade to Redis later)
         strategy="fixed-window",
