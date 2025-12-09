@@ -42,8 +42,9 @@ export default defineConfig(({ mode }) => {
             // Group all node_modules into vendor chunk
             if (id.includes('node_modules')) {
               // CRITICAL: React and React-DOM must be in the same chunk as ALL libraries that use React
-              // This prevents "Cannot access 'z' before initialization" errors
+              // This prevents "Cannot access 'z' before initialization" and "useLayoutEffect" errors
               // Put React and ALL React-dependent libraries together
+              // BE AGGRESSIVE: If there's any doubt, put it in vendor-react
               if (id.includes('react') || 
                   id.includes('react-dom') ||
                   id.includes('@radix-ui') ||
@@ -63,37 +64,37 @@ export default defineConfig(({ mode }) => {
                   id.includes('vaul') || // Uses React
                   id.includes('input-otp') || // Uses React
                   id.includes('next-themes') || // Uses React
-                  id.includes('lucide-react')) { // Uses React
+                  id.includes('lucide-react') || // Uses React
+                  id.includes('zod') || // Might have React peer deps, safer to include
+                  id.includes('ogl')) { // Unknown - safer to include with React
                 return 'vendor-react';
               }
-              // Separate Firebase into its own chunk (large library, no React)
+              // Separate Firebase into its own chunk (large library, confirmed no React)
               if (id.includes('firebase')) {
                 return 'vendor-firebase';
               }
-              // Group utility libraries that DON'T use React separately
+              // Group utility libraries that are CONFIRMED to not use React
+              // Only pure utility functions with no dependencies
               if (id.includes('clsx') || 
                   id.includes('tailwind-merge') ||
                   id.includes('class-variance-authority')) {
                 return 'vendor-utils';
               }
-              // Animation library that doesn't use React
+              // Animation library that doesn't use React (confirmed)
               if (id.includes('gsap')) {
                 return 'vendor-animations';
               }
-              // Form validation library that doesn't use React directly
-              if (id.includes('zod')) {
-                return 'vendor-forms';
-              }
-              // Date utilities (no React)
+              // Date utilities (confirmed no React)
               if (id.includes('date-fns')) {
                 return 'vendor-dates';
               }
-              // Stripe (no React)
+              // Stripe (confirmed no React)
               if (id.includes('@stripe')) {
                 return 'vendor-stripe';
               }
-              // Group remaining vendor libraries together (NONE should use React)
-              return 'vendor';
+              // If we're not sure, put it with React to be safe
+              // This prevents "useLayoutEffect" errors from libraries we didn't catch
+              return 'vendor-react';
             }
           },
           // Ensure proper module format to prevent initialization issues
