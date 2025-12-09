@@ -27,10 +27,17 @@ export default defineConfig(({ mode }) => {
     build: { 
       outDir: 'dist', 
       assetsDir: 'assets',
+      // Production-specific optimizations
+      minify: 'esbuild', // Use esbuild (faster, more reliable than terser)
+      sourcemap: false, // Disable sourcemaps in production to reduce size
       // ✅ Optimize chunk splitting to reduce number of concurrent requests
       rollupOptions: {
+        // Don't preserve entry signatures in production - let Rollup optimize
+        // This prevents "Cannot access before initialization" errors
+        preserveEntrySignatures: false,
         output: {
           // Strategy: Create fewer, larger chunks to reduce concurrent requests
+          // while ensuring proper initialization order
           manualChunks: (id) => {
             // Group all node_modules into vendor chunk
             if (id.includes('node_modules')) {
@@ -53,9 +60,30 @@ export default defineConfig(({ mode }) => {
               if (id.includes('react-router')) {
                 return 'vendor-react';
               }
+              // Group React ecosystem libraries to avoid circular dependencies
+              if (id.includes('react-hook-form') || 
+                  id.includes('@tanstack/react-query') ||
+                  id.includes('react-day-picker') ||
+                  id.includes('embla-carousel-react') ||
+                  id.includes('react-resizable-panels')) {
+                return 'vendor-react';
+              }
+              // Group utility libraries that might have circular deps separately
+              if (id.includes('clsx') || 
+                  id.includes('tailwind-merge') ||
+                  id.includes('class-variance-authority') ||
+                  id.includes('lucide-react')) {
+                return 'vendor-utils';
+              }
               // Group other vendor libraries together
               return 'vendor';
             }
+          },
+          // Ensure proper module format to prevent initialization issues
+          format: 'es',
+          // Ensure proper chunk loading order
+          generatedCode: {
+            constBindings: true, // Use const instead of var to prevent hoisting issues
           },
         },
       },
