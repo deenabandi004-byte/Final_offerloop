@@ -40,8 +40,8 @@ import {
 
 const navigationItems = [
   { title: "Home", url: "/home", icon: Home },
-  { title: "Firm Search", url: "/firm-search", icon: Building2 },
   { title: "Contact Search", url: "/contact-search", icon: Search },
+  { title: "Firm Search", url: "/firm-search", icon: Building2 },
   { title: "Coffee Chat Prep", url: "/coffee-chat-prep", icon: Coffee },
   { title: "Interview Prep", url: "/interview-prep", icon: Briefcase },
   { title: "Pricing", url: "/pricing", icon: CreditCard },

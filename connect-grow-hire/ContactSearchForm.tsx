@@ -15,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 
 const searchSchema = z.object({
   jobTitle: z.string().min(1, "Job title is required"),
-  company: z.string().min(1, "Company is required"),
+  company: z.string().optional(), // Company is optional
   location: z.string().min(1, "Location is required"),
   tier: z.enum(["basic", "advanced", "pro"]),
   resume: z.any().optional(),
@@ -46,7 +46,7 @@ export const ContactSearchForm = () => {
     try {
       const baseRequest: ContactSearchRequest = {
         jobTitle: data.jobTitle,
-        company: data.company,
+        company: data.company || undefined, // Company is optional
         location: data.location,
         uid: `user-${Date.now()}`,
       };

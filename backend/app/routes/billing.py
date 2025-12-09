@@ -179,65 +179,102 @@ def complete_upgrade():
         user_email = request.firebase_user.get('email')
         
         print(f"\n💳 Completing upgrade for {user_email}")
-        print(f"   Session: {session_id}")
+        print(f"   User ID: {user_id}")
+        print(f"   Session ID: {session_id}")
+        
+        if not session_id:
+            print("   ⚠️  No session ID provided")
+            return jsonify({'error': 'Session ID is required'}), 400
         
         # Verify with Stripe
-        if session_id:
-            try:
-                from app.config import STRIPE_SECRET_KEY
-                if STRIPE_SECRET_KEY:
-                    stripe.api_key = STRIPE_SECRET_KEY
-                    session = stripe.checkout.Session.retrieve(session_id)
-                    print(f"   Payment status: {session.payment_status}")
+        subscription_id = None
+        customer_id = None
+        
+        try:
+            from app.config import STRIPE_SECRET_KEY
+            if not STRIPE_SECRET_KEY:
+                print("   ⚠️  Stripe not configured, proceeding without verification")
+            else:
+                stripe.api_key = STRIPE_SECRET_KEY
+                session = stripe.checkout.Session.retrieve(session_id)
+                print(f"   Payment status: {session.payment_status}")
+                print(f"   Session mode: {session.mode}")
+                print(f"   Customer: {session.customer}")
+                print(f"   Subscription: {session.subscription}")
+                
+                if session.payment_status != 'paid':
+                    print(f"   ❌ Payment not completed. Status: {session.payment_status}")
+                    return jsonify({
+                        'error': f'Payment not completed. Status: {session.payment_status}',
+                        'payment_status': session.payment_status
+                    }), 400
+                
+                subscription_id = session.subscription
+                customer_id = session.customer
+                print(f"   ✅ Payment verified - Customer: {customer_id}, Subscription: {subscription_id}")
                     
-                    if session.payment_status != 'paid':
-                        return jsonify({'error': 'Payment not completed'}), 400
-                    
-                    subscription_id = session.subscription
-                    customer_id = session.customer
-                else:
-                    subscription_id = None
-                    customer_id = None
-                    
-            except Exception as e:
-                print(f"   ⚠️  Stripe check failed: {e}")
-                subscription_id = None
-                customer_id = None
-        else:
-            subscription_id = None
-            customer_id = None
+        except stripe.error.StripeError as e:
+            print(f"   ❌ Stripe error: {e}")
+            return jsonify({
+                'error': f'Stripe verification failed: {str(e)}',
+                'stripe_error': str(e)
+            }), 400
+        except Exception as e:
+            print(f"   ⚠️  Error retrieving Stripe session: {e}")
+            import traceback
+            traceback.print_exc()
+            # Continue without Stripe verification if it fails
+            # This allows manual upgrades if Stripe is having issues
         
         # Update Firebase
-        if db:
-            user_ref = db.collection('users').document(user_id)
-            
-            update_data = {
-                'tier': 'pro',
-                'credits': 1800,
-                'maxCredits': 1800,
-                'subscriptionStatus': 'active',
-                'upgraded_at': datetime.now().isoformat(),
-                'lastCreditReset': datetime.now().isoformat()
-            }
-            
-            if customer_id:
-                update_data['stripeCustomerId'] = customer_id
-            if subscription_id:
-                update_data['stripeSubscriptionId'] = subscription_id
-            
-            user_ref.set(update_data, merge=True)
+        if not db:
+            print("   ❌ Firebase not initialized")
+            return jsonify({'error': 'Database not available'}), 500
         
-        print(f"✅ Upgraded {user_email} to Pro!")
+        user_ref = db.collection('users').document(user_id)
+        
+        # Check if user exists first
+        user_doc = user_ref.get()
+        if not user_doc.exists:
+            print(f"   ⚠️  User document doesn't exist, creating new one")
+        
+        update_data = {
+            'tier': 'pro',
+            'credits': 1800,
+            'maxCredits': 1800,
+            'subscriptionStatus': 'active',
+            'upgraded_at': datetime.now().isoformat(),
+            'lastCreditReset': datetime.now().isoformat()
+        }
+        
+        if customer_id:
+            update_data['stripeCustomerId'] = customer_id
+        if subscription_id:
+            update_data['stripeSubscriptionId'] = subscription_id
+        
+        user_ref.set(update_data, merge=True)
+        print(f"   ✅ Updated Firebase user document")
+        
+        print(f"✅ Successfully upgraded {user_email} to Pro!")
         
         return jsonify({
             'success': True,
             'message': 'Successfully upgraded to Pro',
             'tier': 'pro',
-            'credits': 1800
+            'credits': 1800,
+            'subscriptionId': subscription_id,
+            'customerId': customer_id
         })
         
+    except KeyError as e:
+        print(f"❌ Missing required field: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Missing required field: {str(e)}'}), 400
     except Exception as e:
-        print(f"Upgrade completion error: {e}")
+        print(f"❌ Upgrade completion error: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 

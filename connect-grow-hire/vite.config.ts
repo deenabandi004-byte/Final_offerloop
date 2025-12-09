@@ -14,7 +14,20 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: { '@': path.resolve(__dirname, './src') },
     },
-    build: { outDir: 'dist', assetsDir: 'assets' }, // defaults, but explicit is fine
+    build: { 
+      outDir: 'dist', 
+      assetsDir: 'assets',
+      // ✅ Optimize chunk splitting for better code splitting
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+            'vendor-ui': ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select'],
+            'vendor-utils': ['date-fns', 'zod', '@hookform/resolvers'],
+          },
+        },
+      },
+    },
     server: {
       host: true,
       port: 8080,

@@ -379,7 +379,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                   featureName="Coffee Chat Prep" 
                   requiredTier="Pro"
                 >
-              <Tabs defaultValue="coffee-chat-prep" className="w-full">
+                  <Tabs defaultValue="coffee-chat-prep" className="w-full">
                 <div className="flex justify-center mb-8">
                   <TabsList className="h-14 tabs-container-gradient border border-border grid grid-cols-2 max-w-lg w-full rounded-xl p-1 bg-white">
                     <TabsTrigger
@@ -666,7 +666,124 @@ const CoffeeChatPrepPage: React.FC = () => {
                     )}
                   </div>
                 </TabsContent>
-              </Tabs>
+
+                <TabsContent value="coffee-library" className="mt-6">
+                    <div className="space-y-6">
+                      {libraryLoading ? (
+                        <Card className="bg-white border-border">
+                          <CardContent className="p-6">
+                            <LoadingSkeleton variant="card" count={3} />
+                          </CardContent>
+                        </Card>
+                      ) : preps.length === 0 ? (
+                        <div className="rounded-xl border border-border bg-white p-10 text-center space-y-4">
+                          <Coffee className="h-10 w-10 mx-auto text-primary" />
+                          <h3 className="text-lg font-semibold text-foreground">No preps yet</h3>
+                          <p className="text-sm text-muted-foreground">
+                            Generate your first coffee chat prep to see it appear here.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-6">
+                          {groupedPreps.inProgress.length > 0 && (
+                            <section>
+                              <h3 className="text-sm font-semibold text-muted-foreground uppercase mb-3">
+                                In Progress
+                              </h3>
+                              <div className="grid gap-4">
+                                {groupedPreps.inProgress.map((prep) => (
+                                  <div
+                                    key={prep.id}
+                                    className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-5 py-4 flex items-center justify-between"
+                                  >
+                                    <div>
+                                      <p className="text-sm text-foreground font-medium">{prep.contactName}</p>
+                                      <p className="text-xs text-muted-foreground">
+                                        {prep.jobTitle} @ {prep.company}
+                                      </p>
+                                      <p className="text-xs text-muted-foreground mt-1">
+                                        Requested {prep.createdAt ? new Date(prep.createdAt).toLocaleString() : ""}
+                                      </p>
+                                    </div>
+                                    <div className="text-xs uppercase text-yellow-600">Processing...</div>
+                                  </div>
+                                ))}
+                              </div>
+                            </section>
+                          )}
+
+                          {groupedPreps.completed.length > 0 && (
+                            <section className="space-y-3">
+                              <h3 className="text-sm font-semibold text-muted-foreground uppercase">
+                                Completed ({groupedPreps.completed.length})
+                              </h3>
+                              <div className="grid gap-4">
+                                {groupedPreps.completed.map((prep) => (
+                                  <div
+                                    key={prep.id}
+                                    className="rounded-xl border border-border bg-white p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4"
+                                  >
+                                    <div className="space-y-2">
+                                      <div className="flex items-center gap-2 text-sm text-foreground font-medium">
+                                        <BadgeCheck className="h-4 w-4 text-blue-600" />
+                                        {prep.contactName}
+                                      </div>
+                                      <div className="text-sm text-foreground">
+                                        {prep.jobTitle} @ {prep.company}
+                                      </div>
+                                      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                                        <span className="flex items-center gap-1">
+                                          <Calendar className="h-3 w-3" />
+                                          {prep.createdAt ? new Date(prep.createdAt).toLocaleDateString() : "—"}
+                                        </span>
+                                        {prep.hometown && (
+                                          <span className="flex items-center gap-1">
+                                            <MapPin className="h-3 w-3" />
+                                            {prep.hometown}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {prep.industrySummary && (
+                                        <p className="text-xs text-muted-foreground">
+                                          {prep.industrySummary}
+                                        </p>
+                                      )}
+                                    </div>
+
+                                    <div className="flex items-center gap-3">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="border-primary text-primary hover:bg-primary/10"
+                                        onClick={() => handleLibraryDownload(prep)}
+                                      >
+                                        <Download className="h-4 w-4 mr-2" />
+                                        PDF
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="text-destructive hover:text-destructive/80"
+                                        disabled={deletingId === prep.id}
+                                        onClick={() => handleLibraryDelete(prep.id)}
+                                      >
+                                        {deletingId === prep.id ? (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                          <Trash2 className="h-4 w-4" />
+                                        )}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </section>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </TabsContent>
+                </Tabs>
                 </LockedFeatureOverlay>
               ) : (
                 <Tabs defaultValue="coffee-chat-prep" className="w-full">

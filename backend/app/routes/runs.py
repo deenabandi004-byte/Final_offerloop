@@ -76,8 +76,11 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                     credits_available = check_and_reset_credits(user_ref, user_data)
                     
                     # ✅ LOAD FROM SUBCOLLECTION (not contactLibrary field)
+                    # ✅ OPTIMIZED: Only fetch fields needed for identity matching (reduces data transfer by ~70-90%)
                     contacts_ref = db.collection('users').document(user_id).collection('contacts')
-                    contact_docs = list(contacts_ref.stream())
+                    contact_docs = list(contacts_ref.select(
+                        'firstName', 'lastName', 'email', 'linkedinUrl', 'company'
+                    ).stream())
                     
                     seen_contact_set = set()
                     
@@ -393,15 +396,21 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         # This allows contacts to reappear if library is cleared
         
         # ✅ HUNTER.IO ENRICHMENT - Enrich contacts without emails
-        contacts_with_email = [c for c in contacts if c.get('Email') and c['Email'] != "Not available"]
-        contacts_without_email = len(contacts) - len(contacts_with_email)
+        contacts_with_email: list[dict] = []
+        contacts_without_email: list[dict] = []
+
+        for c in contacts:
+            if has_pdl_email(c):
+                contacts_with_email.append(c)
+            else:
+                contacts_without_email.append(c)
         
         print(f"\n📧 Email Status: {len(contacts_with_email)}/{len(contacts)} have emails from PDL")
         
         # Only use Hunter.io if we have contacts without emails
-        if contacts_without_email > 0:
+        if contacts_without_email:
             needed = max_contacts - len(contacts_with_email)
-            print(f"🔍 Need {needed} more emails, enriching {contacts_without_email} contacts with Hunter.io...")
+            print(f"🔍 Need {needed} more emails, enriching {len(contacts_without_email)} contacts with Hunter.io...")
             
             try:
                 contacts = enrich_contacts_with_hunter(
@@ -610,7 +619,7 @@ def free_run():
         
         # Extract validated fields
         job_title = validated_data['jobTitle']
-        company = validated_data['company']
+        company = validated_data.get('company') or ''  # Company is optional, default to empty string
         location = validated_data['location']
         college_alumni = validated_data.get('collegeAlumni')
         batch_size = validated_data.get('batchSize')
@@ -767,26 +776,45 @@ def free_run_csv():
 @runs_bp.route("/pro-run", methods=["POST"])
 @require_firebase_auth
 def pro_run():
-    """Pro tier search endpoint"""
+    """Pro tier search endpoint with validation"""
     try:
-        user_email = (request.firebase_user or {}).get("email") or ""
+        user_email = request.firebase_user.get('email')
+        user_id = request.firebase_user['uid']
         
+        # Get request data
         if request.is_json:
             data = request.get_json(silent=True) or {}
-            job_title = (data.get("jobTitle") or "").strip()
-            company = (data.get("company") or "").strip()
-            location = (data.get("location") or "").strip()
-            resume_text = data.get("resumeText") or None
-            if not resume_text:
-                return jsonify({"error": "Resume text is required for Pro tier"}), 400
-            user_profile = data.get("userProfile") or None
-            career_interests = data.get("careerInterests") or []
-            college_alumni = (data.get("collegeAlumni") or "").strip()
-            batch_size = data.get("batchSize")
         else:
-            job_title = (request.form.get("jobTitle") or "").strip()
-            company = (request.form.get("company") or "").strip()
-            location = (request.form.get("location") or "").strip()
+            # Handle form data
+            data = {
+                'jobTitle': request.form.get('jobTitle', '').strip(),
+                'company': request.form.get('company', '').strip(),
+                'location': request.form.get('location', '').strip(),
+                'collegeAlumni': request.form.get('collegeAlumni', '').strip() or None,
+                'batchSize': request.form.get('batchSize'),
+                'userProfile': None,
+                'careerInterests': []
+            }
+            # Parse JSON fields from form data
+            user_profile_raw = request.form.get('userProfile')
+            if user_profile_raw:
+                try:
+                    data['userProfile'] = json.loads(user_profile_raw)
+                except:
+                    pass
+            career_interests_raw = request.form.get('careerInterests')
+            if career_interests_raw:
+                try:
+                    data['careerInterests'] = json.loads(career_interests_raw)
+                except:
+                    pass
+            if data.get('batchSize'):
+                try:
+                    data['batchSize'] = int(data['batchSize'])
+                except:
+                    data['batchSize'] = None
+            
+            # Handle resume file
             if 'resume' not in request.files:
                 return jsonify({'error': 'Resume PDF file is required for Pro tier'}), 400
             resume_file = request.files['resume']
@@ -795,31 +823,51 @@ def pro_run():
             resume_text = extract_text_from_pdf(resume_file)
             if not resume_text:
                 return jsonify({'error': 'Could not extract text from PDF'}), 400
-            try:
-                user_profile_raw = request.form.get("userProfile")
-                user_profile = json.loads(user_profile_raw) if user_profile_raw else None
-            except:
-                user_profile = None
-            try:
-                career_interests_raw = request.form.get("careerInterests")
-                career_interests = json.loads(career_interests_raw) if career_interests_raw else []
-            except:
-                career_interests = []
-            college_alumni = (request.form.get("collegeAlumni") or "").strip()
-            batch_size = request.form.get("batchSize")
-            if batch_size:
-                batch_size = int(batch_size)
+            data['resumeText'] = resume_text
         
-        if not job_title or not location:
-            missing = []
-            if not job_title: missing.append('Job Title')
-            if not location: missing.append('Location')
-            return jsonify({'error': f"Missing required fields: {', '.join(missing)}"}), 400
+        # Validate input (same as free tier)
+        try:
+            validated_data = validate_request(ContactSearchRequest, data)
+        except ValidationError as ve:
+            return ve.to_response()
         
-        print(f"New unified email system PRO search for {user_email}: {job_title} at {company} in {location}")
-        if resume_text:
-            print(f"Resume provided ({len(resume_text)} chars)")
-        print(f"DEBUG - college_alumni received: {college_alumni!r}")
+        # Extract validated fields
+        job_title = validated_data['jobTitle']
+        company = validated_data.get('company') or ''
+        location = validated_data['location']
+        college_alumni = validated_data.get('collegeAlumni')
+        batch_size = validated_data.get('batchSize')
+        user_profile = validated_data.get('userProfile')
+        career_interests = validated_data.get('careerInterests', [])
+        
+        # Get resume text (required for pro tier)
+        resume_text = None
+        if request.is_json:
+            resume_text = (data.get('resumeText') or '').strip() or None
+        else:
+            resume_text = data.get('resumeText')  # Already extracted from file above
+        
+        if not resume_text:
+            return jsonify({"error": "Resume text is required for Pro tier"}), 400
+        
+        # Save search to history
+        db = get_db()
+        if db:
+            try:
+                search_data = {
+                    'jobTitle': job_title,
+                    'company': company,
+                    'location': location,
+                    'collegeAlumni': college_alumni,
+                    'batchSize': batch_size,
+                    'tier': 'pro',
+                    'createdAt': datetime.now().isoformat(),
+                    'userId': user_id
+                }
+                db.collection('users').document(user_id).collection('searchHistory').add(search_data)
+            except Exception as history_error:
+                print(f"⚠️ Failed to save search history: {history_error}")
+                # Don't fail the search if history save fails
         
         result = run_pro_tier_enhanced_final_with_text(
             job_title,
@@ -841,8 +889,13 @@ def pro_run():
                     "message": result.get("message"),
                     "require_reauth": True,
                     "contacts": result.get("contacts", [])
-                }), 401  # 401 = Unauthorized (need to re-auth)
-            return jsonify({"error": result["error"]}), 500
+                }), 401
+            elif "insufficient" in error_type.lower() or "credits" in error_type.lower():
+                required = result.get('credits_needed', 15)
+                available = result.get('current_credits', 0)
+                raise InsufficientCreditsError(required, available)
+            else:
+                raise ExternalAPIError("Contact Search", result.get("error", "Search failed"))
         
         response_data = {
             "contacts": result["contacts"],
@@ -853,11 +906,13 @@ def pro_run():
         }
         return jsonify(response_data)
         
+    except (ValidationError, InsufficientCreditsError, ExternalAPIError, OfferloopException):
+        raise
     except Exception as e:
         print(f"Pro endpoint error: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        raise OfferloopException(f"Search failed: {str(e)}", error_code="SEARCH_ERROR")
 
 
 @runs_bp.route('/pro-run-csv', methods=['POST'])

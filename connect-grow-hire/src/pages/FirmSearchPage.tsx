@@ -6,11 +6,21 @@ import { BackToHomeButton } from "@/components/BackToHomeButton";
 import { CreditPill } from "@/components/credits";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
-import { Search, Sheet, History, Loader2, AlertCircle, ArrowUp, Download } from "lucide-react";
+import { Search, Sheet, History, Loader2, AlertCircle, ArrowUp, Download, Trash2 } from "lucide-react";
 // ScoutBubble removed - now using ScoutHeaderButton in PageHeaderActions
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { apiService } from "@/services/api";
 import type { Firm, FirmSearchResult, SearchHistoryItem } from "@/services/api";
 import FirmSearchResults from "@/components/FirmSearchResults";
@@ -44,6 +54,7 @@ const FirmSearchPage: React.FC = () => {
   const [parsedFilters, setParsedFilters] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const [searchProgress, setSearchProgress] = useState<{current: number, total: number, step: string} | null>(null);
 
   // History state
   const [showHistory, setShowHistory] = useState(false);
@@ -56,13 +67,22 @@ const FirmSearchPage: React.FC = () => {
   // Loading state for saved firms
   const [loadingSavedFirms, setLoadingSavedFirms] = useState(true);
   const [deletingFirmId, setDeletingFirmId] = useState<string | null>(null);
+  const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
 
   // Credit system state
   const [batchSize, setBatchSize] = useState<number>(10);
   const [batchOptions] = useState<number[]>([5, 10, 20, 40]);
   const [creditsPerFirm] = useState<number>(5);
 
+  // Refresh credits when batch size changes to update UI warnings
+  useEffect(() => {
+    if (checkCredits && user) {
+      checkCredits();
+    }
+  }, [batchSize, checkCredits, user]);
+
   // Load all saved firms from Firebase on mount
+  // OPTIMIZED: Only load recent searches, not all 50
   const loadAllSavedFirms = useCallback(async () => {
     if (!user) {
       setLoadingSavedFirms(false);
@@ -71,31 +91,28 @@ const FirmSearchPage: React.FC = () => {
 
     setLoadingSavedFirms(true);
     try {
-      console.log('📥 Loading all saved firms from Firebase...');
-      const history = await apiService.getFirmSearchHistory(50);
+      console.log('📥 Loading saved firms from Firebase...');
+      // Request history with firms included to avoid multiple API calls
+      const history = await apiService.getFirmSearchHistory(10, true);
 
-      // Extract all unique firms from all searches
+      // Extract all unique firms from recent searches
       const allFirms: Firm[] = [];
       const firmIds = new Set<string>();
 
-      for (const historyItem of history) {
-        try {
-          const searchData = await apiService.getFirmSearchById(historyItem.id);
-          if (searchData && searchData.firms) {
-            searchData.firms.forEach((firm: Firm) => {
-              const firmKey = firm.id || `${firm.name}-${firm.location?.display}`;
-              if (!firmIds.has(firmKey)) {
-                firmIds.add(firmKey);
-                allFirms.push(firm);
-              }
-            });
-          }
-        } catch (err) {
-          console.error(`Failed to load search ${historyItem.id}:`, err);
+      // Extract firms from history (now included in response)
+      history.forEach((historyItem: any) => {
+        if (historyItem.results && Array.isArray(historyItem.results)) {
+          historyItem.results.forEach((firm: Firm) => {
+            const firmKey = firm.id || `${firm.name}-${firm.location?.display}`;
+            if (!firmIds.has(firmKey)) {
+              firmIds.add(firmKey);
+              allFirms.push(firm);
+            }
+          });
         }
-      }
+      });
 
-      console.log(`✅ Loaded ${allFirms.length} unique firms from Firebase`);
+      console.log(`✅ Loaded ${allFirms.length} unique firms from ${history.length} recent searches`);
       setResults(allFirms);
     } catch (err) {
       console.error('❌ Failed to load saved firms:', err);
@@ -119,18 +136,25 @@ const FirmSearchPage: React.FC = () => {
     }
   }, [user]);
 
-  // Load saved firms and history on mount
+  // Load history on mount (but NOT saved firms - only load when explicitly needed)
+  // This prevents loading old firms that overwrite new search results
   useEffect(() => {
-    loadAllSavedFirms();
     loadHistory();
-  }, [loadAllSavedFirms, loadHistory]);
-
-  // Reload saved firms when switching to Firm Library tab
-  useEffect(() => {
-    if (activeTab === 'firm-library' && user) {
-      loadAllSavedFirms();
+    // Refresh credits on mount to ensure UI shows current balance
+    if (checkCredits) {
+      checkCredits();
     }
-  }, [activeTab, user, loadAllSavedFirms]);
+    // Don't auto-load saved firms on mount - let user search first
+    // loadAllSavedFirms(); // Commented out to prevent overwriting new search results
+  }, [loadHistory, checkCredits]);
+
+  // Only load saved firms on initial mount, not when switching tabs
+  // This prevents overwriting new search results with old history
+  // useEffect(() => {
+  //   if (activeTab === 'firm-library' && user) {
+  //     loadAllSavedFirms();
+  //   }
+  // }, [activeTab, user, loadAllSavedFirms]);
 
   // Handle search submission
   const handleSearch = async (searchQuery?: string) => {
@@ -144,9 +168,20 @@ const FirmSearchPage: React.FC = () => {
     setIsSearching(true);
     setError(null);
     setHasSearched(true);
+    
+    // Estimate time: ~2s for ChatGPT name generation + ~2s per batch of 5 firms (parallel)
+    const estimatedSeconds = 2 + Math.ceil(batchSize / 5) * 2;
+    const estimatedTime = estimatedSeconds < 60 
+      ? `${estimatedSeconds} seconds` 
+      : `${Math.ceil(estimatedSeconds / 60)} minutes`;
+    
+    setSearchProgress({current: 0, total: batchSize, step: `Generating firm names... (est. ${estimatedTime})`});
 
     try {
       const result: FirmSearchResult = await apiService.searchFirms(q, batchSize);
+      
+      // Clear progress on success
+      setSearchProgress(null);
 
       if (result.success) {
         setParsedFilters(result.parsedFilters);
@@ -154,21 +189,23 @@ const FirmSearchPage: React.FC = () => {
         if (result.firms.length === 0) {
           setError('No firms found matching your criteria. Try broadening your search or adjusting the location/industry.');
         } else {
-          // Merge new firms with existing ones (avoid duplicates)
-          const existingFirmKeys = new Set(
-            results.map(f => f.id || `${f.name}-${f.location?.display}`)
-          );
+          // For new searches, replace results. For library view, merge with existing.
+          // Since we're on the search tab, replace the results to show only this search
+          const newFirms = result.firms;
+          
+          // Replace results with new search results ONLY
+          // This ensures we show exactly what was requested, not accumulated history
+          setResults(newFirms);
 
-          const newFirms = result.firms.filter(firm => {
-            const firmKey = firm.id || `${firm.name}-${firm.location?.display}`;
-            return !existingFirmKeys.has(firmKey);
-          });
-
-          setResults(prev => [...newFirms, ...prev]);
+          // Show toast with partial result message if applicable
+          const toastDescription = result.partialMessage 
+            ? `${result.partialMessage} Used ${result.creditsCharged || 0} credits.`
+            : `Found ${result.firms.length} firm${result.firms.length !== 1 ? 's' : ''}. Used ${result.creditsCharged || 0} credits.`;
 
           toast({
-            title: "Search Complete!",
-            description: `Found ${result.firms.length} firms. Used ${result.creditsCharged || 0} credits.`,
+            title: result.partialMessage ? "Partial Results" : "Search Complete!",
+            description: toastDescription,
+            variant: result.partialMessage ? "default" : "default",
           });
 
           if (checkCredits) {
@@ -192,14 +229,43 @@ const FirmSearchPage: React.FC = () => {
       }
     } catch (err: any) {
       console.error('Search error:', err);
-      setError(err.message || 'An unexpected error occurred. Please try again.');
-      toast({
-        title: "Search Failed",
-        description: err.message || "An error occurred. Please try again.",
-        variant: "destructive",
-      });
+      
+      // Handle insufficient credits error (402 status)
+      if (err.status === 402 || err.error_code === 'INSUFFICIENT_CREDITS') {
+        const creditsNeeded = err.creditsNeeded || err.required || (batchSize * creditsPerFirm);
+        const currentCredits = err.currentCredits || err.available || effectiveUser.credits || 0;
+        
+        setError(`Insufficient credits. You need ${creditsNeeded} credits but only have ${currentCredits}.`);
+        toast({
+          title: "Insufficient Credits",
+          description: `You need ${creditsNeeded} credits but only have ${currentCredits}. Please upgrade your plan or reduce batch size.`,
+          variant: "destructive",
+        });
+        
+        // Refresh credits to update UI
+        if (checkCredits) {
+          await checkCredits();
+        }
+      } else if (err.status === 502 || err.error_code === 'EXTERNAL_API_ERROR') {
+        // Handle external API errors (service temporarily unavailable)
+        const errorMessage = err.message || 'The search service is temporarily unavailable. Please try again in a few minutes.';
+        setError(errorMessage);
+        toast({
+          title: "Service Temporarily Unavailable",
+          description: errorMessage,
+          variant: "destructive",
+        });
+      } else {
+        setError(err.message || 'An unexpected error occurred. Please try again.');
+        toast({
+          title: "Search Failed",
+          description: err.message || "An error occurred. Please try again.",
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsSearching(false);
+      setSearchProgress(null);
     }
   };
 
@@ -247,6 +313,18 @@ const FirmSearchPage: React.FC = () => {
     } finally {
       setDeletingFirmId(null);
     }
+  };
+
+  // Handle delete all firms
+  const handleDeleteAllFirms = () => {
+    const count = results.length;
+    setResults([]);
+    setShowDeleteAllDialog(false);
+    
+    toast({
+      title: "All firms deleted",
+      description: `Removed ${count} firm${count !== 1 ? 's' : ''} from your Firm Library.`,
+    });
   };
 
   // Handle clicking a history item
@@ -483,7 +561,7 @@ const FirmSearchPage: React.FC = () => {
                           {isSearching ? (
                             <>
                               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                              Searching...
+                              {searchProgress?.step || 'Searching...'}
                             </>
                           ) : (
                             'Search Firms'
@@ -544,10 +622,32 @@ const FirmSearchPage: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Loading State */}
+                    {/* Loading State with Progress */}
                     {isSearching && (
                       <Card className="bg-white border-border">
-                        <CardContent className="p-6">
+                        <CardContent className="p-6 space-y-4">
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">
+                                {searchProgress?.step || 'Searching...'}
+                              </span>
+                              {searchProgress && (
+                                <span className="text-muted-foreground">
+                                  {searchProgress.current}/{searchProgress.total}
+                                </span>
+                              )}
+                            </div>
+                            {searchProgress && (
+                              <div className="w-full bg-gray-200 rounded-full h-2">
+                                <div 
+                                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                  style={{ 
+                                    width: `${(searchProgress.current / searchProgress.total) * 100}%` 
+                                  }}
+                                />
+                              </div>
+                            )}
+                          </div>
                           <LoadingSkeleton variant="card" count={3} />
                         </CardContent>
                       </Card>
@@ -566,15 +666,8 @@ const FirmSearchPage: React.FC = () => {
 
                 {/* TAB 2: Firm Library */}
                 <TabsContent value="firm-library" className="!bg-white">
-                  {loadingSavedFirms ? (
-                    <Card className="bg-white border-border">
-                      <CardContent className="p-6">
-                        <LoadingSkeleton variant="card" count={5} />
-                      </CardContent>
-                    </Card>
-                  ) : (
                   <div className="space-y-4">
-                    {/* Export CSV Button */}
+                    {/* Export CSV and Delete All Buttons */}
                     {results.length > 0 && (
                       <div className="flex justify-between items-center bg-white rounded-lg border border-border p-4">
                         <div>
@@ -585,24 +678,28 @@ const FirmSearchPage: React.FC = () => {
                             Export your results to CSV for further analysis
                           </p>
                         </div>
-                        <Button
-                          onClick={handleExportCsv}
-                          className="gap-2 bg-blue-600 hover:bg-blue-700"
-                        >
-                          <Download className="h-4 w-4" />
-                          Export CSV
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            onClick={() => setShowDeleteAllDialog(true)}
+                            variant="outline"
+                            className="gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Delete All
+                          </Button>
+                          <Button
+                            onClick={handleExportCsv}
+                            className="gap-2 bg-blue-600 hover:bg-blue-700"
+                          >
+                            <Download className="h-4 w-4" />
+                            Export CSV
+                          </Button>
+                        </div>
                       </div>
                     )}
 
-                    {/* Loading State */}
-                    {loadingSavedFirms ? (
-                      <Card className="bg-white border-border">
-                        <CardContent className="p-6">
-                          <LoadingSkeleton variant="card" count={5} />
-                        </CardContent>
-                      </Card>
-                    ) : results.length > 0 ? (
+                    {/* Firm Results */}
+                    {results.length > 0 ? (
                       <FirmSearchResults
                         firms={results}
                         onViewContacts={handleViewContacts}
@@ -619,7 +716,6 @@ const FirmSearchPage: React.FC = () => {
                       </Card>
                     )}
                   </div>
-                  )}
                 </TabsContent>
               </Tabs>
             </div>
@@ -683,6 +779,28 @@ const FirmSearchPage: React.FC = () => {
             />
           </>
         )}
+
+        {/* Delete All Confirmation Dialog */}
+        <AlertDialog open={showDeleteAllDialog} onOpenChange={setShowDeleteAllDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete All Firms?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently remove all {results.length} firm{results.length !== 1 ? 's' : ''} from your Firm Library. 
+                This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDeleteAllFirms}
+                className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+              >
+                Delete All
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </SidebarProvider>
   );

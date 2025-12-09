@@ -512,7 +512,15 @@ export default function AccountSettings() {
       console.log("🔐 [SIGN OUT] Current user:", user?.email || "none");
       console.log("🔐 [SIGN OUT] Current path:", window.location.pathname);
       
-      // Clear React context first to prevent any state issues
+      // CRITICAL: Update URL synchronously BEFORE clearing state
+      // This ensures ProtectedRoute sees the signedOut flag and doesn't redirect to /signin
+      console.log("🔐 [SIGN OUT] Step 0: Updating URL with signedOut flag...");
+      window.history.replaceState({}, '', '/?signedOut=true');
+      // Also update React Router's location immediately
+      navigate('/?signedOut=true', { replace: true });
+      console.log("✅ [SIGN OUT] Step 0 complete: URL updated synchronously");
+      
+      // Clear React context (ProtectedRoute will now see signedOut flag and redirect to / instead of /signin)
       console.log("🔐 [SIGN OUT] Step 1: Clearing React context...");
       await signOut();
       console.log("✅ [SIGN OUT] Step 1 complete: Context state cleared");
@@ -567,11 +575,11 @@ export default function AccountSettings() {
         console.warn("⚠️ [SIGN OUT] Step 4 error: Could not clear localStorage:", e);
       }
       
-      // Use window.location.href with signedOut flag to force a full page reload
-      // This ensures all state is cleared and the PublicRoute can properly handle the signedOut state
-      console.log("🔐 [SIGN OUT] Step 5: Redirecting to landing page with signedOut=true...");
-      console.log("🔐 [SIGN OUT] Final redirect URL: /?signedOut=true");
-      window.location.href = '/?signedOut=true';
+      // Final step: Force a full page reload to ensure clean state
+      // Use replace to avoid adding to browser history
+      // This prevents any race conditions with route guards and ensures a clean state
+      console.log("🔐 [SIGN OUT] Step 5: Performing final page reload...");
+      window.location.replace('/?signedOut=true');
     } catch (error) {
       console.error("❌ [SIGN OUT] Error in sign out process:", error);
       console.error("❌ [SIGN OUT] Error details:", {
@@ -595,7 +603,7 @@ export default function AccountSettings() {
         console.error("❌ [SIGN OUT] Error during cleanup:", e);
       }
       console.log("🔐 [SIGN OUT] Redirecting to /?signedOut=true (error path)");
-      window.location.href = '/?signedOut=true';
+      window.location.replace('/?signedOut=true');
     }
   };
 

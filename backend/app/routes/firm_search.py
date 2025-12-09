@@ -146,13 +146,27 @@ def search_firms_route():
             raise InsufficientCreditsError(max_credits_needed, current_credits)
         
         # Perform the search
-        result = search_firms(query, limit=batch_size)
+        try:
+            result = search_firms(query, limit=batch_size)
+        except Exception as e:
+            print(f"❌ Error calling search_firms: {e}")
+            import traceback
+            traceback.print_exc()
+            raise ExternalAPIError("Firm Search", f"Search service error: {str(e)}")
+        
+        firms = result.get('firms', [])
+        
+        # Handle partial results (some firms found but not all)
+        is_partial = result.get('partial', False)
+        partial_message = None
+        if is_partial and firms:
+            partial_message = result.get('error')  # This is informational, not an error
         
         if not result.get('success'):
             error_msg = result.get('error', 'Firm search failed')
+            print(f"⚠️ Firm search returned error: {error_msg}")
             raise ExternalAPIError("Firm Search", error_msg)
         
-        firms = result.get('firms', [])
         if not firms:
             # No firms found - return empty result but don't charge credits
             return jsonify({
@@ -165,6 +179,10 @@ def search_firms_route():
                 'creditsCharged': 0,
                 'remainingCredits': current_credits
             })
+        
+        # Ensure firms are properly sorted to avoid comparison errors with None values
+        # Sort by employeeCount, treating None as 0 for comparison purposes
+        firms.sort(key=lambda f: f.get('employeeCount') if f.get('employeeCount') is not None else 0)
         
         # Calculate ACTUAL credit cost based on firms returned
         actual_firms_returned = len(firms)
@@ -192,7 +210,7 @@ def search_firms_route():
         print(f"   - Credits charged: {actual_credits_to_charge} ({actual_firms_returned} firms × {CREDITS_PER_FIRM} credits)")
         print(f"   - New balance: {new_credit_balance}")
         
-        return jsonify({
+        response_data = {
             'success': True,
             'firms': firms,
             'total': len(firms),
@@ -202,7 +220,13 @@ def search_firms_route():
             'firmsReturned': actual_firms_returned,
             'creditsCharged': actual_credits_to_charge,
             'remainingCredits': new_credit_balance
-        })
+        }
+        
+        # Add partial result message if applicable
+        if partial_message:
+            response_data['partialMessage'] = partial_message
+        
+        return jsonify(response_data)
     
     except (ValidationError, InsufficientCreditsError, ExternalAPIError, OfferloopException):
         raise
@@ -216,10 +240,16 @@ def search_firms_route():
 @firm_search_bp.route('/history', methods=['GET'])
 @require_firebase_auth
 def get_search_history():
-    """Get user's firm search history."""
+    """Get user's firm search history.
+    
+    Query params:
+    - limit: Number of searches to return (default: 10, max: 50)
+    - includeFirms: If 'true', include firm results in response (default: false)
+    """
     try:
         uid = request.firebase_user.get('uid')
         limit = min(int(request.args.get('limit', 10)), 50)
+        include_firms = request.args.get('includeFirms', 'false').lower() == 'true'
         db = get_db()
         
         searches_ref = db.collection('users').document(uid).collection('firmSearches')
@@ -228,13 +258,19 @@ def get_search_history():
         searches = []
         for doc in query.stream():
             search_data = doc.to_dict()
-            searches.append({
+            search_item = {
                 'id': doc.id,  # Use document ID, not from data
                 'query': search_data.get('query'),
                 'parsedFilters': search_data.get('parsedFilters'),
                 'resultsCount': search_data.get('resultsCount', 0),
                 'createdAt': search_data.get('createdAt').isoformat() if hasattr(search_data.get('createdAt'), 'isoformat') else str(search_data.get('createdAt', ''))
-            })
+            }
+            
+            # Optionally include firms to avoid additional API calls
+            if include_firms:
+                search_item['results'] = search_data.get('results', [])
+            
+            searches.append(search_item)
         
         return jsonify({
             'success': True,

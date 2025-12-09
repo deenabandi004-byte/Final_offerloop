@@ -254,7 +254,14 @@ def create_coffee_chat_prep():
         db = get_db()
 
         data = request.get_json() or {}
-        linkedin_url = data.get("linkedinUrl", "").strip()
+        
+        # Validate request data
+        try:
+            validated_data = validate_request(CoffeeChatPrepRequest, data)
+        except ValidationError as e:
+            return jsonify({"error": str(e)}), 400
+        
+        linkedin_url = validated_data.get("linkedinUrl", "").strip()
 
         if not linkedin_url:
             return jsonify({"error": "LinkedIn URL is required"}), 400
@@ -327,14 +334,20 @@ def create_coffee_chat_prep():
         prep_ref.set(prep_data)
         prep_id = prep_ref.id
 
-        extra_context = {
-            "time_window": validated_data.get("timeWindow"),
-            "geo": validated_data.get("geo"),
-            "language": validated_data.get("language"),
-            "division": validated_data.get("division"),
-            "office": validated_data.get("office"),
-            "industry": validated_data.get("industry"),
-        }
+        # Build extra_context with only non-None values
+        extra_context = {}
+        if validated_data.get("timeWindow"):
+            extra_context["time_window"] = validated_data.get("timeWindow")
+        if validated_data.get("geo"):
+            extra_context["geo"] = validated_data.get("geo")
+        if validated_data.get("language"):
+            extra_context["language"] = validated_data.get("language")
+        if validated_data.get("division"):
+            extra_context["division"] = validated_data.get("division")
+        if validated_data.get("office"):
+            extra_context["office"] = validated_data.get("office")
+        if validated_data.get("industry"):
+            extra_context["industry"] = validated_data.get("industry")
 
         # Start background processing
         try:

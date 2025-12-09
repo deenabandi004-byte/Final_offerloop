@@ -454,7 +454,7 @@ const InterviewPrepPage: React.FC = () => {
                   featureName="Interview Prep" 
                   requiredTier="Pro"
                 >
-              <Tabs defaultValue="interview-prep" className="w-full">
+                  <Tabs defaultValue="interview-prep" className="w-full">
                 <div className="flex justify-center mb-8">
                   <TabsList className="h-14 tabs-container-gradient border border-border grid grid-cols-2 max-w-lg w-full rounded-xl p-1 bg-white">
                     <TabsTrigger

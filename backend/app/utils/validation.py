@@ -9,19 +9,26 @@ from app.utils.exceptions import ValidationError
 class ContactSearchRequest(BaseModel):
     """Validation schema for contact search requests"""
     jobTitle: str = Field(..., min_length=1, max_length=200, description="Job title to search for")
-    company: str = Field(..., min_length=1, max_length=200, description="Company name")
+    company: Optional[str] = Field(None, max_length=200, description="Company name (optional)")
     location: str = Field(..., min_length=1, max_length=200, description="Location (city, state)")
     collegeAlumni: Optional[str] = Field(None, max_length=200, description="College name for alumni filter")
     batchSize: Optional[int] = Field(None, ge=1, le=10, description="Number of contacts to return")
     careerInterests: Optional[List[str]] = Field(None, max_length=10, description="Career interests")
     userProfile: Optional[dict] = Field(None, description="User profile data")
     
-    @field_validator('jobTitle', 'company', 'location')
+    @field_validator('jobTitle', 'location')
     @classmethod
     def validate_not_empty(cls, v):
         if not v or not v.strip():
             raise ValueError('Field cannot be empty')
         return v.strip()
+    
+    @field_validator('company')
+    @classmethod
+    def validate_company(cls, v):
+        if v is None:
+            return None
+        return v.strip() if v.strip() else None
     
     @field_validator('batchSize')
     @classmethod

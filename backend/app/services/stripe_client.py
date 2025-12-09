@@ -21,56 +21,82 @@ def create_checkout_session():
         user_id = request.firebase_user.get('uid')
         user_email = request.firebase_user.get('email')
         price_id = data.get('priceId')
-        success_url = data.get('successUrl') or (request.url_root + 'api/complete-upgrade?session_id={CHECKOUT_SESSION_ID}')
-        cancel_url = data.get('cancelUrl') or (request.url_root + 'api/complete-upgrade?canceled=true')
+        
+        # Validate required fields
+        if not user_id:
+            return jsonify({'error': 'User ID is required'}), 400
+        if not user_email:
+            return jsonify({'error': 'User email is required'}), 400
+        
+        # Determine base URL based on environment
+        if request.url_root and 'localhost' in request.url_root:
+            base_url = 'http://localhost:8080'  # Frontend dev server runs on port 8080
+        else:
+            base_url = 'https://www.offerloop.ai'
+        
+        # Hardcode URLs with double braces to escape in f-string
+        # Stripe recognizes {CHECKOUT_SESSION_ID} as a template variable
+        success_url = f'{base_url}/payment-success?session_id={{CHECKOUT_SESSION_ID}}'
+        cancel_url = f'{base_url}/pricing'
+        
+        print(f"Creating checkout session: user_id={user_id}, email={user_email}, price_id={price_id}")
+        print(f"Success URL: {success_url}")
+        print(f"Cancel URL: {cancel_url}")
+        
+        # Prepare session parameters
+        session_params = {
+            'payment_method_types': ['card'],
+            'mode': 'subscription',
+            'success_url': success_url,
+            'cancel_url': cancel_url,
+            'customer_email': user_email,
+            'metadata': {
+                'user_id': user_id,
+            },
+        }
         
         # Create checkout session
         if price_id:
             # Use the provided price ID
-            session = stripe.checkout.Session.create(
-                payment_method_types=['card'],
-                line_items=[{
-                    'price': price_id,
-                    'quantity': 1,
-                }],
-                mode='subscription',
-                success_url=success_url,
-                cancel_url=cancel_url,
-                customer_email=user_email,
-                metadata={
-                    'user_id': user_id,
-                },
-            )
+            session_params['line_items'] = [{
+                'price': price_id,
+                'quantity': 1,
+            }]
         else:
             # Fallback to inline price data if no priceId provided
-            session = stripe.checkout.Session.create(
-                payment_method_types=['card'],
-                line_items=[{
-                    'price_data': {
-                        'currency': 'usd',
-                        'product_data': {
-                            'name': 'Offerloop Pro',
-                        },
-                        'unit_amount': 1999,  # $19.99
-                        'recurring': {
-                            'interval': 'month',
-                        },
+            session_params['line_items'] = [{
+                'price_data': {
+                    'currency': 'usd',
+                    'product_data': {
+                        'name': 'Offerloop Pro',
                     },
-                    'quantity': 1,
-                }],
-                mode='subscription',
-                success_url=success_url,
-                cancel_url=cancel_url,
-                customer_email=user_email,
-                metadata={
-                    'user_id': user_id,
+                    'unit_amount': 1999,  # $19.99
+                    'recurring': {
+                        'interval': 'month',
+                    },
                 },
-            )
+                'quantity': 1,
+            }]
         
-        return jsonify({'sessionId': session.id, 'url': session.url})
+        try:
+            session = stripe.checkout.Session.create(**session_params)
+            print(f"Checkout session created successfully: {session.id}")
+            return jsonify({'sessionId': session.id, 'url': session.url})
+        except stripe.error.StripeError as stripe_error:
+            print(f"Stripe API error: {stripe_error}")
+            print(f"Error type: {type(stripe_error).__name__}")
+            print(f"Error message: {stripe_error.user_message or stripe_error.message}")
+            return jsonify({
+                'error': 'Stripe checkout session creation failed',
+                'stripe_error': str(stripe_error),
+                'stripe_error_type': type(stripe_error).__name__,
+                'message': stripe_error.user_message or stripe_error.message
+            }), 400
         
     except Exception as e:
         print(f"Stripe checkout error: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 

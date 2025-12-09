@@ -8,7 +8,13 @@ import { getAuth } from 'firebase/auth';
 import { PageWrapper } from "@/components/PageWrapper";
 import { GlassCard } from "@/components/GlassCard";
 
-const stripePromise = loadStripe("pk_live_51S4BB8ERY2WrVHp1acXrKE6RBG7NBlfHcMZ2kf7XhCX2E5g8Lasedx6ntcaD1H4BsoUMBGYXIcKHcAB4JuohLa2B00j7jtmWnB");
+const STRIPE_PUBLISHABLE_KEY = "pk_live_51S4BB8ERY2WrVHp1acXrKE6RBG7NBlfHcMZ2kf7XhCX2E5g8Lasedx6ntcaD1H4BsoUMBGYXIcKHcAB4JuohLa2B00j7jtmWnB";
+const stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
+
+// Price IDs - use test mode price ID when using test keys
+const STRIPE_PRICE_ID = STRIPE_PUBLISHABLE_KEY.startsWith('pk_test_') 
+  ? "price_1ScIyzERY2WrVHp1m9pJSNlK" // Test mode price ID
+  : "price_1SQ0IJERY2WrVHp1Ul5OrP63"; // Live mode price ID
 
 interface SubscriptionStatus {
   tier: string;
@@ -131,20 +137,28 @@ const Pricing = () => {
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          priceId: "price_1SQ0IJERY2WrVHp1Ul5OrP63",
+          priceId: STRIPE_PRICE_ID,
           userId: user.uid,
           userEmail: user.email,
-          successUrl: `${window.location.origin}/payment-success`,
+          successUrl: `${window.location.origin}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
           cancelUrl: `${window.location.origin}/pricing`,
         }),
       });
       
       if (!response.ok) {
         const errorText = await response.text();
+        console.error('Checkout session creation failed:', response.status, errorText);
         throw new Error(`Failed to create checkout session: ${response.status} - ${errorText}`);
       }
 
-      const { sessionId } = await response.json();
+      const responseData = await response.json();
+      console.log('Checkout session response:', responseData);
+      
+      const sessionId = responseData.sessionId;
+      if (!sessionId) {
+        console.error('No sessionId in response:', responseData);
+        throw new Error('Invalid response from server: missing sessionId');
+      }
 
       const stripe = await stripePromise;
       if (!stripe) {

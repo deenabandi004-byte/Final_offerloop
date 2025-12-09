@@ -17,7 +17,7 @@ export interface UserProfile {
 
 export interface ContactSearchRequest {
   jobTitle: string;
-  company: string;
+  company?: string; // Optional - company is not required for contact search
   location: string;
   uid?: string;
   saveToDirectory?: boolean;
@@ -360,6 +360,7 @@ export interface Firm {
 }
 
 export interface FirmSearchResult {
+  partialMessage?: string;  // Optional message for partial results
   success: boolean;
   firms: Firm[];
   total: number;
@@ -389,6 +390,7 @@ export interface SearchHistoryItem {
   parsedFilters?: any;
   resultsCount: number;
   createdAt: string;
+  results?: Firm[];  // Optional: included when includeFirms=true
 }
 
 // ================================
@@ -427,11 +429,15 @@ class ApiService {
   private async makeRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
 
-  console.log(`Making request to: ${url}`);
-  console.log(`Request options:`, options);
+  // Only log in development
+  const isDev = import.meta.env.DEV;
+  if (isDev) {
+    console.log(`Making request to: ${url}`);
+    console.log(`Request options:`, options);
+  }
 
   const response = await fetch(url, options);
-  console.log(`Response status: ${response.status}`);
+  if (isDev) console.log(`Response status: ${response.status}`);
 
   // Check for binary/attachments first (read only once)
   const ct = response.headers.get('content-type') || '';
@@ -458,6 +464,32 @@ class ApiService {
       error.authUrl = data.authUrl;
       error.contacts = data.contacts;
       error.status = 401;
+      throw error;
+    }
+    
+    // For 402 (Insufficient Credits), extract credit details from error response
+    if (response.status === 402 && data) {
+      const error: any = new Error(data.error || data.message || 'Insufficient credits');
+      error.status = 402;
+      error.error_code = data.error_code || 'INSUFFICIENT_CREDITS';
+      // Extract credit details from the error response
+      if (data.details) {
+        error.required = data.details.required;
+        error.available = data.details.available;
+        error.creditsNeeded = data.details.required;
+        error.currentCredits = data.details.available;
+      }
+      throw error;
+    }
+    
+    // For 502 (Bad Gateway / External API Error), provide user-friendly message
+    if (response.status === 502 && data) {
+      const error: any = new Error(
+        data.error || data.message || 'The search service is temporarily unavailable. Please try again in a few minutes.'
+      );
+      error.status = 502;
+      error.error_code = data.error_code || 'EXTERNAL_API_ERROR';
+      error.service = data.details?.service || 'Search Service';
       throw error;
     }
     
@@ -493,7 +525,8 @@ class ApiService {
       batchSize: request.batchSize, // ✅ Include batch size
     };
 
-    console.log(`Free Search Request:`, backendRequest);
+    const isDev = import.meta.env.DEV;
+    if (isDev) console.log(`Free Search Request:`, backendRequest);
 
     return this.makeRequest<SearchResult>('/free-run', {
       method: 'POST',
@@ -525,14 +558,17 @@ class ApiService {
       formData.append('careerInterests', JSON.stringify(request.careerInterests));
     }
 
-    console.log(`Pro Search Request - FormData contents:`);
-    console.log(`  jobTitle: "${request.jobTitle}"`);
-    console.log(`  company: "${request.company}"`);
-    console.log(`  location: "${request.location}"`);
-    console.log(`  resume: ${request.resume.name} (${request.resume.size} bytes)`);
-    console.log(`  userProfile: ${JSON.stringify(request.userProfile)}`);
-    console.log(`  careerInterests: ${JSON.stringify(request.careerInterests)}`);
-    console.log(`  collegeAlumni: "${request.collegeAlumni || ''}"`);
+    const isDev = import.meta.env.DEV;
+    if (isDev) {
+      console.log(`Pro Search Request - FormData contents:`);
+      console.log(`  jobTitle: "${request.jobTitle}"`);
+      console.log(`  company: "${request.company}"`);
+      console.log(`  location: "${request.location}"`);
+      console.log(`  resume: ${request.resume.name} (${request.resume.size} bytes)`);
+      console.log(`  userProfile: ${JSON.stringify(request.userProfile)}`);
+      console.log(`  careerInterests: ${JSON.stringify(request.careerInterests)}`);
+      console.log(`  collegeAlumni: "${request.collegeAlumni || ''}"`);
+    }
 
     return this.makeRequest<SearchResult>('/pro-run', {
       method: 'POST',
@@ -710,9 +746,10 @@ class ApiService {
     });
   }
 
-  async getFirmSearchHistory(limit: number = 10): Promise<SearchHistoryItem[]> {
+  async getFirmSearchHistory(limit: number = 10, includeFirms: boolean = false): Promise<SearchHistoryItem[]> {
     const headers = await this.getAuthHeaders();
-    const result = await this.makeRequest<{ success: boolean; searches: SearchHistoryItem[] }>(`/firm-search/history?limit=${limit}`, {
+    const includeParam = includeFirms ? '&includeFirms=true' : '';
+    const result = await this.makeRequest<{ success: boolean; searches: SearchHistoryItem[] }>(`/firm-search/history?limit=${limit}${includeParam}`, {
       method: 'GET',
       headers,
     });
@@ -1042,7 +1079,8 @@ async regenerateOutboxReply(
         body: JSON.stringify(requestBody),
       }
     );
-    console.log('📡 API Response:', response);
+    const isDev = import.meta.env.DEV;
+    if (isDev) console.log('📡 API Response:', response);
     return {
       timeline: response.timeline || { phases: [] },
       startDate: response.startDate,

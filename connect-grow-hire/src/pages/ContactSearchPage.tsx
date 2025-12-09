@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { BackToHomeButton } from "@/components/BackToHomeButton";
@@ -90,7 +90,8 @@ const ContactSearchPage: React.FC = () => {
   const stripUndefined = <T extends Record<string, any>>(obj: T) =>
     Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as T;
 
-  const getUserProfileData = async () => {
+  // Memoize getUserProfileData to avoid recreating on every render
+  const getUserProfileData = useCallback(async () => {
     if (!user) return null;
     try {
       if (user?.uid) {
@@ -123,7 +124,7 @@ const ContactSearchPage: React.FC = () => {
     } catch {
       return null;
     }
-  };
+  }, [user]);
 
   const autoSaveToDirectory = async (contacts: any[], searchLocation?: string) => {
     if (!user) return;
@@ -155,7 +156,8 @@ const ContactSearchPage: React.FC = () => {
       });
       await firebaseApi.bulkCreateContacts(user.uid, mapped);
     } catch (error) {
-      console.error('Error in autoSaveToDirectory:', error);
+      const isDev = import.meta.env.DEV;
+      if (isDev) console.error('Error in autoSaveToDirectory:', error);
       throw error;
     }
   };
@@ -175,7 +177,8 @@ const ContactSearchPage: React.FC = () => {
       const data = await response.json();
       return !data.connected;
     } catch (error) {
-      console.error("Error checking Gmail status:", error);
+      const isDev = import.meta.env.DEV;
+      if (isDev) console.error("Error checking Gmail status:", error);
       return true;
     }
   };
@@ -198,7 +201,8 @@ const ContactSearchPage: React.FC = () => {
         window.location.href = data.authUrl;
       }
     } catch (error) {
-      console.error("Error initiating Gmail OAuth:", error);
+      const isDev = import.meta.env.DEV;
+      if (isDev) console.error("Error initiating Gmail OAuth:", error);
     }
   };
 
@@ -287,35 +291,38 @@ const ContactSearchPage: React.FC = () => {
       return;
     }
 
-    const currentCredits = checkCredits ? await checkCredits() : (effectiveUser.credits ?? 0);
-    if (currentCredits < 15) {
-      toast({
-        title: "Insufficient Credits",
-        description: `You have ${currentCredits} credits. You need at least 15 credits to search.`,
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (userTier === "pro" && !uploadedFile) {
-      toast({
-        title: "Resume Required",
-        description: "Pro tier requires a resume upload for similarity matching.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     setIsSearching(true);
     setProgressValue(0);
     setSearchComplete(false);
 
     try {
-      [15, 35, 60, 85, 90].forEach((value, index) => {
-        setTimeout(() => setProgressValue(value), index * 600);
-      });
+      // ✅ FIXED: Parallelize API calls instead of sequential
+      // ✅ FIXED: Removed fake progress bars (setTimeout simulation)
+      // Use simple loading state - progress will be 100% when search completes
+      const [userProfile, currentCredits] = await Promise.all([
+        getUserProfileData(),
+        checkCredits ? checkCredits() : Promise.resolve(effectiveUser.credits ?? 0)
+      ]);
 
-      const userProfile = await getUserProfileData();
+      if (currentCredits < 15) {
+        setIsSearching(false);
+        toast({
+          title: "Insufficient Credits",
+          description: `You have ${currentCredits} credits. You need at least 15 credits to search.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (userTier === "pro" && !uploadedFile) {
+        setIsSearching(false);
+        toast({
+          title: "Resume Required",
+          description: "Pro tier requires a resume upload for similarity matching.",
+          variant: "destructive",
+        });
+        return;
+      }
 
       if (userTier === "free") {
         const searchRequest = {
@@ -342,6 +349,9 @@ const ContactSearchPage: React.FC = () => {
         const creditsUsed = result.contacts.length * 15;
         const newCredits = Math.max(0, currentCredits - creditsUsed);
         if (updateCredits) await updateCredits(newCredits).catch(() => {});
+        
+        // Set progress to 100% when search completes
+        setProgressValue(100);
 
         setLastResults(result.contacts);
         setLastSearchStats({
@@ -371,7 +381,8 @@ const ContactSearchPage: React.FC = () => {
               tier: 'free',
             });
           } catch (error) {
-            console.error('Failed to log contact search activity:', error);
+            const isDev = import.meta.env.DEV;
+            if (isDev) console.error('Failed to log contact search activity:', error);
           }
         }
 
@@ -406,6 +417,8 @@ const ContactSearchPage: React.FC = () => {
 
         const result = await apiService.runProSearch(proRequest);
         if (isErrorResponse(result)) {
+          setIsSearching(false);
+          setProgressValue(0);
           if (result.error?.includes("Insufficient credits")) {
             toast({
               title: "Insufficient Credits",
@@ -455,7 +468,8 @@ const ContactSearchPage: React.FC = () => {
               tier: 'pro',
             });
           } catch (error) {
-            console.error('Failed to log contact search activity:', error);
+            const isDev = import.meta.env.DEV;
+            if (isDev) console.error('Failed to log contact search activity:', error);
           }
         }
         
@@ -479,7 +493,8 @@ const ContactSearchPage: React.FC = () => {
             duration: 5000,
           });
         } catch (error) {
-          console.error('Failed to save contacts:', error);
+          const isDev = import.meta.env.DEV;
+          if (isDev) console.error('Failed to save contacts:', error);
           toast({
             title: "Search Complete!",
             description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits.`,
@@ -489,7 +504,8 @@ const ContactSearchPage: React.FC = () => {
         }
       }
     } catch (error: any) {
-      console.error("Search failed:", error);
+      const isDev = import.meta.env.DEV;
+      if (isDev) console.error("Search failed:", error);
       if (error?.needsAuth || error?.require_reauth) {
         const authUrl = error.authUrl;
         if (authUrl) {

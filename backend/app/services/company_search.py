@@ -525,6 +525,16 @@ def search_companies_with_pdl(
             "queryLevel": int (strictness level that succeeded)
         }
     """
+    # Validate API key is configured
+    if not PEOPLE_DATA_LABS_API_KEY:
+        return {
+            "success": False,
+            "firms": [],
+            "total": 0,
+            "error": "Search service configuration error. Please contact support.",
+            "queryLevel": None
+        }
+    
     if keywords is None:
         keywords = []
     
@@ -604,6 +614,10 @@ def search_companies_with_pdl(
                         if firm:
                             firms.append(firm)
                     
+                    # Sort firms to ensure consistent ordering and handle None values properly
+                    # Sort by employee_count, treating None as 0 for comparison purposes
+                    firms.sort(key=lambda f: f.get('employeeCount') if f.get('employeeCount') is not None else 0)
+                    
                     firms_count = len(firms)
                     print(f"✅ Level {strictness} returned {firms_count} unique firms")
                     
@@ -647,26 +661,54 @@ def search_companies_with_pdl(
                 }
                 
             elif response.status_code == 402:
+                error_detail = ""
+                try:
+                    error_data = response.json()
+                    error_detail = error_data.get("error", {}).get("message", "") if isinstance(error_data.get("error"), dict) else str(error_data.get("error", ""))
+                except:
+                    error_detail = response.text[:200] if response.text else ""
+                
+                print(f"⚠️ PDL API returned 402 (Payment Required): {error_detail}")
+                
+                # Check if it's a quota/credits issue
+                if "maximum" in error_detail.lower() or "matches used" in error_detail.lower() or "quota" in error_detail.lower():
+                    error_message = "The company search service has reached its monthly limit. Please try again later or contact support for assistance."
+                else:
+                    error_message = "The search service is temporarily unavailable. Please try again in a few minutes."
+                
                 return {
                     "success": False,
                     "firms": [],
                     "total": 0,
-                    "error": "Search credits exhausted. Please try again later.",
+                    "error": error_message,
                     "queryLevel": None
                 }
             
             else:
-                print(f"⚠️ Unexpected status {response.status_code}: {response.text[:200]}")
+                error_text = response.text[:500] if response.text else "No response body"
+                print(f"⚠️ Unexpected PDL status {response.status_code}: {error_text}")
                 last_error = f"Unexpected error (status {response.status_code})"
                 
         except requests.exceptions.Timeout:
-            print(f"⏰ Level {strictness}: Request timed out")
-            last_error = "Search timed out"
+            print(f"⏰ Level {strictness}: Request timed out after 30s")
+            last_error = "Search timed out. Please try again."
+            continue
+            
+        except requests.exceptions.ConnectionError as e:
+            print(f"🔌 Level {strictness}: Connection error: {e}")
+            last_error = "Unable to connect to search service. Please check your connection."
+            continue
+            
+        except requests.exceptions.RequestException as e:
+            print(f"🌐 Level {strictness}: Request error: {e}")
+            last_error = f"Network error: {str(e)}"
             continue
             
         except Exception as e:
-            print(f"❌ Level {strictness} error: {e}")
-            last_error = str(e)
+            print(f"❌ Level {strictness} unexpected error: {e}")
+            import traceback
+            traceback.print_exc()
+            last_error = f"Unexpected error: {str(e)}"
             continue
     
     # Return best result we found, even if < min_results_needed
@@ -757,6 +799,146 @@ def get_size_bucket_from_string(size_str: str) -> Optional[str]:
             return "large"
     
     return None
+
+
+def transform_serp_company_to_firm(company: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Transform a ChatGPT-extracted company record (from SERP) into our Firm format.
+    
+    ChatGPT-extracted data format:
+    - name: Company name
+    - website: Website URL
+    - linkedinUrl: LinkedIn URL
+    - location: {city, state, country}
+    - industry: Industry string
+    - employeeCount: Integer or None
+    - sizeBucket: "small" | "mid" | "large" | None
+    - founded: Year (integer) or None
+    
+    Output format (same as PDL):
+    {
+        "id": str,
+        "name": str,
+        "website": str or None,
+        "linkedinUrl": str or None,
+        "location": {
+            "city": str or None,
+            "state": str or None,
+            "country": str or None,
+            "display": str  # Formatted for display
+        },
+        "industry": str or None,
+        "employeeCount": int or None,
+        "sizeBucket": "small" | "mid" | "large" | None,
+        "sizeRange": str or None,
+        "founded": int or None (year)
+    }
+    """
+    try:
+        # Get location data
+        location_data = company.get("location", {}) or {}
+        if not isinstance(location_data, dict):
+            location_data = {}
+        
+        city = location_data.get("city")
+        state = location_data.get("state")
+        country = location_data.get("country")
+        
+        # Build display location
+        location_parts = [p for p in [city, state, country] if p]
+        display_location = ", ".join(location_parts) if location_parts else "Unknown"
+        
+        # Get employee count and size bucket
+        employee_count = company.get("employeeCount")
+        size_bucket = company.get("sizeBucket")
+        
+        # If we have employee count but no size bucket, calculate it
+        if employee_count and isinstance(employee_count, int) and employee_count > 0:
+            if not size_bucket:
+                if employee_count <= 50:
+                    size_bucket = "small"
+                elif employee_count <= 500:
+                    size_bucket = "mid"
+                else:
+                    size_bucket = "large"
+        elif size_bucket and not employee_count:
+            # Estimate employee count from size bucket
+            if size_bucket == "small":
+                employee_count = 25  # Midpoint of 1-50
+            elif size_bucket == "mid":
+                employee_count = 275  # Midpoint of 51-500
+            elif size_bucket == "large":
+                employee_count = 1000  # Representative large number
+        
+        # Get company name
+        company_name = company.get("name", "Unknown Company")
+        if not company_name or company_name.strip() == "":
+            return None
+        
+        # Get website - ensure it has protocol
+        website = company.get("website")
+        if website:
+            website = str(website).strip()
+            if website and website.lower() not in ['null', 'none', '']:
+                if not website.startswith("http"):
+                    website = f"https://{website}"
+            else:
+                website = None
+        
+        # Get LinkedIn URL - ensure it has protocol
+        linkedin_url = company.get("linkedinUrl")
+        if linkedin_url:
+            linkedin_url = str(linkedin_url).strip()
+            if linkedin_url and linkedin_url.lower() not in ['null', 'none', '']:
+                if not linkedin_url.startswith("http"):
+                    linkedin_url = f"https://{linkedin_url}"
+            else:
+                linkedin_url = None
+        
+        # Generate stable ID from domain or name
+        identifier = website or company_name
+        if identifier:
+            # Extract domain from URL if needed
+            if "://" in identifier:
+                identifier = identifier.split("://")[1].split("/")[0]
+            firm_id = hashlib.md5(identifier.encode()).hexdigest()[:16]
+        else:
+            firm_id = hashlib.md5(company_name.encode()).hexdigest()[:16]
+        
+        # Get industry
+        industry = company.get("industry")
+        
+        # Get founded year
+        founded = company.get("founded")
+        if founded and not isinstance(founded, int):
+            try:
+                founded = int(founded)
+            except (ValueError, TypeError):
+                founded = None
+        
+        return {
+            "id": firm_id,
+            "name": company_name,
+            "website": website,
+            "linkedinUrl": linkedin_url,
+            "location": {
+                "city": city,
+                "state": state,
+                "country": country,
+                "display": display_location
+            },
+            "industry": industry,
+            "employeeCount": employee_count,
+            "sizeBucket": size_bucket,
+            "sizeRange": None,  # SERP doesn't provide size ranges like PDL
+            "founded": founded
+        }
+    
+    except Exception as e:
+        print(f"Error transforming SERP company: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 
 def transform_pdl_company_to_firm(company: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -926,8 +1108,10 @@ def search_firms(prompt: str, limit: int = 20) -> Dict[str, Any]:
     # Step 2: Normalize location
     location = normalize_location(parsed.get("location", ""))
     
-    # Step 3: Search PDL (bulletproof search handles fallbacks internally)
-    search_result = search_companies_with_pdl(
+    # Step 3: Search using SERP API + ChatGPT (bulletproof search handles fallbacks internally)
+    from app.services.serp_client import search_companies_with_serp
+    
+    search_result = search_companies_with_serp(
         industry=parsed["industry"],
         location=location,
         size=parsed.get("size", "none"),
@@ -936,7 +1120,10 @@ def search_firms(prompt: str, limit: int = 20) -> Dict[str, Any]:
     )
     
     # Determine if fallback was applied
-    fallback_applied = search_result.get("queryLevel", 3) < 3
+    query_level = search_result.get("queryLevel")
+    if query_level is None:
+        query_level = 3  # Default to strictest level if None
+    fallback_applied = query_level < 3
     
     # Add parsed filters to result
     search_result["parsedFilters"] = {
@@ -1006,8 +1193,10 @@ def search_firms_structured(
     # Normalize location
     location_normalized = normalize_location(location)
     
-    # Search PDL (bulletproof search handles fallbacks internally)
-    search_result = search_companies_with_pdl(
+    # Search using SERP API + ChatGPT (bulletproof search handles fallbacks internally)
+    from app.services.serp_client import search_companies_with_serp
+    
+    search_result = search_companies_with_serp(
         industry=industry_lower,
         location=location_normalized,
         size=size,
@@ -1016,7 +1205,10 @@ def search_firms_structured(
     )
     
     # Determine if fallback was applied
-    fallback_applied = search_result.get("queryLevel", 3) < 3
+    query_level = search_result.get("queryLevel")
+    if query_level is None:
+        query_level = 3  # Default to strictest level if None
+    fallback_applied = query_level < 3
     
     # Add parsed filters to result
     search_result["parsedFilters"] = {

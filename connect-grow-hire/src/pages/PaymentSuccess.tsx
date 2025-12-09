@@ -2,7 +2,7 @@ import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { getAuth } from 'firebase/auth';
 
 export default function PaymentSuccess() {
@@ -11,15 +11,113 @@ export default function PaymentSuccess() {
   const { user, refreshUser } = useFirebaseAuth();
   const [status, setStatus] = useState<'processing' | 'success' | 'error'>('processing');
   const [message, setMessage] = useState('Completing your upgrade...');
+  const hasProcessedRef = useRef(false); // Prevent multiple calls
 
-  const sessionId = params.get("session_id");
+  // Try multiple parameter names in case Stripe uses different ones
+  // Also check URL hash and full URL for session ID
+  const sessionId = 
+    params.get("session_id") || 
+    params.get("sessionId") || 
+    params.get("session") ||
+    (window.location.hash.includes('session_id=') 
+      ? new URLSearchParams(window.location.hash.split('?')[1] || '').get('session_id')
+      : null) ||
+    (window.location.search.includes('session_id=')
+      ? new URLSearchParams(window.location.search).get('session_id')
+      : null);
 
   useEffect(() => {
     async function completeUpgrade() {
-      if (!user || !sessionId) {
-        setStatus('error');
-        setMessage('Missing session information. Please contact support.');
+      // Prevent multiple calls
+      if (hasProcessedRef.current) {
+        console.log('PaymentSuccess: Already processed, skipping...');
         return;
+      }
+      
+      console.log('PaymentSuccess: Starting upgrade process', { 
+        user: !!user, 
+        sessionId,
+        url: window.location.href,
+        search: window.location.search,
+        hash: window.location.hash
+      });
+      
+      if (!user) {
+        console.error('PaymentSuccess: No user found');
+        setStatus('error');
+        setMessage('You must be logged in to complete the upgrade. Please sign in and try again.');
+        return;
+      }
+      
+      // Check if user is already pro (might have been upgraded by webhook)
+      if (user.tier === 'pro') {
+        console.log('PaymentSuccess: User is already Pro, skipping upgrade call');
+        setStatus('success');
+        setMessage('You are already upgraded to Pro! 🎉');
+        setTimeout(() => {
+          navigate('/home');
+        }, 2000);
+        hasProcessedRef.current = true;
+        return;
+      }
+      
+      // Mark as processing to prevent duplicate calls
+      hasProcessedRef.current = true;
+      
+      // If no session ID, check if user is already upgraded (webhook might have processed it)
+      if (!sessionId) {
+        console.warn('PaymentSuccess: No session ID in URL, checking if user is already upgraded...');
+        
+        try {
+          const auth = getAuth();
+          const firebaseUser = auth.currentUser;
+          
+          if (!firebaseUser) {
+            throw new Error('Not authenticated');
+          }
+
+          const token = await firebaseUser.getIdToken();
+          
+          const API_URL = window.location.hostname === 'localhost' 
+            ? 'http://localhost:5001' 
+            : 'https://www.offerloop.ai';
+
+          // Check subscription status via API
+          const statusResponse = await fetch(`${API_URL}/api/subscription-status`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+
+          if (statusResponse.ok) {
+            const statusData = await statusResponse.json();
+            console.log('PaymentSuccess: Subscription status:', statusData);
+            
+            // If user is already pro, show success
+            if (statusData.subscribed && statusData.tier === 'pro') {
+              console.log('PaymentSuccess: User is already upgraded to Pro');
+              await refreshUser(); // Refresh local state
+              setStatus('success');
+              setMessage('You are already upgraded to Pro! 🎉');
+              setTimeout(() => {
+                navigate('/home');
+              }, 2000);
+              return;
+            }
+          }
+          
+          // If not upgraded, show error but with helpful message
+          console.error('PaymentSuccess: No session ID and user not upgraded');
+          setStatus('error');
+          setMessage('Missing session information. If you just completed payment, the upgrade may be processing. Please wait a moment and refresh, or contact support with your payment confirmation.');
+          return;
+        } catch (checkError) {
+          console.error('PaymentSuccess: Error checking user status:', checkError);
+          setStatus('error');
+          setMessage('Missing session information. Please contact support with your payment confirmation.');
+          return;
+        }
       }
 
       try {
@@ -39,7 +137,7 @@ export default function PaymentSuccess() {
           ? 'http://localhost:5001' 
           : 'https://www.offerloop.ai';
 
-        console.log('Calling complete-upgrade endpoint...');
+        console.log('PaymentSuccess: Calling complete-upgrade endpoint...', { API_URL, sessionId });
 
         // Call the manual upgrade endpoint
         const response = await fetch(`${API_URL}/api/complete-upgrade`, {
@@ -51,35 +149,49 @@ export default function PaymentSuccess() {
           body: JSON.stringify({ sessionId })
         });
 
+        console.log('PaymentSuccess: Response status:', response.status);
+
         const result = await response.json();
+        console.log('PaymentSuccess: Response data:', result);
 
         if (response.ok && result.success) {
-          console.log('Upgrade successful:', result);
+          console.log('PaymentSuccess: Upgrade successful:', result);
           setStatus('success');
           setMessage('Successfully upgraded to Pro! 🎉');
           
           // Refresh user data
-          await refreshUser();
+          try {
+            await refreshUser();
+            console.log('PaymentSuccess: User data refreshed');
+          } catch (refreshError) {
+            console.error('PaymentSuccess: Error refreshing user:', refreshError);
+            // Don't fail the upgrade if refresh fails
+          }
           
           // Redirect after 2 seconds
           setTimeout(() => {
             navigate('/home');
           }, 2000);
         } else {
-          console.error('Upgrade failed:', result);
+          console.error('PaymentSuccess: Upgrade failed:', result);
+          const errorMsg = result.error || result.message || 'Upgrade failed. Please contact support.';
           setStatus('error');
-          setMessage(result.error || 'Upgrade failed. Please contact support.');
+          setMessage(errorMsg);
         }
 
       } catch (e) {
-        console.error("Upgrade error:", e);
+        console.error("PaymentSuccess: Upgrade error:", e);
+        const errorMessage = e instanceof Error ? e.message : 'Unknown error';
         setStatus('error');
-        setMessage('An error occurred during upgrade. Please contact support if your account is not upgraded within 5 minutes.');
+        setMessage(`An error occurred during upgrade: ${errorMessage}. Please contact support if your account is not upgraded within 5 minutes.`);
       }
     }
 
-    completeUpgrade();
-  }, [user, sessionId, refreshUser, navigate]);
+    // Only run if we have a user and haven't processed yet
+    if (user && !hasProcessedRef.current) {
+      completeUpgrade();
+    }
+  }, [user, sessionId]); // Removed refreshUser and navigate from dependencies to prevent re-runs
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white px-6">
