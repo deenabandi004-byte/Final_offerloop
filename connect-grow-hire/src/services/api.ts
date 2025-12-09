@@ -717,9 +717,9 @@ class ApiService {
     });
   }
 
-  async downloadInterviewPrepPDF(prepId: string): Promise<{ pdfUrl: string }> {
+  async downloadInterviewPrepPDF(prepId: string): Promise<{ pdfUrl: string; companyName?: string; jobTitle?: string }> {
     const headers = await this.getAuthHeaders();
-    return this.makeRequest<{ pdfUrl: string }>(`/interview-prep/download/${prepId}`, {
+    return this.makeRequest<{ pdfUrl: string; companyName?: string; jobTitle?: string }>(`/interview-prep/download/${prepId}`, {
       method: 'GET',
       headers,
     });

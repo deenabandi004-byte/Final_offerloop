@@ -323,6 +323,8 @@ const InterviewPrepPage: React.FC = () => {
       const MAX_TRIES = 20;
       const DELAY_MS = 1000;
       let pdfUrl: string | undefined;
+      let companyName: string | undefined;
+      let jobTitle: string | undefined;
 
       toast({
         title: "Preparing PDF",
@@ -334,6 +336,8 @@ const InterviewPrepPage: React.FC = () => {
         try {
           const res = await apiService.downloadInterviewPrepPDF(id);
           pdfUrl = res?.pdfUrl || undefined;
+          companyName = res?.companyName || undefined;
+          jobTitle = res?.jobTitle || undefined;
           if (pdfUrl) {
             const response = await fetch(pdfUrl, { method: 'HEAD' });
             if (response.ok) {
@@ -347,6 +351,20 @@ const InterviewPrepPage: React.FC = () => {
       if (!pdfUrl) {
         throw new Error("PDF isn't ready yet. Please try again in a moment.");
       }
+
+      // Generate filename: Oloop_interviewprep_{Company_name}_{Role}.pdf
+      const sanitizeForFilename = (str: string): string => {
+        return str
+          .replace(/[^a-zA-Z0-9\s-]/g, '') // Remove special characters except spaces and hyphens
+          .replace(/\s+/g, '_') // Replace spaces with underscores
+          .replace(/_+/g, '_') // Replace multiple underscores with single
+          .replace(/^_+|_+$/g, '') // Remove leading/trailing underscores
+          .substring(0, 50); // Limit length
+      };
+
+      const company = companyName ? sanitizeForFilename(companyName) : 'Company';
+      const role = jobTitle ? sanitizeForFilename(jobTitle) : 'Role';
+      const filename = `Oloop_interviewprep_${company}_${role}.pdf`;
 
       await new Promise(r => setTimeout(r, 500));
 
@@ -362,7 +380,7 @@ const InterviewPrepPage: React.FC = () => {
         
         const a = document.createElement("a");
         a.href = blobUrl;
-        a.download = `interview-prep-${id}.pdf`;
+        a.download = filename;
         a.style.display = "none";
         document.body.appendChild(a);
         a.click();
@@ -381,7 +399,7 @@ const InterviewPrepPage: React.FC = () => {
         console.warn("Blob download failed, trying direct link:", fetchError);
         const a = document.createElement("a");
         a.href = pdfUrl;
-        a.download = `interview-prep-${id}.pdf`;
+        a.download = filename;
         a.target = "_blank";
         a.rel = "noopener noreferrer";
         a.style.display = "none";

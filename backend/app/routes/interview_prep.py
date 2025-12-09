@@ -390,7 +390,7 @@ def get_interview_prep_status(prep_id):
 @interview_prep_bp.route("/download/<prep_id>", methods=["GET"])
 @require_firebase_auth
 def download_interview_prep_pdf(prep_id):
-    """Return Interview Prep PDF download URL"""
+    """Return Interview Prep PDF download URL with company name and job title for filename"""
     try:
         db = get_db()
         user_id = request.firebase_user.get("uid")
@@ -408,16 +408,36 @@ def download_interview_prep_pdf(prep_id):
         prep_data = prep_doc.to_dict()
         pdf_url = prep_data.get("pdfUrl")
         pdf_path = prep_data.get("pdfStoragePath")
+        
+        # Extract company name and job title for filename
+        company_name = ""
+        job_title = ""
+        job_details = prep_data.get("jobDetails", {})
+        if job_details:
+            company_name = job_details.get("company_name", "") or prep_data.get("companyName", "")
+            job_title = job_details.get("job_title", "") or prep_data.get("jobTitle", "")
+        else:
+            # Fallback to direct fields if jobDetails doesn't exist
+            company_name = prep_data.get("companyName", "")
+            job_title = prep_data.get("jobTitle", "")
 
         if pdf_url:
-            return jsonify({"pdfUrl": pdf_url}), 200
+            return jsonify({
+                "pdfUrl": pdf_url,
+                "companyName": company_name,
+                "jobTitle": job_title
+            }), 200
 
         if pdf_path:
             bucket = storage.bucket()
             blob = bucket.blob(pdf_path)
             if blob.exists():
                 signed_url = blob.generate_signed_url(expiration=3600)
-                return jsonify({"pdfUrl": signed_url}), 200
+                return jsonify({
+                    "pdfUrl": signed_url,
+                    "companyName": company_name,
+                    "jobTitle": job_title
+                }), 200
 
         return jsonify({"error": "PDF not found"}), 404
 
