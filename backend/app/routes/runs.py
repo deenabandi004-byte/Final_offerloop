@@ -12,7 +12,7 @@ from werkzeug.utils import secure_filename
 from app.extensions import require_firebase_auth, get_db
 from app.services.resume_parser import extract_text_from_pdf
 from app.services.reply_generation import batch_generate_emails
-from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user
+from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user, download_resume_from_url
 from app.services.auth import check_and_reset_credits
 from app.services.hunter import enrich_contacts_with_hunter
 from app.config import TIER_CONFIGS
@@ -203,14 +203,25 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         
         print(f"📧 Attached emails to {emails_attached}/{len(contacts)} contacts")
         
-        # Get user resume URL
+        # Get user resume URL and download once (to avoid fetching 8 times)
         resume_url = None
+        resume_content = None
+        resume_filename = None
         if db and user_id:
             try:
                 user_doc = db.collection('users').document(user_id).get()
                 if user_doc.exists:
                     resume_url = user_doc.to_dict().get('resumeUrl')
-            except Exception:
+                    # Download resume once before the loop to avoid redundant fetches
+                    if resume_url:
+                        print(f"📎 Downloading resume once for all {len(contacts[:max_contacts])} contacts...")
+                        resume_content, resume_filename = download_resume_from_url(resume_url)
+                        if resume_content:
+                            print(f"✅ Resume downloaded successfully ({len(resume_content)} bytes) - will reuse for all drafts")
+                        else:
+                            print(f"⚠️ Failed to download resume - drafts will be created without attachment")
+            except Exception as e:
+                print(f"⚠️ Error getting/downloading resume: {e}")
                 pass
         
         # Create drafts if Gmail connected
@@ -246,7 +257,9 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                             try:
                                 draft_result = create_gmail_draft_for_user(
                                     contact, subject, body,
-                                    tier='free', user_email=user_email, resume_url=resume_url, user_info=user_info, user_id=user_id
+                                    tier='free', user_email=user_email, 
+                                    resume_content=resume_content, resume_filename=resume_filename,
+                                    user_info=user_info, user_id=user_id
                                 )
                                 
                                 # Handle both dict response (new) and string response (old/fallback)
@@ -457,14 +470,25 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         
         print(f"📧 Attached emails to {emails_attached}/{len(contacts)} contacts")
         
-        # Get user resume URL
+        # Get user resume URL and download once (to avoid fetching 8 times)
         resume_url = None
+        resume_content = None
+        resume_filename = None
         if db and user_id:
             try:
                 user_doc = db.collection('users').document(user_id).get()
                 if user_doc.exists:
                     resume_url = user_doc.to_dict().get('resumeUrl')
-            except Exception:
+                    # Download resume once before the loop to avoid redundant fetches
+                    if resume_url:
+                        print(f"📎 Downloading resume once for all {len(contacts[:max_contacts])} contacts...")
+                        resume_content, resume_filename = download_resume_from_url(resume_url)
+                        if resume_content:
+                            print(f"✅ Resume downloaded successfully ({len(resume_content)} bytes) - will reuse for all drafts")
+                        else:
+                            print(f"⚠️ Failed to download resume - drafts will be created without attachment")
+            except Exception as e:
+                print(f"⚠️ Error getting/downloading resume: {e}")
                 pass
         
         # Create drafts
@@ -500,7 +524,9 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                             try:
                                 draft_result = create_gmail_draft_for_user(
                                     contact, subject, body,
-                                    tier='pro', user_email=user_email, resume_url=resume_url, user_info=user_info, user_id=user_id
+                                    tier='pro', user_email=user_email, 
+                                    resume_content=resume_content, resume_filename=resume_filename,
+                                    user_info=user_info, user_id=user_id
                                 )
                                 
                                 # Handle both dict response (new) and string response (old/fallback)

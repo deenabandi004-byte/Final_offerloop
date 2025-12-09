@@ -625,6 +625,99 @@ def get_gmail_service_with_service_account(user_email):
         return None
 
 
+def download_resume_from_url(resume_url):
+    """
+    Download resume PDF from a URL (Google Drive, Firebase Storage, etc.)
+    Returns tuple: (resume_content: bytes, filename: str) or (None, None) on error
+    """
+    import re
+    
+    try:
+        print(f"📎 Downloading resume from: {resume_url}")
+        
+        # Normalize Google Drive URLs to direct download format
+        normalized_url = resume_url
+        if 'drive.google.com' in resume_url:
+            # Format: https://drive.google.com/file/d/FILE_ID/view
+            match = re.search(r'/file/d/([^/]+)', resume_url)
+            if match:
+                file_id = match.group(1)
+                normalized_url = f'https://drive.google.com/uc?export=download&id={file_id}'
+                print(f"   🔄 Normalized Google Drive URL: {normalized_url}")
+            else:
+                # Format: https://drive.google.com/open?id=FILE_ID
+                match = re.search(r'[?&]id=([^&]+)', resume_url)
+                if match:
+                    file_id = match.group(1)
+                    normalized_url = f'https://drive.google.com/uc?export=download&id={file_id}'
+                    print(f"   🔄 Normalized Google Drive URL: {normalized_url}")
+        
+        # Handle Firebase Storage URLs - they should work directly
+        if 'firebasestorage.googleapis.com' in normalized_url:
+            print(f"   📦 Detected Firebase Storage URL")
+        
+        print(f"   ⬇️ Downloading resume from {normalized_url}")
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        response = requests.get(normalized_url, timeout=30, headers=headers, allow_redirects=True)
+        response.raise_for_status()
+        
+        # Check if we got actual PDF content
+        content_type = response.headers.get('Content-Type', '').lower()
+        print(f"   📄 Content-Type: {content_type}")
+        
+        if 'html' in content_type and 'drive.google.com' in normalized_url:
+            # Google Drive might be showing a warning page, try alternative method
+            print(f"   ⚠️ Got HTML instead of PDF, trying alternative download method...")
+            # Extract file ID and try direct download
+            match = re.search(r'id=([^&]+)', normalized_url)
+            if match:
+                file_id = match.group(1)
+                alt_url = f'https://drive.google.com/uc?export=download&id={file_id}&confirm=t'
+                print(f"   🔄 Trying alternative URL: {alt_url}")
+                response = requests.get(alt_url, timeout=30, headers=headers, allow_redirects=True)
+                response.raise_for_status()
+                content_type = response.headers.get('Content-Type', '').lower()
+        
+        # Get filename from URL or headers
+        filename = "resume.pdf"
+        if 'Content-Disposition' in response.headers:
+            content_disp = response.headers['Content-Disposition']
+            if 'filename=' in content_disp:
+                filename = content_disp.split('filename=')[1].strip('"').strip("'")
+                print(f"   📝 Filename from headers: {filename}")
+        
+        if not filename.endswith('.pdf') and not filename.endswith('.docx'):
+            # Try to extract from URL
+            for part in reversed(resume_url.split('/')):
+                if '.pdf' in part.lower() or '.docx' in part.lower():
+                    filename = part.split('?')[0]
+                    print(f"   📝 Filename from URL: {filename}")
+                    break
+        
+        resume_content = response.content
+        print(f"   ✅ Downloaded: {filename} ({len(resume_content)} bytes)")
+        
+        # Verify it's actually a PDF (check magic bytes)
+        if len(resume_content) > 4:
+            pdf_magic = resume_content[:4]
+            if pdf_magic == b'%PDF':
+                print(f"   ✅ Verified PDF format (magic bytes: %PDF)")
+            else:
+                print(f"   ⚠️ Warning: Content doesn't look like PDF (magic bytes: {pdf_magic})")
+                # Still return it - let the caller decide
+        
+        return resume_content, filename
+        
+    except Exception as resume_error:
+        print(f"   ❌ Could not download resume: {resume_error}")
+        print(f"   📋 Error type: {type(resume_error).__name__}")
+        import traceback
+        traceback.print_exc()
+        return None, None
+
+
 def get_gmail_service_for_user(user_email, user_id=None):
     """
     Get Gmail service for a specific user.
@@ -685,8 +778,22 @@ def get_gmail_service_for_user(user_email, user_id=None):
         return None
 
 
-def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free', user_email=None, resume_url=None, user_info=None, user_id=None):
-    """Create Gmail draft in the user's account with optional resume attachment and HTML formatting"""
+def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free', user_email=None, resume_url=None, resume_content=None, resume_filename=None, user_info=None, user_id=None):
+    """
+    Create Gmail draft in the user's account with optional resume attachment and HTML formatting
+    
+    Args:
+        contact: Contact dictionary
+        email_subject: Email subject line
+        email_body: Email body text
+        tier: 'free' or 'pro'
+        user_email: User's email address
+        resume_url: URL to download resume from (deprecated - use resume_content instead)
+        resume_content: Pre-downloaded resume content as bytes (preferred)
+        resume_filename: Filename for the resume attachment
+        user_info: User profile information
+        user_id: User ID for Gmail credentials
+    """
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
     from email.mime.base import MIMEBase
@@ -718,7 +825,7 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         print(f"   From: {gmail_account_email}")
         print(f"   For user: {user_email}")
         print(f"   Contact: {contact.get('FirstName', 'Unknown')}")
-        if resume_url:
+        if resume_content or resume_url:
             print(f"   With resume attachment")
         
         # Get the best available email address
@@ -790,84 +897,11 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
             message.attach(MIMEText(email_body, 'plain', 'utf-8'))
         
         # Attach resume if available
-        if resume_url:
-            print(f"📎 Attempting to attach resume from: {resume_url}")
+        # Prefer pre-downloaded resume_content over resume_url to avoid redundant downloads
+        if resume_content:
+            print(f"📎 Attaching pre-downloaded resume: {resume_filename or 'resume.pdf'}")
             try:
-                # Normalize Google Drive URLs to direct download format
-                normalized_url = resume_url
-                if 'drive.google.com' in resume_url:
-                    import re
-                    # Format: https://drive.google.com/file/d/FILE_ID/view
-                    match = re.search(r'/file/d/([^/]+)', resume_url)
-                    if match:
-                        file_id = match.group(1)
-                        normalized_url = f'https://drive.google.com/uc?export=download&id={file_id}'
-                        print(f"   🔄 Normalized Google Drive URL: {normalized_url}")
-                    else:
-                        # Format: https://drive.google.com/open?id=FILE_ID
-                        match = re.search(r'[?&]id=([^&]+)', resume_url)
-                        if match:
-                            file_id = match.group(1)
-                            normalized_url = f'https://drive.google.com/uc?export=download&id={file_id}'
-                            print(f"   🔄 Normalized Google Drive URL: {normalized_url}")
-                
-                # Handle Firebase Storage URLs - they should work directly
-                if 'firebasestorage.googleapis.com' in normalized_url:
-                    print(f"   📦 Detected Firebase Storage URL")
-                    # Firebase Storage URLs should work directly, but may need token
-                    # Try direct download first
-                
-                print(f"   ⬇️ Downloading resume from {normalized_url}")
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
-                response = requests.get(normalized_url, timeout=30, headers=headers, allow_redirects=True)
-                response.raise_for_status()
-                
-                # Check if we got actual PDF content
-                content_type = response.headers.get('Content-Type', '').lower()
-                print(f"   📄 Content-Type: {content_type}")
-                
-                if 'html' in content_type and 'drive.google.com' in normalized_url:
-                    # Google Drive might be showing a warning page, try alternative method
-                    print(f"   ⚠️ Got HTML instead of PDF, trying alternative download method...")
-                    # Extract file ID and try direct download
-                    match = re.search(r'id=([^&]+)', normalized_url)
-                    if match:
-                        file_id = match.group(1)
-                        alt_url = f'https://drive.google.com/uc?export=download&id={file_id}&confirm=t'
-                        print(f"   🔄 Trying alternative URL: {alt_url}")
-                        response = requests.get(alt_url, timeout=30, headers=headers, allow_redirects=True)
-                        response.raise_for_status()
-                        content_type = response.headers.get('Content-Type', '').lower()
-                
-                # Get filename from URL or headers
-                filename = "resume.pdf"
-                if 'Content-Disposition' in response.headers:
-                    content_disp = response.headers['Content-Disposition']
-                    if 'filename=' in content_disp:
-                        filename = content_disp.split('filename=')[1].strip('"').strip("'")
-                        print(f"   📝 Filename from headers: {filename}")
-                
-                if not filename.endswith('.pdf') and not filename.endswith('.docx'):
-                    # Try to extract from URL
-                    for part in reversed(resume_url.split('/')):
-                        if '.pdf' in part.lower() or '.docx' in part.lower():
-                            filename = part.split('?')[0]
-                            print(f"   📝 Filename from URL: {filename}")
-                            break
-                
-                resume_content = response.content
-                print(f"   ✅ Downloaded: {filename} ({len(resume_content)} bytes)")
-                
-                # Verify it's actually a PDF (check magic bytes)
-                if len(resume_content) > 4:
-                    pdf_magic = resume_content[:4]
-                    if pdf_magic == b'%PDF':
-                        print(f"   ✅ Verified PDF format (magic bytes: %PDF)")
-                    else:
-                        print(f"   ⚠️ Warning: Content doesn't look like PDF (magic bytes: {pdf_magic})")
-                        # Still try to attach it
+                filename = resume_filename or "resume.pdf"
                 
                 # Attach resume to email
                 attachment = MIMEBase('application', 'pdf')
@@ -884,8 +918,30 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
                 import traceback
                 traceback.print_exc()
                 # Continue without resume - don't fail the entire draft
+        elif resume_url:
+            # Fallback: download from URL if resume_content not provided (for backward compatibility)
+            print(f"📎 Attempting to attach resume from URL: {resume_url}")
+            resume_content, filename = download_resume_from_url(resume_url)
+            if resume_content:
+                try:
+                    # Attach resume to email
+                    attachment = MIMEBase('application', 'pdf')
+                    attachment.set_payload(resume_content)
+                    encoders.encode_base64(attachment)
+                    attachment.add_header('Content-Disposition', f'attachment; filename="{filename}"')
+                    attachment.add_header('Content-Type', 'application/pdf')
+                    message.attach(attachment)
+                    print(f"   ✅ Resume attached successfully to email draft")
+                except Exception as resume_error:
+                    print(f"   ❌ Could not attach resume: {resume_error}")
+                    print(f"   📋 Error type: {type(resume_error).__name__}")
+                    import traceback
+                    traceback.print_exc()
+                    # Continue without resume - don't fail the entire draft
+            else:
+                print(f"   ⚠️ Failed to download resume from URL - skipping attachment")
         else:
-            print(f"   ⚠️ No resume URL provided - skipping attachment")
+            print(f"   ⚠️ No resume provided - skipping attachment")
         
         # Create the draft
         raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
