@@ -4,7 +4,7 @@ Flask extensions and initialization
 import os
 import firebase_admin
 from firebase_admin import credentials, firestore, auth as fb_auth
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -142,45 +142,46 @@ def require_firebase_auth(fn):
         # Allow OPTIONS requests (CORS preflight) to pass through without authentication
         # Flask-CORS will automatically handle these and add the necessary headers
         if request.method == 'OPTIONS':
-            # Return empty response - Flask-CORS will add headers via after_request hook
-            response = jsonify({})
-            response.status_code = 200
-            return response
-        
-        # Check if Firebase Admin is initialized
-        if not firebase_admin._apps:
-            error_msg = "Firebase Admin SDK not initialized. Call init_firebase() first."
-            print(f"❌ {error_msg}")
-            return jsonify({'error': error_msg}), 500
-        
-        auth_header = request.headers.get('Authorization', '')
-        
-        if not auth_header.startswith('Bearer '):
-            print("❌ Missing or invalid Authorization header format")
-            return jsonify({'error': 'Missing Authorization header'}), 401
-
-        id_token = auth_header.split(' ', 1)[1].strip()
-
-        try:
-            decoded = fb_auth.verify_id_token(id_token)
-            request.firebase_user = decoded
-            print(f"✅ Token verified for user: {decoded.get('uid')}")
-        except ValueError as ve:
-            # Firebase Admin SDK not initialized error
-            error_str = str(ve)
-            if 'initialize' in error_str.lower() or 'init' in error_str.lower():
+            # Skip auth check for OPTIONS - let Flask-CORS handle it automatically
+            # The route handler will also return early for OPTIONS
+            pass  # Continue to route handler which will handle OPTIONS
+        else:
+            # For non-OPTIONS requests, check authentication
+            # Check if Firebase Admin is initialized
+            if not firebase_admin._apps:
                 error_msg = "Firebase Admin SDK not initialized. Call init_firebase() first."
                 print(f"❌ {error_msg}")
                 return jsonify({'error': error_msg}), 500
-            else:
-                print(f"❌ Token verification failed: {ve}")
-                return jsonify({'error': 'Invalid or expired token'}), 401
-        except Exception as token_error:
-            print(f"❌ Token verification failed: {token_error}")
-            # SECURITY: No fallback - all tokens must be valid
-            return jsonify({'error': 'Invalid or expired token. Please sign in again.'}), 401
+            
+            auth_header = request.headers.get('Authorization', '')
+            
+            if not auth_header.startswith('Bearer '):
+                print("❌ Missing or invalid Authorization header format")
+                return jsonify({'error': 'Missing Authorization header'}), 401
+
+            id_token = auth_header.split(' ', 1)[1].strip()
+
+            try:
+                decoded = fb_auth.verify_id_token(id_token)
+                request.firebase_user = decoded
+                print(f"✅ Token verified for user: {decoded.get('uid')}")
+            except ValueError as ve:
+                # Firebase Admin SDK not initialized error
+                error_str = str(ve)
+                if 'initialize' in error_str.lower() or 'init' in error_str.lower():
+                    error_msg = "Firebase Admin SDK not initialized. Call init_firebase() first."
+                    print(f"❌ {error_msg}")
+                    return jsonify({'error': error_msg}), 500
+                else:
+                    print(f"❌ Token verification failed: {ve}")
+                    return jsonify({'error': 'Invalid or expired token'}), 401
+            except Exception as token_error:
+                print(f"❌ Token verification failed: {token_error}")
+                # SECURITY: No fallback - all tokens must be valid
+                return jsonify({'error': 'Invalid or expired token. Please sign in again.'}), 401
 
         # Call the route handler - let its exceptions bubble up normally
+        # For OPTIONS, the handler will return early; Flask-CORS will add headers
         return fn(*args, **kwargs)
     return wrapper
 
@@ -275,6 +276,8 @@ def init_app_extensions(app: Flask):
          resources={
              r"/api/*": cors_config,
              r"/*": cors_config  # Also allow CORS for all routes (for SPA)
-         })
+         },
+         automatic_options=True,  # Explicitly enable automatic OPTIONS handling
+         supports_credentials=True)
     app.secret_key = os.getenv("FLASK_SECRET", "dev")
     init_firebase(app)  # Initialize Firebase when extensions are initialized

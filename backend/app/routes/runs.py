@@ -803,9 +803,13 @@ def free_run_csv():
 @require_firebase_auth
 def pro_run():
     """Pro tier search endpoint with validation"""
-    # OPTIONS requests are handled by CORS middleware, just return empty response
+    # OPTIONS requests are handled by CORS middleware automatically
+    # Return empty response - Flask-CORS will add headers via after_request hook
     if request.method == 'OPTIONS':
-        return '', 200
+        from flask import make_response
+        response = make_response()
+        response.status_code = 200
+        return response
     
     try:
         user_email = request.firebase_user.get('email')
@@ -949,9 +953,13 @@ def pro_run():
 @require_firebase_auth
 def pro_run_csv():
     """Pro tier CSV download endpoint"""
-    # OPTIONS requests are handled by CORS middleware, just return empty response
+    # OPTIONS requests are handled by CORS middleware automatically
+    # Return empty response - Flask-CORS will add headers via after_request hook
     if request.method == 'OPTIONS':
-        return '', 200
+        from flask import make_response
+        response = make_response()
+        response.status_code = 200
+        return response
     
     try:
         user_email = request.firebase_user.get('email')
