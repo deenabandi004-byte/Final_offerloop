@@ -193,11 +193,12 @@ def search_companies_with_serp(
         if len(firms_data) < len(firm_names):
             print(f"⚠️ Retrieved {len(firms_data)}/{len(firm_names)} firms (partial results)")
         
-        # Step 3: Transform to Firm format
-        from app.services.company_search import transform_serp_company_to_firm
+        # Step 3: Transform to Firm format and filter by location
+        from app.services.company_search import transform_serp_company_to_firm, firm_location_matches
         
         firms = []
         seen_domains = set()
+        filtered_count = 0
         
         for company_data in firms_data:
             website = company_data.get("website") or company_data.get("linkedinUrl", "")
@@ -210,7 +211,16 @@ def search_companies_with_serp(
             
             firm = transform_serp_company_to_firm(company_data)
             if firm:
-                firms.append(firm)
+                # CRITICAL: Filter by location - only include firms that match the requested location
+                firm_location = firm.get("location", {})
+                if firm_location_matches(firm_location, location):
+                    firms.append(firm)
+                else:
+                    filtered_count += 1
+                    print(f"🚫 Filtered out firm '{firm.get('name')}' - location mismatch: {firm_location.get('display', 'Unknown')} vs requested {location}")
+        
+        if filtered_count > 0:
+            print(f"📍 Location filtering: Removed {filtered_count} firms that don't match location criteria")
         
         # Sort firms by employee count
         firms.sort(key=lambda f: f.get('employeeCount') if f.get('employeeCount') is not None else 0)

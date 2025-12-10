@@ -254,7 +254,16 @@ Result {i}{highlight}:
         
         context = "\n".join(context_parts)
         
-        # Enhanced prompt - more thorough extraction
+        # Enhanced prompt - more thorough extraction with location validation
+        location_str = ""
+        if location:
+            location_parts = [v for v in [
+                location.get("locality"),
+                location.get("region"),
+                location.get("country")
+            ] if v]
+            location_str = ", ".join(location_parts)
+        
         system_prompt = """You are an expert at extracting company information from Google search results. 
 For well-known companies, you should be able to find comprehensive information including LinkedIn URLs, employee counts, and locations.
 Pay special attention to:
@@ -262,22 +271,30 @@ Pay special attention to:
 - Official company websites
 - Knowledge Graph data (most reliable)
 - Company size information from snippets
+- Location validation (CRITICAL: verify company is in the requested location)
 Return ONLY valid JSON, no markdown, no explanations."""
 
         user_prompt = f"""Company Name: {firm_name}
+Requested Location: {location_str if location_str else 'Not specified'}
 
 Search Results:
 {context}
 
 Extract comprehensive company information. PRIORITIZE Knowledge Graph data - it's the most reliable source.
 
+CRITICAL LOCATION REQUIREMENT:
+- The company MUST be located in: {location_str if location_str else 'any location'}
+- Extract the EXACT location (city, state, country) from Knowledge Graph headquarters or search results
+- If the company's location does not match the requested location, you should still extract the data but note the mismatch
+
 Required fields:
 - name: Official company name (exact match to "{firm_name}" or from Knowledge Graph)
 - website: Official company website URL (from Knowledge Graph website field, or company domain in results)
 - linkedinUrl: LinkedIn company page URL (look for "linkedin.com/company/" URLs in results, format: https://linkedin.com/company/company-name)
 - location: {{"city": string or null, "state": string or null, "country": string or null}} 
-  * Extract from Knowledge Graph headquarters field first
+  * Extract from Knowledge Graph headquarters field first (MOST RELIABLE)
   * Then from result snippets or location mentions
+  * Be precise: extract the actual headquarters location, not just any office location
 - industry: Primary industry/sector (from Knowledge Graph industry/sector, or infer from description)
   * Be specific: "Investment Banking", "Management Consulting", "Venture Capital", etc.
 - employeeCount: Number of employees (integer or null)
@@ -296,6 +313,7 @@ EXTRACTION RULES:
 4. For location: Knowledge Graph headquarters > location mentions in snippets
 5. For well-known companies (Fortune 500, major brands), most fields should be found
 6. Use null (not empty string) if information is truly not available
+7. LOCATION ACCURACY: Extract the actual headquarters location, not branch offices
 
 Return ONLY a JSON object (no markdown, no explanations):
 {{

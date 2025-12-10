@@ -372,6 +372,141 @@ def normalize_location(location_input: str) -> Dict[str, Optional[str]]:
     return result
 
 
+def firm_location_matches(firm_location: Dict[str, Any], requested_location: Dict[str, Optional[str]]) -> bool:
+    """
+    Check if a firm's location matches the requested location criteria.
+    
+    Args:
+        firm_location: Firm's location dict with keys: city, state, country
+        requested_location: Requested location dict with keys: locality, region, metro, country
+    
+    Returns:
+        True if firm location matches requested location, False otherwise
+    """
+    if not firm_location or not requested_location:
+        # If no location data available, be lenient (don't filter out)
+        if not firm_location:
+            print(f"⚠️ No firm location data available, allowing firm")
+            return True
+        return False
+    
+    firm_city = (firm_location.get("city") or "").lower().strip()
+    firm_state = (firm_location.get("state") or "").lower().strip()
+    firm_country = (firm_location.get("country") or "").lower().strip()
+    
+    # Normalize country names
+    country_normalizations = {
+        "united states": ["usa", "us", "u.s.", "u.s.a.", "united states", "united states of america"],
+        "united kingdom": ["uk", "u.k.", "united kingdom", "great britain", "gb"],
+    }
+    
+    def normalize_country(country_str):
+        if not country_str:
+            return None
+        country_lower = country_str.lower().strip()
+        for normalized, variants in country_normalizations.items():
+            if country_lower in variants or country_lower == normalized:
+                return normalized
+        return country_lower
+    
+    firm_country_norm = normalize_country(firm_country)
+    req_country_norm = normalize_country(requested_location.get("country"))
+    
+    # Check country match first (required if country is specified)
+    if req_country_norm:
+        if not firm_country_norm:
+            # If firm has no country but we require one, fail
+            return False
+        if firm_country_norm != req_country_norm:
+            # Country mismatch
+            return False
+    
+    # Check metro area match (most flexible)
+    if requested_location.get("metro"):
+        metro_lower = requested_location["metro"].lower()
+        # For metro areas, we're more lenient - check if city/state is in the metro
+        metro_cities = {
+            "san francisco bay area": ["san francisco", "palo alto", "mountain view", "sunnyvale", "san jose", "fremont", "oakland", "redwood city", "menlo park"],
+            "bay area": ["san francisco", "palo alto", "mountain view", "sunnyvale", "san jose", "fremont", "oakland"],
+            "sf bay area": ["san francisco", "palo alto", "mountain view", "sunnyvale", "san jose", "fremont", "oakland"],
+            "new york metro": ["new york", "nyc", "manhattan", "brooklyn", "queens", "bronx", "staten island"],
+            "nyc metro": ["new york", "nyc", "manhattan", "brooklyn", "queens", "bronx"],
+            "tri-state area": ["new york", "nyc", "new jersey", "connecticut"],
+            "los angeles metro": ["los angeles", "la", "santa monica", "beverly hills", "pasadena", "glendale"],
+            "la metro": ["los angeles", "la", "santa monica", "beverly hills"],
+            "socal": ["los angeles", "la", "san diego", "orange county"],
+            "chicago metro": ["chicago"],
+            "chicagoland": ["chicago"],
+            "boston metro": ["boston", "cambridge", "somerville"],
+            "greater boston": ["boston", "cambridge", "somerville"],
+            "seattle metro": ["seattle", "bellevue", "redmond"],
+            "puget sound": ["seattle", "bellevue", "redmond"],
+            "dallas-fort worth": ["dallas", "fort worth", "arlington"],
+            "dfw metro": ["dallas", "fort worth", "arlington"],
+            "miami metro": ["miami", "miami beach"],
+            "south florida": ["miami", "miami beach", "fort lauderdale"],
+            "washington dc metro": ["washington", "dc", "arlington", "alexandria", "bethesda"],
+            "dmv area": ["washington", "dc", "arlington", "alexandria", "bethesda", "maryland", "virginia"]
+        }
+        
+        metro_cities_list = metro_cities.get(metro_lower, [])
+        if metro_cities_list:
+            firm_location_str = f"{firm_city} {firm_state}".lower()
+            if any(city in firm_location_str for city in metro_cities_list):
+                return True
+            # If no match found for metro, fail
+            return False
+    
+    # Check region/state match
+    if requested_location.get("region"):
+        req_region = requested_location["region"].lower().strip()
+        # Check if it's a US state abbreviation
+        if req_region in US_STATES:
+            req_region_full = US_STATES[req_region].lower()
+        else:
+            req_region_full = req_region
+        
+        # Check state match
+        if firm_state:
+            # Direct match
+            if firm_state == req_region_full or firm_state == req_region:
+                return True
+            # Partial match (e.g., "new york" matches "new york state")
+            if req_region_full in firm_state or firm_state in req_region_full:
+                return True
+            # Check abbreviation match
+            if req_region in US_STATES:
+                if firm_state == req_region:
+                    return True
+            # Check if firm_state is abbreviation for requested state
+            if req_region_full in US_STATES.values():
+                for abbrev, full_name in US_STATES.items():
+                    if full_name == req_region_full and firm_state == abbrev:
+                        return True
+        
+        # If we have a region requirement but no match, fail
+        # Exception: if we also have a city requirement, city match might override
+        if not requested_location.get("locality"):
+            return False
+    
+    # Check locality/city match
+    if requested_location.get("locality"):
+        req_city = requested_location["locality"].lower().strip()
+        if firm_city:
+            # Direct match
+            if firm_city == req_city:
+                return True
+            # Partial match (e.g., "new york" matches "new york city")
+            if req_city in firm_city or firm_city in req_city:
+                return True
+        # If we have a city requirement but no match, fail
+        return False
+    
+    # If we got here and country matched (or no country requirement), location matches
+    # This handles the case where only country is specified
+    return True
+
+
 # =============================================================================
 # PDL COMPANY SEARCH - BULLETPROOF QUERY BUILDER
 # =============================================================================

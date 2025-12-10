@@ -37,12 +37,18 @@ def generate_firm_names_with_chatgpt(
     size = filters.get("size", "none")
     keywords = filters.get("keywords", [])
     
-    # Optimized prompt - shorter, more focused
-    system_prompt = """Generate specific company names matching criteria. Return JSON array only."""
+    # Optimized prompt - shorter, more focused, with strict location requirement
+    system_prompt = """Generate specific company names matching criteria. 
+CRITICAL: Only include companies that are ACTUALLY LOCATED in the specified location.
+Return JSON array only."""
 
     user_prompt = f"""Industry: {industry}, Location: {location_str}, Size: {size if size != 'none' else 'any'}{f', Keywords: {", ".join(keywords)}' if keywords else ''}
 
-List {limit} well-known companies matching these criteria. Return JSON array:
+List {limit} well-known companies matching these criteria. 
+IMPORTANT: Only include companies that have their headquarters or primary operations in the specified location ({location_str}).
+Do NOT include companies that are only in other locations, even if they're in the same industry.
+
+Return JSON array:
 ["Company 1", "Company 2", ...]"""
 
     try:

@@ -66,6 +66,9 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         if hasattr(request, 'firebase_user'):
             user_id = request.firebase_user.get('uid')
         
+        # Initialize seen_contact_set before it's used
+        seen_contact_set = set()
+        
         credits_available = 120
         if db and user_id:
             try:
@@ -81,8 +84,6 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                     contact_docs = list(contacts_ref.select(
                         'firstName', 'lastName', 'email', 'linkedinUrl', 'company'
                     ).stream())
-                    
-                    seen_contact_set = set()
                     
                     for doc in contact_docs:
                         contact = doc.to_dict()
@@ -345,6 +346,9 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         if hasattr(request, 'firebase_user'):
             user_id = request.firebase_user.get('uid')
         
+        # Initialize seen_contact_set before it's used
+        seen_contact_set = set()
+        
         credits_available = 1800
         if db and user_id:
             try:
@@ -357,8 +361,6 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                     # ✅ LOAD FROM SUBCOLLECTION (not contactLibrary field)
                     contacts_ref = db.collection('users').document(user_id).collection('contacts')
                     contact_docs = list(contacts_ref.stream())
-                    
-                    seen_contact_set = set()
                     
                     for doc in contact_docs:
                         contact = doc.to_dict()
