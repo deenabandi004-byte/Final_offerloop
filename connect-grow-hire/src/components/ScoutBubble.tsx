@@ -1,13 +1,63 @@
 import React, { useState, useEffect } from "react";
 import ScoutChatbot from "./ScoutChatbot";
 import { Button } from "@/components/ui/button";
+import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 interface ScoutBubbleProps {
   onJobTitleSuggestion: (title: string, company?: string, location?: string) => void;
 }
 
 const ScoutBubble: React.FC<ScoutBubbleProps> = ({ onJobTitleSuggestion }) => {
+  const { user } = useFirebaseAuth();
   const [isScoutChatOpen, setIsScoutChatOpen] = useState(false);
+  const [userResume, setUserResume] = useState<any>(null);
+
+  // Load user resume data from Firestore
+  useEffect(() => {
+    const loadUserResume = async () => {
+      if (!user?.uid) return;
+      
+      try {
+        const userRef = doc(db, 'users', user.uid);
+        const snap = await getDoc(userRef);
+        
+        if (snap.exists()) {
+          const data = snap.data();
+          // Build resume object from Firestore data
+          const resumeData: any = {};
+          
+          // Include parsed resume data if available
+          if (data.resumeParsed) {
+            Object.assign(resumeData, data.resumeParsed);
+          }
+          
+          // Include raw text if available
+          if (data.resumeText) {
+            resumeData.rawText = data.resumeText;
+          }
+          
+          // Include other parsed fields that might be useful
+          if (data.resumeParsed?.key_experiences) {
+            resumeData.key_experiences = data.resumeParsed.key_experiences;
+          }
+          if (data.resumeParsed?.skills) {
+            resumeData.skills = data.resumeParsed.skills;
+          }
+          if (data.resumeParsed?.achievements) {
+            resumeData.achievements = data.resumeParsed.achievements;
+          }
+          
+          setUserResume(resumeData);
+        }
+      } catch (error) {
+        console.error('[ScoutBubble] Failed to load resume:', error);
+      }
+    };
+    
+    loadUserResume();
+  }, [user?.uid]);
 
   // Add wave animation keyframes
   useEffect(() => {
@@ -55,7 +105,10 @@ const ScoutBubble: React.FC<ScoutBubbleProps> = ({ onJobTitleSuggestion }) => {
               </div>
             </div>
             <div className="flex-1 min-h-0 overflow-hidden">
-              <ScoutChatbot onJobTitleSuggestion={onJobTitleSuggestion} />
+              <ScoutChatbot 
+                onJobTitleSuggestion={onJobTitleSuggestion} 
+                userResume={userResume || undefined}
+              />
             </div>
           </div>
         </div>

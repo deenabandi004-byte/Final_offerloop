@@ -176,7 +176,7 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         # Generate emails
         print(f"📧 Generating emails for {len(contacts)} contacts...")
         try:
-            email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests)
+            email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None)
             print(f"📧 Email generation returned {len(email_results)} results")
         except Exception as email_gen_error:
             print(f"❌ Email generation failed: {email_gen_error}")
@@ -445,7 +445,7 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         # Generate emails with resume
         print(f"📧 Generating emails for {len(contacts)} contacts...")
         try:
-            email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests)
+            email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None)
             print(f"📧 Email generation returned {len(email_results)} results")
         except Exception as email_gen_error:
             print(f"❌ Email generation failed: {email_gen_error}")

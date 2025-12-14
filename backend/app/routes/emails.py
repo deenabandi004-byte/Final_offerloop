@@ -72,6 +72,7 @@ def generate_and_draft():
     resume_text = payload.get("resumeText", "")
     user_profile = payload.get("userProfile", {})
     career_interest = payload.get("careerInterests")
+    fit_context = payload.get("fitContext")  # NEW: Job fit analysis context
 
     # Get Gmail service using user's OAuth credentials (falls back to shared account if not connected)
     user_email = request.firebase_user.get("email")
@@ -82,8 +83,12 @@ def generate_and_draft():
             "message": "Please connect your Gmail account to create drafts. The shared Gmail account is not available."
         }), 500
 
-    # 1) Generate emails
-    results = batch_generate_emails(contacts, resume_text, user_profile, career_interest)
+    # Log if fit context is being used
+    if fit_context:
+        print(f"📧 Generating emails with fit context: {fit_context.get('job_title', 'Unknown')} at {fit_context.get('company', 'Unknown')}")
+
+    # 1) Generate emails with fit context
+    results = batch_generate_emails(contacts, resume_text, user_profile, career_interest, fit_context=fit_context)
     print(f"🧪 batch_generate_emails returned: type={type(results)}, "
       f"len={len(results) if hasattr(results, '__len__') else 'n/a'}, "
       f"keys={list(results.keys())[:5] if isinstance(results, dict) else 'list'}")

@@ -237,7 +237,7 @@ def search_companies_with_serp(
             firms_data = get_firm_details_batch(
                 new_firm_names,
                 location,
-                max_workers=5,  # Process 5 firms in parallel
+                max_workers=10,  # OPTIMIZED: Increased from 5 to 10 for faster processing
                 progress_callback=progress_callback,
                 max_results=None  # Don't limit here - we'll filter and limit later
             )

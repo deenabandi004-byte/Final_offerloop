@@ -22,26 +22,75 @@ interface JobListing {
   snippet?: string;
 }
 
+interface JobFitAnalysis {
+  overall_score?: number;
+  strengths?: string[];
+  gaps?: string[];
+  angles?: string[];
+  experience_match?: string;
+}
+
+interface DetailedJobFitAnalysis {
+  score: number;
+  match_level: 'strong' | 'good' | 'moderate' | 'stretch';
+  strengths: Array<{ point: string; evidence: string }>;
+  gaps: Array<{ gap: string; mitigation: string }>;
+  pitch: string;
+  talking_points: string[];
+  keywords_to_use: string[];
+}
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   fields?: SearchFields;
   jobListings?: JobListing[];
+  fitAnalysis?: JobFitAnalysis;
   timestamp: Date;
+}
+
+interface UserResume {
+  skills?: string[];
+  experience?: Array<{
+    title: string;
+    company: string;
+    duration?: string;
+    description?: string;
+  }>;
+  education?: Array<{
+    school: string;
+    degree: string;
+    field?: string;
+    year?: string;
+  }>;
+  summary?: string;
+  rawText?: string;
+  // Also support parsed format from Firestore
+  name?: string;
+  university?: string;
+  major?: string;
+  year?: string;
+  key_experiences?: string[];
+  achievements?: string[];
+  interests?: string[];
 }
 
 interface ScoutChatbotProps {
   onJobTitleSuggestion?: (title: string, company?: string, location?: string) => void;
+  userResume?: UserResume;
 }
 
-const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => {
+const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userResume }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [context, setContext] = useState<Record<string, any>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [analyzingJobId, setAnalyzingJobId] = useState<string | null>(null);
+  const [jobAnalyses, setJobAnalyses] = useState<Record<string, DetailedJobFitAnalysis>>({});
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
 
   // No initial greeting message - using static bubble instead
 
@@ -70,7 +119,10 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: userMessage.content,
-          context,
+          context: {
+            ...context,
+            user_resume: userResume,
+          },
         }),
       });
 
@@ -88,6 +140,7 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
         content: data.message,
         fields: data.fields,
         jobListings: data.job_listings,
+        fitAnalysis: data.fit_analysis,
         timestamp: new Date(),
       };
 
@@ -139,6 +192,64 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
   const handleJobClick = (job: JobListing) => {
     if (onJobTitleSuggestion) {
       onJobTitleSuggestion(job.title, job.company, job.location || undefined);
+    }
+  };
+
+  const analyzeJob = async (job: JobListing, jobId: string) => {
+    console.log('[Scout] analyzeJob called', { jobId, job, hasResume: !!userResume });
+    
+    // Don't re-analyze if we already have it
+    if (jobAnalyses[jobId]) {
+      console.log('[Scout] Analysis already exists, toggling expand');
+      setExpandedJobId(expandedJobId === jobId ? null : jobId);
+      return;
+    }
+    
+    if (!userResume) {
+      console.warn('[Scout] Cannot analyze job without resume');
+      alert('Please upload your resume in Account Settings to use job fit analysis.');
+      return;
+    }
+    
+    setAnalyzingJobId(jobId);
+    console.log('[Scout] Starting analysis for job:', job.title);
+    
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/scout/analyze-job`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          job,
+          user_resume: userResume,
+        }),
+      });
+      
+      console.log('[Scout] Analysis response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[Scout] Analysis failed with status:', response.status, errorText);
+        throw new Error(`Analysis failed: ${response.status} ${errorText}`);
+      }
+      
+      const data = await response.json();
+      console.log('[Scout] Analysis response:', data);
+      
+      if (data.status === 'ok' && data.analysis) {
+        setJobAnalyses(prev => ({
+          ...prev,
+          [jobId]: data.analysis,
+        }));
+        setExpandedJobId(jobId);
+        console.log('[Scout] Analysis saved and expanded');
+      } else {
+        console.error('[Scout] Analysis response missing data:', data);
+      }
+    } catch (error) {
+      console.error('[Scout] Analysis failed:', error);
+      alert('Failed to analyze job fit. Please try again.');
+    } finally {
+      setAnalyzingJobId(null);
     }
   };
 
@@ -226,15 +337,70 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
                 {/* Fields badge */}
                 {message.fields && Object.keys(message.fields).length > 0 && (
                   <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded-lg">
-                    <div className="flex items-center gap-1 text-blue-700 text-xs font-medium mb-1">
-                      <Sparkles className="h-3 w-3" />
-                      Search fields updated!
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-1 text-blue-700 text-xs font-medium">
+                        <Sparkles className="h-3 w-3" />
+                        Search fields updated!
+                      </div>
+                      <div className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded" title="Fields optimized for better search results">
+                        ✨ Optimized
+                      </div>
                     </div>
-                    <div className="text-xs text-blue-600">
-                      {message.fields.job_title && <span>Title: {message.fields.job_title}</span>}
-                      {message.fields.company && <span> • Company: {message.fields.company}</span>}
-                      {message.fields.location && <span> • Location: {message.fields.location}</span>}
+                    <div className="text-xs text-blue-600 space-y-0.5">
+                      {message.fields.job_title && (
+                        <div className="flex items-center gap-1">
+                          <span className="font-medium">Title:</span>
+                          <span>{message.fields.job_title}</span>
+                        </div>
+                      )}
+                      {message.fields.company && (
+                        <div className="flex items-center gap-1">
+                          <span className="font-medium">Company:</span>
+                          <span>{message.fields.company}</span>
+                        </div>
+                      )}
+                      {message.fields.location && (
+                        <div className="flex items-center gap-1">
+                          <span className="font-medium">Location:</span>
+                          <span>{message.fields.location}</span>
+                        </div>
+                      )}
                     </div>
+                  </div>
+                )}
+
+                {/* Fit Analysis */}
+                {message.fitAnalysis && (
+                  <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <div className="text-xs font-semibold text-amber-900 mb-2">🎯 Job Fit Analysis</div>
+                    {message.fitAnalysis.strengths && message.fitAnalysis.strengths.length > 0 && (
+                      <div className="mb-2">
+                        {message.fitAnalysis.strengths.map((strength, idx) => (
+                          <div key={idx} className="text-xs text-amber-800 mb-1">
+                            ✅ {strength}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {message.fitAnalysis.gaps && message.fitAnalysis.gaps.length > 0 && (
+                      <div className="mb-2">
+                        {message.fitAnalysis.gaps.map((gap, idx) => (
+                          <div key={idx} className="text-xs text-amber-700 mb-1">
+                            ⚠️ {gap}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {message.fitAnalysis.angles && message.fitAnalysis.angles.length > 0 && (
+                      <div className="text-xs text-amber-800 font-medium mt-2">
+                        💡 <strong>Angle:</strong> {message.fitAnalysis.angles[0]}
+                      </div>
+                    )}
+                    {message.fitAnalysis.overall_score !== undefined && (
+                      <div className="text-xs text-amber-900 font-medium mt-2">
+                        Overall Fit: {message.fitAnalysis.overall_score}/100
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -242,51 +408,239 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion }) => 
                 {message.jobListings && message.jobListings.length > 0 && (
                   <div className="mt-3 space-y-2">
                     <div className="text-xs text-slate-600 font-medium">Click to use for search:</div>
-                    {message.jobListings.slice(0, 5).map((job, idx) => (
-                      <div
-                        key={idx}
-                        className="w-full p-3 bg-white rounded-lg border border-slate-200 hover:border-blue-400 transition-colors"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <button
-                            onClick={() => handleJobClick(job)}
-                            className="flex-1 text-left min-w-0"
-                          >
-                            <div className="text-sm font-medium text-slate-900">{job.title}</div>
-                            <div className="text-xs text-slate-500">
-                              {job.company}
-                              {job.location && ` • ${job.location}`}
+                    {message.jobListings.slice(0, 5).map((job, idx) => {
+                      const jobId = `${message.id}-job-${idx}`;
+                      const analysis = jobAnalyses[jobId];
+                      const isExpanded = expandedJobId === jobId;
+                      const isAnalyzing = analyzingJobId === jobId;
+                      
+                      return (
+                        <div
+                          key={idx}
+                          className="bg-white rounded-lg border border-slate-200 overflow-hidden"
+                        >
+                          {/* Job Header - Always visible */}
+                          <div className="p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div
+                                onClick={() => handleJobClick(job)}
+                                className="flex-1 text-left min-w-0 cursor-pointer"
+                              >
+                                <div className="text-sm font-medium text-slate-900">{job.title}</div>
+                                <div className="text-xs text-slate-500">
+                                  {job.company}
+                                  {job.location && ` • ${job.location}`}
+                                </div>
+                              </div>
+                              
+                              <div className="flex items-center gap-2">
+                                {/* Analyze Fit Button */}
+                                {userResume ? (
+                                  <button
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      console.log('[Scout] Analyze Fit button clicked', { jobId, job });
+                                      analyzeJob(job, jobId);
+                                    }}
+                                    disabled={isAnalyzing}
+                                    className={`px-3 py-1.5 text-xs font-medium rounded transition-all whitespace-nowrap cursor-pointer ${
+                                      analysis
+                                        ? 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100'
+                                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                    } ${isAnalyzing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                  >
+                                    {isAnalyzing ? (
+                                      <Loader2 className="h-3 w-3 animate-spin inline" />
+                                    ) : analysis ? (
+                                      `${analysis.score}% Match`
+                                    ) : (
+                                      'Analyze Fit'
+                                    )}
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-slate-400">Upload resume to analyze</span>
+                                )}
+                                
+                                {/* View Job Button */}
+                                {job.url && job.url.trim() && job.url.startsWith('http') ? (
+                                  <a
+                                    href={job.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex-shrink-0 px-3 py-1.5 text-xs font-medium text-white rounded transition-all shadow-sm hover:shadow-md hover:opacity-90 flex items-center gap-1.5 whitespace-nowrap"
+                                    style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
+                                    title="View job posting"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      console.log('[Scout] Opening job URL:', job.url);
+                                    }}
+                                  >
+                                    <ExternalLink className="h-3.5 w-3.5" />
+                                    <span>View</span>
+                                  </a>
+                                ) : (
+                                  <button
+                                    disabled
+                                    className="flex-shrink-0 px-3 py-1.5 text-xs font-medium bg-slate-100 text-slate-400 rounded cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
+                                    title="Job URL not available"
+                                  >
+                                    <ExternalLink className="h-3.5 w-3.5" />
+                                    <span>View</span>
+                                  </button>
+                                )}
+                              </div>
                             </div>
-                          </button>
-                          {job.url && job.url.trim() && job.url.startsWith('http') ? (
-                            <a
-                              href={job.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex-shrink-0 px-3 py-1.5 text-xs font-medium text-white rounded transition-all shadow-sm hover:shadow-md hover:opacity-90 flex items-center gap-1.5 whitespace-nowrap"
-                              style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
-                              title="View job posting"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                console.log('[Scout] Opening job URL:', job.url);
-                              }}
-                            >
-                              <ExternalLink className="h-3.5 w-3.5" />
-                              <span>View</span>
-                            </a>
-                          ) : (
-                            <button
-                              disabled
-                              className="flex-shrink-0 px-3 py-1.5 text-xs font-medium bg-slate-100 text-slate-400 rounded cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
-                              title="Job URL not available"
-                            >
-                              <ExternalLink className="h-3.5 w-3.5" />
-                              <span>View</span>
-                            </button>
+                          </div>
+                          
+                          {/* Expanded Analysis Panel */}
+                          {isExpanded && analysis && (
+                            <div className="border-t border-slate-100 bg-slate-50 p-4">
+                              {/* Score Header */}
+                              <div className="flex items-center gap-3 mb-4">
+                                <div className={`text-2xl font-bold ${
+                                  analysis.score >= 70 ? 'text-green-600' :
+                                  analysis.score >= 50 ? 'text-yellow-600' : 'text-orange-600'
+                                }`}>
+                                  {analysis.score}%
+                                </div>
+                                <div>
+                                  <div className="text-sm font-medium text-slate-900">
+                                    {analysis.match_level === 'strong' && '🎯 Strong Match'}
+                                    {analysis.match_level === 'good' && '👍 Good Match'}
+                                    {analysis.match_level === 'moderate' && '🤔 Moderate Match'}
+                                    {analysis.match_level === 'stretch' && '🌱 Stretch Role'}
+                                  </div>
+                                  <div className="text-xs text-slate-500">
+                                    Based on your resume
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              {/* Strengths */}
+                              {analysis.strengths && analysis.strengths.length > 0 && (
+                                <div className="mb-4">
+                                  <div className="text-xs font-medium text-slate-700 mb-2">
+                                    What aligns:
+                                  </div>
+                                  <div className="space-y-2">
+                                    {analysis.strengths.map((s, i) => (
+                                      <div key={i} className="flex gap-2">
+                                        <span className="text-green-500 mt-0.5">✓</span>
+                                        <div>
+                                          <span className="text-sm text-slate-800">{s.point}</span>
+                                          <span className="text-xs text-slate-500 ml-1">— {s.evidence}</span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Gaps */}
+                              {analysis.gaps && analysis.gaps.length > 0 && (
+                                <div className="mb-4">
+                                  <div className="text-xs font-medium text-slate-700 mb-2">
+                                    Gaps to address:
+                                  </div>
+                                  <div className="space-y-2">
+                                    {analysis.gaps.map((g, i) => (
+                                      <div key={i} className="flex gap-2">
+                                        <span className="text-orange-500 mt-0.5">!</span>
+                                        <div>
+                                          <span className="text-sm text-slate-800">{g.gap}</span>
+                                          <div className="text-xs text-slate-600 mt-0.5">
+                                            💡 {g.mitigation}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Pitch */}
+                              {analysis.pitch && (
+                                <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                                  <div className="text-xs font-medium text-blue-800 mb-1">
+                                    💬 How to pitch yourself:
+                                  </div>
+                                  <div className="text-sm text-blue-900 italic">
+                                    "{analysis.pitch}"
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Talking Points */}
+                              {analysis.talking_points && analysis.talking_points.length > 0 && (
+                                <div className="mb-4">
+                                  <div className="text-xs font-medium text-slate-700 mb-2">
+                                    Talking points for outreach:
+                                  </div>
+                                  <ul className="space-y-1">
+                                    {analysis.talking_points.map((point, i) => (
+                                      <li key={i} className="text-sm text-slate-700 flex gap-2">
+                                        <span className="text-slate-400">•</span>
+                                        <span>{point}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              
+                              {/* Keywords */}
+                              {analysis.keywords_to_use && analysis.keywords_to_use.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mb-4">
+                                  {analysis.keywords_to_use.map((kw, i) => (
+                                    <span
+                                      key={i}
+                                      className="px-2 py-0.5 bg-slate-200 text-slate-700 text-xs rounded"
+                                    >
+                                      {kw}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              
+                              {/* Actions */}
+                              <div className="flex gap-2 mt-4 pt-3 border-t border-slate-200">
+                                <button
+                                  onClick={() => {
+                                    // Store fit context for email generation
+                                    if (analysis) {
+                                      const fitContext = {
+                                        job_title: job.title,
+                                        company: job.company,
+                                        score: analysis.score,
+                                        match_level: analysis.match_level,
+                                        pitch: analysis.pitch,
+                                        talking_points: analysis.talking_points,
+                                        strengths: analysis.strengths,
+                                        gaps: analysis.gaps,
+                                        keywords: analysis.keywords_to_use,
+                                      };
+                                      localStorage.setItem('scout_fit_context', JSON.stringify(fitContext));
+                                      console.log('[Scout] Stored fit context for email generation:', fitContext);
+                                    }
+                                    handleJobClick(job);
+                                  }}
+                                  className="flex-1 py-2 text-sm font-medium text-white rounded"
+                                  style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
+                                >
+                                  Find Contacts in This Role
+                                </button>
+                                <button
+                                  onClick={() => setExpandedJobId(null)}
+                                  className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded"
+                                >
+                                  Collapse
+                                </button>
+                              </div>
+                            </div>
                           )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                 </div>
               )}
             </div>

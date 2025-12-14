@@ -1,14 +1,36 @@
 import React, { useState, useEffect, useRef } from "react";
-import ScoutChatbot from "./ScoutChatbot";
+import ScoutFirmAssistant from "./ScoutFirmAssistant";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
-interface ScoutHeaderButtonProps {
-  onJobTitleSuggestion?: (title: string, company?: string, location?: string) => void;
+interface Firm {
+  name: string;
+  industry?: string;
+  location?: any;
+  size?: string;
+  description?: string;
 }
 
-const ScoutHeaderButton: React.FC<ScoutHeaderButtonProps> = ({ onJobTitleSuggestion }) => {
+interface FirmContext {
+  current_query: string;
+  current_results: Firm[];
+  parsed_filters?: any;
+}
+
+interface ScoutFirmAssistantButtonProps {
+  firmContext: FirmContext;
+  fitContext?: any;
+  onApplyQuery?: (query: string) => void;
+  onFindContacts?: (firmName: string) => void;
+}
+
+const ScoutFirmAssistantButton: React.FC<ScoutFirmAssistantButtonProps> = ({
+  firmContext,
+  fitContext,
+  onApplyQuery,
+  onFindContacts,
+}) => {
   const { user } = useFirebaseAuth();
   const [isScoutChatOpen, setIsScoutChatOpen] = useState(false);
   const [position, setPosition] = useState({ x: 0, y: 0 });
@@ -26,7 +48,7 @@ const ScoutHeaderButton: React.FC<ScoutHeaderButtonProps> = ({ onJobTitleSuggest
     } else if (!isScoutChatOpen) {
       hasInitializedPosition.current = false;
     }
-  }, [isScoutChatOpen]);
+  }, [isScoutChatOpen, size.width]);
 
   // Keep window in bounds on browser resize
   useEffect(() => {
@@ -44,6 +66,7 @@ const ScoutHeaderButton: React.FC<ScoutHeaderButtonProps> = ({ onJobTitleSuggest
     window.addEventListener('resize', handleWindowResize);
     return () => window.removeEventListener('resize', handleWindowResize);
   }, [isScoutChatOpen, size]);
+  
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -89,7 +112,7 @@ const ScoutHeaderButton: React.FC<ScoutHeaderButtonProps> = ({ onJobTitleSuggest
           setUserResume(resumeData);
         }
       } catch (error) {
-        console.error('[ScoutHeaderButton] Failed to load resume:', error);
+        console.error('[ScoutFirmAssistantButton] Failed to load resume:', error);
       }
     };
     
@@ -255,9 +278,12 @@ const ScoutHeaderButton: React.FC<ScoutHeaderButtonProps> = ({ onJobTitleSuggest
             </button>
           </div>
           <div className="flex-1 min-h-0 overflow-hidden">
-            <ScoutChatbot 
-              onJobTitleSuggestion={onJobTitleSuggestion} 
+            <ScoutFirmAssistant 
+              firmContext={firmContext}
               userResume={userResume || undefined}
+              fitContext={fitContext}
+              onApplyQuery={onApplyQuery}
+              onFindContacts={onFindContacts}
             />
           </div>
           {/* Resize Handle - Top Left */}
@@ -302,5 +328,4 @@ const ScoutHeaderButton: React.FC<ScoutHeaderButtonProps> = ({ onJobTitleSuggest
   );
 };
 
-export default ScoutHeaderButton;
-
+export default ScoutFirmAssistantButton;

@@ -26,6 +26,8 @@ import type { Firm, FirmSearchResult, SearchHistoryItem } from "@/services/api";
 import FirmSearchResults from "@/components/FirmSearchResults";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { PageHeaderActions } from "@/components/PageHeaderActions";
+import ScoutFirmAssistantButton from "@/components/ScoutFirmAssistantButton";
+import { Bell, Calendar } from 'lucide-react';
 
 // Example prompts to show users
 const EXAMPLE_PROMPTS = [
@@ -415,6 +417,37 @@ const FirmSearchPage: React.FC = () => {
     navigate(`/contact-search?${params.toString()}`);
   };
 
+  // Handler for applying refined query from Scout
+  const handleApplyQuery = (newQuery: string) => {
+    setQuery(newQuery);
+    toast({
+      title: "Query updated",
+      description: "Click Search to run the new query",
+    });
+  };
+
+  // Handler for finding contacts at a firm from Scout
+  const handleFindContactsFromScout = (firmName: string) => {
+    // Find the firm in results
+    const firm = results.find(f => f.name === firmName);
+    if (firm) {
+      handleViewContacts(firm);
+    } else {
+      toast({
+        title: "Firm not found",
+        description: `Couldn't find ${firmName} in your results`,
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Build firm context for Scout
+  const firmContext = {
+    current_query: query,
+    current_results: results,
+    parsed_filters: parsedFilters,
+  };
+
   // Get unique firm key (helper function)
   const getFirmKey = (firm: Firm): string => {
     return firm.id || `${firm.name}-${firm.location?.display}`;
@@ -748,7 +781,36 @@ const FirmSearchPage: React.FC = () => {
               <SidebarTrigger className="text-foreground hover:bg-secondary" />
               <h1 className="text-xl font-semibold">Firm Search</h1>
             </div>
-            <PageHeaderActions />
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+              {/* Bell icon - links to outbox */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => navigate('/home?tab=outbox')}
+                className="h-9 w-9 hover:bg-blue-100 hover:text-blue-600 flex-shrink-0"
+                aria-label="View outbox"
+              >
+                <Bell className="h-5 w-5" />
+              </Button>
+
+              {/* Calendar button */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => navigate('/home?tab=calendar')}
+                className="h-9 w-9 hover:bg-blue-100 hover:text-blue-600 flex-shrink-0"
+                aria-label="View calendar"
+              >
+                <Calendar className="h-5 w-5" />
+              </Button>
+
+              {/* Firm-specific Scout button */}
+              <ScoutFirmAssistantButton
+                firmContext={firmContext}
+                onApplyQuery={handleApplyQuery}
+                onFindContacts={handleFindContactsFromScout}
+              />
+            </div>
           </header>
 
           <main className="p-8 bg-transparent">

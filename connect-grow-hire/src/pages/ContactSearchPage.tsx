@@ -21,6 +21,9 @@ import { TIER_CONFIGS } from "@/lib/constants";
 import { logActivity, generateContactSearchSummary } from "@/utils/activityLogger";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { PageHeaderActions } from "@/components/PageHeaderActions";
+import { db, storage, auth } from '@/lib/firebase';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 const ContactSearchPage: React.FC = () => {
   const { user, checkCredits, updateCredits } = useFirebaseAuth();
@@ -33,9 +36,11 @@ const ContactSearchPage: React.FC = () => {
     tier: "free",
   } as const;
 
-  const userTier: "free" | "pro" = useMemo(() => {
+  const userTier: "free" | "pro" | "elite" = useMemo(() => {
     // Use the actual tier from the user object, default to "free"
-    return effectiveUser?.tier === "pro" ? "pro" : "free";
+    const tier = effectiveUser?.tier;
+    if (tier === "pro" || tier === "elite") return tier;
+    return "free";
   }, [effectiveUser?.tier]);
 
   function isSearchResult(x: any): x is { contacts: any[]; successful_drafts?: number } {
@@ -48,6 +53,10 @@ const ContactSearchPage: React.FC = () => {
   const [location, setLocation] = useState("");
   const [collegeAlumni, setCollegeAlumni] = useState("");
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [savedResumeUrl, setSavedResumeUrl] = useState<string | null>(null);
+  const [savedResumeFileName, setSavedResumeFileName] = useState<string | null>(null);
+  const [isUploadingResume, setIsUploadingResume] = useState(false);
+  const [currentFitContext, setCurrentFitContext] = useState<any>(null); // Track fit context for UI display
 
   // Search state
   const [isSearching, setIsSearching] = useState(false);
@@ -64,7 +73,7 @@ const ContactSearchPage: React.FC = () => {
   const [batchSize, setBatchSize] = useState<number>(1);
   
   const maxBatchSize = useMemo(() => {
-    const tierMax = userTier === 'free' ? 3 : 8;
+    const tierMax = userTier === 'free' ? 3 : 8; // pro and elite both get 8
     const creditMax = Math.floor((effectiveUser.credits ?? 0) / 15);
     return Math.min(tierMax, creditMax);
   }, [userTier, effectiveUser.credits]);
@@ -208,10 +217,29 @@ const ContactSearchPage: React.FC = () => {
     const idToken = await auth.currentUser?.getIdToken(true);
     const API_BASE_URL = window.location.hostname === "localhost" ? "http://localhost:5001" : "https://www.offerloop.ai";
     const userProfile = await getUserProfileData();
+    
+    // Get fit context from Scout job analysis (if available)
+    let fitContext = null;
+    try {
+      const storedContext = localStorage.getItem('scout_fit_context');
+      if (storedContext) {
+        fitContext = JSON.parse(storedContext);
+        console.log('[ContactSearch] Using fit context for email generation:', fitContext);
+      }
+    } catch (e) {
+      console.warn('[ContactSearch] Failed to parse fit context:', e);
+    }
+    
     const res = await fetch(`${API_BASE_URL}/api/emails/generate-and-draft`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-      body: JSON.stringify({ contacts, resumeText: "", userProfile, careerInterests: userProfile?.careerInterests || [] }),
+      body: JSON.stringify({ 
+        contacts, 
+        resumeText: "", 
+        userProfile, 
+        careerInterests: userProfile?.careerInterests || [],
+        fitContext: fitContext,  // NEW: Pass fit context
+      }),
     });
     const ct = res.headers.get("content-type") || "";
     const raw = await res.text();
@@ -242,28 +270,216 @@ const ContactSearchPage: React.FC = () => {
     };
     checkGmailStatus();
   }, [user]);
+  
+  // Check for fit context on mount (from Scout)
+  useEffect(() => {
+    try {
+      const storedContext = localStorage.getItem('scout_fit_context');
+      if (storedContext) {
+        const fitContext = JSON.parse(storedContext);
+        setCurrentFitContext(fitContext);
+      }
+    } catch (e) {
+      // Ignore parse errors
+    }
+  }, []);
 
   // Scout job title suggestion handler
   const handleJobTitleSuggestion = (title: string, company?: string, location?: string) => {
     setJobTitle(title);
     if (company) setCompany(company);
     if (location) setLocation(location);
+    
+    // Note: Fit context is stored separately when user clicks "Find Contacts in This Role"
+    // from the job analysis panel, so we don't clear it here
+  };
+  
+  // Clear fit context when user manually edits search fields (starts fresh search)
+  useEffect(() => {
+    const handleFieldChange = () => {
+      // If user manually changes job title or clears it, they're starting a new search
+      // Don't auto-clear fit context though - let it persist until email generation
+    };
+    
+    // Only clear fit context on explicit "Clear" action or new search without Scout
+    // Fit context will be cleared after email generation completes
+  }, [jobTitle, company]);
+
+  // Load saved resume from Firestore
+  const loadSavedResume = useCallback(async () => {
+    if (!user?.uid) return;
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      const snap = await getDoc(userRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        const resumeUrl = data.resumeUrl || null;
+        const resumeFileName = data.resumeFileName || null;
+        setSavedResumeUrl(resumeUrl);
+        setSavedResumeFileName(resumeFileName);
+        // If we have a saved resume, we can optionally load it as uploadedFile for search
+        // But we'll keep uploadedFile separate for the current search session
+      }
+    } catch (error) {
+      console.error('Failed to load saved resume:', error);
+    }
+  }, [user?.uid]);
+
+  // Load resume on mount
+  useEffect(() => {
+    loadSavedResume();
+  }, [loadSavedResume]);
+
+  // Save resume to account settings (Firestore)
+  const saveResumeToAccountSettings = async (file: File) => {
+    if (!user?.uid) {
+      throw new Error('User not authenticated');
+    }
+
+    setIsUploadingResume(true);
+    try {
+      // 1) Parse resume via backend
+      const formData = new FormData();
+      formData.append('resume', file);
+
+      const API_URL = window.location.hostname === 'localhost'
+        ? 'http://localhost:5001'
+        : 'https://www.offerloop.ai';
+
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+
+      const response = await fetch(`${API_URL}/api/parse-resume`, {
+        method: 'POST',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        body: formData,
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to parse resume');
+      }
+
+      // 2) Upload the PDF to Firebase Storage
+      const ts = Date.now();
+      const storagePath = `resumes/${user.uid}/${ts}-${file.name}`;
+      const storageRef = ref(storage, storagePath);
+      await uploadBytes(storageRef, file);
+
+      // 3) Get download URL and write to Firestore
+      const downloadUrl = await getDownloadURL(storageRef);
+      const userRef = doc(db, 'users', user.uid);
+      await updateDoc(userRef, {
+        resumeUrl: downloadUrl,
+        resumeFileName: file.name,
+        resumeUpdatedAt: new Date().toISOString(),
+        resumeParsed: {
+          name: result.data.name || '',
+          university: result.data.university || '',
+          major: result.data.major || '',
+          year: result.data.year || '',
+        },
+      });
+
+      // 4) Update local state
+      setSavedResumeUrl(downloadUrl);
+      setSavedResumeFileName(file.name);
+      setUploadedFile(file);
+
+      toast({
+        title: "Resume saved",
+        description: "Your resume has been uploaded and saved to your account.",
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to save resume';
+      toast({
+        title: "Upload failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+      throw error;
+    } finally {
+      setIsUploadingResume(false);
+    }
   };
 
-  // File upload handler
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  // File upload handler (click)
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file && file.type === "application/pdf") {
-      if (file.size > 10 * 1024 * 1024) {
-        toast({
-          title: "File Too Large",
-          description: "Please upload a PDF smaller than 10MB.",
-          variant: "destructive",
-        });
-        return;
-      }
-      setUploadedFile(file);
-      toast({ title: "Resume uploaded", description: file.name });
+    if (!file) return;
+
+    if (file.type !== "application/pdf") {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload a PDF file.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        title: "File Too Large",
+        description: "Please upload a PDF smaller than 10MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await saveResumeToAccountSettings(file);
+    } catch (error) {
+      // Error already handled in saveResumeToAccountSettings
+    }
+
+    // Reset input
+    event.target.value = '';
+  };
+
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+
+    if (file.type !== "application/pdf") {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload a PDF file.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        title: "File Too Large",
+        description: "Please upload a PDF smaller than 10MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await saveResumeToAccountSettings(file);
+    } catch (error) {
+      // Error already handled in saveResumeToAccountSettings
     }
   };
 
@@ -331,7 +547,8 @@ const ContactSearchPage: React.FC = () => {
         return;
       }
 
-      if (userTier === "pro" && !uploadedFile) {
+      // For pro tier, check if we have a resume (either uploaded in this session or saved)
+      if (userTier === "pro" && !uploadedFile && !savedResumeUrl) {
         if (progressInterval) clearInterval(progressInterval);
         setIsSearching(false);
         setProgressValue(0);
@@ -343,10 +560,26 @@ const ContactSearchPage: React.FC = () => {
         return;
       }
 
+      // Helper function to get resume file (either uploaded or downloaded from saved URL)
+      const getResumeFile = async (): Promise<File> => {
+        if (uploadedFile) {
+          return uploadedFile;
+        }
+        
+        if (savedResumeUrl && savedResumeFileName) {
+          // Download the saved resume and convert to File
+          const response = await fetch(savedResumeUrl);
+          const blob = await response.blob();
+          return new File([blob], savedResumeFileName, { type: 'application/pdf' });
+        }
+        
+        throw new Error('No resume available');
+      };
+
       // Update progress before starting search
       setProgressValue(30);
 
-      if (userTier === "free") {
+      if (userTier === "free" || userTier === "elite") {
         const searchRequest = {
           jobTitle: jobTitle.trim(),
           company: company.trim() || "",
@@ -432,11 +665,14 @@ const ContactSearchPage: React.FC = () => {
           });
         }
       } else if (userTier === "pro") {
+        // Get resume file (either uploaded or from saved resume)
+        const resumeFile = await getResumeFile();
+        
         const proRequest = {
           jobTitle: jobTitle.trim(),
           company: company.trim() || "",
           location: location.trim(),
-          resume: uploadedFile!,
+          resume: resumeFile,
           saveToDirectory: false,
           userProfile,
           careerInterests: userProfile?.careerInterests || [],
@@ -508,8 +744,26 @@ const ContactSearchPage: React.FC = () => {
           }
         }
         
+        // Check if we have fit context for targeted emails
+        const hasFitContext = !!localStorage.getItem('scout_fit_context');
+        let fitContextInfo = null;
+        if (hasFitContext) {
+          try {
+            fitContextInfo = JSON.parse(localStorage.getItem('scout_fit_context') || '{}');
+            setCurrentFitContext(fitContextInfo); // Store for UI display
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+        
         try {
           await generateAndDraftEmailsBatch(result.contacts);
+          
+          // Clear fit context after using it (one-time use)
+          if (hasFitContext) {
+            localStorage.removeItem('scout_fit_context');
+            setCurrentFitContext(null); // Clear UI state
+          }
         } catch (emailError: any) {
           if (emailError?.needsAuth || emailError?.require_reauth) {
             const authUrl = emailError.authUrl;
@@ -522,10 +776,16 @@ const ContactSearchPage: React.FC = () => {
 
         try {
           await autoSaveToDirectory(result.contacts, location.trim());
+          
+          // Show enhanced success message if fit context was used
+          const emailDescription = hasFitContext && fitContextInfo?.job_title
+            ? `Found ${result.contacts.length} contacts. Generated targeted emails for ${fitContextInfo.job_title}${fitContextInfo.company ? ` at ${fitContextInfo.company}` : ''} using your fit analysis. Used ${creditsUsed} credits. ${newCredits} credits remaining.`
+            : `Found ${result.contacts.length} contacts. Generated general networking emails. Used ${creditsUsed} credits. ${newCredits} credits remaining.`;
+          
           toast({
-            title: "Search Complete!",
-            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.`,
-            duration: 5000,
+            title: hasFitContext && fitContextInfo?.job_title ? "🎯 Targeted Search Complete!" : "Search Complete!",
+            description: emailDescription,
+            duration: 7000,
           });
         } catch (error) {
           const isDev = import.meta.env.DEV;
@@ -697,6 +957,49 @@ const ContactSearchPage: React.FC = () => {
                 </div>
 
                 <TabsContent value="contact-search" className="mt-6">
+                  {/* Fit Context Indicator - Shows when emails will be targeted */}
+                  {currentFitContext && currentFitContext.job_title && (
+                    <Card className="mb-6 bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                              <span className="text-blue-600 text-lg">🎯</span>
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-blue-900">
+                                Targeted Email Generation Active
+                              </p>
+                              <p className="text-xs text-blue-700">
+                                Emails will be tailored for <strong>{currentFitContext.job_title}</strong>
+                                {currentFitContext.company ? ` at ${currentFitContext.company}` : ''}
+                                {currentFitContext.score ? ` (${currentFitContext.score}% fit match)` : ''}
+                              </p>
+                              <p className="text-xs text-blue-600 mt-1">
+                                Includes your strengths, talking points, and role-specific insights
+                              </p>
+                            </div>
+                          </div>
+                          <Button
+                            onClick={() => {
+                              localStorage.removeItem('scout_fit_context');
+                              setCurrentFitContext(null);
+                              toast({
+                                title: "Fit context cleared",
+                                description: "Emails will now use general networking format",
+                              });
+                            }}
+                            variant="outline"
+                            size="sm"
+                            className="bg-white border-blue-300 text-blue-700 hover:bg-blue-50"
+                          >
+                            Clear
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                  
                   {/* Gmail Connection Status */}
                   <Card className="mb-6 bg-white border-border">
                     <CardContent className="p-4">
@@ -865,33 +1168,72 @@ const ContactSearchPage: React.FC = () => {
                         )}
                       </div>
 
-                      {userTier === "pro" && (
+                      {(userTier === "free" || userTier === "pro" || userTier === "elite") && (
                         <div className="mb-6">
                           <label className="block text-sm font-medium mb-2 text-foreground">
-                            Resume <span className="text-destructive">*</span> (Required for Pro tier AI similarity matching)
+                            Resume {userTier === "pro" && <span className="text-destructive">*</span>}
+                            {userTier === "pro" && " (Required for Pro tier AI similarity matching)"}
+                            {userTier !== "pro" && " (Optional - helps with personalized matching)"}
                           </label>
-                          <div className="border-2 border-dashed border-input rounded-lg p-4 text-center hover:border-purple-400 transition-colors bg-muted/30">
-                            <input
-                              type="file"
-                              accept=".pdf"
-                              onChange={handleFileUpload}
-                              className="hidden"
-                              id="resume-upload"
-                              disabled={isSearching}
-                            />
-                            <label
-                              htmlFor="resume-upload"
-                              className={`cursor-pointer ${isSearching ? "opacity-50 cursor-not-allowed" : ""}`}
+                          {savedResumeUrl && savedResumeFileName ? (
+                            <div className="border-2 border-dashed border-green-500/50 rounded-lg p-4 bg-green-500/10">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <FileText className="h-5 w-5 text-green-600" />
+                                  <div>
+                                    <p className="text-sm font-medium text-foreground">{savedResumeFileName}</p>
+                                    <p className="text-xs text-muted-foreground">Resume saved to your account</p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      const input = document.getElementById('resume-upload') as HTMLInputElement;
+                                      input?.click();
+                                    }}
+                                    disabled={isSearching || isUploadingResume}
+                                  >
+                                    {isUploadingResume ? "Uploading..." : "Change"}
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div
+                              className="border-2 border-dashed border-input rounded-lg p-6 text-center hover:border-purple-400 transition-colors bg-muted/30 cursor-pointer"
+                              onDragOver={handleDragOver}
+                              onDragEnter={handleDragEnter}
+                              onDragLeave={handleDragLeave}
+                              onDrop={handleDrop}
+                              onClick={() => {
+                                if (!isSearching && !isUploadingResume) {
+                                  const input = document.getElementById('resume-upload') as HTMLInputElement;
+                                  input?.click();
+                                }
+                              }}
                             >
-                              <Upload className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
-                              <p className="text-sm text-foreground mb-1">
-                                {uploadedFile
-                                  ? uploadedFile.name
-                                  : "Upload resume for AI similarity matching (Required for Pro)"}
-                              </p>
-                              <p className="text-xs text-muted-foreground">PDF only, max 10MB</p>
-                            </label>
-                          </div>
+                              <input
+                                type="file"
+                                accept=".pdf"
+                                onChange={handleFileUpload}
+                                className="hidden"
+                                id="resume-upload"
+                                disabled={isSearching || isUploadingResume}
+                              />
+                              <div className={`${isSearching || isUploadingResume ? "opacity-50 cursor-not-allowed" : ""}`}>
+                                <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                                <p className="text-sm text-foreground mb-1 font-medium">
+                                  {isUploadingResume 
+                                    ? "Uploading resume..." 
+                                    : "Drag and drop your resume here, or click to upload"}
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-1">PDF only, max 10MB</p>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -902,7 +1244,7 @@ const ContactSearchPage: React.FC = () => {
                             !jobTitle.trim() ||
                             !location.trim() ||
                             isSearching ||
-                            (userTier === "pro" && !uploadedFile) ||
+                            (userTier === "pro" && !uploadedFile && !savedResumeUrl) ||
                             (effectiveUser.credits ?? 0) < 15
                           }
                           size="lg"

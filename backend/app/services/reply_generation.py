@@ -16,8 +16,28 @@ from app.utils.users import (
 from app.utils.coffee_chat_prep import detect_commonality
 
 
-def batch_generate_emails(contacts, resume_text, user_profile, career_interests):
-    """Generate all emails using the new compelling prompt template"""
+def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None):
+    """
+    Generate all emails using the new compelling prompt template.
+    
+    Args:
+        contacts: List of contact dicts
+        resume_text: User's resume text
+        user_profile: User profile dict
+        career_interests: Career interests string
+        fit_context: Optional dict with job fit analysis:
+            {
+                "job_title": "Business Analyst Intern",
+                "company": "McKinsey",
+                "score": 65,
+                "match_level": "moderate",
+                "pitch": "As a Data Science major with strong analytical skills...",
+                "talking_points": ["specific project", "relevant coursework"],
+                "strengths": [{"point": "...", "evidence": "..."}],
+                "gaps": [{"gap": "...", "mitigation": "..."}],
+                "keywords": ["analytical", "data-driven", "business insights"]
+            }
+    """
     try:
         if not contacts:
             return {}
@@ -105,6 +125,75 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests)
         if user_info.get('achievements'):
             resume_context += f"\n- Notable Achievement: {user_info['achievements'][0]}"
         
+        # Build fit context section if available
+        fit_context_section = ""
+        if fit_context:
+            strengths_list = fit_context.get('strengths', [])
+            strengths_text = ""
+            if strengths_list:
+                strengths_text = "\n".join([
+                    f"- {s.get('point', '')}: {s.get('evidence', '')}" 
+                    for s in strengths_list[:2]
+                ])
+            
+            talking_points_list = fit_context.get('talking_points', [])
+            talking_points_text = ""
+            if talking_points_list:
+                talking_points_text = "\n".join([
+                    f"- {tp}" for tp in talking_points_list[:3]
+                ])
+            
+            keywords_list = fit_context.get('keywords', []) or fit_context.get('keywords_to_use', [])
+            keywords_text = ", ".join(keywords_list[:5]) if keywords_list else ""
+            
+            fit_context_section = f"""
+
+TARGET ROLE CONTEXT:
+- Target Role: {fit_context.get('job_title', 'Not specified')}
+- Target Company: {fit_context.get('company', 'Not specified')}
+- Fit Score: {fit_context.get('score', 'N/A')}%
+- Match Level: {fit_context.get('match_level', 'unknown')}
+
+KEY PITCH (use this as inspiration, don't copy verbatim):
+{fit_context.get('pitch', '')}
+
+TALKING POINTS TO WEAVE IN:
+{talking_points_text if talking_points_text else '- None provided'}
+
+STRENGTHS TO HIGHLIGHT:
+{strengths_text if strengths_text else '- None provided'}
+
+KEYWORDS TO NATURALLY INCLUDE:
+{keywords_text if keywords_text else 'None specified'}
+
+IMPORTANT: The user is reaching out specifically about {fit_context.get('job_title', 'this role')} opportunities. 
+The email should reflect genuine interest in this specific path, not generic networking.
+"""
+        
+        # Determine if this is targeted outreach or general networking
+        is_targeted_outreach = bool(fit_context and fit_context.get('job_title'))
+        
+        outreach_type_guidance = ""
+        if is_targeted_outreach:
+            target_role = fit_context.get('job_title', '')
+            target_company = fit_context.get('company', '')
+            outreach_type_guidance = f"""
+OUTREACH TYPE: Targeted Role Inquiry
+The sender is specifically interested in {target_role} roles{f' at {target_company}' if target_company else ''}.
+- Reference the specific role/path naturally
+- Show you've done research (use the talking points)
+- Ask targeted questions about their experience in this type of role
+- Position your background as relevant to this specific opportunity
+"""
+        else:
+            outreach_type_guidance = """
+OUTREACH TYPE: General Networking
+The sender is exploring broadly and building their network.
+- Focus on learning about their career journey
+- Ask open-ended questions about their experience
+- Show genuine curiosity about their work
+"""
+        
         prompt = f"""Write {len(contacts)} personalized, natural networking emails. Each email should be unique and tailored to the specific contact.
 
 ABOUT THE SENDER:
@@ -112,6 +201,8 @@ ABOUT THE SENDER:
 - University: {sender_university_short if sender_university_short else 'Not specified'}
 - Major: {user_info.get('major', 'Not specified')}
 - Year: {user_info.get('year', 'Not specified')}{resume_context}
+{fit_context_section}
+{outreach_type_guidance}
 
 IMPORTANT: Only mention university/major/year if they are provided above and not "Not specified". If information is missing, write naturally without forcing incomplete sentences like "I'm studying at ." or "studying  at".
 
@@ -122,11 +213,17 @@ WRITING GUIDELINES:
 1. Be natural and conversational - write like a real person, not a template
 2. Each email must be unique - no copy-paste between contacts
 3. Personalize based on their role, company, and any connections (alumni, hometown, etc.)
-4. Reference specific details from the sender's resume when relevant (experiences, skills, achievements)
-5. Show genuine interest in their work and experience
+4. {"Reference the target role and weave in talking points naturally" if is_targeted_outreach else "Reference specific details from the sender's resume when relevant (experiences, skills, achievements)"}
+5. {"Position your relevant experience using the strengths provided" if is_targeted_outreach else "Show genuine interest in their work and experience"}
 6. Keep it concise (70-90 words) but warm and authentic
 7. Subject lines should be specific and interesting, not generic
-8. NEVER write incomplete sentences - if information is missing, write around it naturally
+{"8. Ask a specific question related to the target role" if is_targeted_outreach else "8. Ask about their experience or journey"}
+9. NEVER write incomplete sentences - if information is missing, write around it naturally
+{"10. Include relevant keywords naturally from the target role context" if is_targeted_outreach else ""}
+
+{"SUBJECT LINE GUIDANCE FOR TARGETED OUTREACH:" if is_targeted_outreach else ""}
+{"- Include the role or company naturally: 'Quick question about BA roles at McKinsey' or 'Fellow Trojan exploring consulting'" if is_targeted_outreach else ""}
+{"- Avoid generic subjects like 'Coffee chat request' or 'Quick question'" if is_targeted_outreach else ""}
 
 FORMATTING:
 - Start with "Hi [FirstName],"

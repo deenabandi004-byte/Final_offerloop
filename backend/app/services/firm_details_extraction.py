@@ -10,10 +10,15 @@ import re
 from typing import List, Dict, Any, Optional, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FutureTimeoutError
 from functools import lru_cache
+from threading import Lock
 from app.config import SERPAPI_KEY
 from app.services.openai_client import get_openai_client
 
 SERPAPI_BASE_URL = "https://serpapi.com/search"
+
+# Create a session with connection pooling for better performance
+_serp_session = requests.Session()
+_serp_session_lock = Lock()
 
 # In-memory cache for firm details (key: firm_name_hash, value: firm_data)
 _firm_cache = {}
@@ -43,7 +48,9 @@ def _search_linkedin_url(firm_name: str, location: Dict[str, Optional[str]] = No
     }
     
     try:
-        response = requests.get(SERPAPI_BASE_URL, params=params, timeout=timeout)
+        # Use session for connection pooling
+        with _serp_session_lock:
+            response = _serp_session.get(SERPAPI_BASE_URL, params=params, timeout=timeout)
         if response.status_code == 200:
             data = response.json()
             organic_results = data.get("organic_results", [])
@@ -138,7 +145,9 @@ def search_firm_details_with_serp(
     }
     
     try:
-        response = requests.get(SERPAPI_BASE_URL, params=params, timeout=timeout)
+        # Use session for connection pooling
+        with _serp_session_lock:
+            response = _serp_session.get(SERPAPI_BASE_URL, params=params, timeout=timeout)
         
         if response.status_code != 200:
             print(f"⚠️ SERP API error for {firm_name}: {response.status_code}")
