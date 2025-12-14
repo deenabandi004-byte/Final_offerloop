@@ -279,8 +279,9 @@ def search_companies_with_serp(
                 print(f"✅ Collected enough firms ({len(firms_collected)}/{limit}), stopping iterations")
                 break
         
-        # Sort firms by employee count
-        firms_collected.sort(key=lambda f: f.get('employeeCount') if f.get('employeeCount') is not None else 0)
+        # Sort firms by employee count in DESCENDING order (largest first)
+        # When size is not specified, we want the biggest firms
+        firms_collected.sort(key=lambda f: f.get('employeeCount') if f.get('employeeCount') is not None else 0, reverse=True)
         
         # Return exactly the requested number
         firms = firms_collected[:limit]

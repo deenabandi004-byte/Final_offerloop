@@ -830,8 +830,9 @@ def search_companies_with_pdl(
                             firms.append(firm)
                     
                     # Sort firms to ensure consistent ordering and handle None values properly
-                    # Sort by employee_count, treating None as 0 for comparison purposes
-                    firms.sort(key=lambda f: f.get('employeeCount') if f.get('employeeCount') is not None else 0)
+                    # Sort by employee_count in DESCENDING order (largest first)
+                    # When size is not specified, we want the biggest firms
+                    firms.sort(key=lambda f: f.get('employeeCount') if f.get('employeeCount') is not None else 0, reverse=True)
                     
                     firms_count = len(firms)
                     print(f"✅ Level {strictness} returned {firms_count} unique firms")

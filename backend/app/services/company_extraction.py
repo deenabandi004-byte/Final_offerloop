@@ -62,6 +62,12 @@ EXAMPLES OF CORRECT MATCHING:
 
 Return JSON array only."""
 
+    # Determine size instruction
+    if size != 'none':
+        size_instruction = f"Size preference: {size} companies"
+    else:
+        size_instruction = "Size preference: Prioritize the BIGGEST/LARGEST companies (when size is not specified, return the largest firms first)"
+    
     user_prompt = f"""User's original search: "{original_query if original_query else f'{industry} companies in {location_str}'}"
 
 Parsed criteria:
@@ -70,7 +76,7 @@ Parsed criteria:
 
 - Location: {location_str}  
 
-- Size: {size if size != 'none' else 'any'}
+- {size_instruction}
 
 - Keywords: {', '.join(keywords) if keywords else 'none'}
 
@@ -83,6 +89,8 @@ If the user said "law firms", only return law firms.
 Do NOT return broadly related companies.
 
 Only include companies that have their headquarters or primary operations in the specified location ({location_str}).
+
+CRITICAL SIZE RULE: When size preference is not specified, prioritize returning the BIGGEST and MOST ESTABLISHED companies in the industry. List them from largest to smallest.
 
 Return JSON array:
 ["Company 1", "Company 2", ...]"""

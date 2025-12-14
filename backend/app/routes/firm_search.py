@@ -191,8 +191,9 @@ def search_firms_route():
             })
         
         # Ensure firms are properly sorted to avoid comparison errors with None values
-        # Sort by employeeCount, treating None as 0 for comparison purposes
-        firms.sort(key=lambda f: f.get('employeeCount') if f.get('employeeCount') is not None else 0)
+        # Sort by employeeCount in DESCENDING order (largest first)
+        # When size is not specified, we want the biggest firms
+        firms.sort(key=lambda f: f.get('employeeCount') if f.get('employeeCount') is not None else 0, reverse=True)
         
         # Calculate ACTUAL credit cost based on firms returned
         actual_firms_returned = len(firms)
