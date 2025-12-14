@@ -4,10 +4,29 @@ Replaces PDL Company Search with SERP API + ChatGPT extraction
 """
 import requests
 import json
+import os
 from typing import Optional, List, Dict, Any
 from app.config import SERPAPI_KEY
 
 SERPAPI_BASE_URL = "https://serpapi.com/search"
+
+# Configuration for iterative fetching
+OVERFETCH_MULTIPLIER = float(os.getenv('FIRM_SEARCH_OVERFETCH_MULTIPLIER', '2.5'))  # Initial multiplier
+RETRY_MULTIPLIER = float(os.getenv('FIRM_SEARCH_RETRY_MULTIPLIER', '3.0'))  # Multiplier for retries
+MAX_ITERATIONS = int(os.getenv('FIRM_SEARCH_MAX_ITERATIONS', '3'))  # Maximum retry attempts
+MAX_TOTAL_FIRMS_MULTIPLIER = float(os.getenv('FIRM_SEARCH_MAX_TOTAL_MULTIPLIER', '5.0'))  # limit × this = absolute cap
+MIN_BATCH_BUFFER = 5  # Always generate at least needed + this many firms per iteration
+
+
+def _extract_domain(url: Optional[str]) -> str:
+    """Extract domain from URL for deduplication."""
+    if not url:
+        return ""
+    # Remove protocol
+    domain = url.replace("https://", "").replace("http://", "").replace("www.", "")
+    # Get just the domain part (before first /)
+    domain = domain.split("/")[0]
+    return domain.lower().strip()
 
 
 def build_google_search_query(
@@ -99,16 +118,18 @@ def search_companies_with_serp(
     location: Dict[str, Optional[str]],
     size: str = "none",
     keywords: List[str] = None,
-    limit: int = 20
+    limit: int = 20,
+    original_query: str = ""
 ) -> Dict[str, Any]:
     """
     Search for companies using ChatGPT to generate firm names, then SERP to get details.
-    Mimics the signature and return format of search_companies_with_pdl().
+    Uses iterative fetching to ensure we return the requested number of firms.
     
-    NEW APPROACH:
-    1. Use ChatGPT to generate a list of specific firm names based on criteria
-    2. Use SERP API to search for each firm individually and get details
-    3. Return structured firm data
+    ITERATIVE APPROACH:
+    1. Generate more firms than requested (overfetch)
+    2. Fetch details and filter by location
+    3. If not enough firms, generate more and retry (up to MAX_ITERATIONS)
+    4. Return exactly the requested number (or as many as available)
     
     Returns:
         {
@@ -133,125 +154,162 @@ def search_companies_with_serp(
         keywords = []
     
     try:
-        # Step 1: Generate firm names using ChatGPT
         from app.services.company_extraction import generate_firm_names_with_chatgpt
-        
-        print(f"🤖 Step 1: Generating firm names with ChatGPT...")
-        firm_names = generate_firm_names_with_chatgpt(
-            filters={
-                "industry": industry,
-                "location": location,
-                "size": size,
-                "keywords": keywords
-            },
-            limit=limit
-        )
-        
-        if not firm_names:
-            return {
-                "success": False,
-                "firms": [],
-                "total": 0,
-                "error": "Could not generate firm names. Please try rephrasing your search.",
-                "queryLevel": None
-            }
-        
-        print(f"✅ Generated {len(firm_names)} firm names: {firm_names[:5]}...")
-        
-        # Step 2: Get details for each firm using SERP API (parallel processing)
         from app.services.firm_details_extraction import get_firm_details_batch
-        
-        print(f"🔍 Step 2: Getting details for {len(firm_names)} firms via SERP API (parallel)...")
-        
-        # Progress tracking
-        progress_data = {"completed": 0, "total": len(firm_names)}
-        
-        def progress_callback(current, total):
-            progress_data["completed"] = current
-            if current % max(1, total // 5) == 0 or current == total:  # Log every 20% or at completion
-                print(f"📊 Progress: {current}/{total} firms ({int(current/total*100)}%)")
-        
-        firms_data = get_firm_details_batch(
-            firm_names, 
-            location,
-            max_workers=5,  # Process 5 firms in parallel
-            progress_callback=progress_callback,
-            max_results=limit  # STRICT LIMIT: Don't fetch more than requested
-        )
-        
-        # Return partial results even if not all firms were found
-        if not firms_data:
-            return {
-                "success": False,
-                "firms": [],
-                "total": 0,
-                "error": "Could not retrieve firm details. Please try again.",
-                "queryLevel": 3
-            }
-        
-        # Log partial success if applicable
-        if len(firms_data) < len(firm_names):
-            print(f"⚠️ Retrieved {len(firms_data)}/{len(firm_names)} firms (partial results)")
-        
-        # Step 3: Transform to Firm format and filter by location
         from app.services.company_search import transform_serp_company_to_firm, firm_location_matches
         
-        firms = []
+        # Track firms collected across iterations
+        firms_collected = []
         seen_domains = set()
-        filtered_count = 0
+        firm_names_tried = set()  # Track firm names we've already tried
+        max_total_firms = int(limit * MAX_TOTAL_FIRMS_MULTIPLIER)  # Absolute cap
+        iterations_completed = 0
         
-        for company_data in firms_data:
-            website = company_data.get("website") or company_data.get("linkedinUrl", "")
-            domain = website.replace("https://", "").replace("http://", "").split("/")[0] if website else ""
+        print(f"🔍 Starting iterative firm search (requested: {limit}, max total: {max_total_firms})")
+        
+        # Iterative fetching loop
+        for iteration in range(MAX_ITERATIONS):
+            iterations_completed = iteration + 1
+            needed = limit - len(firms_collected)
+            if needed <= 0:
+                print(f"✅ Have enough firms ({len(firms_collected)}/{limit}), stopping iterations")
+                break
             
-            if domain and domain in seen_domains:
+            # Calculate batch size for this iteration
+            # Use progressive multiplier: 2.5x first iteration, 3.0x on retries
+            multiplier = OVERFETCH_MULTIPLIER if iteration == 0 else RETRY_MULTIPLIER
+            batch_size = max(needed + MIN_BATCH_BUFFER, int(needed * multiplier))
+            
+            # Check absolute cap
+            remaining_quota = max_total_firms - len(firm_names_tried)
+            if remaining_quota <= 0:
+                print(f"⚠️ Hit absolute cap ({max_total_firms} firms), stopping iterations")
+                break
+            
+            batch_size = min(batch_size, remaining_quota)
+            
+            print(f"🔄 Iteration {iteration + 1}/{MAX_ITERATIONS}: Need {needed} more firms, generating {batch_size} (multiplier: {multiplier}x)")
+            
+            # Generate firm names (avoid duplicates)
+            firm_names = generate_firm_names_with_chatgpt(
+                filters={
+                    "industry": industry,
+                    "location": location,
+                    "size": size,
+                    "keywords": keywords
+                },
+                limit=batch_size,
+                original_query=original_query
+            )
+            
+            if not firm_names:
+                print(f"⚠️ Could not generate firm names in iteration {iteration + 1}")
+                break
+            
+            # Note if ChatGPT returned fewer than requested (common behavior)
+            if len(firm_names) < batch_size:
+                print(f"ℹ️ ChatGPT returned {len(firm_names)}/{batch_size} firm names (this is normal)")
+            
+            # Filter out firm names we've already tried
+            new_firm_names = [n for n in firm_names if n.lower().strip() not in firm_names_tried]
+            firm_names_tried.update(n.lower().strip() for n in new_firm_names)
+            
+            if not new_firm_names:
+                print(f"⚠️ All generated firm names were duplicates in iteration {iteration + 1}")
+                break
+            
+            if len(new_firm_names) < len(firm_names):
+                print(f"ℹ️ Filtered out {len(firm_names) - len(new_firm_names)} duplicate firm names")
+            
+            print(f"✅ Generated {len(new_firm_names)} new firm names (total tried: {len(firm_names_tried)})")
+            
+            # Get details for firms using SERP API (parallel processing)
+            print(f"🔍 Fetching details for {len(new_firm_names)} firms via SERP API (parallel)...")
+            
+            # Progress tracking
+            progress_data = {"completed": 0, "total": len(new_firm_names)}
+            
+            def progress_callback(current, total):
+                progress_data["completed"] = current
+                if current % max(1, total // 5) == 0 or current == total:
+                    print(f"📊 Progress: {current}/{total} firms ({int(current/total*100)}%)")
+            
+            firms_data = get_firm_details_batch(
+                new_firm_names,
+                location,
+                max_workers=5,  # Process 5 firms in parallel
+                progress_callback=progress_callback,
+                max_results=None  # Don't limit here - we'll filter and limit later
+            )
+            
+            if not firms_data:
+                print(f"⚠️ No firm details retrieved in iteration {iteration + 1}")
                 continue
-            if domain:
-                seen_domains.add(domain)
             
-            firm = transform_serp_company_to_firm(company_data)
-            if firm:
-                # CRITICAL: Filter by location - only include firms that match the requested location
-                firm_location = firm.get("location", {})
-                if firm_location_matches(firm_location, location):
-                    firms.append(firm)
-                else:
-                    filtered_count += 1
-                    print(f"🚫 Filtered out firm '{firm.get('name')}' - location mismatch: {firm_location.get('display', 'Unknown')} vs requested {location}")
-        
-        if filtered_count > 0:
-            print(f"📍 Location filtering: Removed {filtered_count} firms that don't match location criteria")
+            # Transform to Firm format and filter by location
+            filtered_count = 0
+            added_count = 0
+            
+            for company_data in firms_data:
+                # Check for duplicate domains
+                website = company_data.get("website") or company_data.get("linkedinUrl", "")
+                domain = _extract_domain(website)
+                
+                if domain and domain in seen_domains:
+                    continue
+                
+                firm = transform_serp_company_to_firm(company_data)
+                if firm:
+                    # Filter by location
+                    firm_location = firm.get("location", {})
+                    if firm_location_matches(firm_location, location):
+                        firms_collected.append(firm)
+                        added_count += 1
+                        if domain:
+                            seen_domains.add(domain)
+                    else:
+                        filtered_count += 1
+                        print(f"🚫 Filtered out firm '{firm.get('name')}' - location mismatch: {firm_location.get('display', 'Unknown')} vs requested {location}")
+            
+            print(f"📍 Iteration {iteration + 1} results: {added_count} added, {filtered_count} filtered out")
+            print(f"📊 Total collected so far: {len(firms_collected)}/{limit}")
+            
+            # Check if we have enough
+            if len(firms_collected) >= limit:
+                print(f"✅ Collected enough firms ({len(firms_collected)}/{limit}), stopping iterations")
+                break
         
         # Sort firms by employee count
-        firms.sort(key=lambda f: f.get('employeeCount') if f.get('employeeCount') is not None else 0)
+        firms_collected.sort(key=lambda f: f.get('employeeCount') if f.get('employeeCount') is not None else 0)
         
-        # STRICT LIMIT ENFORCEMENT: Only return exactly the number requested
-        firms = firms[:limit]
+        # Return exactly the requested number
+        firms = firms_collected[:limit]
         
-        # Return partial results if we got some firms (better UX)
+        # Return results
         if len(firms) > 0:
-            print(f"✅ Successfully retrieved {len(firms)} firms (limit: {limit})")
+            print(f"✅ Successfully retrieved {len(firms)} firms (requested: {limit}, iterations: {iterations_completed})")
             
-            # If we got fewer firms than requested, include a note but still return success
+            # If we got fewer firms than requested, include a note
             error_msg = None
             if len(firms) < limit:
-                error_msg = f"Found {len(firms)} firms (requested {limit}). Some firms may not have been found."
+                error_msg = f"Found {len(firms)} firms matching your criteria (requested {limit}). Try broadening your search."
             
             return {
                 "success": True,
-                "firms": firms,  # Already limited above
+                "firms": firms,
                 "total": len(firms),
                 "error": error_msg,  # Informational, not a failure
                 "queryLevel": 3,
-                "partial": len(firms) < len(firm_names)  # Indicate if partial results
+                "partial": len(firms) < limit  # Indicate if partial results
             }
         else:
             # No firms found at all
+            print(f"❌ No firms found after {iterations_completed} iterations")
             return {
                 "success": False,
                 "firms": [],
                 "total": 0,
-                "error": "Could not retrieve firm details. Please try again.",
+                "error": "Could not find firms matching your criteria. Try broadening your search.",
                 "queryLevel": 3
             }
         

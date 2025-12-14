@@ -11,7 +11,7 @@ import { ProductTour } from '@/components/ProductTour';
 import DynamicBackground from '@/components/background/DynamicBackground';
 import { DynamicGradientBackground } from '@/components/background/DynamicGradientBackground';
 import { Logo } from '@/components/Logo';
-import LowercaseLogo from '@/assets/lowercaseoloop.png';
+import OfferloopLogo from '@/assets/Offerloop_logo.png';
 import RotatingImage from '@/components/RotatingImage';
 import AnimatedDots from '@/components/AnimatedDots';
 import TextType from '@/components/TextType';
@@ -174,9 +174,9 @@ const Index = () => {
         <header className="fixed top-4 left-4 right-4 h-16 flex items-center justify-between px-6 bg-[#ECF4FF] backdrop-blur-md shadow-xl rounded-2xl border border-blue-200/50 z-50">
           <div className="flex items-center gap-4">
             <img 
-              src={LowercaseLogo} 
+              src={OfferloopLogo} 
               alt="Offerloop" 
-              className="h-10 cursor-pointer"
+              className="h-[60px] cursor-pointer"
               onClick={() => navigate("/")}
             />
           </div>
@@ -446,24 +446,30 @@ const Index = () => {
           data-scene="4"
           style={{ marginTop: '-1px' }}
         >
-          <div className="max-w-5xl mx-auto">
+          <div className="max-w-7xl mx-auto">
             <h2 className="text-display-lg text-center mb-16 text-section-heading">
               Start <span className="gradient-text-teal">Connecting</span> Today
             </h2>
 
-            <div className="grid md:grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
               {/* Free Plan */}
               <div className="glass-card p-8 rounded-3xl">
                 <div className="mb-6">
                   <h3 className="text-2xl font-bold text-section-heading">Free</h3>
-                  <p className="text-section-body">Try out platform risk free</p>
+                  <p className="text-section-body">Try it out for free</p>
                 </div>
                 <div className="space-y-3 mb-8">
                   {[
-                    '150 credits (10 emails)',
-                    'Estimated time saved: 250 minutes',
-                    'Try out platform risk free',
-                    'Limited Features'
+                    '300 credits (~20 contacts)',
+                    'Basic contact search',
+                    'AI-powered email drafts',
+                    'Gmail integration',
+                    'Directory saves all contacts',
+                    '10 alumni searches',
+                    '1 Coffee Chat Prep',
+                    '1 Interview Prep',
+                    'Exports disabled',
+                    'Estimated time saved: ~300 minutes'
                   ].map((item) => (
                     <div key={item} className="flex items-center gap-3">
                       <Check className="h-5 w-5 text-blue-400 text-blue-600" />
@@ -475,33 +481,38 @@ const Index = () => {
                   onClick={() => navigate("/signin?mode=signup")}
                   className="btn-secondary-glass w-full py-4"
                 >
-                  Start for free
+                  Start for Free
                 </button>
               </div>
 
-              {/* Pro Plan */}
+              {/* Pro Plan - Emphasized */}
               <div className="relative">
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full text-xs font-semibold text-white z-10">
-                  RECOMMENDED
+                  MOST POPULAR
                 </div>
-                <div className="glass-card p-8 rounded-3xl border-blue-500/30 border-blue-300/50 glow-teal">
+                <div className="glass-card p-8 rounded-3xl border-blue-500/30 border-blue-300/50 glow-teal shadow-xl scale-105">
                   <div className="mb-6">
                     <h3 className="text-2xl font-bold text-section-heading">Pro</h3>
+                    <p className="text-section-body mb-2">Best for Students</p>
                     <div className="flex items-baseline gap-2">
-                      <span className="text-muted-foreground line-through">$34.99</span>
-                      <span className="text-3xl font-bold text-blue-400 text-blue-600">$8.99</span>
+                      <span className="text-muted-foreground line-through text-lg">$19.99</span>
+                      <span className="text-3xl font-bold text-blue-400 text-blue-600">$14.99</span>
                       <span className="text-section-body">/month</span>
                     </div>
-                    <p className="text-section-body">1800 credits</p>
+                    <p className="text-section-body">1,500 credits</p>
                   </div>
                   <div className="space-y-3 mb-8">
                     {[
-                      '1800 credits (120 emails)',
-                      'Estimated time saved: 2500 minutes',
-                      'Everything in free plus:',
-                      'Directory permanently saves',
-                      'Priority Support',
-                      'Advanced features'
+                      '1,500 credits (~100 contacts)',
+                      'Everything in Free, plus:',
+                      'Full Firm Search',
+                      '10 Coffee Chat Preps/month',
+                      '5 Interview Preps/month',
+                      'Smart school/major/career filters',
+                      'Unlimited directory saving',
+                      'Bulk drafting to Gmail',
+                      'Export unlocked (CSV + Gmail Drafts)',
+                      'Estimated time saved: ~2,500 minutes/month'
                     ].map((item) => (
                       <div key={item} className="flex items-center gap-3">
                         <Check className="h-5 w-5 text-blue-400 text-blue-600" />
@@ -513,9 +524,48 @@ const Index = () => {
                     onClick={() => navigate("/signin?mode=signup")}
                     className="btn-primary-glass w-full py-4"
                   >
-                    Start now
+                    Upgrade to Pro
                   </button>
                 </div>
+              </div>
+
+              {/* Elite Plan */}
+              <div className="glass-card p-8 rounded-3xl">
+                <div className="mb-6">
+                  <h3 className="text-2xl font-bold text-section-heading">Elite</h3>
+                  <p className="text-section-body">For serious recruiting season</p>
+                </div>
+                <div className="mb-4">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-bold text-section-heading">$34.99</span>
+                    <span className="text-section-body">/month</span>
+                  </div>
+                  <p className="text-section-body mt-1">3,000 credits</p>
+                </div>
+                <div className="space-y-3 mb-8">
+                  {[
+                    '3,000 credits (~200 contacts)',
+                    'Everything in Pro, plus:',
+                    'Unlimited Coffee Chat Prep',
+                    'Unlimited Interview Prep',
+                    'Priority queue for contact generation',
+                    'Personalized outreach templates (tailored to resume)',
+                    'Weekly personalized firm insights',
+                    'Early access to new AI tools',
+                    'Estimated time saved: ~5,000 minutes/month'
+                  ].map((item) => (
+                    <div key={item} className="flex items-center gap-3">
+                      <Check className="h-5 w-5 text-blue-400 text-blue-600" />
+                      <span className="text-section-body">{item}</span>
+                    </div>
+                  ))}
+                </div>
+                <button 
+                  onClick={() => navigate("/signin?mode=signup")}
+                  className="btn-secondary-glass w-full py-4"
+                >
+                  Go Elite
+                </button>
               </div>
             </div>
           </div>

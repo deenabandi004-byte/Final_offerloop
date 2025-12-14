@@ -254,7 +254,7 @@ export default function Outbox() {
             </div>
 
             <div className="flex items-center gap-4">
-              <CreditPill credits={user?.credits ?? 0} max={user?.maxCredits ?? 120} />
+              <CreditPill credits={user?.credits ?? 0} max={user?.maxCredits ?? 300} />
             </div>
           </header>
 

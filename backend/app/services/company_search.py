@@ -109,6 +109,7 @@ COUNTRY_CODE_MAP = {
 def parse_firm_search_prompt(prompt: str) -> Dict[str, Any]:
     """
     Use OpenAI to extract structured search parameters from natural language.
+    WITH RETRY LOGIC for robustness.
     
     Returns:
         {
@@ -140,6 +141,8 @@ You must extract:
    - "asset management"
    - "accounting"
    If the user mentions something similar, map it to the closest option.
+   BE LENIENT - if the query mentions "firms", "companies", or industry-related terms, try to infer the industry.
+   If the query mentions "VC", "PE", "IB", "MBB", etc., map to the appropriate industry.
 
 2. location (REQUIRED) - City, state, region, or country. Examples:
    - "New York, NY"
@@ -147,6 +150,7 @@ You must extract:
    - "Los Angeles"
    - "United States"
    - "London, UK"
+   BE LENIENT - extract any geographic reference, even if implicit (e.g., "Boston" = "Boston, MA").
 
 3. size (OPTIONAL) - Company size preference:
    - "small" = 1-50 employees (startups, boutiques)
@@ -169,79 +173,104 @@ Respond with ONLY valid JSON in this exact format:
     "keywords": ["array", "of", "strings"]
 }
 
-If the query is missing required fields (industry or location), still return what you can parse but set missing required fields to null."""
+IMPORTANT: Be as lenient as possible. If the query mentions any industry-related terms or locations, extract them even if not explicit. Only set fields to null if absolutely no information is available."""
 
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Parse this search query: {prompt}"}
-            ],
-            temperature=0.1,
-            max_tokens=500
-        )
-        
-        result_text = response.choices[0].message.content.strip()
-        
-        # Clean up response - remove markdown code blocks if present
-        if result_text.startswith("```"):
-            result_text = result_text.split("```")[1]
-            if result_text.startswith("json"):
-                result_text = result_text[4:]
-        result_text = result_text.strip()
-        
-        parsed = json.loads(result_text)
-        
-        # Validate required fields
-        missing_fields = []
-        if not parsed.get("industry"):
-            missing_fields.append("industry")
-        if not parsed.get("location"):
-            missing_fields.append("location")
-        
-        if missing_fields:
+    # Retry logic - try up to 2 times
+    max_retries = 2
+    last_error = None
+    current_prompt = system_prompt
+    
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": current_prompt},
+                    {"role": "user", "content": f"Parse this search query: {prompt}"}
+                ],
+                temperature=0.1,
+                max_tokens=500
+            )
+            
+            result_text = response.choices[0].message.content.strip()
+            
+            # Clean up response - remove markdown code blocks if present
+            if result_text.startswith("```"):
+                result_text = result_text.split("```")[1]
+                if result_text.startswith("json"):
+                    result_text = result_text[4:]
+            result_text = result_text.strip()
+            
+            parsed = json.loads(result_text)
+            
+            # Validate required fields
+            missing_fields = []
+            if not parsed.get("industry"):
+                missing_fields.append("industry")
+            if not parsed.get("location"):
+                missing_fields.append("location")
+            
+            if missing_fields:
+                # If this is the last attempt, return error
+                if attempt == max_retries - 1:
+                    return {
+                        "success": False,
+                        "parsed": parsed,
+                        "error": f"Missing required fields: {', '.join(missing_fields)}. Please include the industry (e.g., investment banking, consulting, venture capital) and location (e.g., New York, San Francisco Bay Area) in your search. You can also add keywords like 'healthcare M&A' or 'technology focused' to narrow results.",
+                        "missing_fields": missing_fields
+                    }
+                # Otherwise, retry with a more explicit prompt
+                print(f"⚠️ Attempt {attempt + 1}: Missing fields {missing_fields}, retrying with more explicit prompt...")
+                current_prompt = system_prompt + f"\n\nRETRY: The previous attempt missed: {', '.join(missing_fields)}. Please re-examine the query more carefully and extract these fields if at all possible."
+                continue
+            
+            # Normalize industry to lowercase for mapping
+            if parsed.get("industry"):
+                parsed["industry"] = parsed["industry"].lower().strip()
+                
+            # Ensure size has a default
+            if not parsed.get("size"):
+                parsed["size"] = "none"
+                
+            # Ensure keywords is a list
+            if not parsed.get("keywords"):
+                parsed["keywords"] = []
+            elif isinstance(parsed["keywords"], str):
+                parsed["keywords"] = [parsed["keywords"]]
+                
+            return {
+                "success": True,
+                "parsed": parsed,
+                "error": None
+            }
+            
+        except json.JSONDecodeError as e:
+            last_error = f"Failed to parse OpenAI response as JSON: {e}"
+            print(f"⚠️ Attempt {attempt + 1}: {last_error}")
+            if attempt < max_retries - 1:
+                continue
             return {
                 "success": False,
-                "parsed": parsed,
-                "error": f"Missing required fields: {', '.join(missing_fields)}. Please include the industry (e.g., investment banking, consulting, venture capital) and location (e.g., New York, San Francisco Bay Area) in your search. You can also add keywords like 'healthcare M&A' or 'technology focused' to narrow results.",
-                "missing_fields": missing_fields
+                "parsed": None,
+                "error": "Failed to understand your search query. Please try rephrasing, for example: 'mid-sized investment banks in New York focused on healthcare'"
             }
-        
-        # Normalize industry to lowercase for mapping
-        if parsed.get("industry"):
-            parsed["industry"] = parsed["industry"].lower().strip()
-            
-        # Ensure size has a default
-        if not parsed.get("size"):
-            parsed["size"] = "none"
-            
-        # Ensure keywords is a list
-        if not parsed.get("keywords"):
-            parsed["keywords"] = []
-        elif isinstance(parsed["keywords"], str):
-            parsed["keywords"] = [parsed["keywords"]]
-            
-        return {
-            "success": True,
-            "parsed": parsed,
-            "error": None
-        }
-        
-    except json.JSONDecodeError as e:
-        print(f"Failed to parse OpenAI response as JSON: {e}")
-        return {
-            "success": False,
-            "parsed": None,
-            "error": "Failed to understand your search query. Please try rephrasing, for example: 'mid-sized investment banks in New York focused on healthcare'"
-        }
-    except Exception as e:
-        print(f"OpenAI parsing error: {e}")
-        return {
-            "success": False,
-            "parsed": None,
-            "error": f"Error processing your search: {str(e)}"
-        }
+        except Exception as e:
+            last_error = f"OpenAI parsing error: {e}"
+            print(f"⚠️ Attempt {attempt + 1}: {last_error}")
+            if attempt < max_retries - 1:
+                continue
+            return {
+                "success": False,
+                "parsed": None,
+                "error": f"Error processing your search: {str(e)}"
+            }
+    
+    # Should not reach here, but just in case
+    return {
+        "success": False,
+        "parsed": None,
+        "error": f"Failed to parse query after {max_retries} attempts. Please try rephrasing your search."
+    }
 
 
 # =============================================================================
@@ -280,6 +309,61 @@ METRO_AREAS = [
     "miami metro", "south florida",
     "washington dc metro", "dmv area"
 ]
+
+# Major cities that should be treated as metro areas
+MAJOR_CITY_TO_METRO = {
+    "los angeles": "los angeles metro",
+    "la": "los angeles metro",
+    "new york": "new york metro",
+    "nyc": "new york metro",
+    "san francisco": "san francisco bay area",
+    "sf": "san francisco bay area",
+    "chicago": "chicago metro",
+    "boston": "boston metro",
+    "seattle": "seattle metro",
+    "dallas": "dallas-fort worth",
+    "miami": "miami metro",
+    "washington": "washington dc metro",
+    "washington dc": "washington dc metro",
+    "dc": "washington dc metro"
+}
+
+# Metro area to cities mapping (used for location matching)
+METRO_CITIES_MAP = {
+    "san francisco bay area": ["san francisco", "palo alto", "mountain view", "sunnyvale", "san jose", "fremont", "oakland", "redwood city", "menlo park"],
+    "bay area": ["san francisco", "palo alto", "mountain view", "sunnyvale", "san jose", "fremont", "oakland"],
+    "sf bay area": ["san francisco", "palo alto", "mountain view", "sunnyvale", "san jose", "fremont", "oakland"],
+    "new york metro": ["new york", "nyc", "manhattan", "brooklyn", "queens", "bronx", "staten island"],
+    "nyc metro": ["new york", "nyc", "manhattan", "brooklyn", "queens", "bronx"],
+    "tri-state area": ["new york", "nyc", "new jersey", "connecticut"],
+    "los angeles metro": [
+        "los angeles", "la", "santa monica", "beverly hills", "pasadena", "glendale",
+        "burbank", "hollywood", "culver city", "universal city", "west hollywood",
+        "torrance", "el segundo", "hawthorne", "calabasas", "calabasas hills",
+        "manhattan beach", "redondo beach", "hermosa beach", "venice", "marina del rey",
+        "encino", "sherman oaks", "studio city", "north hollywood", "van nuys",
+        "santa clarita", "valencia", "newhall", "long beach", "compton",
+        "inglewood", "gardena", "lomita", "san pedro", "wilmington"
+    ],
+    "la metro": [
+        "los angeles", "la", "santa monica", "beverly hills", "pasadena", "glendale",
+        "burbank", "hollywood", "culver city", "universal city", "west hollywood",
+        "torrance", "el segundo", "hawthorne", "calabasas", "calabasas hills"
+    ],
+    "socal": ["los angeles", "la", "san diego", "orange county"],
+    "chicago metro": ["chicago"],
+    "chicagoland": ["chicago"],
+    "boston metro": ["boston", "cambridge", "somerville"],
+    "greater boston": ["boston", "cambridge", "somerville"],
+    "seattle metro": ["seattle", "bellevue", "redmond"],
+    "puget sound": ["seattle", "bellevue", "redmond"],
+    "dallas-fort worth": ["dallas", "fort worth", "arlington"],
+    "dfw metro": ["dallas", "fort worth", "arlington"],
+    "miami metro": ["miami", "miami beach"],
+    "south florida": ["miami", "miami beach", "fort lauderdale"],
+    "washington dc metro": ["washington", "dc", "arlington", "alexandria", "bethesda"],
+    "dmv area": ["washington", "dc", "arlington", "alexandria", "bethesda", "maryland", "virginia"]
+}
 
 # Countries
 COUNTRIES = [
@@ -368,6 +452,10 @@ def normalize_location(location_input: str) -> Dict[str, Optional[str]]:
         else:
             # Assume it's a city
             result["locality"] = location_input.title()
+            # Check if it's a major city that should be treated as a metro area
+            if location in MAJOR_CITY_TO_METRO:
+                result["metro"] = MAJOR_CITY_TO_METRO[location]
+                result["country"] = "united states"
     
     return result
 
@@ -425,37 +513,29 @@ def firm_location_matches(firm_location: Dict[str, Any], requested_location: Dic
     if requested_location.get("metro"):
         metro_lower = requested_location["metro"].lower()
         # For metro areas, we're more lenient - check if city/state is in the metro
-        metro_cities = {
-            "san francisco bay area": ["san francisco", "palo alto", "mountain view", "sunnyvale", "san jose", "fremont", "oakland", "redwood city", "menlo park"],
-            "bay area": ["san francisco", "palo alto", "mountain view", "sunnyvale", "san jose", "fremont", "oakland"],
-            "sf bay area": ["san francisco", "palo alto", "mountain view", "sunnyvale", "san jose", "fremont", "oakland"],
-            "new york metro": ["new york", "nyc", "manhattan", "brooklyn", "queens", "bronx", "staten island"],
-            "nyc metro": ["new york", "nyc", "manhattan", "brooklyn", "queens", "bronx"],
-            "tri-state area": ["new york", "nyc", "new jersey", "connecticut"],
-            "los angeles metro": ["los angeles", "la", "santa monica", "beverly hills", "pasadena", "glendale"],
-            "la metro": ["los angeles", "la", "santa monica", "beverly hills"],
-            "socal": ["los angeles", "la", "san diego", "orange county"],
-            "chicago metro": ["chicago"],
-            "chicagoland": ["chicago"],
-            "boston metro": ["boston", "cambridge", "somerville"],
-            "greater boston": ["boston", "cambridge", "somerville"],
-            "seattle metro": ["seattle", "bellevue", "redmond"],
-            "puget sound": ["seattle", "bellevue", "redmond"],
-            "dallas-fort worth": ["dallas", "fort worth", "arlington"],
-            "dfw metro": ["dallas", "fort worth", "arlington"],
-            "miami metro": ["miami", "miami beach"],
-            "south florida": ["miami", "miami beach", "fort lauderdale"],
-            "washington dc metro": ["washington", "dc", "arlington", "alexandria", "bethesda"],
-            "dmv area": ["washington", "dc", "arlington", "alexandria", "bethesda", "maryland", "virginia"]
-        }
-        
-        metro_cities_list = metro_cities.get(metro_lower, [])
+        metro_cities_list = METRO_CITIES_MAP.get(metro_lower, [])
         if metro_cities_list:
             firm_location_str = f"{firm_city} {firm_state}".lower()
             if any(city in firm_location_str for city in metro_cities_list):
                 return True
             # If no match found for metro, fail
             return False
+    
+    # If no metro is set but locality is a major city, check if firm is in that metro area
+    if requested_location.get("locality") and not requested_location.get("metro"):
+        req_locality = requested_location["locality"].lower().strip()
+        # Check if this locality is a major city that maps to a metro
+        if req_locality in MAJOR_CITY_TO_METRO:
+            metro_name = MAJOR_CITY_TO_METRO[req_locality]
+            metro_cities_list = METRO_CITIES_MAP.get(metro_name, [])
+            if metro_cities_list:
+                firm_location_str = f"{firm_city} {firm_state}".lower()
+                # Check if firm city is in the metro area
+                if any(city in firm_location_str for city in metro_cities_list):
+                    return True
+                # Also check exact match with the requested city
+                if req_locality in firm_city or firm_city in req_locality:
+                    return True
     
     # Check region/state match
     if requested_location.get("region"):
@@ -1251,7 +1331,8 @@ def search_firms(prompt: str, limit: int = 20) -> Dict[str, Any]:
         location=location,
         size=parsed.get("size", "none"),
         keywords=parsed.get("keywords", []),
-        limit=limit
+        limit=limit,
+        original_query=prompt  # Pass the original user query
     )
     
     # Determine if fallback was applied
@@ -1331,12 +1412,23 @@ def search_firms_structured(
     # Search using SERP API + ChatGPT (bulletproof search handles fallbacks internally)
     from app.services.serp_client import search_companies_with_serp
     
+    # Reconstruct a reasonable query from structured inputs for context
+    query_parts = [industry]
+    if location:
+        query_parts.append(f"in {location}")
+    if size != "none":
+        query_parts.append(f"({size} companies)")
+    if keywords:
+        query_parts.extend(keywords[:2])  # Limit to first 2 keywords
+    reconstructed_query = " ".join(query_parts)
+    
     search_result = search_companies_with_serp(
         industry=industry_lower,
         location=location_normalized,
         size=size,
         keywords=keywords,
-        limit=limit
+        limit=limit,
+        original_query=reconstructed_query  # Pass reconstructed query for context
     )
     
     # Determine if fallback was applied

@@ -11,10 +11,9 @@ import { GlassCard } from "@/components/GlassCard";
 const STRIPE_PUBLISHABLE_KEY = "pk_live_51S4BB8ERY2WrVHp1acXrKE6RBG7NBlfHcMZ2kf7XhCX2E5g8Lasedx6ntcaD1H4BsoUMBGYXIcKHcAB4JuohLa2B00j7jtmWnB";
 const stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
 
-// Price IDs - use test mode price ID when using test keys
-const STRIPE_PRICE_ID = STRIPE_PUBLISHABLE_KEY.startsWith('pk_test_') 
-  ? "price_1ScIyzERY2WrVHp1m9pJSNlK" // Test mode price ID
-  : "price_1SQ0IJERY2WrVHp1Ul5OrP63"; // Live mode price ID
+// Price IDs - Stripe price IDs for Pro and Elite tiers
+const STRIPE_PRO_PRICE_ID = "price_1ScLXrERY2WrVHp1bYgdMAu4"; // Pro tier: $9.99/month
+const STRIPE_ELITE_PRICE_ID = "price_1ScLcfERY2WrVHp1c5rcONJ3"; // Elite tier: $34.99/month
 
 interface SubscriptionStatus {
   tier: string;
@@ -28,7 +27,7 @@ const Pricing = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const navigate = useNavigate();
-  const { user, updateUser } = useFirebaseAuth();
+  const { user, updateUser, checkCredits } = useFirebaseAuth();
 
   useEffect(() => {
     if (user) {
@@ -94,21 +93,86 @@ const Pricing = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create portal session');
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        const errorMessage = errorData.details || errorData.error || 'Failed to create portal session';
+        throw new Error(errorMessage);
       }
 
       const { url } = await response.json();
+      if (!url) {
+        throw new Error('No portal URL received from server');
+      }
+      
       window.location.href = url;
 
     } catch (error) {
       console.error('Portal error:', error);
-      alert('Failed to open subscription management. Please try again.');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to open subscription management. Please try again.';
+      
+      // Show more helpful error message
+      if (errorMessage.includes('mode mismatch') || errorMessage.includes('test mode') || errorMessage.includes('live mode')) {
+        alert('Stripe Configuration Error: There is a mismatch between test and live mode keys. Please contact support or check your Stripe configuration.');
+      } else {
+        alert(`Failed to open subscription management: ${errorMessage}`);
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleStripeCheckout = async () => {
+
+  const handleResetCredits = async (tier: 'free' | 'pro' | 'elite') => {
+    if (!user) return;
+    
+    // Credit amounts based on tier
+    const creditMap = {
+      'free': 300,
+      'pro': 1500,
+      'elite': 3000
+    };
+    
+    const maxCredits = creditMap[tier];
+    
+    try {
+      console.log(`🔄 Resetting credits for ${tier} tier to ${maxCredits}`);
+      await updateUser({ 
+        credits: maxCredits,
+        maxCredits: maxCredits
+      });
+      
+      // Refresh credits to update UI
+      if (checkCredits) {
+        await checkCredits();
+      }
+      
+      // No popup - just silently reset credits
+    } catch (error) {
+      console.error("Error resetting credits:", error);
+      // Silently fail - don't show popup
+    }
+  };
+
+  const handleUpgrade = async (planType: 'free' | 'pro' | 'elite') => {
+    if (!user) return;
+  
+    try {
+      if (planType === 'free') {
+        await updateUser({ 
+          tier: 'free',
+          credits: 300,
+          maxCredits: 300
+        }); 
+        navigate("/home");
+      } 
+      else if (planType === 'pro' || planType === 'elite') {
+        await handleStripeCheckout(planType);
+      }
+    } catch (error) {
+      console.error("Error updating user:", error);
+    }
+  };
+
+  const handleStripeCheckout = async (tier: 'pro' | 'elite' = 'pro') => {
     if (!user) {
       console.error("User not authenticated");
       return;
@@ -130,6 +194,9 @@ const Pricing = () => {
        ? 'http://localhost:5001' 
        : 'https://www.offerloop.ai';
 
+      // Select price ID based on tier
+      const priceId = tier === 'elite' ? STRIPE_ELITE_PRICE_ID : STRIPE_PRO_PRICE_ID;
+
       const response = await fetch(`${API_URL}/api/create-checkout-session`, {
         method: 'POST',
         headers: {
@@ -137,7 +204,7 @@ const Pricing = () => {
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          priceId: STRIPE_PRICE_ID,
+          priceId: priceId,
           userId: user.uid,
           userEmail: user.email,
           successUrl: `${window.location.origin}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
@@ -182,31 +249,12 @@ const Pricing = () => {
     }
   };
 
-  const handleUpgrade = async (planType: 'free' | 'pro') => {
-    if (!user) return;
-  
-    try {
-      if (planType === 'free') {
-        await updateUser({ 
-          tier: 'free',
-          credits: 150,
-          maxCredits: 150
-        }); 
-        navigate("/home");
-      } 
-      else if (planType === 'pro') {
-        await handleStripeCheckout();
-      }
-    } catch (error) {
-      console.error("Error updating user:", error);
-    }
-  };
-
-  const isProUser = subscriptionStatus?.tier === 'pro' && subscriptionStatus?.status === 'active';
+  const isProUser = (subscriptionStatus?.tier === 'pro' || subscriptionStatus?.tier === 'elite') && subscriptionStatus?.status === 'active';
+  const currentTier = subscriptionStatus?.tier || 'free';
 
   return (
     <PageWrapper>
-      <div className="container mx-auto px-6 py-6 max-w-6xl">
+      <div className="container mx-auto px-6 py-6 max-w-7xl">
         <Button
           variant="ghost"
           onClick={() => navigate("/home")}
@@ -253,93 +301,189 @@ const Pricing = () => {
         </div>
 
         <div className="flex justify-center">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-10 max-w-6xl w-full">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-10 max-w-7xl w-full">
             {/* Free Plan */}
             <GlassCard className="rounded-2xl p-10 transform transition-all hover:scale-[1.02] hover:glow-teal">
               <div className="text-center mb-8">
                 <h3 className="text-3xl font-bold mb-3 text-white text-slate-900">Free</h3>
-                <p className="text-gray-400 text-slate-600">Try out platform risk free</p>
+                <p className="text-gray-400 text-slate-600">Try it out for free</p>
               </div>
 
               <div className="space-y-4 mb-8">
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">150 credits (10 emails) </span>
+                  <span className="text-gray-300 text-slate-700">300 credits (~20 contacts)</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Estimated time saved: 250 minutes</span>
+                  <span className="text-gray-300 text-slate-700">Basic contact search + AI email drafts</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Try out platform risk free</span>
+                  <span className="text-gray-300 text-slate-700">Gmail integration</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Limited Features</span>
+                  <span className="text-gray-300 text-slate-700">Directory saves all contacts</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                  <span className="text-gray-300 text-slate-700">1 Coffee Chat Prep + 1 Interview Prep</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                  <span className="text-gray-300 text-slate-700">Exports disabled</span>
+                </div>
+              </div>
+
+                <Button 
+                  className="btn-secondary-glass w-full py-4 px-6 font-semibold"
+                  onClick={() => currentTier === 'free' ? handleResetCredits('free') : handleUpgrade('free')}
+                >
+                  {currentTier === 'free' ? 'Current Plan' : 'Start for Free'}
+                </Button>
+            </GlassCard>
+
+            {/* Pro Plan - Emphasized */}
+            <div className="p-[3px] rounded-2xl bg-gradient-to-r from-blue-400 via-blue-600 to-cyan-400 shadow-[0_0_40px_rgba(59,130,246,0.5)] scale-105 z-10 transform transition-all hover:scale-[1.07]">
+              <GlassCard className="relative rounded-xl h-full p-10">
+                <div className="absolute top-4 right-4">
+                  <span className="px-3 py-1 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 text-xs font-medium">
+                    {isProUser ? 'ACTIVE' : 'MOST POPULAR'}
+                  </span>
+                </div>
+                
+                <div className="text-center mb-8">
+                  <h3 className="text-3xl font-bold mb-3 gradient-text-teal">Pro</h3>
+                  <p className="text-gray-400 text-slate-600 mb-3">Best for Students</p>
+                  <div className="mb-2">
+                    <span className="text-gray-400 text-slate-600 text-lg line-through mr-2">$19.99</span>
+                    <span className="text-4xl font-bold text-white text-slate-900">$14.99</span>
+                    <span className="text-gray-600 text-lg ml-1">/month</span>
+                  </div>
+                  <p className="text-gray-500">1,500 credits (~100 contacts)</p>
+                </div>
+
+                <div className="space-y-4 mb-8">
+                  <div className="flex items-center gap-3">
+                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                    <span className="text-gray-300 text-slate-700">1,500 credits (~100 contacts)</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                    <span className="text-gray-300 text-slate-700 font-bold">Everything in Free, plus:</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                    <span className="text-gray-300 text-slate-700">Full Firm Search</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                    <span className="text-gray-300 text-slate-700">Smart school/major/career filters</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                    <span className="text-gray-300 text-slate-700">10 Coffee Chat Preps/month</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                    <span className="text-gray-300 text-slate-700">5 Interview Preps/month</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                    <span className="text-gray-300 text-slate-700">Unlimited directory saving</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                    <span className="text-gray-300 text-slate-700">Bulk drafting + Export unlocked (CSV & Gmail)</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                    <span className="text-gray-300 text-slate-700">Estimated time saved: ~2,500 minutes/month</span>
+                  </div>
+                </div>
+
+                <Button 
+                  className="btn-primary-glass w-full py-6 px-6 text-lg font-semibold"
+                  onClick={
+                    isLoading ? undefined :
+                    (currentTier === 'pro' || currentTier === 'elite') 
+                      ? (e: React.MouseEvent) => {
+                          // If holding Shift key, reset credits instead of managing subscription
+                          if (e.shiftKey) {
+                            handleResetCredits(currentTier === 'elite' ? 'elite' : 'pro');
+                          } else {
+                            handleManageSubscription();
+                          }
+                        }
+                      : () => handleUpgrade('pro')
+                  }
+                  disabled={isLoading}
+                  title={currentTier === 'pro' || currentTier === 'elite' ? 'Click to manage subscription. Hold Shift+Click to reset credits.' : undefined}
+                >
+                  {isLoading ? 'Processing...' : (currentTier === 'pro' || currentTier === 'elite') ? 'Manage Subscription' : 'Upgrade to Pro'}
+                </Button>
+              </GlassCard>
+            </div>
+
+            {/* Elite Plan */}
+            <GlassCard className="rounded-2xl p-10 transform transition-all hover:scale-[1.02] hover:glow-teal">
+              <div className="text-center mb-8">
+                <h3 className="text-3xl font-bold mb-3 text-white text-slate-900">Elite</h3>
+                <p className="text-gray-400 text-slate-600">For serious recruiting season</p>
+              </div>
+
+              <div className="mb-2 text-center">
+                <span className="text-3xl font-bold text-white text-slate-900">$34.99</span>
+                <span className="text-gray-400 text-slate-600 text-lg ml-1">/month</span>
+              </div>
+              <p className="text-gray-300 text-slate-700 text-center mb-8">3,000 credits (~200 contacts)</p>
+
+              <div className="space-y-4 mb-8">
+                <div className="flex items-center gap-3">
+                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                  <span className="text-gray-300 text-slate-700">3,000 credits (~200 contacts)</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                  <span className="text-gray-300 text-slate-700 font-bold">Everything in Pro, plus:</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                  <span className="text-gray-300 text-slate-700">Unlimited Coffee Chat Prep</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                  <span className="text-gray-300 text-slate-700">Unlimited Interview Prep</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                  <span className="text-gray-300 text-slate-700">Priority queue for contact generation</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                  <span className="text-gray-300 text-slate-700">Personalized outreach templates (tailored to resume)</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                  <span className="text-gray-300 text-slate-700">Weekly personalized firm insights</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                  <span className="text-gray-300 text-slate-700">Early access to new AI tools</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                  <span className="text-gray-300 text-slate-700">Estimated time saved: ~5,000 minutes/month</span>
                 </div>
               </div>
 
               <Button 
                 className="btn-secondary-glass w-full py-4 px-6 font-semibold"
-                onClick={() => handleUpgrade('free')}
-                disabled={isProUser}
-              >
-                {isProUser ? 'Current Plan: Pro' : 'Start for free'}
-              </Button>
-            </GlassCard>
-
-            {/* Pro Plan */}
-            <GlassCard className="relative rounded-2xl p-10 transform transition-all hover:scale-[1.02] hover:glow-teal border-2 border-blue-500/50">
-              <div className="absolute top-4 right-4">
-                <span className="px-3 py-1 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 text-xs font-medium">
-                  {isProUser ? 'ACTIVE' : 'RECOMMENDED'}
-                </span>
-              </div>
-              
-              <div className="text-center mb-8">
-                <h3 className="text-3xl font-bold mb-3 gradient-text-teal">Pro</h3>
-                <div className="mb-2">
-                  <span className="text-gray-400 text-slate-600 text-xl line-through mr-2">$34.99</span>
-                  <span className="text-3xl font-bold text-white text-slate-900">$8.99</span>
-                  <span className="text-gray-400 text-slate-600 text-lg ml-1">/month</span>
-                </div>
-                <p className="text-gray-300 text-slate-700">1800 credits</p>
-              </div>
-
-              <div className="space-y-4 mb-8">
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">1800 credits (120 emails) </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Estimated time saved: 2500 minutes</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Everything in free plus:</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Directory permanently saves</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Priority Support</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Advanced features</span>
-                </div>
-              </div>
-
-              <Button 
-                className="btn-primary-glass w-full py-6 px-6 text-lg font-semibold"
-                onClick={isProUser ? handleManageSubscription : () => handleUpgrade('pro')}
+                onClick={() => currentTier === 'elite' ? handleResetCredits('elite') : handleUpgrade('elite')}
                 disabled={isLoading}
               >
-                {isLoading ? 'Processing...' : isProUser ? 'Manage Subscription' : 'Start now'}
+                {isLoading ? 'Processing...' : currentTier === 'elite' ? 'Current Plan' : 'Go Elite'}
               </Button>
             </GlassCard>
           </div>

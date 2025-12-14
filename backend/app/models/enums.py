@@ -17,6 +17,7 @@ class UserTier(Enum):
     """User tier enumeration"""
     FREE = "free"
     PRO = "pro"
+    ELITE = "elite"
 
 
 class SearchType(Enum):

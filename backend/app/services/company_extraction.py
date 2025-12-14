@@ -9,7 +9,8 @@ from app.services.openai_client import get_openai_client
 
 def generate_firm_names_with_chatgpt(
     filters: Dict[str, Any],
-    limit: int = 20
+    limit: int = 20,
+    original_query: str = ""
 ) -> List[str]:
     """
     Use ChatGPT to generate a list of specific firm names based on search criteria.
@@ -18,6 +19,7 @@ def generate_firm_names_with_chatgpt(
     Args:
         filters: Search filters (industry, location, size, keywords)
         limit: Maximum number of firm names to generate
+        original_query: The original user search query (used to match exact company type)
     
     Returns:
         List of firm names (strings)
@@ -37,16 +39,50 @@ def generate_firm_names_with_chatgpt(
     size = filters.get("size", "none")
     keywords = filters.get("keywords", [])
     
-    # Optimized prompt - shorter, more focused, with strict location requirement
-    system_prompt = """Generate specific company names matching criteria. 
-CRITICAL: Only include companies that are ACTUALLY LOCATED in the specified location.
+    # Enhanced prompt - emphasizes matching EXACT company type from original query
+    system_prompt = """Generate specific company names matching the user's search criteria.
+
+CRITICAL RULES:
+
+1. Only include companies ACTUALLY LOCATED in the specified location.
+
+2. Match the EXACT type of company the user is looking for - not just the broad industry.
+
+3. The user's original search query is the most important guide.
+
+EXAMPLES OF CORRECT MATCHING:
+
+- "talent agencies" → Return talent agencies (CAA, WME, UTA, ICM Partners, Paradigm) - NOT movie studios, NOT production companies
+
+- "law firms" → Return law firms - NOT legal tech companies
+
+- "hedge funds" → Return hedge funds - NOT banks or asset managers
+
+- "record labels" → Return record labels - NOT streaming services
+
 Return JSON array only."""
 
-    user_prompt = f"""Industry: {industry}, Location: {location_str}, Size: {size if size != 'none' else 'any'}{f', Keywords: {", ".join(keywords)}' if keywords else ''}
+    user_prompt = f"""User's original search: "{original_query if original_query else f'{industry} companies in {location_str}'}"
 
-List {limit} well-known companies matching these criteria. 
-IMPORTANT: Only include companies that have their headquarters or primary operations in the specified location ({location_str}).
-Do NOT include companies that are only in other locations, even if they're in the same industry.
+Parsed criteria:
+
+- Industry/Type: {industry}
+
+- Location: {location_str}  
+
+- Size: {size if size != 'none' else 'any'}
+
+- Keywords: {', '.join(keywords) if keywords else 'none'}
+
+Generate {limit} companies that match EXACTLY what the user is looking for.
+
+IMPORTANT: If the user said "talent agencies", only return talent agencies like CAA, WME, UTA, ICM Partners. 
+
+If the user said "law firms", only return law firms.
+
+Do NOT return broadly related companies.
+
+Only include companies that have their headquarters or primary operations in the specified location ({location_str}).
 
 Return JSON array:
 ["Company 1", "Company 2", ...]"""

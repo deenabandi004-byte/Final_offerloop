@@ -398,16 +398,71 @@ export interface SearchHistoryItem {
 // ================================
 class ApiService {
   // ---- Auth helpers ----
-  private async getIdToken(): Promise<string> {
+  private async getIdToken(forceRefresh: boolean = false): Promise<string> {
     try {
       const { auth } = await import('../lib/firebase');
-      if (!auth.currentUser) {
-        throw new Error('User not authenticated');
+      const { onAuthStateChanged } = await import('firebase/auth');
+      
+      // Wait for auth state to be initialized using onAuthStateChanged
+      // This ensures we wait for Firebase auth to be fully ready before checking currentUser
+      // onAuthStateChanged fires immediately with the current auth state once it's determined
+      let unsubscribe: (() => void) | null = null;
+      const authReady = new Promise<any>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          if (unsubscribe) unsubscribe();
+          resolve(null);
+        }, 5000); // 5 second timeout
+        
+        unsubscribe = onAuthStateChanged(
+          auth,
+          (user) => {
+            // onAuthStateChanged fires when auth state is determined
+            // This happens immediately if auth is already initialized, or when it becomes ready
+            clearTimeout(timeout);
+            if (unsubscribe) unsubscribe();
+            resolve(user);
+          },
+          (error) => {
+            clearTimeout(timeout);
+            if (unsubscribe) unsubscribe();
+            reject(error);
+          }
+        );
+      });
+      
+      const firebaseUser = await authReady;
+      if (!firebaseUser) {
+        console.error('No authenticated user found. Please sign in.');
+        const error: any = new Error('Authentication required. Please sign in again.');
+        error.status = 401;
+        error.needsAuth = true;
+        throw error;
       }
-      return await auth.currentUser.getIdToken();
-    } catch (error) {
+      
+      // Get token, optionally force refresh if requested
+      // Use firebaseUser directly since we've confirmed auth state is ready
+      const token = await firebaseUser.getIdToken(forceRefresh);
+      
+      if (!token) {
+        console.error('Failed to get ID token');
+        const error: any = new Error('Failed to get authentication token. Please sign in again.');
+        error.status = 401;
+        error.needsAuth = true;
+        throw error;
+      }
+      
+      return token;
+    } catch (error: any) {
       console.error('Error getting Firebase auth token:', error);
-      throw new Error('Authentication required. Please sign in again.');
+      // If it's already our custom error, re-throw it
+      if (error.status === 401 && error.needsAuth) {
+        throw error;
+      }
+      // Otherwise, wrap it
+      const authError: any = new Error('Authentication required. Please sign in again.');
+      authError.status = 401;
+      authError.needsAuth = true;
+      throw authError;
     }
   }
 
@@ -417,9 +472,17 @@ class ApiService {
     try {
       const token = await this.getIdToken();
       headers['Authorization'] = `Bearer ${token}`;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error getting Firebase auth headers:', error);
-      throw error;
+      // If it's an auth error, preserve the status and needsAuth flag
+      if (error.status === 401 && error.needsAuth) {
+        throw error;
+      }
+      // Otherwise, wrap it
+      const authError: any = new Error('Authentication required. Please sign in again.');
+      authError.status = 401;
+      authError.needsAuth = true;
+      throw authError;
     }
 
     return headers;
@@ -457,13 +520,23 @@ class ApiService {
   }
 
   if (!response.ok) {
-    // For 401 with needsAuth, preserve the full error data including authUrl
-    if (response.status === 401 && data && (data.needsAuth || data.require_reauth)) {
-      const error: any = new Error(data.message || data.error || 'Authentication required');
-      error.needsAuth = data.needsAuth || data.require_reauth;
-      error.authUrl = data.authUrl;
-      error.contacts = data.contacts;
+    // For 401 errors, provide helpful error messages
+    if (response.status === 401) {
+      const error: any = new Error(
+        data?.message || data?.error || 'Authentication required. Please sign in again.'
+      );
       error.status = 401;
+      error.needsAuth = data?.needsAuth || data?.require_reauth || true;
+      error.authUrl = data?.authUrl;
+      error.contacts = data?.contacts;
+      
+      // Log helpful debugging info
+      console.error('401 Unauthorized - Authentication failed:', {
+        endpoint,
+        hasToken: !!options.headers?.['Authorization'],
+        errorMessage: data?.error || data?.message
+      });
+      
       throw error;
     }
     
@@ -775,6 +848,43 @@ class ApiService {
     } catch (error) {
       console.error('Error getting firm search:', error);
       return null;
+    }
+  }
+
+  async deleteFirm(firm: Firm): Promise<{ success: boolean; deletedCount?: number; error?: string }> {
+    const headers = await this.getAuthHeaders();
+    const deletePayload = {
+      firmId: firm.id,
+      firmName: firm.name,
+      firmLocation: firm.location?.display,
+    };
+    
+    console.log('🗑️ API: Deleting firm with payload:', deletePayload);
+    console.log('🗑️ API: Full firm object:', JSON.stringify(firm, null, 2));
+    
+    try {
+      const result = await this.makeRequest<{ success: boolean; deletedCount?: number; error?: string }>('/firm-search/delete-firm', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(deletePayload),
+      });
+      console.log('🗑️ API: Delete result:', JSON.stringify(result, null, 2));
+      if (result.success) {
+        if (result.deletedCount === 0) {
+          console.error('❌ Delete returned success but deletedCount is 0 - no firms were found to delete!');
+          console.error('   This means the firm matching logic did not find any matching firms in Firebase.');
+          console.error('   Check backend logs to see why matching failed.');
+        } else {
+          console.log(`✅ Successfully deleted ${result.deletedCount} firm occurrence(s) from Firebase`);
+        }
+      }
+      return result;
+    } catch (error) {
+      console.error('❌ API: Error deleting firm:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to delete firm'
+      };
     }
   }
 

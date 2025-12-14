@@ -185,6 +185,75 @@ def require_firebase_auth(fn):
         return fn(*args, **kwargs)
     return wrapper
 
+
+def require_tier(allowed_tiers):
+    """
+    Decorator to require specific subscription tier(s) for an endpoint.
+    Must be used after @require_firebase_auth.
+    
+    Args:
+        allowed_tiers: List of tier names (e.g., ['pro', 'elite']) or single tier string
+    
+    Example:
+        @require_tier(['pro', 'elite'])
+        @require_firebase_auth
+        def export_contacts():
+            ...
+    """
+    if isinstance(allowed_tiers, str):
+        allowed_tiers = [allowed_tiers]
+    
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            # Must have Firebase auth first
+            if not hasattr(request, 'firebase_user'):
+                return jsonify({'error': 'Authentication required'}), 401
+            
+            user_id = request.firebase_user.get('uid')
+            if not user_id:
+                return jsonify({'error': 'User ID not found'}), 401
+            
+            # SECURITY: Always fetch tier from database, never from request
+            db = get_db()
+            if not db:
+                return jsonify({'error': 'Database not available'}), 500
+            
+            try:
+                user_ref = db.collection('users').document(user_id)
+                user_doc = user_ref.get()
+                
+                if not user_doc.exists:
+                    # New user defaults to free tier
+                    tier = 'free'
+                else:
+                    user_data = user_doc.to_dict()
+                    # Check both subscriptionTier and tier for backward compatibility
+                    tier = user_data.get('subscriptionTier') or user_data.get('tier', 'free')
+                
+                # Check if user's tier is allowed
+                if tier not in allowed_tiers:
+                    tier_names = ', '.join([t.capitalize() for t in allowed_tiers])
+                    return jsonify({
+                        'error': 'Upgrade required',
+                        'message': f'This feature requires {tier_names} subscription',
+                        'required_tier': allowed_tiers,
+                        'current_tier': tier
+                    }), 403
+                
+                # Store tier in request for use in route handler
+                request.user_tier = tier
+                return fn(*args, **kwargs)
+                
+            except Exception as e:
+                print(f"Error checking tier: {e}")
+                import traceback
+                traceback.print_exc()
+                return jsonify({'error': 'Failed to verify subscription tier'}), 500
+        
+        return wrapper
+    return decorator
+
 def get_rate_limit_key():
     """
     Custom key function for rate limiting that excludes static assets.

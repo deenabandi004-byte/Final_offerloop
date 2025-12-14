@@ -49,6 +49,24 @@ def get_tier_info():
                     "Priority Support",
                     "Advanced features"
                 ]
+            },
+            'elite': {
+                'name': 'Elite',
+                'max_contacts': TIER_CONFIGS['elite']['max_contacts'],
+                'credits': TIER_CONFIGS['elite']['credits'],
+                'time_saved_minutes': TIER_CONFIGS['elite']['time_saved_minutes'],
+                'description': TIER_CONFIGS['elite']['description'],
+                'features': [
+                    f"{TIER_CONFIGS['elite']['credits']} credits",
+                    f"Estimated time saved: {TIER_CONFIGS['elite']['time_saved_minutes']} minutes",
+                    "Everything in Pro, plus:",
+                    "Unlimited Coffee Chat Prep",
+                    "Unlimited Interview Prep",
+                    "Priority queue for contact generation",
+                    "Personalized outreach templates",
+                    "Weekly personalized firm insights",
+                    "Early access to new AI tools"
+                ]
             }
         }
     })
@@ -92,9 +110,9 @@ def check_credits():
             else:
                 # User doesn't exist yet - return default free tier credits
                 return jsonify({
-                    'credits': 150,
-                    'max_credits': 150,
-                    'searches_remaining': 8,
+                    'credits': 300,
+                    'max_credits': 300,
+                    'searches_remaining': 20,
                     'tier': 'free',
                     'user_email': user_email
                 })
@@ -102,7 +120,7 @@ def check_credits():
         # If no Firebase, return defaults
         return jsonify({
             'credits': 0,
-            'max_credits': 150,
+            'max_credits': 300,
             'searches_remaining': 0,
             'tier': 'free',
             'user_email': user_email
@@ -114,8 +132,14 @@ def check_credits():
 
 
 @billing_bp.route('/user/update-tier', methods=['POST'])
+@require_firebase_auth
 def update_user_tier():
-    """Update user tier and credits"""
+    """
+    Update user tier and credits - ADMIN/INTERNAL USE ONLY
+    SECURITY: This endpoint should only be used by webhooks or admin tools.
+    Tier is validated but comes from request - this is intentional for webhook/admin use.
+    For normal user operations, tier should NEVER be accepted from client.
+    """
     try:
         db = get_db()
         data = request.get_json() or {}
@@ -128,8 +152,14 @@ def update_user_tier():
             return jsonify({'error': 'User email and tier required'}), 400
         
         # Validate tier
-        if tier not in ['free', 'pro']:
-            return jsonify({'error': 'Invalid tier. Must be "free" or "pro"'}), 400
+        if tier not in ['free', 'pro', 'elite']:
+            return jsonify({'error': 'Invalid tier. Must be "free", "pro", or "elite"'}), 400
+        
+        # SECURITY NOTE: This endpoint accepts tier from request, which is a security risk.
+        # This should only be used by:
+        # 1. Stripe webhooks (which are server-to-server)
+        # 2. Admin tools (which should have additional authentication)
+        # Consider adding admin authentication or removing this endpoint in favor of webhook-only updates.
         
         # Store user tier info
         if db:
@@ -238,10 +268,26 @@ def complete_upgrade():
         if not user_doc.exists:
             print(f"   ⚠️  User document doesn't exist, creating new one")
         
+        # Determine tier and credits based on price ID
+        from app.services.stripe_client import get_tier_from_price_id
+        
+        tier = 'pro'  # Default
+        if subscription_id:
+            try:
+                subscription = stripe.Subscription.retrieve(subscription_id)
+                if subscription.items.data:
+                    price_id = subscription.items.data[0].price.id
+                    tier = get_tier_from_price_id(price_id)
+            except Exception as e:
+                print(f"   ⚠️  Error retrieving subscription: {e}")
+        
+        tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS['pro'])
+        credits = tier_config['credits']
+        
         update_data = {
-            'tier': 'pro',
-            'credits': 1800,
-            'maxCredits': 1800,
+            'tier': tier,
+            'credits': credits,
+            'maxCredits': credits,
             'subscriptionStatus': 'active',
             'upgraded_at': datetime.now().isoformat(),
             'lastCreditReset': datetime.now().isoformat()
@@ -259,9 +305,9 @@ def complete_upgrade():
         
         return jsonify({
             'success': True,
-            'message': 'Successfully upgraded to Pro',
-            'tier': 'pro',
-            'credits': 1800,
+            'message': f'Successfully upgraded to {tier.capitalize()}',
+            'tier': tier,
+            'credits': credits,
             'subscriptionId': subscription_id,
             'customerId': customer_id
         })
@@ -313,8 +359,10 @@ def subscription_status():
         subscription_id = user_data.get('stripeSubscriptionId')
         
         return jsonify({
-            'subscribed': tier == 'pro',
+            'subscribed': tier in ['pro', 'elite'],
             'tier': tier,
+            'status': 'active' if tier in ['pro', 'elite'] else 'inactive',
+            'hasSubscription': tier in ['pro', 'elite'],
             'subscriptionId': subscription_id,
             'credits': user_data.get('credits', 0)
         })
@@ -322,6 +370,169 @@ def subscription_status():
     except Exception as e:
         print(f"Subscription status error: {e}")
         return jsonify({'subscribed': False, 'tier': 'free'}), 200
+
+
+@billing_bp.route('/user/subscription', methods=['GET'])
+@require_firebase_auth
+def get_user_subscription():
+    """Get user subscription tier and usage information"""
+    try:
+        db = get_db()
+        user_id = request.firebase_user.get('uid')
+        
+        if not db or not user_id:
+            return jsonify({
+                'tier': 'free',
+                'credits': 0,
+                'maxCredits': TIER_CONFIGS['free']['credits'],
+                'alumniSearchesUsed': 0,
+                'alumniSearchesLimit': TIER_CONFIGS['free']['alumni_searches'],
+                'coffeeChatPrepsUsed': 0,
+                'coffeeChatPrepsLimit': TIER_CONFIGS['free']['coffee_chat_preps'],
+                'interviewPrepsUsed': 0,
+                'interviewPrepsLimit': TIER_CONFIGS['free']['interview_preps'],
+            }), 200
+        
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            return jsonify({
+                'tier': 'free',
+                'credits': 0,
+                'maxCredits': TIER_CONFIGS['free']['credits'],
+                'alumniSearchesUsed': 0,
+                'alumniSearchesLimit': TIER_CONFIGS['free']['alumni_searches'],
+                'coffeeChatPrepsUsed': 0,
+                'coffeeChatPrepsLimit': TIER_CONFIGS['free']['coffee_chat_preps'],
+                'interviewPrepsUsed': 0,
+                'interviewPrepsLimit': TIER_CONFIGS['free']['interview_preps'],
+            }), 200
+        
+        user_data = user_doc.to_dict()
+        tier = user_data.get('subscriptionTier') or user_data.get('tier', 'free')
+        tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS['free'])
+        
+        # Check and reset usage if needed
+        from app.services.auth import check_and_reset_usage
+        check_and_reset_usage(user_ref, user_data)
+        user_doc = user_ref.get()  # Refresh after potential reset
+        user_data = user_doc.to_dict()
+        
+        return jsonify({
+            'tier': tier,
+            'credits': user_data.get('credits', 0),
+            'maxCredits': user_data.get('maxCredits', tier_config['credits']),
+            'alumniSearchesUsed': user_data.get('alumniSearchesUsed', 0),
+            'alumniSearchesLimit': tier_config['alumni_searches'],
+            'coffeeChatPrepsUsed': user_data.get('coffeeChatPrepsUsed', 0),
+            'coffeeChatPrepsLimit': tier_config['coffee_chat_preps'],
+            'interviewPrepsUsed': user_data.get('interviewPrepsUsed', 0),
+            'interviewPrepsLimit': tier_config['interview_preps'],
+        })
+        
+    except Exception as e:
+        print(f"Get subscription error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@billing_bp.route('/user/check-feature', methods=['POST'])
+@require_firebase_auth
+def check_feature():
+    """Check if user can access a feature"""
+    try:
+        db = get_db()
+        user_id = request.firebase_user.get('uid')
+        data = request.get_json() or {}
+        feature = data.get('feature')
+        
+        if not feature:
+            return jsonify({'error': 'Feature name is required'}), 400
+        
+        if not db or not user_id:
+            return jsonify({'allowed': False, 'reason': 'User not found'}), 200
+        
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            return jsonify({'allowed': False, 'reason': 'User not found'}), 200
+        
+        user_data = user_doc.to_dict()
+        tier = user_data.get('subscriptionTier') or user_data.get('tier', 'free')
+        tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS['free'])
+        
+        # Check feature access based on tier
+        from app.services.auth import can_access_feature
+        allowed, reason = can_access_feature(tier, feature, user_data, tier_config)
+        
+        return jsonify({
+            'allowed': allowed,
+            'reason': reason,
+            'tier': tier
+        })
+        
+    except Exception as e:
+        print(f"Check feature error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@billing_bp.route('/user/increment-usage', methods=['POST'])
+@require_firebase_auth
+def increment_usage():
+    """Increment usage counter for a feature"""
+    try:
+        db = get_db()
+        user_id = request.firebase_user.get('uid')
+        data = request.get_json() or {}
+        feature = data.get('feature')
+        
+        if not feature:
+            return jsonify({'error': 'Feature name is required'}), 400
+        
+        if not db or not user_id:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            return jsonify({'error': 'User not found'}), 404
+        
+        user_data = user_doc.to_dict()
+        
+        # Check and reset usage if needed
+        from app.services.auth import check_and_reset_usage
+        check_and_reset_usage(user_ref, user_data)
+        user_doc = user_ref.get()  # Refresh
+        user_data = user_doc.to_dict()
+        
+        # Map feature names to field names
+        field_map = {
+            'alumni_search': 'alumniSearchesUsed',
+            'coffee_chat_prep': 'coffeeChatPrepsUsed',
+            'interview_prep': 'interviewPrepsUsed',
+        }
+        
+        field_name = field_map.get(feature)
+        if not field_name:
+            return jsonify({'error': f'Unknown feature: {feature}'}), 400
+        
+        # Increment usage
+        current_usage = user_data.get(field_name, 0)
+        user_ref.update({
+            field_name: current_usage + 1,
+            'updatedAt': datetime.now().isoformat()
+        })
+        
+        return jsonify({
+            'success': True,
+            'usage': current_usage + 1
+        })
+        
+    except Exception as e:
+        print(f"Increment usage error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @billing_bp.route('/debug/check-upgrade/<user_id>', methods=['GET'])

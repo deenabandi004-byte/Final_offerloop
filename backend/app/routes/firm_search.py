@@ -6,8 +6,9 @@ WITH CREDIT SYSTEM INTEGRATION
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 import uuid
+import json
 
-from app.extensions import get_db, require_firebase_auth
+from app.extensions import get_db, require_firebase_auth, require_tier
 from app.services.company_search import (
     search_firms,
     search_firms_structured,
@@ -68,11 +69,15 @@ def deduct_credits(db, uid, amount):
 
 
 def validate_batch_size(tier, batch_size):
-    """Validate batch size for tier."""
+    """Validate batch size for tier according to audit spec."""
     if tier == 'free':
-        return 1 <= batch_size <= 10, "Free tier allows 1-10 firms per search"
-    else:  # pro
-        return 1 <= batch_size <= 40, "Pro tier allows 1-40 firms per search"
+        return batch_size == 1, "Free tier allows 1 firm per search"
+    elif tier == 'pro':
+        return 1 <= batch_size <= 5, "Pro tier allows 1-5 firms per search"
+    elif tier == 'elite':
+        return 1 <= batch_size <= 15, "Elite tier allows 1-15 firms per search"
+    else:
+        return False, f"Invalid tier: {tier}"
 
 
 def calculate_firm_search_cost(num_firms):
@@ -133,10 +138,8 @@ def search_firms_route():
         # Get user's tier and credits
         current_credits, tier, max_credits = get_user_credits_and_tier(db, uid)
         
-        # Validate batch size for tier
-        is_valid, error_msg = validate_batch_size(tier, batch_size)
-        if not is_valid:
-            raise ValidationError(error_msg, field="batchSize")
+        # All users can search for as many firms as they want, as long as they have the credits
+        # No tier-based batch size restrictions
         
         # Calculate MAX credit cost
         max_credits_needed = calculate_firm_search_cost(batch_size)
@@ -165,7 +168,14 @@ def search_firms_route():
         if not result.get('success'):
             error_msg = result.get('error', 'Firm search failed')
             print(f"⚠️ Firm search returned error: {error_msg}")
-            raise ExternalAPIError("Firm Search", error_msg)
+            
+            # Check if this is a validation/parsing error (missing fields)
+            # These should be 400 errors, not 502 errors
+            if 'Missing required fields' in error_msg or 'Failed to understand' in error_msg:
+                raise ValidationError(error_msg, field="query")
+            else:
+                # Actual API/service errors
+                raise ExternalAPIError("Firm Search", error_msg)
         
         if not firms:
             # No firms found - return empty result but don't charge credits
@@ -243,12 +253,13 @@ def get_search_history():
     """Get user's firm search history.
     
     Query params:
-    - limit: Number of searches to return (default: 10, max: 50)
+    - limit: Number of searches to return (default: 10, max: 100 for loading all firms)
     - includeFirms: If 'true', include firm results in response (default: false)
     """
     try:
         uid = request.firebase_user.get('uid')
-        limit = min(int(request.args.get('limit', 10)), 50)
+        # Allow higher limit when loading firms to get all searches
+        limit = min(int(request.args.get('limit', 10)), 100 if request.args.get('includeFirms') == 'true' else 50)
         include_firms = request.args.get('includeFirms', 'false').lower() == 'true'
         db = get_db()
         
@@ -340,4 +351,247 @@ def get_sizes():
         'success': True,
         'sizes': get_size_options()
     })
+
+
+@firm_search_bp.route('/delete-firm', methods=['POST'])
+@require_firebase_auth
+def delete_firm():
+    """Delete a firm from all search history entries."""
+    try:
+        uid = request.firebase_user.get('uid')
+        db = get_db()
+        data = request.get_json() or {}
+        
+        firm_id = data.get('firmId')
+        firm_name = data.get('firmName')
+        firm_location = data.get('firmLocation')
+        
+        print(f"🗑️ Delete firm request: firmId={firm_id}, firmName={firm_name}, firmLocation={firm_location}")
+        
+        if not firm_id and not firm_name:
+            return jsonify({
+                'success': False,
+                'error': 'Either firmId or firmName must be provided'
+            }), 400
+        
+        # Get all search history entries (not just recent ones - we need to check ALL)
+        searches_ref = db.collection('users').document(uid).collection('firmSearches')
+        searches = list(searches_ref.stream())
+        
+        print(f"🗑️ Found {len(searches)} total search history entries")
+        
+        # Log the first few firms to see their structure
+        total_firms_before = 0
+        for search_doc in searches[:3]:  # Check first 3 searches
+            search_data = search_doc.to_dict()
+            results = search_data.get('results', [])
+            total_firms_before += len(results)
+            if results:
+                print(f"  📋 Sample firm from search {search_doc.id}: {json.dumps(results[0], indent=2, default=str)}")
+        
+        print(f"🗑️ Total firms across all searches before deletion: {total_firms_before}")
+        
+        deleted_count = 0
+        updated_searches = 0
+        
+        def normalize_location(loc_str):
+            """Normalize location string for comparison."""
+            if not loc_str:
+                return ""
+            # Remove extra spaces, convert to lowercase
+            return ' '.join(str(loc_str).strip().lower().split())
+        
+        # Create a clean matching function for this specific deletion request
+        # (no side effects, ensures we're matching the right firm)
+        match_attempts = 0
+        
+        def matches_this_firm(firm):
+            nonlocal match_attempts
+            match_attempts += 1
+            """Match function specific to this deletion request."""
+            # PRIORITY 1: Match by ID if provided
+            if firm_id:
+                firm_id_value = firm.get('id')
+                if firm_id_value:
+                    firm_id_str = str(firm_id_value).strip()
+                    requested_id_str = str(firm_id).strip()
+                    if firm_id_str == requested_id_str:
+                        return True
+                # If ID is provided but doesn't match, don't fall through
+                return False
+            
+            # PRIORITY 2: Match by name + location (only if no ID provided)
+            if firm_name:
+                firm_name_value = str(firm.get('name', '')).strip()
+                requested_name = str(firm_name).strip()
+                
+                if not firm_name_value or firm_name_value.lower() != requested_name.lower():
+                    if match_attempts <= 3:
+                        print(f"  ❌ Match #{match_attempts}: Name mismatch - stored='{firm_name_value}', requested='{requested_name}'")
+                    return False
+                
+                if firm_location:
+                    firm_loc = firm.get('location', {})
+                    if not isinstance(firm_loc, dict):
+                        if match_attempts <= 3:
+                            print(f"  ❌ Match #{match_attempts}: Location is not a dict")
+                        return False
+                    
+                    loc_display = firm_loc.get('display')
+                    if loc_display:
+                        if normalize_location(loc_display) == normalize_location(firm_location):
+                            if match_attempts <= 5:
+                                print(f"  ✅ Match #{match_attempts}: Matched by name+location.display: {firm_name_value} @ {loc_display}")
+                            return True
+                    
+                    loc_parts = [firm_loc.get('city'), firm_loc.get('state'), firm_loc.get('country')]
+                    loc_parts = [str(p).strip() for p in loc_parts if p]
+                    if loc_parts:
+                        constructed_loc = ', '.join(loc_parts)
+                        if normalize_location(constructed_loc) == normalize_location(firm_location):
+                            if match_attempts <= 5:
+                                print(f"  ✅ Match #{match_attempts}: Matched by name+constructed location: {firm_name_value} @ {constructed_loc}")
+                            return True
+                    
+                    if match_attempts <= 3:
+                        stored_loc = loc_display or (', '.join(loc_parts) if loc_parts else "N/A")
+                        print(f"  ❌ Match #{match_attempts}: Location mismatch - stored='{stored_loc}', requested='{firm_location}'")
+                    return False
+                else:
+                    if match_attempts <= 5:
+                        print(f"  ✅ Match #{match_attempts}: Matched by name only (no location): {firm_name_value}")
+                    return True
+            
+            return False
+        
+        # Remove firm from all search history entries
+        # Use a batch write for better performance and atomicity
+        batch = db.batch()
+        batch_count = 0
+        MAX_BATCH_SIZE = 500  # Firestore batch limit
+        
+        for search_doc in searches:
+            search_data = search_doc.to_dict()
+            results = search_data.get('results', [])
+            
+            if not results:
+                continue
+            
+            # Filter out the matching firm(s) using the clean matching function
+            original_count = len(results)
+            
+            # Debug: Log first firm structure to see what we're comparing against
+            if deleted_count == 0 and results:
+                print(f"  🔍 Sample firm from search {search_doc.id}: id={results[0].get('id')}, name={results[0].get('name')}, location={json.dumps(results[0].get('location'), default=str)}")
+            
+            filtered_results = [f for f in results if not matches_this_firm(f)]
+            
+            if len(filtered_results) < original_count:
+                # Firm was found and removed
+                removed = original_count - len(filtered_results)
+                deleted_count += removed
+                
+                print(f"  🗑️ Removing {removed} firm(s) from search {search_doc.id} (batch write)")
+                
+                # Add to batch
+                batch.update(search_doc.reference, {
+                    'results': filtered_results,
+                    'resultsCount': len(filtered_results)
+                })
+                batch_count += 1
+                updated_searches += 1
+                
+                # Commit batch if we hit the limit
+                if batch_count >= MAX_BATCH_SIZE:
+                    batch.commit()
+                    print(f"  ✅ Committed batch of {batch_count} updates")
+                    batch = db.batch()
+                    batch_count = 0
+        
+        # Commit remaining updates
+        if batch_count > 0:
+            batch.commit()
+            print(f"  ✅ Committed final batch of {batch_count} updates")
+        
+        print(f"🗑️ Delete complete: {deleted_count} firms deleted from {updated_searches} searches")
+        
+        # Verify deletion by checking all searches again
+        # Wait a moment for Firestore to propagate the batch write, then verify
+        if deleted_count > 0:
+            import time
+            time.sleep(0.5)  # Small delay to allow Firestore to propagate
+            
+            verification_searches = list(searches_ref.stream())
+            remaining_count = 0
+            
+            # Use the same matching function we used for deletion
+            for search_doc in verification_searches:
+                search_data = search_doc.to_dict()
+                results = search_data.get('results', [])
+                for firm in results:
+                    if matches_this_firm(firm):
+                        remaining_count += 1
+                        print(f"  ⚠️ WARNING: Firm still exists in search {search_doc.id}: {firm.get('id')} ({firm.get('name')})")
+            
+            if remaining_count > 0:
+                print(f"  ⚠️ WARNING: {remaining_count} firm instance(s) still remain after deletion!")
+                print(f"  🔄 Attempting to delete remaining instances...")
+                
+                # Try one more time to delete any remaining instances
+                retry_batch = db.batch()
+                retry_count = 0
+                for search_doc in verification_searches:
+                    search_data = search_doc.to_dict()
+                    results = search_data.get('results', [])
+                    filtered_results = [f for f in results if not matches_this_firm(f)]
+                    
+                    if len(filtered_results) < len(results):
+                        retry_batch.update(search_doc.reference, {
+                            'results': filtered_results,
+                            'resultsCount': len(filtered_results)
+                        })
+                        retry_count += 1
+                        print(f"  🗑️ Retry: Removing firm from search {search_doc.id}")
+                
+                if retry_count > 0:
+                    retry_batch.commit()
+                    print(f"  ✅ Retry: Committed {retry_count} additional deletions")
+                    
+                    # Final verification
+                    time.sleep(0.3)
+                    final_searches = list(searches_ref.stream())
+                    final_remaining = 0
+                    for search_doc in final_searches:
+                        search_data = search_doc.to_dict()
+                        results = search_data.get('results', [])
+                        for firm in results:
+                            if matches_this_firm(firm):
+                                final_remaining += 1
+                    
+                    if final_remaining > 0:
+                        print(f"  ⚠️ WARNING: {final_remaining} firm instance(s) STILL remain after retry!")
+                    else:
+                        print(f"  ✅ Final verification: All matching firms deleted")
+            else:
+                print(f"  ✅ Verification: No matching firms remain in any search")
+        
+        if deleted_count == 0:
+            print(f"⚠️ WARNING: No firms were deleted! Check matching logic.")
+            print(f"   Requested: firmId={firm_id}, firmName={firm_name}, firmLocation={firm_location}")
+        
+        return jsonify({
+            'success': True,
+            'deletedCount': deleted_count,
+            'updatedSearches': updated_searches,
+            'message': f'Deleted {deleted_count} firm(s) from {updated_searches} search(es)' if deleted_count > 0 else 'No matching firms found to delete'
+        })
+    
+    except Exception as e:
+        print(f"❌ Error deleting firm: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': f'Failed to delete firm: {str(e)}'
+        }), 500
 

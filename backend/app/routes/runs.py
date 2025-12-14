@@ -9,7 +9,7 @@ from io import StringIO
 from flask import Blueprint, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 
-from app.extensions import require_firebase_auth, get_db
+from app.extensions import require_firebase_auth, get_db, require_tier
 from app.services.resume_parser import extract_text_from_pdf
 from app.services.reply_generation import batch_generate_emails
 from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user, download_resume_from_url
@@ -69,7 +69,8 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         # Initialize seen_contact_set before it's used
         seen_contact_set = set()
         
-        credits_available = 120
+        # Default to free tier credits if user not found
+        credits_available = TIER_CONFIGS['free']['credits']  # 300
         if db and user_id:
             try:
                 user_ref = db.collection('users').document(user_id)
@@ -349,7 +350,8 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         # Initialize seen_contact_set before it's used
         seen_contact_set = set()
         
-        credits_available = 1800
+        # Default to pro tier credits if user not found
+        credits_available = TIER_CONFIGS['pro']['credits']  # 1500
         if db and user_id:
             try:
                 user_ref = db.collection('users').document(user_id)
@@ -728,8 +730,9 @@ def free_run():
 
 @runs_bp.route('/free-run-csv', methods=['POST'])
 @require_firebase_auth
+@require_tier(['pro', 'elite'])  # CSV export is Pro/Elite only per audit
 def free_run_csv():
-    """Free tier CSV download endpoint"""
+    """CSV download endpoint (Pro/Elite only)"""
     try:
         user_email = request.firebase_user.get('email')
         user_id = request.firebase_user['uid']

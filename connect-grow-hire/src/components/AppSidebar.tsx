@@ -15,8 +15,7 @@ import {
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import LightningIcon from "../assets/Lightning.png";
-import BlueLogo from "../assets/Blue_logo.png";
-import BlueIcon from "../assets/blue_icon.png";
+import OfferloopLogo from "../assets/Offerloop_logo.png";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 
 import {
@@ -127,18 +126,18 @@ export function AppSidebar() {
             {state !== "collapsed" ? (
               <div className="flex items-center justify-center gap-2">
                 <img 
-                  src={BlueLogo} 
+                  src={OfferloopLogo} 
                   alt="Offerloop" 
-                  className="h-12 cursor-pointer"
+                  className="h-[72px] cursor-pointer"
                   onClick={() => navigate("/")}
                 />
               </div>
             ) : (
               <div className="flex items-center justify-center p-1">
                 <img 
-                  src={BlueIcon} 
+                  src={OfferloopLogo} 
                   alt="Offerloop" 
-                  className="h-8 w-auto cursor-pointer object-contain"
+                  className="h-[48px] w-auto cursor-pointer object-contain"
                   onClick={() => navigate("/")}
                 />
               </div>
@@ -232,7 +231,7 @@ export function AppSidebar() {
                 {/* Credits Display */}
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-sm font-semibold text-gray-900">
-                    {user?.credits ?? 0}/{user?.maxCredits ?? 120} credits
+                    {user?.credits ?? 0}/{user?.maxCredits ?? 300} credits
                   </span>
                 </div>
 
@@ -241,7 +240,7 @@ export function AppSidebar() {
                   <div 
                     className="h-full transition-all duration-300 rounded-full"
                     style={{ 
-                      width: `${Math.min(((user?.credits ?? 0) / (user?.maxCredits ?? 120)) * 100, 100)}%`,
+                      width: `${Math.min(((user?.credits ?? 0) / (user?.maxCredits ?? 300)) * 100, 100)}%`,
                       background: 'linear-gradient(135deg, #3B82F6, #60A5FA)'
                     }}
                   />

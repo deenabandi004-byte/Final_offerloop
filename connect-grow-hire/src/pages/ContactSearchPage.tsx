@@ -34,12 +34,9 @@ const ContactSearchPage: React.FC = () => {
   } as const;
 
   const userTier: "free" | "pro" = useMemo(() => {
-    if (effectiveUser?.tier === "pro") return "pro";
-    const max = Number(effectiveUser?.maxCredits ?? 0);
-    const credits = Number(effectiveUser?.credits ?? 0);
-    if (max >= 1800 || credits > 150) return "pro";
-    return "free";
-  }, [effectiveUser?.tier, effectiveUser?.maxCredits, effectiveUser?.credits]);
+    // Use the actual tier from the user object, default to "free"
+    return effectiveUser?.tier === "pro" ? "pro" : "free";
+  }, [effectiveUser?.tier]);
 
   function isSearchResult(x: any): x is { contacts: any[]; successful_drafts?: number } {
     return x && Array.isArray(x.contacts);

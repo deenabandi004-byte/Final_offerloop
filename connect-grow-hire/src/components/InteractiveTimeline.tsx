@@ -28,44 +28,58 @@ export function InteractiveTimeline({ phases, startDate, targetDeadline, onUpdat
 
   // Helper functions for date manipulation
   const parseDate = (dateStr: string): Date => {
-    return new Date(dateStr + 'T00:00:00');
+    // Use UTC to avoid DST timezone offset issues
+    // If dateStr is already a full ISO string, use it directly
+    if (dateStr.includes('T')) {
+      return new Date(dateStr);
+    }
+    // Otherwise, parse as UTC date
+    return new Date(dateStr + 'T00:00:00Z');
   };
 
   const startOfMonth = (date: Date): Date => {
-    return new Date(date.getFullYear(), date.getMonth(), 1);
+    // Use UTC to avoid DST timezone offset issues
+    return new Date(Date.UTC(date.getFullYear(), date.getMonth(), 1));
   };
 
   const addMonths = (date: Date, months: number): Date => {
+    // Use UTC to avoid DST timezone offset issues
     const result = new Date(date);
-    result.setMonth(result.getMonth() + months);
-    return result;
+    const year = result.getUTCFullYear();
+    const month = result.getUTCMonth();
+    return new Date(Date.UTC(year, month + months, 1));
   };
 
   const differenceInMonths = (dateLeft: Date, dateRight: Date): number => {
-    const yearDiff = dateLeft.getFullYear() - dateRight.getFullYear();
-    const monthDiff = dateLeft.getMonth() - dateRight.getMonth();
+    // Use UTC to avoid DST timezone offset issues
+    const yearDiff = dateLeft.getUTCFullYear() - dateRight.getUTCFullYear();
+    const monthDiff = dateLeft.getUTCMonth() - dateRight.getUTCMonth();
     return yearDiff * 12 + monthDiff;
   };
 
   const isSameMonth = (dateLeft: Date, dateRight: Date): boolean => {
-    return dateLeft.getFullYear() === dateRight.getFullYear() &&
-           dateLeft.getMonth() === dateRight.getMonth();
+    // Use UTC to avoid DST timezone offset issues
+    return dateLeft.getUTCFullYear() === dateRight.getUTCFullYear() &&
+           dateLeft.getUTCMonth() === dateRight.getUTCMonth();
   };
 
   const formatMonth = (date: Date): string => {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return months[date.getMonth()];
+    return months[date.getUTCMonth()];
   };
 
   const formatMonthFull = (date: Date): string => {
     const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    return `${months[date.getMonth()]} ${date.getFullYear()}`;
+    return `${months[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
   };
 
   // Helper to parse phase months - defined early so we can use it in timeline calculation
+  // Uses UTC to avoid DST timezone offset issues
   const parsePhaseMonth = (monthStr: string, baseDate: Date): Date => {
     if (!monthStr || typeof monthStr !== 'string') {
-      console.warn(`⚠️ Invalid month string: ${monthStr}, using baseDate`);
+      if (import.meta.env.DEV) {
+        console.warn(`⚠️ Invalid month string: ${monthStr}, using baseDate`);
+      }
       return baseDate;
     }
     
@@ -86,12 +100,17 @@ export function InteractiveTimeline({ phases, startDate, targetDeadline, onUpdat
       // Extract year (look for 4-digit year)
       const yearMatch = monthStr.match(/\b(\d{4})\b/);
       const year = yearMatch ? parseInt(yearMatch[1]) : baseDate.getFullYear();
-      const result = new Date(year, monthIndex, 1);
-      console.log(`📅 Parsed "${monthStr}" -> ${result.toISOString()}`);
+      // Use UTC to avoid DST timezone offset changes
+      const result = new Date(Date.UTC(year, monthIndex, 1));
+      if (import.meta.env.DEV) {
+        console.log(`📅 Parsed "${monthStr}" -> ${result.toISOString()}`);
+      }
       return result;
     }
     
-    console.warn(`⚠️ Could not parse month string: "${monthStr}", using baseDate: ${baseDate.toISOString()}`);
+    if (import.meta.env.DEV) {
+      console.warn(`⚠️ Could not parse month string: "${monthStr}", using baseDate: ${baseDate.toISOString()}`);
+    }
     return baseDate;
   };
 
@@ -114,13 +133,17 @@ export function InteractiveTimeline({ phases, startDate, targetDeadline, onUpdat
     
     // Adjust start to include earliest phase if needed
     if (minPhaseDate < start) {
-      console.log(`📅 Extending timeline start from ${start.toISOString()} to ${minPhaseDate.toISOString()} to include phases`);
+      if (import.meta.env.DEV) {
+        console.log(`📅 Extending timeline start from ${start.toISOString()} to ${minPhaseDate.toISOString()} to include phases`);
+      }
       start = startOfMonth(minPhaseDate);
     }
     
     // Adjust end to include latest phase if needed
     if (maxPhaseDate > end) {
-      console.log(`📅 Extending timeline end from ${end.toISOString()} to ${maxPhaseDate.toISOString()} to include phases`);
+      if (import.meta.env.DEV) {
+        console.log(`📅 Extending timeline end from ${end.toISOString()} to ${maxPhaseDate.toISOString()} to include phases`);
+      }
       end = startOfMonth(maxPhaseDate);
     }
   }
@@ -132,7 +155,9 @@ export function InteractiveTimeline({ phases, startDate, targetDeadline, onUpdat
     months.push(addMonths(start, i));
   }
   
-  console.log(`📅 Timeline range: ${start.toISOString()} to ${end.toISOString()}, ${totalMonths} months`);
+  if (import.meta.env.DEV) {
+    console.log(`📅 Timeline range: ${start.toISOString()} to ${end.toISOString()}, ${totalMonths} months`);
+  }
 
   // Find current month position
   const currentMonthIndex = months.findIndex(month => 
@@ -155,13 +180,17 @@ export function InteractiveTimeline({ phases, startDate, targetDeadline, onUpdat
       phaseEnd,
     };
     
-    // Debug logging
-    console.log(`📅 Phase "${phase.name}": startMonth="${phase.startMonth}" -> ${phaseStart.toISOString()}, endMonth="${phase.endMonth}" -> ${phaseEnd.toISOString()}, startIndex=${result.startIndex}, endIndex=${result.endIndex}`);
+    // Debug logging (only in development)
+    if (import.meta.env.DEV) {
+      console.log(`📅 Phase "${phase.name}": startMonth="${phase.startMonth}" -> ${phaseStart.toISOString()}, endMonth="${phase.endMonth}" -> ${phaseEnd.toISOString()}, startIndex=${result.startIndex}, endIndex=${result.endIndex}`);
+    }
     
     return result;
   });
   
-  console.log(`🔍 Total phases: ${editedPhases.length}, phasePositions:`, phasePositions);
+  if (import.meta.env.DEV) {
+    console.log(`🔍 Total phases: ${editedPhases.length}, phasePositions:`, phasePositions);
+  }
 
   // Handle phase drag to move
   const handlePhaseDragStart = (phaseIndex: number) => {

@@ -90,22 +90,43 @@ PDL_BASE_URL = 'https://api.peopledatalabs.com/v5'
 pdl_cache = {}  # In-memory cache for PDL data
 
 # ========================================
+# Stripe Price IDs
+# ========================================
+# Pro tier: $9.99/month (student pricing, show as $14.99 $9.99)
+STRIPE_PRO_PRICE_ID = os.getenv('STRIPE_PRO_PRICE_ID', 'price_1ScLXrERY2WrVHp1bYgdMAu4')
+# Elite tier: $34.99/month
+STRIPE_ELITE_PRICE_ID = os.getenv('STRIPE_ELITE_PRICE_ID', 'price_1ScLcfERY2WrVHp1c5rcONJ3')
+
+# ========================================
 # Tier Configurations
 # ========================================
 TIER_CONFIGS = {
     'free': {
-        'max_contacts': 3,   
+        'max_contacts': 3,   # Maximum contacts returned per search
+        'batch_size': 1,      # Maximum batch operations allowed (per audit spec)
         'min_contacts': 1,
         'fields': ['FirstName', 'LastName', 'LinkedIn', 'Email', 'Title', 'Company', 'City', 'State', 'College', 'Hometown'],
         'uses_pdl': True,
         'uses_email_drafting': True,
         'uses_resume': False,
-        'credits': 150,
-        'time_saved_minutes': 200,
-        'description': 'Try out platform risk free'
+        'credits': 300,
+        'time_saved_minutes': 300,
+        'description': 'Try it out for free',
+        'alumni_searches': 10,
+        'coffee_chat_preps': 1,
+        'interview_preps': 1,
+        'firm_search': False,
+        'smart_filters': False,
+        'bulk_drafting': False,
+        'export_enabled': False,
+        'priority_queue': False,
+        'personalized_templates': False,
+        'weekly_insights': False,
+        'early_access': False,
     },
     'pro': {
-        'max_contacts': 8,
+        'max_contacts': 8,   # Maximum contacts returned per search
+        'batch_size': 5,      # Maximum batch operations allowed (per audit spec)
         'min_contacts': 1, 
         'fields': ['FirstName', 'LastName', 'LinkedIn', 'Email', 'Title', 'Company', 'City', 'State', 'College',
                   'Phone', 'PersonalEmail', 'WorkEmail', 'SocialProfiles', 'EducationTop', 'VolunteerHistory',
@@ -113,9 +134,45 @@ TIER_CONFIGS = {
         'uses_pdl': True,
         'uses_email_drafting': True,
         'uses_resume': True,
-        'credits': 1800,
-        'time_saved_minutes': 1200,
-        'description': 'Everything in free plus advanced features'
+        'credits': 1500,
+        'time_saved_minutes': 2500,
+        'description': 'Best for Students',
+        'alumni_searches': 'unlimited',
+        'coffee_chat_preps': 10,
+        'interview_preps': 5,
+        'firm_search': True,
+        'smart_filters': True,
+        'bulk_drafting': True,
+        'export_enabled': True,
+        'priority_queue': False,
+        'personalized_templates': False,
+        'weekly_insights': False,
+        'early_access': False,
+    },
+    'elite': {
+        'max_contacts': 15,  # Maximum contacts returned per search
+        'batch_size': 15,     # Maximum batch operations allowed (per audit spec)
+        'min_contacts': 1,
+        'fields': ['FirstName', 'LastName', 'LinkedIn', 'Email', 'Title', 'Company', 'City', 'State', 'College',
+                  'Phone', 'PersonalEmail', 'WorkEmail', 'SocialProfiles', 'EducationTop', 'VolunteerHistory',
+                  'WorkSummary', 'Group', 'Hometown', 'Similarity'],
+        'uses_pdl': True,
+        'uses_email_drafting': True,
+        'uses_resume': True,
+        'credits': 3000,
+        'time_saved_minutes': 5000,
+        'description': 'For serious recruiting season',
+        'alumni_searches': 'unlimited',
+        'coffee_chat_preps': 'unlimited',
+        'interview_preps': 'unlimited',
+        'firm_search': True,
+        'smart_filters': True,
+        'bulk_drafting': True,
+        'export_enabled': True,
+        'priority_queue': True,
+        'personalized_templates': True,
+        'weekly_insights': True,
+        'early_access': True,
     }
 }
 

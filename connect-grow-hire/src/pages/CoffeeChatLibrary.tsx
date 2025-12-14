@@ -122,7 +122,7 @@ const CoffeeChatLibrary: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-4">
-              <CreditPill credits={user?.credits ?? 0} max={user?.maxCredits ?? 120} />
+              <CreditPill credits={user?.credits ?? 0} max={user?.maxCredits ?? 300} />
               <Button
                 size="sm"
                 onClick={() => navigate("/home")}

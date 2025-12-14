@@ -20,7 +20,7 @@ def create_user_data(
     Args:
         uid: Firebase user ID
         email: User email address
-        tier: User tier ('free' or 'pro')
+        tier: User tier ('free', 'pro', or 'elite')
         name: User display name
         credits: Initial credits (defaults based on tier)
         max_credits: Maximum credits (defaults based on tier)
@@ -31,17 +31,23 @@ def create_user_data(
     from app.config import TIER_CONFIGS
     
     tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS['free'])
-    default_credits = tier_config.get('credits', 150)
+    default_credits = tier_config.get('credits', 300)
     
     user_data = {
         'uid': uid,
         'email': email,
-        'tier': tier,
+        'subscriptionTier': tier,  # Use subscriptionTier for consistency
+        'tier': tier,  # Keep tier for backward compatibility
         'credits': credits if credits is not None else default_credits,
         'maxCredits': max_credits if max_credits is not None else default_credits,
         'createdAt': datetime.now().isoformat(),
         'lastCreditReset': datetime.now().isoformat(),
-        'subscriptionStatus': 'active' if tier == 'pro' else None,
+        'lastUsageReset': datetime.now().isoformat(),  # Track usage reset date
+        'subscriptionStatus': 'active' if tier in ['pro', 'elite'] else None,
+        # Usage tracking fields
+        'alumniSearchesUsed': 0,
+        'coffeeChatPrepsUsed': 0,
+        'interviewPrepsUsed': 0,
     }
     
     if name:
@@ -55,7 +61,7 @@ def update_user_tier_data(tier: str, credits: Optional[int] = None) -> Dict[str,
     Create update data for tier changes
     
     Args:
-        tier: New tier ('free' or 'pro')
+        tier: New tier ('free', 'pro', or 'elite')
         credits: New credits amount (defaults based on tier)
     
     Returns:
@@ -64,14 +70,15 @@ def update_user_tier_data(tier: str, credits: Optional[int] = None) -> Dict[str,
     from app.config import TIER_CONFIGS
     
     tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS['free'])
-    default_credits = tier_config.get('credits', 150)
+    default_credits = tier_config.get('credits', 300)
     
     update_data = {
-        'tier': tier,
+        'subscriptionTier': tier,
+        'tier': tier,  # Keep for backward compatibility
         'credits': credits if credits is not None else default_credits,
         'maxCredits': default_credits,
-        'subscriptionStatus': 'active' if tier == 'pro' else None,
-        'upgraded_at': datetime.now().isoformat() if tier == 'pro' else None,
+        'subscriptionStatus': 'active' if tier in ['pro', 'elite'] else None,
+        'upgraded_at': datetime.now().isoformat() if tier in ['pro', 'elite'] else None,
         'lastCreditReset': datetime.now().isoformat()
     }
     
@@ -80,11 +87,11 @@ def update_user_tier_data(tier: str, credits: Optional[int] = None) -> Dict[str,
 
 def validate_user_tier(tier: str) -> bool:
     """Validate that tier is a valid value"""
-    return tier in ['free', 'pro']
+    return tier in ['free', 'pro', 'elite']
 
 
 def get_default_credits_for_tier(tier: str) -> int:
     """Get default credits for a tier"""
     from app.config import TIER_CONFIGS
-    return TIER_CONFIGS.get(tier, TIER_CONFIGS['free']).get('credits', 150)
+    return TIER_CONFIGS.get(tier, TIER_CONFIGS['free']).get('credits', 300)
 

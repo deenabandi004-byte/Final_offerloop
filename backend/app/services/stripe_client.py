@@ -4,9 +4,20 @@ Stripe client service - payment processing and subscription management
 import stripe
 from datetime import datetime
 from flask import request, jsonify
-from app.config import STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, TIER_CONFIGS
+from app.config import STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, TIER_CONFIGS, STRIPE_PRO_PRICE_ID, STRIPE_ELITE_PRICE_ID
 from app.extensions import get_db
 from app.services.auth import check_and_reset_credits
+
+
+def get_tier_from_price_id(price_id: str) -> str:
+    """Determine tier from Stripe price ID"""
+    if price_id == STRIPE_ELITE_PRICE_ID:
+        return 'elite'
+    elif price_id == STRIPE_PRO_PRICE_ID:
+        return 'pro'
+    else:
+        # Default to pro for backward compatibility
+        return 'pro'
 
 
 def create_checkout_session():
@@ -118,6 +129,8 @@ def handle_stripe_webhook():
         # Handle different event types
         if event['type'] == 'checkout.session.completed':
             handle_checkout_completed(event['data']['object'])
+        elif event['type'] == 'invoice.paid':
+            handle_invoice_paid(event['data']['object'])
         elif event['type'] == 'customer.subscription.deleted':
             handle_subscription_deleted(event['data']['object'])
         elif event['type'] == 'customer.subscription.updated':
@@ -137,7 +150,7 @@ def handle_stripe_webhook():
 
 
 def handle_checkout_completed(session):
-    """Handle successful checkout - upgrade user to pro"""
+    """Handle successful checkout - upgrade user to appropriate tier"""
     try:
         db = get_db()
         if not db:
@@ -147,19 +160,40 @@ def handle_checkout_completed(session):
         if not user_id:
             return
         
+        # Get subscription to determine tier from price ID
+        subscription_id = session.get('subscription')
+        tier = 'pro'  # Default
+        if subscription_id:
+            try:
+                stripe.api_key = STRIPE_SECRET_KEY
+                subscription = stripe.Subscription.retrieve(subscription_id)
+                if subscription.items.data:
+                    price_id = subscription.items.data[0].price.id
+                    tier = get_tier_from_price_id(price_id)
+            except Exception as e:
+                print(f"Error retrieving subscription: {e}")
+        
+        tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS['pro'])
+        
         user_ref = db.collection('users').document(user_id)
         user_ref.update({
-            'tier': 'pro',
-            'maxCredits': TIER_CONFIGS['pro']['credits'],
-            'credits': TIER_CONFIGS['pro']['credits'],
-            'subscriptionId': session.get('subscription'),
-            'updatedAt': datetime.now()
+            'subscriptionTier': tier,
+            'tier': tier,  # Keep for backward compatibility
+            'maxCredits': tier_config['credits'],
+            'credits': tier_config['credits'],
+            'stripeSubscriptionId': subscription_id,
+            'stripeCustomerId': session.get('customer'),
+            'subscriptionStatus': 'active',
+            'upgraded_at': datetime.now().isoformat(),
+            'updatedAt': datetime.now().isoformat()
         })
         
-        print(f"✅ User {user_id} upgraded to pro")
+        print(f"✅ User {user_id} upgraded to {tier}")
         
     except Exception as e:
         print(f"Error handling checkout: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def handle_subscription_deleted(subscription):
@@ -170,20 +204,144 @@ def handle_subscription_deleted(subscription):
             return
         
         customer_id = subscription.get('customer')
+        if not customer_id:
+            return
+        
         # Find user by customer ID and downgrade
-        # Implementation depends on how you store customer IDs
+        users_ref = db.collection('users')
+        query = users_ref.where('stripeCustomerId', '==', customer_id).limit(1)
+        docs = query.stream()
+        
+        for doc in docs:
+            user_ref = users_ref.document(doc.id)
+            tier_config = TIER_CONFIGS['free']
+            user_ref.update({
+                'subscriptionTier': 'free',
+                'tier': 'free',
+                'maxCredits': tier_config['credits'],
+                'credits': min(doc.to_dict().get('credits', 0), tier_config['credits']),  # Cap at free tier limit
+                'subscriptionStatus': None,
+                'stripeSubscriptionId': None,
+                'updatedAt': datetime.now().isoformat()
+            })
+            print(f"✅ User {doc.id} downgraded to free")
+            break
         
     except Exception as e:
         print(f"Error handling subscription deletion: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def handle_invoice_paid(invoice):
+    """Handle successful invoice payment - reset monthly credits and usage counters"""
+    try:
+        db = get_db()
+        if not db:
+            return
+        
+        customer_id = invoice.get('customer')
+        subscription_id = invoice.get('subscription')
+        
+        if not customer_id or not subscription_id:
+            return
+        
+        # Find user by customer ID
+        users_ref = db.collection('users')
+        query = users_ref.where('stripeCustomerId', '==', customer_id).limit(1)
+        docs = query.stream()
+        
+        for doc in docs:
+            user_ref = users_ref.document(doc.id)
+            user_data = doc.to_dict()
+            tier = user_data.get('subscriptionTier') or user_data.get('tier', 'free')
+            
+            # Only reset for Pro/Elite tiers (Free tier limits are lifetime)
+            if tier not in ['pro', 'elite']:
+                print(f"⚠️ Invoice paid for Free tier user {doc.id} - skipping reset")
+                break
+            
+            # Get subscription to determine tier from price ID
+            tier = 'pro'  # Default
+            try:
+                subscription = stripe.Subscription.retrieve(subscription_id)
+                if subscription.items.data:
+                    price_id = subscription.items.data[0].price.id
+                    tier = get_tier_from_price_id(price_id)
+            except Exception as e:
+                print(f"Error retrieving subscription: {e}")
+            
+            tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS['pro'])
+            
+            # Reset credits and usage counters for monthly reset
+            user_ref.update({
+                'credits': tier_config['credits'],
+                'maxCredits': tier_config['credits'],
+                'alumniSearchesUsed': 0,  # Reset usage counters
+                'coffeeChatPrepsUsed': 0,
+                'interviewPrepsUsed': 0,
+                'lastCreditReset': datetime.now().isoformat(),
+                'lastUsageReset': datetime.now().isoformat(),
+                'updatedAt': datetime.now().isoformat()
+            })
+            
+            print(f"✅ Monthly reset for user {doc.id} ({tier}): {tier_config['credits']} credits restored, usage counters reset")
+            break
+        
+    except Exception as e:
+        print(f"Error handling invoice payment: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def handle_subscription_updated(subscription):
-    """Handle subscription updates"""
+    """Handle subscription updates (e.g., tier changes, plan upgrades/downgrades)"""
     try:
-        # Update subscription status if needed
-        pass
+        db = get_db()
+        if not db:
+            return
+        
+        customer_id = subscription.get('customer')
+        if not customer_id:
+            return
+        
+        # Determine tier from subscription price ID
+        tier = 'pro'  # Default
+        if subscription.items.data:
+            price_id = subscription.items.data[0].price.id
+            tier = get_tier_from_price_id(price_id)
+        
+        tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS['pro'])
+        
+        # Find user by customer ID and update tier
+        users_ref = db.collection('users')
+        query = users_ref.where('stripeCustomerId', '==', customer_id).limit(1)
+        docs = query.stream()
+        
+        for doc in docs:
+            user_ref = users_ref.document(doc.id)
+            user_data = doc.to_dict()
+            current_credits = user_data.get('credits', 0)
+            
+            # If upgrading, give full credits. If downgrading, cap at new tier limit
+            new_credits = tier_config['credits'] if tier in ['pro', 'elite'] else min(current_credits, tier_config['credits'])
+            
+            user_ref.update({
+                'subscriptionTier': tier,
+                'tier': tier,
+                'maxCredits': tier_config['credits'],
+                'credits': new_credits,
+                'stripeSubscriptionId': subscription.id,
+                'subscriptionStatus': subscription.status,
+                'updatedAt': datetime.now().isoformat()
+            })
+            print(f"✅ User {doc.id} subscription updated to {tier}")
+            break
+        
     except Exception as e:
         print(f"Error handling subscription update: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def create_portal_session():
@@ -195,25 +353,65 @@ def create_portal_session():
         stripe.api_key = STRIPE_SECRET_KEY
         
         user_id = request.firebase_user.get('uid')
+        data = request.get_json() or {}
+        return_url = data.get('returnUrl') or f'{request.url_root}pricing'
+        
         db = get_db()
         
-        if db:
-            user_ref = db.collection('users').document(user_id)
-            user_doc = user_ref.get()
-            if user_doc.exists:
-                user_data = user_doc.to_dict()
-                customer_id = user_data.get('stripeCustomerId')
-                
-                if customer_id:
-                    session = stripe.billing_portal.Session.create(
-                        customer=customer_id,
-                        return_url=request.url_root + 'api/subscription-status',
-                    )
-                    return jsonify({'url': session.url})
+        if not db:
+            return jsonify({'error': 'Database not available'}), 500
         
-        return jsonify({'error': 'No subscription found'}), 404
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            return jsonify({'error': 'User not found'}), 404
+        
+        user_data = user_doc.to_dict()
+        customer_id = user_data.get('stripeCustomerId')
+        
+        if not customer_id:
+            return jsonify({'error': 'No Stripe customer ID found. Please contact support.'}), 404
+        
+        # Verify customer exists and is accessible with current Stripe key
+        try:
+            customer = stripe.Customer.retrieve(customer_id)
+            if not customer:
+                return jsonify({
+                    'error': 'Stripe customer not found. This may be due to a test/live mode mismatch. Please contact support.',
+                    'details': 'Customer ID exists in database but not accessible with current Stripe key'
+                }), 400
+        except stripe.error.InvalidRequestError as e:
+            error_msg = str(e)
+            if 'test mode' in error_msg.lower() or 'live mode' in error_msg.lower():
+                return jsonify({
+                    'error': 'Stripe mode mismatch detected. The customer was created in a different Stripe mode (test vs live).',
+                    'details': 'Please ensure your Stripe keys match the mode used when the subscription was created.',
+                    'customer_id': customer_id
+                }), 400
+            raise
+        
+        # Create portal session
+        try:
+            session = stripe.billing_portal.Session.create(
+                customer=customer_id,
+                return_url=return_url,
+            )
+            print(f"✅ Created portal session for user {user_id}, customer {customer_id}")
+            return jsonify({'url': session.url})
+        except stripe.error.StripeError as e:
+            print(f"❌ Stripe error creating portal session: {e}")
+            return jsonify({
+                'error': 'Failed to create Stripe portal session',
+                'details': str(e)
+            }), 400
         
     except Exception as e:
         print(f"Portal session error: {e}")
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'error': 'Failed to open subscription management',
+            'details': str(e)
+        }), 500
 

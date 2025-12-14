@@ -8,44 +8,45 @@ from app.extensions import get_db
 from app.config import TIER_CONFIGS
 
 
+def _parse_datetime(date_value):
+    """Helper to parse datetime from various formats"""
+    if not date_value:
+        return None
+    
+    if hasattr(date_value, 'timestamp'):
+        return datetime.fromtimestamp(date_value.timestamp())
+    elif isinstance(date_value, str):
+        try:
+            return datetime.fromisoformat(date_value.replace('Z', '+00:00'))
+        except (ValueError, AttributeError):
+            try:
+                from dateutil import parser  # type: ignore
+                return parser.parse(date_value)
+            except ImportError:
+                return datetime.fromisoformat(date_value.replace('Z', ''))
+    return None
+
+
 def check_and_reset_credits(user_ref, user_data):
     """Check if 30 days have passed and reset credits if needed"""
     try:
-        last_reset = user_data.get('lastCreditReset')
+        last_reset = _parse_datetime(user_data.get('lastCreditReset'))
         if not last_reset:
             # If no reset date, set it to now
-            user_ref.update({'lastCreditReset': datetime.now()})
+            user_ref.update({'lastCreditReset': datetime.now().isoformat()})
             return user_data.get('credits', 0)
-        
-        # Convert Firestore timestamp to datetime if needed
-        if hasattr(last_reset, 'timestamp'):
-            last_reset = datetime.fromtimestamp(last_reset.timestamp())
-        elif isinstance(last_reset, str):
-            # Try parsing with datetime first, fallback to dateutil
-            try:
-                last_reset = datetime.fromisoformat(last_reset.replace('Z', '+00:00'))
-            except (ValueError, AttributeError):
-                # Fallback: try dateutil if available
-                try:
-                    from dateutil import parser  # type: ignore
-                    last_reset = parser.parse(last_reset)
-                except ImportError:
-                    # If dateutil not available, try basic parsing
-                    print(f"Warning: dateutil not available, using basic date parsing")
-                    # Assume ISO format or common format
-                    last_reset = datetime.fromisoformat(last_reset.replace('Z', ''))
         
         # Check if 30 days have passed
         days_since_reset = (datetime.now() - last_reset).days
         
         if days_since_reset >= 30:
             # Reset credits
-            tier = user_data.get('tier', 'free')
+            tier = user_data.get('subscriptionTier') or user_data.get('tier', 'free')
             max_credits = TIER_CONFIGS[tier]['credits']
             
             user_ref.update({
                 'credits': max_credits,
-                'lastCreditReset': datetime.now()
+                'lastCreditReset': datetime.now().isoformat()
             })
             
             print(f"✅ Credits reset for user {user_data.get('email')} - {max_credits} credits restored")
@@ -56,6 +57,90 @@ def check_and_reset_credits(user_ref, user_data):
     except Exception as e:
         print(f"Error checking credit reset: {e}")
         return user_data.get('credits', 0)
+
+
+def check_and_reset_usage(user_ref, user_data):
+    """Check if a month has passed and reset usage counters if needed (Pro/Elite only)"""
+    try:
+        tier = user_data.get('subscriptionTier') or user_data.get('tier', 'free')
+        
+        # Free tier limits are LIFETIME - never reset
+        if tier == 'free':
+            return
+        
+        last_usage_reset = _parse_datetime(user_data.get('lastUsageReset'))
+        now = datetime.now()
+        
+        # If no reset date, set it to now
+        if not last_usage_reset:
+            user_ref.update({'lastUsageReset': now.isoformat()})
+            return
+        
+        # Check if a month has passed (approximately 30 days)
+        days_since_reset = (now - last_usage_reset).days
+        
+        if days_since_reset >= 30:
+            # Reset usage counters (only for Pro/Elite)
+            user_ref.update({
+                'alumniSearchesUsed': 0,
+                'coffeeChatPrepsUsed': 0,
+                'interviewPrepsUsed': 0,
+                'lastUsageReset': now.isoformat()
+            })
+            print(f"✅ Usage counters reset for user {user_data.get('email')} ({tier} tier)")
+        
+    except Exception as e:
+        print(f"Error checking usage reset: {e}")
+
+
+def can_access_feature(tier: str, feature: str, user_data: dict, tier_config: dict) -> tuple[bool, str]:
+    """
+    Check if user can access a feature based on tier and usage limits
+    
+    Returns:
+        Tuple of (allowed: bool, reason: str)
+    """
+    # Feature access based on tier
+    feature_map = {
+        'firm_search': 'firm_search',
+        'smart_filters': 'smart_filters',
+        'bulk_drafting': 'bulk_drafting',
+        'export': 'export_enabled',
+        'priority_queue': 'priority_queue',
+        'personalized_templates': 'personalized_templates',
+        'weekly_insights': 'weekly_insights',
+        'early_access': 'early_access',
+    }
+    
+    # Check tier-based features
+    if feature in feature_map:
+        config_key = feature_map[feature]
+        if not tier_config.get(config_key, False):
+            required_tier = 'pro' if feature in ['firm_search', 'smart_filters', 'bulk_drafting', 'export'] else 'elite'
+            return False, f'This feature requires {required_tier} tier'
+        return True, 'allowed'
+    
+    # Check usage-based features
+    usage_map = {
+        'alumni_search': ('alumniSearchesUsed', 'alumni_searches'),
+        'coffee_chat_prep': ('coffeeChatPrepsUsed', 'coffee_chat_preps'),
+        'interview_prep': ('interviewPrepsUsed', 'interview_preps'),
+    }
+    
+    if feature in usage_map:
+        used_field, limit_key = usage_map[feature]
+        used = user_data.get(used_field, 0)
+        limit = tier_config.get(limit_key, 0)
+        
+        if limit == 'unlimited':
+            return True, 'allowed'
+        
+        if used >= limit:
+            return False, f'Monthly limit reached ({limit} uses)'
+        
+        return True, 'allowed'
+    
+    return True, 'allowed'  # Default: allow if not specifically restricted
 
 
 def deduct_credits_atomic(user_id: str, amount: int, operation_name: str = "operation") -> tuple[bool, int]:

@@ -79,17 +79,56 @@ def _load_user_gmail_creds(uid):
     
     # Create credentials object
     try:
-        creds = Credentials.from_authorized_user_info({
+        # Parse expiry if it exists
+        expiry = None
+        expiry_str = data.get("expiry")
+        if expiry_str:
+            try:
+                # Parse ISO format string back to datetime
+                # Handle both with and without timezone info
+                if isinstance(expiry_str, str):
+                    # Remove 'Z' suffix if present and replace with +00:00 for fromisoformat
+                    expiry_str_clean = expiry_str.replace('Z', '+00:00')
+                    expiry = datetime.fromisoformat(expiry_str_clean)
+                    # Ensure expiry is timezone-aware (UTC) for proper comparison
+                    if expiry.tzinfo is None:
+                        from datetime import timezone
+                        expiry = expiry.replace(tzinfo=timezone.utc)
+                elif isinstance(expiry_str, datetime):
+                    expiry = expiry_str
+                    # Ensure expiry is timezone-aware (UTC) for proper comparison
+                    if expiry.tzinfo is None:
+                        from datetime import timezone
+                        expiry = expiry.replace(tzinfo=timezone.utc)
+            except (ValueError, TypeError, AttributeError) as e:
+                print(f"⚠️ Could not parse expiry '{expiry_str}': {e}")
+                # If parsing fails, expiry will be None and token will be checked/refreshed
+        
+        # Build authorized_user_info dict
+        authorized_user_info = {
             "token": data.get("token"),
             "refresh_token": data.get("refresh_token"),
             "token_uri": data.get("token_uri") or "https://oauth2.googleapis.com/token",
             "client_id": data.get("client_id") or GOOGLE_CLIENT_ID,
             "client_secret": data.get("client_secret") or GOOGLE_CLIENT_SECRET,
             "scopes": data.get("scopes") or GMAIL_SCOPES,
-        })
+        }
+        
+        # Include expiry if we have it (Google OAuth2 library accepts datetime or RFC3339 string)
+        if expiry:
+            authorized_user_info["expiry"] = expiry.isoformat()
+        
+        creds = Credentials.from_authorized_user_info(authorized_user_info)
+        
+        # If expiry wasn't set in authorized_user_info, set it directly on the creds object
+        if expiry and not creds.expiry:
+            creds.expiry = expiry
         
         # Check if credentials are valid
-        if creds.expired:
+        # Only log if there's an issue (no expiry or expired)
+        if not creds.expiry:
+            print(f"⚠️ No expiry information found for user {uid} - will check/refresh token")
+        elif creds.expired:
             print(f"⚠️ Gmail token expired for user {uid}")
             
             if creds.refresh_token:

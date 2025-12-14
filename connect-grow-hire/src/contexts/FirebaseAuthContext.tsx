@@ -18,7 +18,12 @@ import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 
 const getMonthKey = () => new Date().toISOString().slice(0, 7);
-const initialCreditsByTier = (tier: "free" | "pro") => (tier === "free" ? 120 : 840);
+const initialCreditsByTier = (tier: "free" | "pro" | "elite") => {
+  if (tier === "free") return 300;
+  if (tier === "pro") return 1500;
+  if (tier === "elite") return 3000;
+  return 300; // default to free
+};
 
 interface User {
   uid: string;
@@ -135,8 +140,8 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
           name: firebaseUser.displayName || "",
           picture: firebaseUser.photoURL || undefined,
           tier: "free",
-          credits: 120,
-          maxCredits: 120,
+          credits: 300,
+          maxCredits: 300,
           emailsMonthKey: getMonthKey(),
           emailsUsedThisMonth: 0,
           needsOnboarding: true,
@@ -176,8 +181,8 @@ const signIn = async (opts?: SignInOptions): Promise<NextRoute> => {
         name: result.user.displayName || "",
         picture: result.user.photoURL || undefined,
         tier: "free",
-        credits: 120,
-        maxCredits: 120,
+        credits: 300,
+        maxCredits: 300,
         emailsMonthKey: getMonthKey(),
         emailsUsedThisMonth: 0,
         needsOnboarding: true,

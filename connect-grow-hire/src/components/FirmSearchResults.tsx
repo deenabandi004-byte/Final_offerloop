@@ -9,17 +9,13 @@
  * C. LinkedIn (icon/link)
  * D. Location (City, State, Country)
  * E. Industry
- * F. Employees (count or size bucket)
- * G. Founded (year)
- * H. Actions (View Contacts button)
+ * F. Actions (View Contacts button)
  */
 
 import { useState, useEffect } from 'react';
 import { 
   Globe, 
   Linkedin, 
-  Users, 
-  Calendar, 
   MapPin, 
   Building2, 
   ChevronUp,
@@ -40,11 +36,11 @@ interface FirmSearchResultsProps {
   deletingId?: string | null;
 }
 
-type SortField = 'name' | 'location' | 'industry' | 'employeeCount' | 'founded';
+type SortField = 'name' | 'location' | 'industry';
 type SortDirection = 'asc' | 'desc';
 
 export default function FirmSearchResults({ firms, onViewContacts, onDelete, deletingId }: FirmSearchResultsProps) {
-  const [sortField, setSortField] = useState<SortField>('employeeCount');
+  const [sortField, setSortField] = useState<SortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredFirms, setFilteredFirms] = useState<Firm[]>(firms);
@@ -67,8 +63,7 @@ export default function FirmSearchResults({ firms, onViewContacts, onDelete, del
         firm.location?.city?.toLowerCase().includes(searchLower) ||
         firm.location?.state?.toLowerCase().includes(searchLower) ||
         firm.location?.country?.toLowerCase().includes(searchLower) ||
-        firm.website?.toLowerCase().includes(searchLower) ||
-        firm.founded?.toString().includes(searchQuery)
+        firm.website?.toLowerCase().includes(searchLower)
       );
     });
     
@@ -92,14 +87,6 @@ export default function FirmSearchResults({ firms, onViewContacts, onDelete, del
       case 'industry':
         aVal = a.industry?.toLowerCase() || '';
         bVal = b.industry?.toLowerCase() || '';
-        break;
-      case 'employeeCount':
-        aVal = a.employeeCount || 0;
-        bVal = b.employeeCount || 0;
-        break;
-      case 'founded':
-        aVal = a.founded || 0;
-        bVal = b.founded || 0;
         break;
       default:
         return 0;
@@ -133,25 +120,6 @@ export default function FirmSearchResults({ firms, onViewContacts, onDelete, del
   // Get unique firm key
   const getFirmKey = (firm: Firm): string => {
     return firm.id || `${firm.name}-${firm.location?.display}`;
-  };
-
-  // Format employee count
-  const formatEmployees = (firm: Firm) => {
-    if (firm.employeeCount) {
-      if (firm.employeeCount >= 1000) {
-        return `${(firm.employeeCount / 1000).toFixed(1)}k`;
-      }
-      return firm.employeeCount.toLocaleString();
-    }
-    if (firm.sizeBucket) {
-      const labels: Record<string, string> = {
-        small: '1-50',
-        mid: '51-500',
-        large: '500+'
-      };
-      return labels[firm.sizeBucket] || firm.sizeBucket;
-    }
-    return '—';
   };
 
   return (
@@ -245,26 +213,6 @@ export default function FirmSearchResults({ firms, onViewContacts, onDelete, del
                 <SortIndicator field="industry" />
               </th>
               
-              {/* Employees */}
-              <th 
-                scope="col" 
-                className="px-4 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-secondary transition-colors"
-                onClick={() => handleSort('employeeCount')}
-              >
-                Employees
-                <SortIndicator field="employeeCount" />
-              </th>
-              
-              {/* Founded */}
-              <th 
-                scope="col" 
-                className="px-4 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-secondary transition-colors"
-                onClick={() => handleSort('founded')}
-              >
-                Founded
-                <SortIndicator field="founded" />
-              </th>
-              
               {/* Actions */}
               <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Actions
@@ -339,22 +287,6 @@ export default function FirmSearchResults({ firms, onViewContacts, onDelete, del
                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30 capitalize">
                     {firm.industry || '—'}
                   </span>
-                </td>
-                
-                {/* Employees */}
-                <td className="px-4 py-4 whitespace-nowrap text-center">
-                  <div className="flex items-center justify-center text-sm text-foreground">
-                    <Users className="h-4 w-4 text-muted-foreground mr-1.5" />
-                    <span>{formatEmployees(firm)}</span>
-                  </div>
-                </td>
-                
-                {/* Founded */}
-                <td className="px-4 py-4 whitespace-nowrap text-center">
-                  <div className="flex items-center justify-center text-sm text-foreground">
-                    <Calendar className="h-4 w-4 text-muted-foreground mr-1.5" />
-                    <span>{firm.founded || '—'}</span>
-                  </div>
                 </td>
                 
                 {/* Actions */}
