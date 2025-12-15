@@ -1,0 +1,87 @@
+import React from "react";
+import { useNavigate } from "react-router-dom";
+import { Info } from "lucide-react";
+
+interface UpgradeBannerProps {
+  /** Whether user has exhausted their monthly limit (not just credits) */
+  hasExhaustedLimit: boolean;
+  /** Whether user has enough credits */
+  hasEnoughCredits: boolean;
+  /** Current usage count */
+  currentUsage: number;
+  /** Limit (number or 'unlimited') */
+  limit: number | 'unlimited';
+  /** Current tier */
+  tier: string;
+  /** Credits required for this feature */
+  requiredCredits: number;
+  /** Current credits */
+  currentCredits: number;
+  /** Feature name for messaging (e.g., "Coffee Chat Preps", "Interview Preps") */
+  featureName: string;
+  /** Next tier name for upgrade message */
+  nextTier: 'Pro' | 'Elite';
+  /** Whether to show the upgrade button */
+  showUpgradeButton?: boolean;
+}
+
+export const UpgradeBanner: React.FC<UpgradeBannerProps> = ({
+  hasExhaustedLimit,
+  hasEnoughCredits,
+  currentUsage,
+  limit,
+  tier,
+  requiredCredits,
+  currentCredits,
+  featureName,
+  nextTier,
+  showUpgradeButton = true,
+}) => {
+  const navigate = useNavigate();
+
+  // Only show banner if user doesn't have access
+  // User doesn't have access if they've exhausted their limit OR don't have enough credits
+  if (!hasExhaustedLimit && hasEnoughCredits) {
+    return null;
+  }
+
+  // Determine the message based on the issue
+  const isCreditsIssue = !hasEnoughCredits;
+  const isLimitIssue = hasExhaustedLimit && hasEnoughCredits;
+
+  return (
+    <div className="mb-6 rounded-md border-l-4 border-blue-400 bg-blue-50/70">
+      <div className="p-4">
+        <div className="flex items-start gap-3">
+          {/* Simple info icon */}
+          <Info className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
+          
+          <div className="flex-1 min-w-0">
+            {/* Description - factual and simple */}
+            <p className="text-sm text-slate-600 leading-relaxed">
+              {isCreditsIssue ? (
+                <>
+                  You need {requiredCredits} credits to generate a {featureName.slice(0, -1)}. You currently have {currentCredits} credits.
+                </>
+              ) : (
+                <>
+                  You've used {currentUsage} of {typeof limit === 'number' ? limit : 'unlimited'} {featureName}. Upgrade to {nextTier} for more.
+                </>
+              )}
+            </p>
+
+            {/* Simple text link button */}
+            {showUpgradeButton && (
+              <button
+                onClick={() => navigate('/pricing')}
+                className="mt-2 text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors"
+              >
+                Upgrade to {nextTier} →
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};

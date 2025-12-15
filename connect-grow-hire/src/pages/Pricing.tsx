@@ -328,7 +328,7 @@ const Pricing = () => {
                 </div>
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">1 Coffee Chat Prep + 1 Interview Prep</span>
+                  <span className="text-gray-300 text-slate-700">3 Coffee Chat Preps + 2 Interview Preps</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />

@@ -262,6 +262,11 @@ export default function AccountSettings() {
           university: result.data.university || '',
           major: result.data.major || '',
           year: result.data.year || '',
+          // Include all parsed fields for Scout and other features
+          key_experiences: result.data.key_experiences || [],
+          skills: result.data.skills || [],
+          achievements: result.data.achievements || [],
+          interests: result.data.interests || [],
         },
       });
 

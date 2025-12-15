@@ -88,25 +88,15 @@ const ScoutFirmAssistantButton: React.FC<ScoutFirmAssistantButtonProps> = ({
           // Build resume object from Firestore data
           const resumeData: any = {};
           
-          // Include parsed resume data if available
+          // Include all parsed resume data if available (name, university, major, year, 
+          // key_experiences, skills, achievements, interests)
           if (data.resumeParsed) {
             Object.assign(resumeData, data.resumeParsed);
           }
           
-          // Include raw text if available
+          // Include raw text if available (useful for detailed analysis)
           if (data.resumeText) {
             resumeData.rawText = data.resumeText;
-          }
-          
-          // Include other parsed fields that might be useful
-          if (data.resumeParsed?.key_experiences) {
-            resumeData.key_experiences = data.resumeParsed.key_experiences;
-          }
-          if (data.resumeParsed?.skills) {
-            resumeData.skills = data.resumeParsed.skills;
-          }
-          if (data.resumeParsed?.achievements) {
-            resumeData.achievements = data.resumeParsed.achievements;
           }
           
           setUserResume(resumeData);

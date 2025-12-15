@@ -1,4 +1,4 @@
-export const COFFEE_CHAT_CREDITS = 30;
+export const COFFEE_CHAT_CREDITS = 15;
 export const INTERVIEW_PREP_CREDITS = 25;
 
 export const TIER_CONFIGS = {

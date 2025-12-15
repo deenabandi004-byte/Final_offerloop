@@ -8,10 +8,10 @@ from datetime import datetime
 from firebase_admin import firestore, storage
 from flask import Blueprint, jsonify, request
 
-from app.config import INTERVIEW_PREP_CREDITS
+from app.config import INTERVIEW_PREP_CREDITS, TIER_CONFIGS
 from ..extensions import get_db, require_firebase_auth
-from app.services.auth import check_and_reset_credits, deduct_credits_atomic
-from app.utils.exceptions import ValidationError, OfferloopException, InsufficientCreditsError
+from app.services.auth import check_and_reset_credits, deduct_credits_atomic, check_and_reset_usage, can_access_feature
+from app.utils.exceptions import ValidationError, OfferloopException, InsufficientCreditsError, AuthorizationError
 from app.utils.validation import InterviewPrepRequest, validate_request
 from app.services.interview_prep.job_posting_parser import parse_job_posting_url
 from app.services.interview_prep.reddit_scraper import search_reddit
@@ -232,6 +232,23 @@ def process_interview_prep_background(
             print(f"⚠️ Credit deduction failed - user may have insufficient credits")
         else:
             print(f"✅ Credits deducted: {credits_available} -> {new_credits}")
+        
+        # Step 7: Increment usage counter
+        print("Step 7: Incrementing usage counter...")
+        try:
+            user_ref = db.collection("users").document(user_id)
+            user_doc = user_ref.get()
+            if user_doc.exists:
+                user_data = user_doc.to_dict()
+                current_usage = user_data.get("interviewPrepsUsed", 0)
+                user_ref.update({
+                    "interviewPrepsUsed": current_usage + 1,
+                    "updatedAt": datetime.now().isoformat()
+                })
+                print(f"✅ Usage counter incremented: {current_usage} -> {current_usage + 1}")
+        except Exception as usage_error:
+            print(f"⚠️ Failed to increment usage counter: {usage_error}")
+        
         print(f"=== INTERVIEW PREP {prep_id} COMPLETED SUCCESSFULLY ===\n")
 
     except Exception as e:
@@ -272,7 +289,7 @@ def generate_interview_prep():
         if not db:
             raise OfferloopException("Database not initialized", error_code="DATABASE_ERROR")
 
-        # Check credits
+        # Check credits and feature access
         credits_available = 120
         if user_id:
             user_ref = db.collection("users").document(user_id)
@@ -280,9 +297,38 @@ def generate_interview_prep():
             if user_doc.exists:
                 user_data = user_doc.to_dict()
                 credits_available = check_and_reset_credits(user_ref, user_data)
+                
+                # Check and reset usage counters (for Pro/Elite monthly reset)
+                check_and_reset_usage(user_ref, user_data)
+                user_doc = user_ref.get()  # Refresh after potential reset
+                user_data = user_doc.to_dict()
 
+                # Check credits
                 if credits_available < INTERVIEW_PREP_CREDITS:
                     raise InsufficientCreditsError(INTERVIEW_PREP_CREDITS, credits_available)
+                
+                # Check feature access (interview prep limit)
+                tier = user_data.get("subscriptionTier") or user_data.get("tier", "free")
+                tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS["free"])
+                allowed, reason = can_access_feature(tier, "interview_prep", user_data, tier_config)
+                
+                if not allowed:
+                    interview_limit = tier_config.get("interview_preps", 0)
+                    if interview_limit == "unlimited":
+                        # Shouldn't happen, but handle gracefully
+                        pass
+                    else:
+                        current_usage = user_data.get("interviewPrepsUsed", 0)
+                        error_msg = f"Interview Prep limit reached. You've used {current_usage} of {interview_limit} allowed."
+                        raise AuthorizationError(
+                            error_msg,
+                            details={
+                                "current_usage": current_usage,
+                                "limit": interview_limit,
+                                "tier": tier,
+                                "reason": reason
+                            }
+                        )
 
         # Create prep record
         prep_data = {

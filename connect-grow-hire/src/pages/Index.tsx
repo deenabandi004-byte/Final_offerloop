@@ -371,7 +371,7 @@ const Index = () => {
                     muted 
                     playsInline
                     className="w-full h-full object-cover shadow-lg"
-                    style={{ transform: 'scale(1.15)', objectPosition: 'center' }}
+                    style={{ transform: 'scale(1.00)', objectPosition: 'center' }}
                   />
                 </div>
                 <div className="w-full md:w-1/2 flex items-center justify-end md:justify-center">
@@ -466,8 +466,8 @@ const Index = () => {
                     'Gmail integration',
                     'Directory saves all contacts',
                     '10 alumni searches',
-                    '1 Coffee Chat Prep',
-                    '1 Interview Prep',
+                    '3 Coffee Chat Preps',
+                    '2 Interview Preps',
                     'Exports disabled',
                     'Estimated time saved: ~300 minutes'
                   ].map((item) => (

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { BackToHomeButton } from "@/components/BackToHomeButton";
@@ -6,6 +7,7 @@ import { CreditPill } from "@/components/credits";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { Briefcase, FileText, Sparkles, Download, Trash2, Loader2, BadgeCheck, Calendar, CheckCircle, XCircle } from "lucide-react";
+import { UpgradeBanner } from "@/components/UpgradeBanner";
 // ScoutBubble removed - now using ScoutHeaderButton in PageHeaderActions
 import { apiService } from "@/services/api";
 import type { InterviewPrep, InterviewPrepStatus } from "@/services/api";
@@ -20,10 +22,13 @@ import { flushSync } from "react-dom";
 import { logActivity, generateInterviewPrepSummary } from "@/utils/activityLogger";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { PageHeaderActions } from "@/components/PageHeaderActions";
-import LockedFeatureOverlay from "@/components/LockedFeatureOverlay";
+import { useSubscription } from "@/hooks/useSubscription";
+import { canUseFeature, getRemainingUses, getFeatureLimit } from "@/utils/featureAccess";
 
 const InterviewPrepPage: React.FC = () => {
+  const navigate = useNavigate();
   const { user, checkCredits } = useFirebaseAuth();
+  const { subscription } = useSubscription();
   const effectiveUser = user || {
     credits: 0,
     maxCredits: 0,
@@ -31,6 +36,29 @@ const InterviewPrepPage: React.FC = () => {
     email: "user@example.com",
     tier: "free",
   } as const;
+  
+  // Check if user has access to interview prep based on remaining uses
+  const currentUsage = subscription?.interviewPrepsUsed || 0;
+  const tier = subscription?.tier || effectiveUser.tier || 'free';
+  const limit = getFeatureLimit(tier, 'interviewPreps');
+  const hasMonthlyAccess = subscription 
+    ? canUseFeature(
+        subscription.tier,
+        'interviewPreps',
+        currentUsage
+      )
+    : effectiveUser.tier === 'elite'; // Default to allowing if no subscription data yet
+  
+  // Also check if user has enough credits
+  const hasEnoughCredits = (effectiveUser.credits ?? 0) >= INTERVIEW_PREP_CREDITS;
+  
+  // User has access only if they have both monthly limit AND credits
+  const hasAccess = hasMonthlyAccess && hasEnoughCredits;
+
+  // Get remaining uses for upgrade message
+  const remainingUses = subscription
+    ? getRemainingUses(subscription.tier, 'interviewPreps', currentUsage)
+    : 0;
 
   // Interview Prep State
   const [interviewPrepLoading, setInterviewPrepLoading] = useState(false);
@@ -467,12 +495,7 @@ const InterviewPrepPage: React.FC = () => {
 
           <main className="p-8 bg-transparent">
             <div className="max-w-5xl mx-auto">
-              {effectiveUser.tier !== "pro" ? (
-                <LockedFeatureOverlay 
-                  featureName="Interview Prep" 
-                  requiredTier="Pro"
-                >
-                  <Tabs defaultValue="interview-prep" className="w-full">
+              <Tabs defaultValue="interview-prep" className="w-full">
                 <div className="flex justify-center mb-8">
                   <TabsList className="h-14 tabs-container-gradient border border-border grid grid-cols-2 max-w-lg w-full rounded-xl p-1 bg-white">
                     <TabsTrigger
@@ -504,6 +527,30 @@ const InterviewPrepPage: React.FC = () => {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-6">
+                      {!hasAccess && (
+                        <UpgradeBanner
+                          hasExhaustedLimit={!hasMonthlyAccess}
+                          hasEnoughCredits={hasEnoughCredits}
+                          currentUsage={currentUsage}
+                          limit={limit}
+                          tier={tier}
+                          requiredCredits={INTERVIEW_PREP_CREDITS}
+                          currentCredits={effectiveUser.credits ?? 0}
+                          featureName="Interview Preps"
+                          nextTier={subscription?.tier === 'free' ? 'Pro' : 'Elite'}
+                          showUpgradeButton={!hasMonthlyAccess || !hasEnoughCredits}
+                        />
+                      )}
+                      {hasAccess && (
+                        <div className="mb-6 rounded-md border-l-4 border-blue-400 bg-blue-50/70 p-4">
+                          <p className="text-sm text-slate-600">
+                            {limit === 'unlimited' 
+                              ? `You've used ${currentUsage} Interview Preps (unlimited).`
+                              : `You've used ${currentUsage} of ${limit} Interview Preps (${limit - currentUsage} remaining).`
+                            }
+                          </p>
+                        </div>
+                      )}
                       <div className="space-y-6">
                         <div className="space-y-4">
                           <div>
@@ -522,7 +569,7 @@ const InterviewPrepPage: React.FC = () => {
                               }}
                               placeholder="Paste the job posting URL here..."
                               className="bg-white border-input text-foreground placeholder:text-muted-foreground focus:border-pink-500 hover:border-purple-400 transition-colors"
-                              disabled={interviewPrepLoading}
+                              disabled={interviewPrepLoading || !hasAccess}
                             />
                             <p className="text-xs text-muted-foreground mt-1">
                               Supports LinkedIn, Indeed, Greenhouse, Lever, Workday, and most career pages. If URL parsing fails, you can enter company and job title manually below.
@@ -541,7 +588,7 @@ const InterviewPrepPage: React.FC = () => {
                                   onChange={(e) => setManualCompanyName(e.target.value)}
                                   placeholder="e.g., Google, Amazon, Meta"
                                   className="bg-white border-input text-foreground placeholder:text-muted-foreground focus:border-pink-500 hover:border-purple-400 transition-colors"
-                                  disabled={interviewPrepLoading}
+                                  disabled={interviewPrepLoading || !hasAccess}
                                 />
                               </div>
                               
@@ -554,7 +601,7 @@ const InterviewPrepPage: React.FC = () => {
                                   onChange={(e) => setManualJobTitle(e.target.value)}
                                   placeholder="e.g., Software Engineer, Data Scientist"
                                   className="bg-white border-input text-foreground placeholder:text-muted-foreground focus:border-pink-500 hover:border-purple-400 transition-colors"
-                                  disabled={interviewPrepLoading}
+                                  disabled={interviewPrepLoading || !hasAccess}
                                 />
                               </div>
                             </div>
@@ -606,7 +653,7 @@ const InterviewPrepPage: React.FC = () => {
                                     onChange={(e) => setManualCompanyName(e.target.value)}
                                     placeholder="e.g., Google, Amazon, Meta"
                                     className="bg-white border-input text-foreground placeholder:text-muted-foreground focus:border-pink-500 hover:border-purple-400 transition-colors"
-                                    disabled={interviewPrepLoading}
+                                    disabled={interviewPrepLoading || !hasAccess}
                                   />
                                 </div>
                                 
@@ -619,7 +666,7 @@ const InterviewPrepPage: React.FC = () => {
                                     onChange={(e) => setManualJobTitle(e.target.value)}
                                     placeholder="e.g., Software Engineer, Data Scientist, Product Manager"
                                     className="bg-white border-input text-foreground placeholder:text-muted-foreground focus:border-pink-500 hover:border-purple-400 transition-colors"
-                                    disabled={interviewPrepLoading}
+                                    disabled={interviewPrepLoading || !hasAccess}
                                   />
                                 </div>
                               </div>
@@ -662,7 +709,8 @@ const InterviewPrepPage: React.FC = () => {
                             disabled={
                               interviewPrepLoading || 
                               effectiveUser.credits < INTERVIEW_PREP_CREDITS ||
-                              (!jobPostingUrl.trim() && (!manualCompanyName.trim() || !manualJobTitle.trim()))
+                              (!jobPostingUrl.trim() && (!manualCompanyName.trim() || !manualJobTitle.trim())) ||
+                              !hasAccess
                             }
                             className="w-full text-white font-semibold py-6 text-base shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                             style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
@@ -909,411 +957,6 @@ const InterviewPrepPage: React.FC = () => {
                   </div>
                 </TabsContent>
               </Tabs>
-                </LockedFeatureOverlay>
-              ) : (
-                <Tabs defaultValue="interview-prep" className="w-full">
-                  <div className="flex justify-center mb-8">
-                    <TabsList className="h-14 tabs-container-gradient border border-border grid grid-cols-2 max-w-lg w-full rounded-xl p-1 bg-white">
-                      <TabsTrigger
-                        value="interview-prep"
-                        className="h-12 font-medium text-base data-[state=active] data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
-                      >
-                        <Briefcase className="h-5 w-5 mr-2" />
-                        Interview Prep
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="interview-library"
-                        className="h-12 font-medium text-base data-[state=active] data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
-                      >
-                        <FileText className="h-5 w-5 mr-2" />
-                        Interview Library
-                      </TabsTrigger>
-                    </TabsList>
-                  </div>
-
-                  <TabsContent value="interview-prep" className="mt-6">
-                    <Card className="bg-white border-border relative overflow-hidden">
-                      <CardHeader className="border-b border-border">
-                        <CardTitle className="text-xl text-foreground flex items-center gap-2">
-                          Interview Prep
-                          <BetaBadge size="xs" variant="glow" />
-                          <Badge variant="secondary" className="ml-auto">
-                            {INTERVIEW_PREP_CREDITS} credits
-                          </Badge>
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="p-6">
-                        <div className="space-y-6">
-                          <div className="space-y-4">
-                            <div>
-                              <label className="block text-sm font-medium mb-2 text-foreground">
-                                Job Posting URL <span className="text-destructive">*</span>
-                              </label>
-                              <Input
-                                value={jobPostingUrl}
-                                onChange={(e) => {
-                                  setJobPostingUrl(e.target.value);
-                                  if (e.target.value.trim()) {
-                                    setShowManualInput(false);
-                                    setManualCompanyName("");
-                                    setManualJobTitle("");
-                                  }
-                                }}
-                                placeholder="Paste the job posting URL here..."
-                                className="bg-white border-input text-foreground placeholder:text-muted-foreground focus:border-pink-500 hover:border-purple-400 transition-colors"
-                                disabled={interviewPrepLoading}
-                              />
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Supports LinkedIn, Indeed, Greenhouse, Lever, Workday, and most career pages. If URL parsing fails, you can enter company and job title manually below.
-                              </p>
-                            </div>
-                            
-                            {!showManualInput && !jobPostingUrl.trim() && (
-                              <div className="space-y-3">
-                                <div className="text-sm text-muted-foreground mb-2">Or enter manually:</div>
-                                <div>
-                                  <label className="block text-sm font-medium mb-2 text-foreground">
-                                    Company Name
-                                  </label>
-                                  <Input
-                                    value={manualCompanyName}
-                                    onChange={(e) => setManualCompanyName(e.target.value)}
-                                    placeholder="e.g., Google, Amazon, Meta"
-                                    className="bg-white border-input text-foreground placeholder:text-muted-foreground focus:border-pink-500 hover:border-purple-400 transition-colors"
-                                    disabled={interviewPrepLoading}
-                                  />
-                                </div>
-                                
-                                <div>
-                                  <label className="block text-sm font-medium mb-2 text-foreground">
-                                    Job Title
-                                  </label>
-                                  <Input
-                                    value={manualJobTitle}
-                                    onChange={(e) => setManualJobTitle(e.target.value)}
-                                    placeholder="e.g., Software Engineer, Data Scientist"
-                                    className="bg-white border-input text-foreground placeholder:text-muted-foreground focus:border-pink-500 hover:border-purple-400 transition-colors"
-                                    disabled={interviewPrepLoading}
-                                  />
-                                </div>
-                              </div>
-                            )}
-                            
-                            {parsedJobDetails && (
-                              <div className="bg-muted/30 rounded-xl p-4 border border-border">
-                                <p className="text-sm font-semibold text-foreground mb-3">Job Details Preview:</p>
-                                <div className="space-y-2 text-sm text-foreground">
-                                  <div><span className="text-muted-foreground">Company:</span> {parsedJobDetails.company_name}</div>
-                                  <div><span className="text-muted-foreground">Role:</span> {parsedJobDetails.job_title}</div>
-                                  {parsedJobDetails.level && (
-                                    <div><span className="text-muted-foreground">Level:</span> {parsedJobDetails.level}</div>
-                                  )}
-                                  {parsedJobDetails.team_division && (
-                                    <div><span className="text-muted-foreground">Team:</span> {parsedJobDetails.team_division}</div>
-                                  )}
-                                  {parsedJobDetails.required_skills && parsedJobDetails.required_skills.length > 0 && (
-                                    <div>
-                                      <span className="text-muted-foreground">Key Skills:</span> {parsedJobDetails.required_skills.slice(0, 5).join(', ')}
-                                      {parsedJobDetails.required_skills.length > 5 && ` +${parsedJobDetails.required_skills.length - 5} more`}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                            
-                            {showManualInput && (
-                              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 space-y-4">
-                                <div className="flex items-start gap-2">
-                                  <XCircle className="h-5 w-5 text-yellow-600 mt-0.5 flex-shrink-0" />
-                                  <div className="flex-1">
-                                    <p className="text-sm font-semibold text-yellow-800 mb-1">
-                                      URL Parsing Failed - Manual Input Required
-                                    </p>
-                                    <p className="text-xs text-yellow-700/80 mb-3">
-                                      We couldn't parse the job posting URL. Please enter the details manually below.
-                                    </p>
-                                  </div>
-                                </div>
-                                
-                                <div className="space-y-3">
-                                  <div>
-                                    <label className="block text-sm font-medium mb-2 text-foreground">
-                                      Company Name <span className="text-destructive">*</span>
-                                    </label>
-                                    <Input
-                                      value={manualCompanyName}
-                                      onChange={(e) => setManualCompanyName(e.target.value)}
-                                      placeholder="e.g., Google, Amazon, Meta"
-                                      className="bg-white border-input text-foreground placeholder:text-muted-foreground focus:border-pink-500 hover:border-purple-400 transition-colors"
-                                      disabled={interviewPrepLoading}
-                                    />
-                                  </div>
-                                  
-                                  <div>
-                                    <label className="block text-sm font-medium mb-2 text-foreground">
-                                      Job Title <span className="text-destructive">*</span>
-                                    </label>
-                                    <Input
-                                      value={manualJobTitle}
-                                      onChange={(e) => setManualJobTitle(e.target.value)}
-                                      placeholder="e.g., Software Engineer, Data Scientist, Product Manager"
-                                      className="bg-white border-input text-foreground placeholder:text-muted-foreground focus:border-pink-500 hover:border-purple-400 transition-colors"
-                                      disabled={interviewPrepLoading}
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-
-                            <div className="bg-muted/30 rounded-xl p-4 border border-border">
-                              <p className="text-sm text-foreground mb-2">
-                                <span className="font-semibold text-foreground">What you'll receive:</span>
-                              </p>
-                              <ul className="space-y-1.5 text-sm text-foreground">
-                                <li className="flex items-start gap-2">
-                                  <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                                  <span>Company-specific interview process overview</span>
-                                </li>
-                                <li className="flex items-start gap-2">
-                                  <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                                  <span>Common questions grouped by category (Behavioral, Technical, System Design, etc.)</span>
-                                </li>
-                                <li className="flex items-start gap-2">
-                                  <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                                  <span>Success tips from candidates who passed</span>
-                                </li>
-                                <li className="flex items-start gap-2">
-                                  <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                                  <span>Red flags and things to avoid</span>
-                                </li>
-                                <li className="flex items-start gap-2">
-                                  <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                                  <span>Culture insights and work environment details</span>
-                                </li>
-                              </ul>
-                              <p className="text-xs text-muted-foreground mt-3">
-                                Uses {INTERVIEW_PREP_CREDITS} credits. Analyzes the job posting, searches Reddit for role-specific interview insights, and generates a comprehensive 5-6 page prep guide tailored to this specific role.
-                              </p>
-                            </div>
-
-                            <Button
-                              onClick={handleInterviewPrepSubmit}
-                              disabled={
-                                interviewPrepLoading || 
-                                effectiveUser.credits < INTERVIEW_PREP_CREDITS ||
-                                (!jobPostingUrl.trim() && (!manualCompanyName.trim() || !manualJobTitle.trim()))
-                              }
-                              className="w-full text-white font-semibold py-6 text-base shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                              style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
-                            >
-                              {interviewPrepLoading ? (
-                                <>
-                                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                                  Generating Interview Prep...
-                                </>
-                              ) : (
-                                <>
-                                  <Sparkles className="h-5 w-5 mr-2" />
-                                  Generate Interview Prep
-                                </>
-                              )}
-                            </Button>
-
-                            {interviewPrepStatus !== 'idle' && (
-                              <div className="rounded-lg border border-border bg-muted/50 p-4 shadow-inner text-sm text-foreground">
-                                <div className="flex items-center gap-2 mb-2">
-                                  {interviewPrepLoading ? (
-                                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                                  ) : interviewPrepStatus === 'completed' ? (
-                                    <CheckCircle className="h-4 w-4 text-blue-600" />
-                                  ) : interviewPrepStatus === 'failed' ? (
-                                    <XCircle className="h-4 w-4 text-destructive" />
-                                  ) : null}
-                                  <span className="font-medium">
-                                    {interviewPrepStatus === 'completed' ? 'Ready!' : 
-                                     interviewPrepStatus === 'failed' ? 'Failed' : 
-                                     'Processing...'}
-                                  </span>
-                                </div>
-                                <span className="text-muted-foreground">
-                                  {interviewPrepProgress || 'Processing your request...'}
-                                </span>
-                              </div>
-                            )}
-
-                            {interviewPrepStatus === 'completed' && interviewPrepResult && (
-                              <div className="space-y-4">
-                                <div className="rounded-xl border border-green-500/40 bg-green-500/10 p-5 space-y-3">
-                                  <div className="flex items-center justify-between">
-                                    <h3 className="text-sm font-semibold text-green-700 uppercase tracking-wide">
-                                      {interviewPrepResult.jobDetails?.job_title || interviewPrepResult.jobDetails?.company_name || 'Interview Prep'} - {interviewPrepResult.jobDetails?.company_name || ''}
-                                    </h3>
-                                    <span className="text-xs text-blue-600/80">
-                                      Ready to download
-                                    </span>
-                                  </div>
-                                  
-                                  {interviewPrepResult.insights && (
-                                    <div className="space-y-3 text-sm text-foreground">
-                                      {interviewPrepResult.insights.interview_process?.stages && interviewPrepResult.insights.interview_process.stages.length > 0 && (
-                                        <div>
-                                          <span className="text-muted-foreground">Interview Stages: </span>
-                                          {interviewPrepResult.insights.interview_process.stages
-                                            .map((stage: any) => typeof stage === 'string' ? stage : stage?.name || 'Stage')
-                                            .join(', ')}
-                                        </div>
-                                      )}
-                                      
-                                      {interviewPrepResult.insights.common_questions && (
-                                        <div>
-                                          <span className="text-muted-foreground">Question Categories: </span>
-                                          {(() => {
-                                            const commonQuestions = interviewPrepResult.insights.common_questions;
-                                            if (Array.isArray(commonQuestions)) {
-                                              return commonQuestions.map((q: any) => q.category).join(', ');
-                                            } else if (typeof commonQuestions === 'object' && commonQuestions !== null) {
-                                              const categories: string[] = [];
-                                              const questionsObj = commonQuestions as { behavioral?: any; technical?: any; company_specific?: any };
-                                              if (questionsObj.behavioral) categories.push('Behavioral');
-                                              if (questionsObj.technical) categories.push('Technical');
-                                              if (questionsObj.company_specific) categories.push('Company-Specific');
-                                              return categories.join(', ');
-                                            }
-                                            return '';
-                                          })()}
-                                        </div>
-                                      )}
-                                      
-                                      {interviewPrepResult.insights.sources_count && (
-                                        <div>
-                                          <span className="text-muted-foreground">Sources: </span>
-                                          Analyzed {interviewPrepResult.insights.sources_count} Reddit posts
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-
-                                <Button
-                                  onClick={() => downloadInterviewPrepPDF()}
-                                  className="w-full text-white font-semibold py-6 text-base shadow-lg"
-                                  style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
-                                >
-                                  <Download className="h-5 w-5 mr-2" />
-                                  Download Full PDF
-                                </Button>
-                              </div>
-                            )}
-
-                            {interviewPrepStatus === 'failed' && interviewPrepResult?.error && (
-                              <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-4">
-                                <p className="text-sm text-red-700">
-                                  {interviewPrepResult.error}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-
-                  <TabsContent value="interview-library" className="mt-6">
-                    <div className="space-y-6">
-                      {libraryLoading ? (
-                        <Card className="bg-white border-border">
-                          <CardContent className="p-6">
-                            <LoadingSkeleton variant="card" count={3} />
-                          </CardContent>
-                        </Card>
-                      ) : preps.length === 0 ? (
-                        <div className="rounded-xl border border-border bg-white p-10 text-center space-y-4">
-                          <Briefcase className="h-10 w-10 mx-auto text-primary" />
-                          <h3 className="text-lg font-semibold text-foreground">No preps yet</h3>
-                          <p className="text-sm text-muted-foreground">
-                            Generate your first interview prep to see it appear here.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="space-y-6">
-                          {groupedPreps.inProgress.length > 0 && (
-                            <section>
-                              <h3 className="text-sm font-semibold text-muted-foreground uppercase mb-3">
-                                In Progress
-                              </h3>
-                              <div className="grid gap-4">
-                                {groupedPreps.inProgress.map((prep) => (
-                                  <div
-                                    key={prep.id}
-                                    className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-5 py-4 flex items-center justify-between"
-                                  >
-                                    <div>
-                                      <p className="text-sm text-foreground font-medium">{prep.companyName}</p>
-                                      {prep.jobTitle && (
-                                        <p className="text-xs text-muted-foreground">{prep.jobTitle}</p>
-                                      )}
-                                      <p className="text-xs text-muted-foreground mt-1">
-                                        Requested {prep.createdAt ? new Date(prep.createdAt).toLocaleString() : ""}
-                                      </p>
-                                    </div>
-                                    <div className="text-xs uppercase text-yellow-600">Processing...</div>
-                                  </div>
-                                ))}
-                              </div>
-                            </section>
-                          )}
-
-                          {groupedPreps.completed.length > 0 && (
-                            <section className="space-y-3">
-                              <h3 className="text-sm font-semibold text-muted-foreground uppercase">
-                                Completed ({groupedPreps.completed.length})
-                              </h3>
-                              <div className="grid gap-4">
-                                {groupedPreps.completed.map((prep) => (
-                                  <div
-                                    key={prep.id}
-                                    className="rounded-xl border border-border bg-white p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4"
-                                  >
-                                    <div className="space-y-2">
-                                      <div className="flex items-center gap-2 text-sm text-foreground font-medium">
-                                        <BadgeCheck className="h-4 w-4 text-primary" />
-                                        {prep.companyName}
-                                      </div>
-                                      {prep.jobTitle && (
-                                        <div className="text-sm text-foreground">
-                                          {prep.jobTitle}
-                                        </div>
-                                      )}
-                                      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                                        <span className="flex items-center gap-1">
-                                          <Calendar className="h-3 w-3" />
-                                          {prep.createdAt ? new Date(prep.createdAt).toLocaleDateString() : "—"}
-                                        </span>
-                                      </div>
-                                    </div>
-
-                                    <div className="flex items-center gap-3">
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="border-primary text-primary hover:bg-primary/10"
-                                        onClick={() => handleDownload(prep)}
-                                      >
-                                        <Download className="h-4 w-4 mr-2" />
-                                        PDF
-                                      </Button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </section>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </TabsContent>
-                </Tabs>
-              )}
             </div>
           </main>
         </div>

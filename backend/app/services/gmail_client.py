@@ -115,8 +115,12 @@ def _load_user_gmail_creds(uid):
         }
         
         # Include expiry if we have it (Google OAuth2 library accepts datetime or RFC3339 string)
+        # Note: Google's library expects expiry without timezone offset, so we strip it
         if expiry:
-            authorized_user_info["expiry"] = expiry.isoformat()
+            # Convert to naive datetime (UTC) by removing timezone info before isoformat()
+            # This prevents "unconverted data remains: +00:00" error in from_authorized_user_info()
+            expiry_naive = expiry.replace(tzinfo=None) if expiry.tzinfo else expiry
+            authorized_user_info["expiry"] = expiry_naive.isoformat()
         
         creds = Credentials.from_authorized_user_info(authorized_user_info)
         

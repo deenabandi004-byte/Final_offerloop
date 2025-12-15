@@ -290,7 +290,11 @@ def complete_upgrade():
             'maxCredits': credits,
             'subscriptionStatus': 'active',
             'upgraded_at': datetime.now().isoformat(),
-            'lastCreditReset': datetime.now().isoformat()
+            'lastCreditReset': datetime.now().isoformat(),
+            'coffeeChatPrepsUsed': 0,
+            'coffeeChatPrepsLimit': tier_config['coffee_chat_preps'],
+            'interviewPrepsUsed': 0,
+            'interviewPrepsLimit': tier_config['interview_preps']
         }
         
         if customer_id:

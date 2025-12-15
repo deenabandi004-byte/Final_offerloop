@@ -69,7 +69,7 @@ OAUTH_REDIRECT_URI = get_oauth_redirect_uri()
 # Constants
 # ========================================
 RESUME_LINE = "For context, I've attached my resume below."
-COFFEE_CHAT_CREDITS = 30
+COFFEE_CHAT_CREDITS = 15
 INTERVIEW_PREP_CREDITS = 25
 CACHE_DURATION = timedelta(days=365)
 CREATE_GMAIL_DRAFTS = False  # Set True to create Gmail drafts; False to only return subject/body and compose links
@@ -113,8 +113,8 @@ TIER_CONFIGS = {
         'time_saved_minutes': 300,
         'description': 'Try it out for free',
         'alumni_searches': 10,
-        'coffee_chat_preps': 1,
-        'interview_preps': 1,
+        'coffee_chat_preps': 3,
+        'interview_preps': 2,
         'firm_search': False,
         'smart_filters': False,
         'bulk_drafting': False,

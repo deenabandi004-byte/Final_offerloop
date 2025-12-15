@@ -22,7 +22,7 @@ export function UsageMeter({
 }: UsageMeterProps) {
   const remaining = getRemainingUses(tier, feature, currentUsage);
   const limit = tier === 'free' 
-    ? (feature === 'alumniSearches' ? 10 : 1)
+    ? (feature === 'alumniSearches' ? 10 : feature === 'coffeeChatPreps' ? 3 : feature === 'interviewPreps' ? 2 : 1)
     : tier === 'pro'
     ? (feature === 'coffeeChatPreps' ? 10 : feature === 'interviewPreps' ? 5 : 'unlimited')
     : 'unlimited';

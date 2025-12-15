@@ -234,16 +234,67 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userR
       
       const data = await response.json();
       console.log('[Scout] Analysis response:', data);
+      console.log('[Scout] Response status:', data.status);
+      console.log('[Scout] Has analysis:', !!data.analysis);
+      console.log('[Scout] Analysis keys:', data.analysis ? Object.keys(data.analysis) : 'N/A');
       
       if (data.status === 'ok' && data.analysis) {
+        // Validate and normalize analysis data
+        const analysis = { ...data.analysis };
+        
+        // Fill in defaults for missing fields
+        if (typeof analysis.score !== 'number') analysis.score = 50;
+        if (!analysis.match_level) analysis.match_level = 'moderate';
+        if (!analysis.pitch) analysis.pitch = '';
+        if (!Array.isArray(analysis.talking_points)) analysis.talking_points = [];
+        if (!Array.isArray(analysis.keywords_to_use)) analysis.keywords_to_use = [];
+        
+        // Normalize strengths to array of objects
+        if (!Array.isArray(analysis.strengths)) {
+          analysis.strengths = [];
+        } else {
+          analysis.strengths = analysis.strengths.map((s: any) => {
+            if (typeof s === 'string') {
+              return { point: s, evidence: '' };
+            } else if (typeof s === 'object' && s !== null) {
+              return {
+                point: s.point || s.strength || String(s),
+                evidence: s.evidence || s.proof || ''
+              };
+            }
+            return { point: String(s), evidence: '' };
+          });
+        }
+        
+        // Normalize gaps to array of objects
+        if (!Array.isArray(analysis.gaps)) {
+          analysis.gaps = [];
+        } else {
+          analysis.gaps = analysis.gaps.map((g: any) => {
+            if (typeof g === 'string') {
+              return { gap: g, mitigation: '' };
+            } else if (typeof g === 'object' && g !== null) {
+              return {
+                gap: g.gap || g.weakness || String(g),
+                mitigation: g.mitigation || g.solution || ''
+              };
+            }
+            return { gap: String(g), mitigation: '' };
+          });
+        }
+        
+        console.log('[Scout] Normalized analysis:', analysis);
+        
         setJobAnalyses(prev => ({
           ...prev,
-          [jobId]: data.analysis,
+          [jobId]: analysis,
         }));
         setExpandedJobId(jobId);
         console.log('[Scout] Analysis saved and expanded');
       } else {
         console.error('[Scout] Analysis response missing data:', data);
+        const errorMsg = data.message || 'Unknown error';
+        alert(`Failed to analyze job fit: ${errorMsg}`);
       }
     } catch (error) {
       console.error('[Scout] Analysis failed:', error);
@@ -260,15 +311,95 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userR
       .replace(/\n/g, '<br />');
   };
 
-  const handleQuickAction = (action: string) => {
+  const handleQuickAction = async (action: string) => {
     if (action === 'paste-url') {
       setInput('Paste job URL here...');
       inputRef.current?.focus();
       inputRef.current?.select();
-    } else if (action === 'describe-role') {
-      setInput('Describe the role you\'re looking for...');
-      inputRef.current?.focus();
-      inputRef.current?.select();
+    } else if (action === 'find-jobs-resume') {
+      // Auto-send message to trigger resume-based job search
+      const message = 'Find jobs that fit my resume';
+      setInput(message);
+      
+      // Create and send the message directly
+      const userMessage: ChatMessage = {
+        id: `user-${Date.now()}`,
+        role: 'user',
+        content: message,
+        timestamp: new Date(),
+      };
+
+      setMessages(prev => [...prev, userMessage]);
+      setInput('');
+      setIsLoading(true);
+
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/scout/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: message,
+            context: {
+              ...context,
+              user_resume: userResume,
+            },
+          }),
+        });
+
+        const data = await response.json();
+
+        // Update context for next message
+        if (data.context) {
+          setContext(data.context);
+        }
+
+        // Create assistant message
+        const assistantMessage: ChatMessage = {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          content: data.message,
+          fields: data.fields,
+          jobListings: data.job_listings,
+          fitAnalysis: data.fit_analysis,
+          timestamp: new Date(),
+        };
+
+        // Debug: Log job listings to check if URLs are present
+        if (data.job_listings && data.job_listings.length > 0) {
+          console.log('[Scout] Job listings received:', data.job_listings.map((j: JobListing) => ({
+            title: j.title,
+            company: j.company,
+            url: j.url,
+            hasUrl: !!j.url
+          })));
+        }
+
+        setMessages(prev => [...prev, assistantMessage]);
+
+        // Auto-populate fields if returned
+        if (data.fields) {
+          const { job_title, company, location } = data.fields;
+          if ((job_title || company || location) && onJobTitleSuggestion) {
+            onJobTitleSuggestion(
+              job_title || '',
+              company || undefined,
+              location || undefined
+            );
+          }
+        }
+
+      } catch (error) {
+        console.error('[Scout] Error:', error);
+        setMessages(prev => [...prev, {
+          id: `error-${Date.now()}`,
+          role: 'assistant',
+          content: "Oops! I ran into an issue. Please try again or rephrase your message.",
+          timestamp: new Date(),
+        }]);
+      } finally {
+        setIsLoading(false);
+        inputRef.current?.focus();
+      }
     } else if (action === 'ask-company') {
       setInput('Ask about a company...');
       inputRef.current?.focus();
@@ -299,10 +430,10 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userR
               Paste job URL
             </button>
             <button
-              onClick={() => handleQuickAction('describe-role')}
+              onClick={() => handleQuickAction('find-jobs-resume')}
               className="inline-flex items-center px-3 py-1.5 rounded-full bg-white border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer transition-colors"
             >
-              Describe a role
+              Find jobs that fit my resume
             </button>
             <button
               onClick={() => handleQuickAction('ask-company')}

@@ -7,6 +7,7 @@ import { OnboardingAcademics } from "./OnboardingAcademics";
 import { User, GraduationCap, MapPin } from "lucide-react";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { toast } from "sonner"; // Make sure you have sonner installed for toast notifications
+import { auth } from '@/lib/firebase';
 
 type OnboardingStep = "welcome" | "profile" | "academics" | "location";
 
@@ -54,7 +55,60 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
     try {
       console.log('🎯 Starting onboarding completion...');
       
-      // 1. Transform data to match backend expectations
+      // 1. Process resume if uploaded during onboarding
+      // The backend API already handles: parsing, uploading to Firebase Storage, and saving to Firestore
+      if (onboardingData.profile.resume && onboardingData.profile.resume instanceof File) {
+        console.log('📄 Processing resume upload from onboarding...');
+        try {
+          const file = onboardingData.profile.resume;
+          
+          // Validate file type (backend only supports PDF)
+          if (!file.name.toLowerCase().endsWith('.pdf')) {
+            console.warn('⚠️ Resume must be a PDF file, skipping resume upload');
+            toast.warning('Resume must be a PDF file. You can upload it later in Account Settings.');
+          } else {
+            // Parse and upload resume via backend API (backend handles Storage upload and Firestore save)
+            const formData = new FormData();
+            formData.append('resume', file);
+
+            const API_URL = window.location.hostname === 'localhost'
+              ? 'http://localhost:5001'
+              : 'https://www.offerloop.ai';
+
+            const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+
+            const response = await fetch(`${API_URL}/api/parse-resume`, {
+              method: 'POST',
+              headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+              body: formData,
+            });
+            const result = await response.json();
+            if (!response.ok) {
+              throw new Error(result.error || 'Failed to parse resume');
+            }
+
+            // Backend already saved to Firestore, but we update localStorage for backward compatibility
+            const parsed = {
+              name: result.data.name || '',
+              year: result.data.year || '',
+              major: result.data.major || '',
+              university: result.data.university || '',
+              fileName: file.name,
+              uploadDate: new Date().toISOString(),
+            };
+            localStorage.setItem('resumeData', JSON.stringify(parsed));
+
+            console.log('✅ Resume processed and saved successfully');
+            console.log('   Resume URL:', result.resumeUrl);
+          }
+        } catch (resumeError) {
+          console.error('❌ Error processing resume:', resumeError);
+          // Don't block onboarding if resume processing fails
+          toast.error('Resume upload failed, but you can upload it later in Account Settings');
+        }
+      }
+      
+      // 2. Transform data to match backend expectations
       const finalData = {
         profile: {
           fullName: `${onboardingData.profile.firstName} ${onboardingData.profile.lastName}`,
@@ -62,8 +116,6 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
           lastName: onboardingData.profile.lastName,
           email: onboardingData.profile.email,
           phone: onboardingData.profile.phone,
-          resumeData: onboardingData.profile.resumeData,
-          resumeName: onboardingData.profile.resumeName,
         },
         academics: {
           university: onboardingData.academics.university,
@@ -85,7 +137,7 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
         },
       };
 
-      // 2. Persist onboarding to Firestore via context
+      // 3. Persist onboarding to Firestore via context
       console.log('💾 Calling completeOnboarding...');
       await completeOnboarding(finalData);
       console.log('✅ Onboarding saved to Firestore');

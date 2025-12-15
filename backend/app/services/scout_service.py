@@ -863,14 +863,33 @@ Be concise. Each strength/gap should be under 15 words.
         if not self._openai:
             return {"status": "error", "message": "Analysis unavailable"}
         
+        # Wrap entire method in overall timeout to prevent hanging
+        try:
+            return await asyncio.wait_for(
+                self._analyze_job_fit_internal(job, user_resume),
+                timeout=35.0  # Overall timeout for entire analysis
+            )
+        except asyncio.TimeoutError:
+            print("[Scout] Job fit analysis timed out (overall timeout)")
+            return {"status": "error", "message": "Analysis timed out. Please try again."}
+    
+    async def _analyze_job_fit_internal(
+        self,
+        job: Dict[str, Any],
+        user_resume: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Internal method for job fit analysis (called with overall timeout wrapper).
+        """
         # If job has URL, try to fetch full description for better analysis
-        # Use a shorter timeout for URL fetch to avoid blocking analysis
+        # Use a very short timeout for URL fetch to avoid blocking analysis
         job_content = job.get("snippet", "")
         if job.get("url"):
             try:
+                # Use shorter timeout (3s) and make it truly non-blocking
                 full_content = await asyncio.wait_for(
                     self._fetch_url_content(job["url"]),
-                    timeout=5.0  # Quick timeout for URL fetch
+                    timeout=3.0  # Reduced from 5s to avoid blocking
                 )
                 if full_content:
                     job_content = full_content[:4000]  # Reduced from 5000 to speed up analysis
@@ -894,15 +913,23 @@ Description:
 {json.dumps(user_resume, indent=2)[:4000]}
 
 ## INSTRUCTIONS
-Analyze the fit and return JSON:
+Analyze the fit considering ALL factors from their resume:
+- **Major/Field of Study**: Does the job align with their academic background?
+- **Skills**: Do their technical/soft skills match job requirements?
+- **Key Experiences**: Do their past projects/roles relate to this position?
+- **Achievements**: Do their accomplishments demonstrate relevant capabilities?
+- **Location**: Is the job location reasonable given their background/preferences?
+- **Education Level**: Is the role appropriate for their current stage (student/intern vs. full-time)?
+
+Return JSON:
 
 {{
     "score": <0-100>,
     "match_level": "strong" | "good" | "moderate" | "stretch",
     "strengths": [
         {{
-            "point": "What matches well (specific skill/experience)",
-            "evidence": "Concrete proof from their resume"
+            "point": "What matches well (specific skill/experience/project)",
+            "evidence": "Concrete proof from their resume (mention specific projects, skills, or experiences)"
         }}
     ],
     "gaps": [
@@ -911,9 +938,9 @@ Analyze the fit and return JSON:
             "mitigation": "How to address this in application/interview"
         }}
     ],
-    "pitch": "A 2-3 sentence positioning statement they could use to introduce themselves for this role. Make it specific and compelling.",
+    "pitch": "A 2-3 sentence positioning statement they could use to introduce themselves for this role. Reference their major, key projects, or relevant experiences. Make it specific and compelling.",
     "talking_points": [
-        "Specific point to bring up in networking/interview",
+        "Specific point to bring up in networking/interview (reference their resume)",
         "Another specific talking point"
     ],
     "keywords_to_use": ["keyword1", "keyword2", "keyword3"]
@@ -921,13 +948,15 @@ Analyze the fit and return JSON:
 
 ## GUIDELINES
 - score: 80+ = strong, 60-79 = good, 40-59 = moderate, <40 = stretch
-- strengths: 2-4 items, be SPECIFIC with evidence from resume
+- Consider major alignment: A Computer Science major applying for a Software Engineer role = strong signal
+- Consider location: If job is far from their university/location, note this as a consideration
+- strengths: 2-4 items, be SPECIFIC - mention their actual projects, skills, or experiences from resume
 - gaps: 1-3 items, always include mitigation strategy
-- pitch: Write in first person, something they could actually say
-- talking_points: 3-5 specific, actionable points
+- pitch: Write in first person, reference their actual background (e.g., "As a Data Science major with experience in...")
+- talking_points: 3-5 specific, actionable points that reference their resume
 - keywords_to_use: Terms from job posting to include in their materials
 
-Be honest but constructive. Focus on actionable insights.
+Be honest but constructive. If the job doesn't align well with their major/background, say so clearly but suggest how they could still position themselves.
 """
             
             completion = await asyncio.wait_for(
@@ -944,10 +973,58 @@ Be honest but constructive. Focus on actionable insights.
                     max_tokens=800,
                     response_format={"type": "json_object"},
                 ),
-                timeout=25.0  # Increased from 15s to handle slower API responses
+                timeout=30.0  # Increased from 25s to handle slower API responses
             )
             
-            result = json.loads(completion.choices[0].message.content)
+            result_text = completion.choices[0].message.content.strip()
+            
+            # Remove markdown code blocks if present
+            if '```' in result_text:
+                result_text = result_text.split('```')[1]
+                if result_text.startswith('json'):
+                    result_text = result_text[4:]
+                result_text = result_text.strip()
+            
+            result = json.loads(result_text)
+            
+            # Validate required fields
+            required_fields = ["score", "match_level", "strengths", "gaps", "pitch", "talking_points", "keywords_to_use"]
+            missing_fields = [field for field in required_fields if field not in result]
+            
+            if missing_fields:
+                print(f"[Scout] Analysis result missing fields: {missing_fields}")
+                # Fill in defaults for missing fields
+                if "score" not in result:
+                    result["score"] = 50
+                if "match_level" not in result:
+                    result["match_level"] = "moderate"
+                if "strengths" not in result:
+                    result["strengths"] = []
+                if "gaps" not in result:
+                    result["gaps"] = []
+                if "pitch" not in result:
+                    result["pitch"] = ""
+                if "talking_points" not in result:
+                    result["talking_points"] = []
+                if "keywords_to_use" not in result:
+                    result["keywords_to_use"] = []
+            
+            # Ensure strengths and gaps are lists of objects
+            if "strengths" in result and isinstance(result["strengths"], list):
+                for i, strength in enumerate(result["strengths"]):
+                    if isinstance(strength, str):
+                        result["strengths"][i] = {"point": strength, "evidence": ""}
+                    elif not isinstance(strength, dict):
+                        result["strengths"][i] = {"point": str(strength), "evidence": ""}
+            
+            if "gaps" in result and isinstance(result["gaps"], list):
+                for i, gap in enumerate(result["gaps"]):
+                    if isinstance(gap, str):
+                        result["gaps"][i] = {"gap": gap, "mitigation": ""}
+                    elif not isinstance(gap, dict):
+                        result["gaps"][i] = {"gap": str(gap), "mitigation": ""}
+            
+            print(f"[Scout] Analysis completed successfully: score={result.get('score')}, match_level={result.get('match_level')}")
             
             return {
                 "status": "ok",
@@ -955,12 +1032,17 @@ Be honest but constructive. Focus on actionable insights.
             }
             
         except asyncio.TimeoutError:
-            return {"status": "error", "message": "Analysis timed out"}
+            print("[Scout] Job fit analysis timed out (OpenAI API timeout)")
+            return {"status": "error", "message": "Analysis timed out. Please try again."}
+        except json.JSONDecodeError as e:
+            print(f"[Scout] Failed to parse analysis JSON: {e}")
+            print(f"[Scout] Response text: {result_text[:500] if 'result_text' in locals() else 'N/A'}")
+            return {"status": "error", "message": "Failed to parse analysis response"}
         except Exception as e:
             print(f"[Scout] Job fit analysis failed: {e}")
             import traceback
             print(f"[Scout] Traceback: {traceback.format_exc()}")
-            return {"status": "error", "message": "Analysis failed"}
+            return {"status": "error", "message": f"Analysis failed: {str(e)}"}
     
     async def _handle_url_fallback(
         self, 
@@ -998,33 +1080,88 @@ Be honest but constructive. Focus on actionable insights.
         extracted: Dict[str, Any],
         context: Dict[str, Any]
     ) -> ScoutResponse:
-        """Handle job search queries using SERP API."""
-        
-        # Build search query
-        query = await self._build_job_search_query(message, extracted, context)
-        print(f"[Scout] Job search query: {query}")
-        
-        # Search for jobs
-        jobs = await self._search_jobs(query)
-        
-        if not jobs:
-            # Fallback: suggest common job titles
-            return await self._handle_no_jobs_found(message, extracted, context)
-        
-        # Extract fields from first few results
-        fields = self._aggregate_fields_from_jobs(jobs, extracted)
-        
-        # Simple, fast response - no auto-analysis
-        location_display = fields.location if fields.location else extracted.get("location", "your area")
-        message_text = f"🔍 **Found {len(jobs)} positions in {location_display}**\n\n"
+        """Handle job search queries using SERP API with resume-aware query generation."""
         
         user_resume = context.get("user_resume")
-        if user_resume:
-            message_text += "💡 Click **Analyze Fit** on any job to see how well you match!"
-        else:
-            message_text += "✨ Click any job listing to use it for your search."
+        location = extracted.get("location")
         
-        # Add note about optimization if fields were normalized
+        # Check if this is a resume-based search (no specific job title mentioned)
+        is_resume_search = (
+            not extracted.get("job_title") and 
+            user_resume and
+            any(phrase in message.lower() for phrase in [
+                "based on my resume", "fit my background", "match my skills",
+                "for me", "that fit me", "jobs for my", "based on my experience",
+                "find me jobs", "jobs that match"
+            ])
+        )
+        
+        all_jobs = []
+        
+        if is_resume_search:
+            # Generate specific job titles from resume using GPT
+            job_titles = await self._generate_job_titles_from_resume(user_resume)
+            
+            if job_titles:
+                print(f"[Scout] Running resume-based search with titles: {job_titles}")
+                
+                # Search for each generated title
+                for title in job_titles[:3]:  # Max 3 searches
+                    query = title
+                    if location:
+                        query += f" in {location}"
+                    else:
+                        query += " jobs"  # Add "jobs" if no location
+                    
+                    print(f"[Scout] Searching: {query}")
+                    jobs = await self._search_jobs(query)
+                    all_jobs.extend(jobs)
+                
+                # Deduplicate by (title, company) tuple
+                seen = set()
+                unique_jobs = []
+                for job in all_jobs:
+                    key = (job.title.lower().strip(), job.company.lower().strip())
+                    if key not in seen:
+                        seen.add(key)
+                        unique_jobs.append(job)
+                all_jobs = unique_jobs
+            else:
+                # Fallback to original query building if GPT fails
+                query = await self._build_job_search_query(message, extracted, context)
+                print(f"[Scout] Fallback search query: {query}")
+                all_jobs = await self._search_jobs(query)
+        else:
+            # User specified a job title - use original query building
+            query = await self._build_job_search_query(message, extracted, context)
+            print(f"[Scout] Job search query: {query}")
+            all_jobs = await self._search_jobs(query)
+        
+        if not all_jobs:
+            return await self._handle_no_jobs_found(message, extracted, context)
+        
+        # Filter and rank by resume relevance
+        if user_resume:
+            print(f"[Scout] Filtering {len(all_jobs)} jobs based on resume...")
+            all_jobs = await self._filter_and_rank_jobs_by_resume(all_jobs, user_resume)
+            print(f"[Scout] After filtering: {len(all_jobs)} relevant jobs")
+        
+        # Extract fields from results
+        fields = self._aggregate_fields_from_jobs(all_jobs, extracted)
+        
+        # Build response message
+        location_display = fields.location if fields.location else extracted.get("location", "your area")
+        
+        if is_resume_search and user_resume:
+            message_text = f"🎯 **Found {len(all_jobs)} positions matching your background**\n\n"
+            message_text += "These roles align with your skills and experience. Click **Analyze Fit** for detailed analysis."
+        else:
+            message_text = f"🔍 **Found {len(all_jobs)} positions in {location_display}**\n\n"
+            if user_resume:
+                message_text += "💡 Click **Analyze Fit** on any job to see how well you match!"
+            else:
+                message_text += "✨ Click any job listing to use it for your search."
+        
         if fields.has_any():
             message_text += "\n\n✨ Search fields have been optimized for better contact matching."
         
@@ -1032,8 +1169,8 @@ Be honest but constructive. Focus on actionable insights.
             status="ok",
             message=message_text,
             fields=fields,
-            job_listings=jobs[:10],
-            context=self._update_context(context, search_query=query, fields=fields),
+            job_listings=all_jobs[:10],
+            context=self._update_context(context, search_query=message, fields=fields),
         )
     
     async def _build_job_search_query(
@@ -1042,17 +1179,48 @@ Be honest but constructive. Focus on actionable insights.
         extracted: Dict[str, Any],
         context: Dict[str, Any]
     ) -> str:
-        """Build an optimized search query for job postings."""
+        """Build an optimized search query for job postings, using resume data when available."""
         # Start with user's message, clean it up
         query_parts = []
         
-        # Add job title/role if extracted
-        if extracted.get("job_title"):
-            query_parts.append(extracted["job_title"])
+        # Get resume data to enhance search
+        user_resume = context.get("user_resume")
         
-        # Add location if extracted
-        if extracted.get("location"):
-            query_parts.append(f"in {extracted['location']}")
+        # Add job title/role if extracted
+        job_title = extracted.get("job_title")
+        if not job_title and user_resume:
+            # If no job title specified, suggest based on major/skills
+            major = user_resume.get("major", "").lower()
+            skills = user_resume.get("skills", [])
+            
+            # Map common majors to job titles
+            major_to_jobs = {
+                "computer science": "software engineer",
+                "data science": "data scientist",
+                "business": "business analyst",
+                "finance": "financial analyst",
+                "engineering": "engineer",
+                "marketing": "marketing",
+                "economics": "analyst",
+            }
+            
+            for major_key, job_suggestion in major_to_jobs.items():
+                if major_key in major:
+                    job_title = job_suggestion
+                    break
+        
+        if job_title:
+            query_parts.append(job_title)
+        
+        # Add location if extracted, or use resume location preference
+        location = extracted.get("location")
+        if not location and user_resume:
+            # Could extract location from resume if available
+            # For now, we'll use extracted location or let user specify
+            pass
+        
+        if location:
+            query_parts.append(f"in {location}")
         
         # Add company if extracted
         if extracted.get("company"):
@@ -1073,6 +1241,251 @@ Be honest but constructive. Focus on actionable insights.
                 query += " jobs"
         
         return query
+    
+    async def _generate_job_titles_from_resume(
+        self,
+        user_resume: Dict[str, Any],
+    ) -> List[str]:
+        """
+        Use GPT to analyze resume and generate 2-3 specific job titles to search for.
+        This runs BEFORE the Google Jobs search to ensure relevant results.
+        """
+        if not self._openai or not user_resume:
+            return []
+        
+        # Check cache first
+        resume_hash = hashlib.md5(json.dumps(user_resume, sort_keys=True).encode()).hexdigest()[:16]
+        cache_key = self._cache.make_key("resume_titles", resume_hash)
+        cached = self._cache.get(cache_key)
+        if cached:
+            print(f"[Scout] Using cached job titles: {cached}")
+            return cached
+        
+        # Build resume summary for prompt
+        major = user_resume.get("major", "Unknown")
+        university = user_resume.get("university", "Unknown")
+        year = user_resume.get("year", "")
+        skills = user_resume.get("skills", [])
+        key_experiences = user_resume.get("key_experiences", [])
+        achievements = user_resume.get("achievements", [])
+        
+        prompt = f"""Analyze this resume and suggest 3 SPECIFIC job titles this person should search for.
+
+RESUME:
+- University: {university}
+- Major: {major}
+- Graduation Year: {year}
+- Skills: {', '.join(skills[:10]) if skills else 'Not specified'}
+- Key Experiences: {'; '.join(key_experiences[:5]) if key_experiences else 'Not specified'}
+- Achievements: {'; '.join(achievements[:3]) if achievements else 'Not specified'}
+
+RULES:
+1. Be SPECIFIC - NOT "Software Engineer", but "Full Stack Developer" or "React Developer" or "Python Backend Developer"
+2. Match experience level:
+   - If graduating 2024-2026: suggest INTERN or ENTRY-LEVEL titles
+   - Add "Intern" or "Junior" or "Entry Level" to titles when appropriate
+3. Base titles on their STRONGEST skills and experiences, not just major
+4. Each title must be directly searchable on job boards (real job titles, not made up)
+5. Prioritize titles that match multiple resume elements (skills + experiences + major)
+
+EXAMPLES OF GOOD TITLES:
+- "Full Stack Developer Intern" (not just "Developer")
+- "Data Analyst Entry Level" (not just "Analyst")  
+- "React Frontend Developer" (not just "Software Engineer")
+- "Python Backend Engineer Intern" (specific stack + level)
+
+Return JSON only:
+{{
+    "job_titles": ["Title 1", "Title 2", "Title 3"],
+    "reasoning": "Brief explanation of why these titles fit"
+}}
+"""
+
+        try:
+            completion = await asyncio.wait_for(
+                self._openai.chat.completions.create(
+                    model=self.DEFAULT_MODEL,
+                    messages=[
+                        {"role": "system", "content": "You suggest specific, searchable job titles based on resumes. Return only valid JSON."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.3,
+                    max_tokens=200,
+                    response_format={"type": "json_object"},
+                ),
+                timeout=8.0
+            )
+            
+            result = json.loads(completion.choices[0].message.content)
+            titles = result.get("job_titles", [])
+            
+            # Validate titles - must be non-empty strings
+            titles = [t.strip() for t in titles if t and isinstance(t, str) and len(t.strip()) > 3][:3]
+            
+            if titles:
+                print(f"[Scout] Generated job titles from resume: {titles}")
+                print(f"[Scout] Reasoning: {result.get('reasoning', 'N/A')}")
+                self._cache.set(cache_key, titles, ttl=3600)  # Cache for 1 hour
+                return titles
+            
+        except asyncio.TimeoutError:
+            print("[Scout] Job title generation timed out")
+        except Exception as e:
+            print(f"[Scout] Job title generation failed: {e}")
+        
+        # Fallback to basic major mapping
+        return []
+    
+    async def _filter_and_rank_jobs_by_resume(
+        self,
+        jobs: List[JobListing],
+        user_resume: Dict[str, Any]
+    ) -> List[JobListing]:
+        """
+        Filter and rank jobs based on resume data (major, skills, experiences, location).
+        Returns jobs sorted by relevance score (highest first).
+        """
+        if not jobs or not user_resume:
+            return jobs
+        
+        # Extract resume data
+        major = (user_resume.get("major") or "").lower()
+        skills = [s.lower() for s in (user_resume.get("skills") or [])]
+        key_experiences = [e.lower() for e in (user_resume.get("key_experiences") or [])]
+        achievements = [a.lower() for a in (user_resume.get("achievements") or [])]
+        university = (user_resume.get("university") or "").lower()
+        
+        # Build a combined text of all resume content for matching
+        resume_text = " ".join([
+            major,
+            " ".join(skills),
+            " ".join(key_experiences),
+            " ".join(achievements),
+        ]).lower()
+        
+        # Score each job
+        scored_jobs = []
+        for job in jobs:
+            score = 0
+            job_title_lower = (job.title or "").lower()
+            job_company_lower = (job.company or "").lower()
+            job_location_lower = (job.location or "").lower()
+            job_snippet_lower = (job.snippet or "").lower()
+            job_text = f"{job_title_lower} {job_company_lower} {job_location_lower} {job_snippet_lower}"
+            
+            # Skip obviously irrelevant jobs (filter out completely)
+            irrelevant_keywords = [
+                # Service/retail/hospitality
+                "food service", "cashier", "retail", "server", "waiter", "waitress",
+                "barista", "host", "hostess", "dishwasher", "cook", "chef",
+                "game night host", "party host", "event host",
+                # Manual labor
+                "warehouse", "janitor", "security guard", "maintenance", "custodial",
+                "housekeeping", "landscaping", "construction worker", "laborer",
+                # Military/government job codes (these are the NA-02, NF-02, etc jobs)
+                "military base", "barracks", "na-02", "nf-02", "nf-01", "nf-03", "nf-04",
+                "gs-", "army garrison", "military academy",
+                # Sports/recreation (unless specifically asked for)
+                "sports assistant", "recreation", "lifeguard", "fitness instructor",
+                # Healthcare entry-level (unless resume indicates healthcare)
+                "nursing assistant", "home health aide", "caregiver", "cna",
+                # Delivery/driving
+                "truck driver", "delivery driver", "forklift operator", "courier",
+                # Field data collection (these are usually door-to-door jobs)
+                "field data collector", "door to door", "canvasser",
+                # Part-time retail management
+                "part time night manager", "shift supervisor retail",
+            ]
+            if any(keyword in job_text for keyword in irrelevant_keywords):
+                # Skip this job entirely - don't add to scored_jobs
+                continue
+            
+            # Boost jobs that match the user's field (especially for tech)
+            if major and any(field in major.lower() for field in ["computer", "software", "data", "information", "engineering"]):
+                tech_indicators = ["software", "developer", "engineer", "analyst", "data", 
+                                 "product", "design", "tech", "IT", "web", "mobile", "cloud",
+                                 "frontend", "backend", "fullstack", "full stack", "devops",
+                                 "machine learning", "AI", "python", "java", "react"]
+                if any(indicator in job_text for indicator in tech_indicators):
+                    score += 25  # Strong boost for tech roles matching tech background
+            
+            # Major-based matching (strong signal)
+            if major:
+                major_keywords = {
+                    "computer science": ["software", "developer", "programmer", "engineer", "tech", "it"],
+                    "data science": ["data", "analyst", "scientist", "analytics", "machine learning"],
+                    "business": ["business", "analyst", "consultant", "strategy", "operations"],
+                    "finance": ["financial", "finance", "banking", "investment", "analyst"],
+                    "engineering": ["engineer", "engineering", "technical"],
+                    "marketing": ["marketing", "brand", "digital", "social media"],
+                    "economics": ["analyst", "research", "economic", "policy"],
+                }
+                
+                for major_key, job_keywords in major_keywords.items():
+                    if major_key in major:
+                        for keyword in job_keywords:
+                            if keyword in job_text:
+                                score += 20
+                                break
+            
+            # Skills matching (very strong signal)
+            for skill in skills:
+                if skill and len(skill) > 2:  # Skip very short skills
+                    if skill in job_text:
+                        score += 15
+                    # Also check for partial matches
+                    skill_words = skill.split()
+                    if len(skill_words) > 1:
+                        if all(word in job_text for word in skill_words if len(word) > 2):
+                            score += 10
+            
+            # Experience matching
+            for exp in key_experiences:
+                if exp and len(exp) > 10:  # Only meaningful experiences
+                    # Check if any significant words from experience appear in job
+                    exp_words = [w for w in exp.split() if len(w) > 4]
+                    matches = sum(1 for word in exp_words if word in job_text)
+                    if matches > 0:
+                        score += matches * 5
+            
+            # University/education level matching
+            # If it's an internship and user is a student, boost score
+            if "intern" in job_title_lower or "internship" in job_title_lower:
+                if "year" in user_resume or university:
+                    score += 10
+            
+            # Penalize jobs that seem too senior (if user is student/recent grad)
+            senior_keywords = ["senior", "lead", "principal", "director", "vp", "manager", "head of"]
+            if any(keyword in job_title_lower for keyword in senior_keywords):
+                # Check if user seems like a student/recent grad
+                year = user_resume.get("year", "")
+                if year and ("2024" in str(year) or "2025" in str(year) or "2026" in str(year)):
+                    score -= 15
+            
+            # Location preferences (if resume has location info, could boost local jobs)
+            # For now, we don't penalize location mismatches too much
+            
+            scored_jobs.append((score, job))
+        
+        # Sort by score (highest first), filter out very negative scores
+        scored_jobs.sort(key=lambda x: x[0], reverse=True)
+        
+        # Filter out jobs with very negative scores (clearly irrelevant)
+        # Keep jobs with score > 0, or at least top 10 if we have them
+        filtered_jobs = [job for score, job in scored_jobs if score > 0]
+        
+        # If we filtered out too many but have good matches, keep top matches
+        if len(filtered_jobs) < 5:
+            # Take top 10 jobs that aren't completely irrelevant
+            filtered_jobs = [job for score, job in scored_jobs if score > -100][:10]
+        
+        # If still no good matches, return original jobs (better than nothing)
+        if not filtered_jobs:
+            filtered_jobs = jobs[:10]
+        
+        print(f"[Scout] Job scores: {[(score, job.title) for score, job in scored_jobs[:5]]}")
+        
+        return filtered_jobs if filtered_jobs else jobs
     
     async def _search_jobs(self, query: str) -> List[JobListing]:
         """Search for job postings using SERP API."""

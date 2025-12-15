@@ -26,19 +26,34 @@ def upload_resume_to_firebase_storage(user_id, file):
         return None
 
 
-def save_resume_to_firebase(user_id, resume_text, resume_url):
-    """Save resume text and URL to Firestore"""
+def save_resume_to_firebase(user_id, resume_text, resume_url, parsed_info=None):
+    """Save resume text, URL, and parsed info to Firestore"""
     try:
         db = get_db()
         if not db:
             return False
         
-        db.collection('users').document(user_id).update({
+        update_data = {
             'resumeText': resume_text,
             'resumeUrl': resume_url,
             'resumeFileName': 'resume.pdf',
             'resumeUpdatedAt': datetime.now()
-        })
+        }
+        
+        # Also save parsed resume data if available (for Scout and other features)
+        if parsed_info:
+            update_data['resumeParsed'] = {
+                'name': parsed_info.get('name', ''),
+                'university': parsed_info.get('university', ''),
+                'major': parsed_info.get('major', ''),
+                'year': parsed_info.get('year', ''),
+                'key_experiences': parsed_info.get('key_experiences', []),
+                'skills': parsed_info.get('skills', []),
+                'achievements': parsed_info.get('achievements', []),
+                'interests': parsed_info.get('interests', []),
+            }
+        
+        db.collection('users').document(user_id).update(update_data)
         return True
     except Exception as e:
         print(f"Firestore save failed: {e}")
@@ -111,13 +126,14 @@ def parse_resume():
                         if not resume_url:
                             print("⚠️  File upload failed, continuing without URL")
                         
-                        # STEP 4B: Save both text and URL to Firebase
+                        # STEP 4B: Save both text, URL, and parsed data to Firebase
                         print("\n💾 Saving to Firestore...")
                         file.seek(0)  # Reset again for text extraction
                         save_result = save_resume_to_firebase(
                             user_id, 
                             resume_text,
-                            resume_url
+                            resume_url,
+                            parsed_info  # Include parsed data
                         )
                         
                         if save_result:

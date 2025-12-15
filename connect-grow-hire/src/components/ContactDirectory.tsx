@@ -15,6 +15,16 @@ import {
 import { LoadingSkeleton } from "./LoadingSkeleton";
 import { useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from '../contexts/FirebaseAuthContext';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { firebaseApi } from '../services/firebaseApi';
 import type { Contact as ContactApi } from '../services/firebaseApi';
 import { useFirebaseMigration } from '../hooks/useFirebaseMigration';
@@ -47,6 +57,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
   const [editingCell, setEditingCell] = useState<{ row: number; col: string } | null>(null);
   const [mailAppDialogOpen, setMailAppDialogOpen] = useState(false);
   const [selectedContactForEmail, setSelectedContactForEmail] = useState<Contact | null>(null);
+  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
 
   // 🔔 Reply check state
   const [replyStatuses, setReplyStatuses] = useState<Record<string, any>>({});
@@ -356,6 +367,12 @@ const SpreadsheetContactDirectory: React.FC = () => {
       return;
     }
 
+    // Check if user is on free tier
+    if (currentUser?.tier === 'free') {
+      setShowUpgradeDialog(true);
+      return;
+    }
+
     // Define CSV headers based on Contact interface
     const headers = [
       'First Name',
@@ -465,7 +482,13 @@ const SpreadsheetContactDirectory: React.FC = () => {
           <div className="flex gap-2">
             <Button
               onClick={handleExportCsv}
-              className="gap-2 bg-blue-600 hover:bg-blue-700"
+              disabled={currentUser?.tier === 'free'}
+              className={`gap-2 ${
+                currentUser?.tier === 'free' 
+                  ? 'bg-gray-400 hover:bg-gray-400 cursor-not-allowed opacity-60' 
+                  : 'bg-blue-600 hover:bg-blue-700'
+              }`}
+              title={currentUser?.tier === 'free' ? 'Upgrade to Pro or Elite to export CSV' : 'Export contacts to CSV'}
             >
               <Download className="h-4 w-4" />
               Export CSV
@@ -839,6 +862,27 @@ const SpreadsheetContactDirectory: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Upgrade Dialog for CSV Export */}
+      <AlertDialog open={showUpgradeDialog} onOpenChange={setShowUpgradeDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Upgrade to Export CSV</AlertDialogTitle>
+            <AlertDialogDescription>
+              CSV export is available for Pro and Elite tier users. Upgrade your plan to export your contacts to CSV for further analysis.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => navigate('/pricing')}
+              className="bg-blue-600 hover:bg-blue-700 focus:ring-blue-600"
+            >
+              Upgrade to Pro/Elite
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

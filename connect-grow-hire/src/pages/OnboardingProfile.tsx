@@ -97,12 +97,12 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
             <input
               ref={resumeInputRef}
               type="file"
-              accept=".pdf,.doc,.docx"
+              accept=".pdf"
               onChange={handleResumeUpload}
               className="hidden"
             />
             <p className="text-xs text-muted-foreground">
-              Accepted formats: PDF, DOC, DOCX (Max 10MB)
+              Accepted format: PDF (Max 10MB)
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               Your resume allows us to create more personalized and effective outreach emails.

@@ -7,10 +7,10 @@ from datetime import datetime
 from firebase_admin import firestore, storage
 from flask import Blueprint, jsonify, request
 
-from app.config import COFFEE_CHAT_CREDITS
+from app.config import COFFEE_CHAT_CREDITS, TIER_CONFIGS
 from ..extensions import get_db, require_firebase_auth
-from app.services.auth import check_and_reset_credits, deduct_credits_atomic
-from app.utils.exceptions import ValidationError, OfferloopException, InsufficientCreditsError
+from app.services.auth import check_and_reset_credits, deduct_credits_atomic, check_and_reset_usage, can_access_feature
+from app.utils.exceptions import ValidationError, OfferloopException, InsufficientCreditsError, AuthorizationError
 from app.utils.validation import CoffeeChatPrepRequest, validate_request
 from app.services.coffee_chat import (
     fetch_serp_research,
@@ -231,6 +231,23 @@ def process_coffee_chat_prep_background(
             print(f"⚠️ Credit deduction failed - user may have insufficient credits")
         else:
             print(f"✅ Credits deducted: {credits_available} -> {new_credits}")
+        
+        # Step 9: Increment usage counter
+        print("Step 9: Incrementing usage counter...")
+        try:
+            user_ref = db.collection("users").document(user_id)
+            user_doc = user_ref.get()
+            if user_doc.exists:
+                user_data = user_doc.to_dict()
+                current_usage = user_data.get("coffeeChatPrepsUsed", 0)
+                user_ref.update({
+                    "coffeeChatPrepsUsed": current_usage + 1,
+                    "updatedAt": datetime.now().isoformat()
+                })
+                print(f"✅ Usage counter incremented: {current_usage} -> {current_usage + 1}")
+        except Exception as usage_error:
+            print(f"⚠️ Failed to increment usage counter: {usage_error}")
+        
         print(f"=== PREP {prep_id} COMPLETED SUCCESSFULLY ===\n")
 
     except Exception as e:
@@ -269,7 +286,7 @@ def create_coffee_chat_prep():
         user_id = request.firebase_user.get("uid")
         user_email = request.firebase_user.get("email")
 
-        # Check credits
+        # Check credits and feature access
         credits_available = 120
         if db and user_id:
             user_ref = db.collection("users").document(user_id)
@@ -277,7 +294,13 @@ def create_coffee_chat_prep():
             if user_doc.exists:
                 user_data = user_doc.to_dict()
                 credits_available = check_and_reset_credits(user_ref, user_data)
+                
+                # Check and reset usage counters (for Pro/Elite monthly reset)
+                check_and_reset_usage(user_ref, user_data)
+                user_doc = user_ref.get()  # Refresh after potential reset
+                user_data = user_doc.to_dict()
 
+                # Check credits
                 if credits_available < COFFEE_CHAT_CREDITS:
                     return (
                         jsonify(
@@ -289,6 +312,28 @@ def create_coffee_chat_prep():
                         ),
                         400,
                     )
+                
+                # Check feature access (coffee chat prep limit)
+                tier = user_data.get("subscriptionTier") or user_data.get("tier", "free")
+                tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS["free"])
+                allowed, reason = can_access_feature(tier, "coffee_chat_prep", user_data, tier_config)
+                
+                if not allowed:
+                    coffee_chat_limit = tier_config.get("coffee_chat_preps", 0)
+                    if coffee_chat_limit == "unlimited":
+                        # Shouldn't happen, but handle gracefully
+                        pass
+                    else:
+                        current_usage = user_data.get("coffeeChatPrepsUsed", 0)
+                        raise AuthorizationError(
+                            f"Coffee Chat Prep limit reached. You've used {current_usage} of {coffee_chat_limit} allowed.",
+                            details={
+                                "current_usage": current_usage,
+                                "limit": coffee_chat_limit,
+                                "tier": tier,
+                                "reason": reason
+                            }
+                        )
 
         # Get resume
         resume_text = None

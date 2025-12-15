@@ -23,8 +23,8 @@ export const TIER_LIMITS: Record<Tier, TierLimits> = {
   free: {
     credits: 300,
     alumniSearches: 10,
-    coffeeChatPreps: 1,
-    interviewPreps: 1,
+    coffeeChatPreps: 3,
+    interviewPreps: 2,
     firmSearch: false,
     smartFilters: false,
     bulkDrafting: false,
