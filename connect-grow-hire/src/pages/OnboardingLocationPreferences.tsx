@@ -115,23 +115,21 @@ export const OnboardingLocationPreferences = ({
   };
 
   return (
-    <div className="min-h-screen bg-background flex">
-      {/* Left side content */}
-      <div className="w-1/2 p-4 pt-8 flex flex-col">
-        <div className="w-full max-w-2xl p-8 lg:p-12 space-y-8">
-          <div className="space-y-6">
-            <h2 className="text-4xl lg:text-5xl font-bold text-foreground">
-              Career{" "}
-              <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-                Preferences
-              </span>
-            </h2>
-            <p className="text-xl text-muted-foreground leading-relaxed">
-              Help us understand where you'd like to work and what type of positions interest you.
-            </p>
-          </div>
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-start px-4">
+      <div className="space-y-8">
+        <div className="space-y-6">
+          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-foreground">
+            Career{" "}
+            <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+              Preferences
+            </span>
+          </h2>
+          <p className="text-lg md:text-xl text-muted-foreground leading-relaxed">
+            Help us understand where you'd like to work and what type of positions interest you.
+          </p>
+        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6 mt-12">
+        <form onSubmit={handleSubmit} className="space-y-6 mt-8 lg:mt-12">
           <div className="space-y-4">
             <Label className="text-foreground font-medium">Job Type(s) Interested In</Label>
             <p className="text-sm text-muted-foreground">Select all job types you're interested in</p>
@@ -378,14 +376,14 @@ export const OnboardingLocationPreferences = ({
             </Button>
           </div>
         </form>
-        </div>
       </div>
       
-      {/* Right side - empty space for illustration */}
-      <div className="w-1/2 bg-background flex items-center justify-center p-8">
-        <div className="w-full max-w-md flex items-center justify-center">
-          <img src={careerIllustration} alt="Career preferences illustration" className="w-80 h-80 object-contain" />
-        </div>
+      <div className="hidden lg:flex items-center justify-center">
+        <img 
+          src={careerIllustration} 
+          alt="Career preferences illustration" 
+          className="w-full max-w-md h-auto object-contain"
+        />
       </div>
     </div>
   );
