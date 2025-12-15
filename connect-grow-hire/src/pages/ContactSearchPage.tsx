@@ -1105,15 +1105,15 @@ const ContactSearchPage: React.FC = () => {
                           </span>
                         </div>
 
-                        <div className="bg-muted/30 rounded-xl p-6 border border-border shadow-lg">
-                          <div className="flex items-center gap-6">
-                            <div className="bg-gradient-to-br from-blue-500/20 to-cyan-500/20 border border-blue-400/40 rounded-xl px-4 py-3 min-w-[70px] text-center shadow-inner">
+                        <div className="bg-muted/30 rounded-xl p-4 sm:p-6 border border-border shadow-lg">
+                          <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
+                            <div className="bg-gradient-to-br from-blue-500/20 to-cyan-500/20 border border-blue-400/40 rounded-xl px-4 py-3 min-w-[60px] sm:min-w-[70px] text-center shadow-inner">
                               <span className="text-2xl font-bold bg-gradient-to-r from-blue-300 to-cyan-300 bg-clip-text text-transparent">
                                 {batchSize}
                               </span>
                             </div>
 
-                            <div className="flex-1 max-w-[320px] pt-4">
+                            <div className="flex-1 w-full sm:max-w-[320px] pt-2 sm:pt-4">
                               <div className="relative">
                                 <input
                                   type="range"
@@ -1149,7 +1149,7 @@ const ContactSearchPage: React.FC = () => {
                               </div>
                             </div>
 
-                            <div className="bg-blue-50 rounded-xl px-4 py-3 min-w-[100px] border border-blue-400/20">
+                            <div className="bg-blue-50 rounded-xl px-4 py-3 min-w-[80px] sm:min-w-[100px] w-full sm:w-auto border border-blue-400/20">
                               <div className="text-center">
                                 <span className="text-xl font-bold text-blue-600">{batchSize * 15}</span>
                                 <span className="text-sm text-blue-600/70 ml-2">credits</span>

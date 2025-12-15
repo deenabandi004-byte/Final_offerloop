@@ -1,7 +1,7 @@
 // src/pages/Index.tsx
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Check, ArrowRight, Twitter, Linkedin, Instagram, Menu } from 'lucide-react';
+import { Check, ArrowRight, Twitter, Linkedin, Instagram, Menu, X } from 'lucide-react';
 // Removed SidebarProvider and AppSidebar - landing page should be public without sidebar
 import { BackToHomeButton } from "@/components/BackToHomeButton";
 import { CreditPill } from "@/components/credits";
@@ -133,6 +133,7 @@ const Index = () => {
   const [activeScene, setActiveScene] = useState(0);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [parallaxOffset, setParallaxOffset] = useState(0);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const sectionRefs = useRef<(HTMLElement | null)[]>([]);
 
   // Handle scroll for scene transitions and parallax
@@ -171,22 +172,24 @@ const Index = () => {
     <div className="min-h-screen w-full bg-transparent text-foreground">
       {/* Public Landing Page - No Sidebar */}
         <div className="flex-1 flex flex-col">
-        <header className="fixed top-4 left-4 right-4 h-16 flex items-center justify-between px-6 bg-[#ECF4FF] backdrop-blur-md shadow-xl rounded-2xl border border-blue-200/50 z-50">
-          <div className="flex items-center gap-4">
+        <header className="fixed top-2 left-2 right-2 md:top-4 md:left-4 md:right-4 h-14 md:h-16 flex items-center justify-between px-3 md:px-6 bg-[#ECF4FF] backdrop-blur-md shadow-xl rounded-xl md:rounded-2xl border border-blue-200/50 z-50">
+          <div className="flex items-center gap-2 md:gap-4">
             <img 
               src={OfferloopLogo} 
               alt="Offerloop" 
-              className="h-[60px] cursor-pointer"
+              className="h-10 md:h-[60px] cursor-pointer"
               onClick={() => navigate("/")}
             />
           </div>
-          <nav className="flex items-center gap-6">
+          {/* Desktop Navigation */}
+          <nav className="hidden md:flex items-center gap-6">
             <button
               onClick={() => {
                 const element = document.getElementById('features');
                 if (element) {
                   element.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
+                setMobileMenuOpen(false);
               }}
               className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors"
             >
@@ -198,6 +201,7 @@ const Index = () => {
                 if (element) {
                   element.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
+                setMobileMenuOpen(false);
               }}
               className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors"
             >
@@ -209,6 +213,7 @@ const Index = () => {
                 if (element) {
                   element.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
+                setMobileMenuOpen(false);
               }}
               className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors"
             >
@@ -222,17 +227,19 @@ const Index = () => {
                 if (element) {
                   element.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 }
+                setMobileMenuOpen(false);
               }}
               className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors"
             >
               Privacy
             </button>
           </nav>
-            <div className="flex items-center gap-4">
+          {/* Desktop Auth Buttons */}
+          <div className="hidden md:flex items-center gap-4">
             {user ? (
               <button
                 onClick={() => navigate("/home")}
-                className="btn-secondary-glass px-4 py-2"
+                className="btn-secondary-glass px-4 py-2 text-sm"
               >
                 Go to Dashboard
               </button>
@@ -240,35 +247,139 @@ const Index = () => {
               <>
                 <button
                   onClick={() => navigate("/signin?mode=signin")}
-                  className="btn-secondary-glass px-4 py-2"
+                  className="btn-secondary-glass px-4 py-2 text-sm"
                 >
                   Sign In
                 </button>
                 <button
                   onClick={() => navigate("/signin?mode=signup")}
-                  className="btn-primary-glass px-4 py-2"
+                  className="btn-primary-glass px-4 py-2 text-sm"
                 >
                   Sign Up
                 </button>
               </>
             )}
           </div>
+          {/* Mobile Menu Button */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="md:hidden p-2 text-slate-700 hover:text-blue-600 transition-colors"
+            aria-label="Toggle menu"
+          >
+            {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+          </button>
         </header>
         
+        {/* Mobile Menu Overlay */}
+        {mobileMenuOpen && (
+          <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setMobileMenuOpen(false)} />
+        )}
+        
+        {/* Mobile Menu */}
+        <div className={`fixed top-16 left-2 right-2 md:hidden bg-[#ECF4FF] backdrop-blur-md shadow-xl rounded-xl border border-blue-200/50 z-50 transition-all duration-300 ${
+          mobileMenuOpen ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'
+        }`}>
+          <nav className="flex flex-col p-4 gap-2">
+            <button
+              onClick={() => {
+                const element = document.getElementById('features');
+                if (element) {
+                  element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                setMobileMenuOpen(false);
+              }}
+              className="text-left px-4 py-3 text-sm font-medium text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+            >
+              Features
+            </button>
+            <button
+              onClick={() => {
+                const element = document.getElementById('pricing');
+                if (element) {
+                  element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                setMobileMenuOpen(false);
+              }}
+              className="text-left px-4 py-3 text-sm font-medium text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+            >
+              Pricing
+            </button>
+            <button
+              onClick={() => {
+                const element = document.getElementById('about');
+                if (element) {
+                  element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                setMobileMenuOpen(false);
+              }}
+              className="text-left px-4 py-3 text-sm font-medium text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+            >
+              About Us
+            </button>
+            <button
+              onClick={() => {
+                window.location.hash = '#privacy-lock';
+                const element = document.getElementById('privacy-lock');
+                if (element) {
+                  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+                setMobileMenuOpen(false);
+              }}
+              className="text-left px-4 py-3 text-sm font-medium text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+            >
+              Privacy
+            </button>
+            <div className="border-t border-blue-200/50 mt-2 pt-2 flex flex-col gap-2">
+              {user ? (
+                <button
+                  onClick={() => {
+                    navigate("/home");
+                    setMobileMenuOpen(false);
+                  }}
+                  className="btn-secondary-glass px-4 py-2 text-sm w-full"
+                >
+                  Go to Dashboard
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => {
+                      navigate("/signin?mode=signin");
+                      setMobileMenuOpen(false);
+                    }}
+                    className="btn-secondary-glass px-4 py-2 text-sm w-full"
+                  >
+                    Sign In
+                  </button>
+                  <button
+                    onClick={() => {
+                      navigate("/signin?mode=signup");
+                      setMobileMenuOpen(false);
+                    }}
+                    className="btn-primary-glass px-4 py-2 text-sm w-full"
+                  >
+                    Sign Up
+                  </button>
+                </>
+              )}
+            </div>
+          </nav>
+        </div>
+        
         {/* Spacer to account for fixed header with margin */}
-        <div className="h-24"></div>
+        <div className="h-20 md:h-24"></div>
 
           <div className="flex-1 relative z-10">
 
         {/* Hero Section */}
         <section 
           ref={(el) => { sectionRefs.current[0] = el; }}
-          className="min-h-screen pt-40 pb-24 relative"
+          className="min-h-screen pt-20 md:pt-40 pb-12 md:pb-24 relative"
           data-scene="0"
           style={{ overflow: 'clip' }}
         >
           {/* Hero Text - Left-Aligned Linear Style */}
-          <div className="max-w-7xl mx-auto px-12 mb-20">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-12 mb-12 md:mb-20">
             <div className="max-w-5xl">
               <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold mb-6" style={{ overflow: 'visible', lineHeight: '1.1', letterSpacing: '-0.02em' }}>
                 <span className="text-hero-primary tracking-tight">
@@ -290,9 +401,9 @@ const Index = () => {
             </p>
             <button
               onClick={() => navigate("/signin?mode=signup")}
-              className="btn-primary-glass px-12 py-5 text-lg rounded-2xl pulse-glow inline-flex items-center gap-3"
+              className="btn-primary-glass px-6 md:px-12 py-3 md:py-5 text-base md:text-lg rounded-2xl pulse-glow inline-flex items-center gap-3"
             >
-              Try it out <ArrowRight className="h-5 w-5" />
+              Try it out <ArrowRight className="h-4 w-4 md:h-5 md:w-5" />
             </button>
             </div>
             
@@ -300,8 +411,8 @@ const Index = () => {
             <RotatingImage />
             
             {/* Title section */}
-            <div className="text-center mt-8 mb-16" style={{ marginTop: '100px' }}>
-              <h2 className="text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-bold mb-3 text-section-heading whitespace-nowrap">
+            <div className="text-center mt-8 md:mt-16 mb-12 md:mb-16" style={{ marginTop: '60px' }}>
+              <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-bold mb-3 text-section-heading">
                 The Entire Recruiting Process, <span style={{ color: '#3B82F6' }}>Automated</span>
               </h2>
               <p className="text-lg md:text-xl text-section-body max-w-2xl mx-auto">
