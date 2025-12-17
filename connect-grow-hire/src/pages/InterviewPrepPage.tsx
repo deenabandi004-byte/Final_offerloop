@@ -24,6 +24,7 @@ import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { PageHeaderActions } from "@/components/PageHeaderActions";
 import { useSubscription } from "@/hooks/useSubscription";
 import { canUseFeature, getRemainingUses, getFeatureLimit } from "@/utils/featureAccess";
+import { trackFeatureActionCompleted, trackContentViewed, trackError } from "../lib/analytics";
 
 const InterviewPrepPage: React.FC = () => {
   const navigate = useNavigate();
@@ -248,6 +249,11 @@ const InterviewPrepPage: React.FC = () => {
                 }
               }
               
+              // Track PostHog event
+              trackFeatureActionCompleted('interview_prep', 'generate', true, {
+                credits_spent: INTERVIEW_PREP_CREDITS,
+              });
+              
               flushSync(() => {
                 setInterviewPrepLoading(false);
                 setInterviewPrepStatus('completed');
@@ -333,6 +339,7 @@ const InterviewPrepPage: React.FC = () => {
       console.error('Interview prep failed:', error);
       setInterviewPrepStatus('failed');
       setInterviewPrepProgress('Generation failed');
+      trackError('interview_prep', 'generate', 'api_error', error.message);
       toast({
         title: "Generation Failed",
         description: error.message || "Please try again.",
@@ -418,6 +425,9 @@ const InterviewPrepPage: React.FC = () => {
           window.URL.revokeObjectURL(blobUrl);
         }, 100);
         
+        // Track PostHog event
+        trackContentViewed('interview_prep', 'pdf', id);
+        
         toast({
           title: "PDF Downloaded",
           description: "Your Interview Prep PDF has been downloaded.",
@@ -437,6 +447,9 @@ const InterviewPrepPage: React.FC = () => {
           document.body.removeChild(a);
         }, 100);
         
+        // Track PostHog event
+        trackContentViewed('interview_prep', 'pdf', id);
+        
         toast({
           title: "PDF Download Started",
           description: "Your Interview Prep PDF download has started.",
@@ -444,6 +457,7 @@ const InterviewPrepPage: React.FC = () => {
         });
       }
     } catch (err) {
+      trackError('interview_prep', 'download', 'network_error', err instanceof Error ? err.message : undefined);
       toast({
         title: "Download Failed",
         description: err instanceof Error ? err.message : "Could not download the PDF.",
@@ -456,15 +470,18 @@ const InterviewPrepPage: React.FC = () => {
     try {
       if (prep.pdfUrl) {
         window.open(prep.pdfUrl, "_blank", "noopener");
+        trackContentViewed('interview_prep', 'pdf', prep.id);
         return;
       }
       const { pdfUrl } = await apiService.downloadInterviewPrepPDF(prep.id);
       if (pdfUrl) {
         window.open(pdfUrl, "_blank", "noopener");
+        trackContentViewed('interview_prep', 'pdf', prep.id);
       } else {
         throw new Error("PDF URL not available yet");
       }
     } catch (error) {
+      trackError('interview_prep', 'download', 'network_error', error instanceof Error ? error.message : undefined);
       toast({
         title: "Download failed",
         description: "Could not open the PDF. Please try again.",

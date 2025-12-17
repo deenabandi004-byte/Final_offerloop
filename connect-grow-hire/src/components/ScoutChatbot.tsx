@@ -71,15 +71,97 @@ interface UserResume {
   university?: string;
   major?: string;
   year?: string;
+  location?: string; // Location extracted from resume
   key_experiences?: string[];
   achievements?: string[];
   interests?: string[];
+  // Support nested resumeParsed structure from Firestore
+  resumeParsed?: {
+    name?: string;
+    university?: string;
+    major?: string;
+    year?: string;
+    location?: string;
+    key_experiences?: string[];
+    skills?: string[];
+    achievements?: string[];
+    interests?: string[];
+  };
 }
 
 interface ScoutChatbotProps {
   onJobTitleSuggestion?: (title: string, company?: string, location?: string) => void;
   userResume?: UserResume;
 }
+
+/**
+ * Simplifies complex job titles for better contact search results.
+ * e.g., "Treasury & Capital Markets Senior Analyst" → "Senior Analyst"
+ * e.g., "Software Development Engineer II" → "Software Engineer"
+ */
+const simplifyJobTitle = (title: string): string => {
+  if (!title) return title;
+  
+  // Core role types to look for (order matters - more specific first)
+  const coreRoles = [
+    'Software Engineer', 'Software Developer', 'Engineer',
+    'Product Manager', 'Program Manager', 'Project Manager',
+    'Data Scientist', 'Data Analyst', 'Data Engineer',
+    'Investment Banking Analyst', 'Investment Banker',
+    'Financial Analyst', 'Business Analyst', 'Analyst',
+    'Consultant', 'Associate', 'Manager', 'Director',
+    'Designer', 'Researcher', 'Scientist',
+    'Account Executive', 'Sales Representative',
+    'Marketing Manager', 'Marketing Specialist',
+    'Operations Manager', 'Operations Analyst',
+    'HR Manager', 'Recruiter', 'Talent Acquisition',
+    'Attorney', 'Lawyer', 'Counsel',
+    'Accountant', 'Controller', 'Auditor',
+  ];
+  
+  // Seniority levels to preserve
+  const seniorityLevels = ['Senior', 'Staff', 'Principal', 'Lead', 'Junior', 'Associate', 'Vice President', 'VP'];
+  
+  const titleLower = title.toLowerCase();
+  
+  // Find the core role in the title
+  let matchedRole = '';
+  for (const role of coreRoles) {
+    if (titleLower.includes(role.toLowerCase())) {
+      matchedRole = role;
+      break;
+    }
+  }
+  
+  // If no core role found, return original (but maybe shortened)
+  if (!matchedRole) {
+    // If title is very long (>40 chars), try to extract last meaningful part
+    if (title.length > 40) {
+      const parts = title.split(/[-–—,&]/);
+      const lastPart = parts[parts.length - 1].trim();
+      if (lastPart.length > 3) {
+        return lastPart;
+      }
+    }
+    return title;
+  }
+  
+  // Check if there's a seniority level before the role
+  let seniority = '';
+  for (const level of seniorityLevels) {
+    if (titleLower.includes(level.toLowerCase())) {
+      seniority = level;
+      break;
+    }
+  }
+  
+  // Build simplified title
+  if (seniority && !matchedRole.toLowerCase().includes(seniority.toLowerCase())) {
+    return `${seniority} ${matchedRole}`;
+  }
+  
+  return matchedRole;
+};
 
 const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userResume }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -191,7 +273,10 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userR
 
   const handleJobClick = (job: JobListing) => {
     if (onJobTitleSuggestion) {
-      onJobTitleSuggestion(job.title, job.company, job.location || undefined);
+      // Simplify job title for better contact search results
+      const simplifiedTitle = simplifyJobTitle(job.title);
+      console.log('[Scout] Simplified job title:', job.title, '→', simplifiedTitle);
+      onJobTitleSuggestion(simplifiedTitle, job.company, job.location || undefined);
     }
   };
 

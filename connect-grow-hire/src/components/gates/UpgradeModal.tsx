@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { X, Lock, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tier, getRequiredTier, TIER_LIMITS } from '@/utils/featureAccess';
+import { trackUpgradeClick } from '../../lib/analytics';
 
 interface UpgradeModalProps {
   open: boolean;
@@ -28,6 +29,11 @@ export function UpgradeModal({
   if (!open) return null;
 
   const handleUpgrade = () => {
+    trackUpgradeClick(feature, {
+      from_action: reason || 'limit_reached',
+      from_location: 'modal',
+      plan_selected: requiredTier,
+    });
     onOpenChange(false);
     navigate(`/pricing?tier=${requiredTier}`);
   };

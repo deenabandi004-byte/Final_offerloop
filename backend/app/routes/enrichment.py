@@ -41,6 +41,19 @@ def autocomplete_api(data_type):
             elif isinstance(suggestion, str) and suggestion.strip():
                 clean_suggestions.append(suggestion.strip())
         
+        # For location autocomplete, add "United States" if query matches US-related terms
+        if data_type == 'location':
+            query_lower = query.lower().strip()
+            us_keywords = ['united', 'usa', 'us', 'america']
+            if any(keyword in query_lower for keyword in us_keywords):
+                # Add "United States" at the beginning if not already in suggestions
+                if 'United States' not in clean_suggestions:
+                    clean_suggestions.insert(0, 'United States')
+                # Also ensure it appears even if query is very short
+            elif len(query_lower) <= 2 and query_lower in ['us', 'u']:
+                if 'United States' not in clean_suggestions:
+                    clean_suggestions.insert(0, 'United States')
+        
         return jsonify({
             'suggestions': clean_suggestions,
             'query': query,

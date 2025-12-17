@@ -19,6 +19,7 @@ import { CreditPill } from "@/components/credits";
 import { apiService } from "@/services/api";
 import type { CoffeeChatPrep } from "@/services/api";
 import { toast } from "@/hooks/use-toast";
+import { trackContentViewed, trackError } from "../lib/analytics";
 
 const CoffeeChatLibrary: React.FC = () => {
   const { user } = useFirebaseAuth();
@@ -63,15 +64,20 @@ const CoffeeChatLibrary: React.FC = () => {
     try {
       if (prep.pdfUrl) {
         window.open(prep.pdfUrl, "_blank", "noopener");
+        // Track PostHog event
+        trackContentViewed('coffee_chat_prep', 'pdf', prep.id);
         return;
       }
       const { pdfUrl } = await apiService.downloadCoffeeChatPDF(prep.id);
       if (pdfUrl) {
         window.open(pdfUrl, "_blank", "noopener");
+        // Track PostHog event
+        trackContentViewed('coffee_chat_prep', 'pdf', prep.id);
       } else {
         throw new Error("PDF URL not available yet");
       }
     } catch (error) {
+      trackError('coffee_chat_prep', 'download', 'network_error', error instanceof Error ? error.message : undefined);
       toast({
         title: "Download failed",
         description: "Could not open the PDF. Please try again.",

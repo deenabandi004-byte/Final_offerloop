@@ -7,6 +7,7 @@ import { loadStripe } from "@stripe/stripe-js";
 import { getAuth } from 'firebase/auth';
 import { PageWrapper } from "@/components/PageWrapper";
 import { GlassCard } from "@/components/GlassCard";
+import { trackUpgradeClick } from "../lib/analytics";
 
 const STRIPE_PUBLISHABLE_KEY = "pk_live_51S4BB8ERY2WrVHp1acXrKE6RBG7NBlfHcMZ2kf7XhCX2E5g8Lasedx6ntcaD1H4BsoUMBGYXIcKHcAB4JuohLa2B00j7jtmWnB";
 const stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
@@ -152,7 +153,7 @@ const Pricing = () => {
     }
   };
 
-  const handleUpgrade = async (planType: 'free' | 'pro' | 'elite') => {
+  const handleUpgrade = async (planType: 'free' | 'pro' | 'elite', fromFeature?: string) => {
     if (!user) return;
   
     try {
@@ -165,6 +166,11 @@ const Pricing = () => {
         navigate("/home");
       } 
       else if (planType === 'pro' || planType === 'elite') {
+        // Track PostHog event
+        trackUpgradeClick(fromFeature || 'pricing', {
+          from_location: 'pricing_page',
+          plan_selected: planType,
+        });
         await handleStripeCheckout(planType);
       }
     } catch (error) {
@@ -249,7 +255,9 @@ const Pricing = () => {
     }
   };
 
-  const isProUser = (subscriptionStatus?.tier === 'pro' || subscriptionStatus?.tier === 'elite') && subscriptionStatus?.status === 'active';
+  const isProUser = subscriptionStatus?.tier === 'pro' && subscriptionStatus?.status === 'active';
+  const isEliteUser = subscriptionStatus?.tier === 'elite' && subscriptionStatus?.status === 'active';
+  const hasActiveSubscription = isProUser || isEliteUser;
   const currentTier = subscriptionStatus?.tier || 'free';
 
   return (
@@ -264,10 +272,12 @@ const Pricing = () => {
           Back to Home
         </Button>
 
-        {isProUser && (
-          <GlassCard className="mb-8 p-4 rounded-xl flex items-center justify-between border-blue-500/30">
+        {hasActiveSubscription && (
+          <GlassCard className={`mb-8 p-4 rounded-xl flex items-center justify-between ${isEliteUser ? 'border-purple-500/30' : 'border-blue-500/30'}`}>
             <div>
-              <p className="font-semibold text-blue-400">Pro Subscription Active</p>
+              <p className={`font-semibold ${isEliteUser ? 'text-purple-400' : 'text-blue-400'}`}>
+                {isEliteUser ? 'Elite' : 'Pro'} Subscription Active
+              </p>
               {subscriptionStatus?.cancelAtPeriodEnd && (
                 <p className="text-sm text-gray-400 text-slate-600">
                   Cancels on {new Date(subscriptionStatus.currentPeriodEnd! * 1000).toLocaleDateString()}
@@ -338,7 +348,7 @@ const Pricing = () => {
 
                 <Button 
                   className="btn-secondary-glass w-full py-4 px-6 font-semibold"
-                  onClick={() => currentTier === 'free' ? handleResetCredits('free') : handleUpgrade('free')}
+                  onClick={() => currentTier === 'free' ? handleResetCredits('free') : handleUpgrade('free', 'pricing_page')}
                 >
                   {currentTier === 'free' ? 'Current Plan' : 'Start for Free'}
                 </Button>
@@ -349,7 +359,7 @@ const Pricing = () => {
               <GlassCard className="relative rounded-xl h-full p-10">
                 <div className="absolute top-4 right-4">
                   <span className="px-3 py-1 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 text-xs font-medium">
-                    {isProUser ? 'ACTIVE' : 'MOST POPULAR'}
+                    {currentTier === 'pro' ? 'ACTIVE' : 'MOST POPULAR'}
                   </span>
                 </div>
                 
@@ -407,27 +417,34 @@ const Pricing = () => {
                   className="btn-primary-glass w-full py-6 px-6 text-lg font-semibold"
                   onClick={
                     isLoading ? undefined :
-                    (currentTier === 'pro' || currentTier === 'elite') 
+                    currentTier === 'pro'
                       ? (e: React.MouseEvent) => {
                           // If holding Shift key, reset credits instead of managing subscription
                           if (e.shiftKey) {
-                            handleResetCredits(currentTier === 'elite' ? 'elite' : 'pro');
+                            handleResetCredits('pro');
                           } else {
                             handleManageSubscription();
                           }
                         }
-                      : () => handleUpgrade('pro')
+                      : () => handleUpgrade('pro', 'pricing_page')
                   }
-                  disabled={isLoading}
-                  title={currentTier === 'pro' || currentTier === 'elite' ? 'Click to manage subscription. Hold Shift+Click to reset credits.' : undefined}
+                  disabled={isLoading || currentTier === 'elite'}
+                  title={currentTier === 'pro' ? 'Click to manage subscription. Hold Shift+Click to reset credits.' : currentTier === 'elite' ? 'You are on Elite plan' : undefined}
                 >
-                  {isLoading ? 'Processing...' : (currentTier === 'pro' || currentTier === 'elite') ? 'Manage Subscription' : 'Upgrade to Pro'}
+                  {isLoading ? 'Processing...' : currentTier === 'pro' ? 'Manage Subscription' : currentTier === 'elite' ? 'On Elite Plan' : 'Upgrade to Pro'}
                 </Button>
               </GlassCard>
             </div>
 
             {/* Elite Plan */}
-            <GlassCard className="rounded-2xl p-10 transform transition-all hover:scale-[1.02] hover:glow-teal">
+            <GlassCard className={`rounded-2xl p-10 transform transition-all hover:scale-[1.02] hover:glow-teal relative ${currentTier === 'elite' ? 'border border-purple-500/50' : ''}`}>
+              {currentTier === 'elite' && (
+                <div className="absolute top-4 right-4">
+                  <span className="px-3 py-1 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30 text-xs font-medium">
+                    ACTIVE
+                  </span>
+                </div>
+              )}
               <div className="text-center mb-8">
                 <h3 className="text-3xl font-bold mb-3 text-white text-slate-900">Elite</h3>
                 <p className="text-gray-400 text-slate-600">For serious recruiting season</p>
@@ -480,10 +497,22 @@ const Pricing = () => {
 
               <Button 
                 className="btn-secondary-glass w-full py-4 px-6 font-semibold"
-                onClick={() => currentTier === 'elite' ? handleResetCredits('elite') : handleUpgrade('elite')}
+                onClick={
+                  isLoading ? undefined :
+                  currentTier === 'elite'
+                    ? (e: React.MouseEvent) => {
+                        if (e.shiftKey) {
+                          handleResetCredits('elite');
+                        } else {
+                          handleManageSubscription();
+                        }
+                      }
+                    : () => handleUpgrade('elite', 'pricing_page')
+                }
                 disabled={isLoading}
+                title={currentTier === 'elite' ? 'Click to manage subscription. Hold Shift+Click to reset credits.' : undefined}
               >
-                {isLoading ? 'Processing...' : currentTier === 'elite' ? 'Current Plan' : 'Go Elite'}
+                {isLoading ? 'Processing...' : currentTier === 'elite' ? 'Manage Subscription' : 'Go Elite'}
               </Button>
             </GlassCard>
           </div>

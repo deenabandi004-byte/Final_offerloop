@@ -2,6 +2,7 @@ import React from 'react';
 import { Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
+import { trackUpgradeClick } from '../lib/analytics';
 
 interface LockedFeatureOverlayProps {
   featureName: string;
@@ -36,7 +37,12 @@ const LockedFeatureOverlay: React.FC<LockedFeatureOverlayProps> = ({
               )}
             </p>
              <Button
-               onClick={() => navigate('/pricing')}
+               onClick={() => {
+                 trackUpgradeClick(featureName.toLowerCase().replace(/\s+/g, '_'), {
+                   from_location: 'overlay',
+                 });
+                 navigate('/pricing');
+               }}
                className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 mt-2"
              >
                Upgrade Plan

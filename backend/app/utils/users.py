@@ -136,19 +136,75 @@ def extract_experience_summary(resume_text):
 
 
 def extract_hometown_from_resume(resume_text):
-    """Extract hometown from resume text."""
+    """Extract location/hometown from resume text using multiple patterns."""
     if not resume_text:
         return None
     
+    # More comprehensive patterns to catch location information
     patterns = [
-        r'[Ff]rom\s+([A-Z][a-zA-Z\s]+,\s*[A-Z]{2})',
-        r'[Hh]ometown:\s*([A-Z][a-zA-Z\s]+)',
-        r'[Bb]ased in\s+([A-Z][a-zA-Z\s]+,\s*[A-Z]{2})',
+        # "Based in Los Angeles, CA" or "Based in Los Angeles, California"
+        r'[Bb]ased in\s+([A-Z][a-zA-Z\s]+(?:,\s*[A-Z]{2}|,\s*[A-Z][a-z]+))',
+        # "From Los Angeles, CA" or "From Los Angeles, California"
+        r'[Ff]rom\s+([A-Z][a-zA-Z\s]+(?:,\s*[A-Z]{2}|,\s*[A-Z][a-z]+))',
+        # "Hometown: Los Angeles, CA"
+        r'[Hh]ometown[:\s]+([A-Z][a-zA-Z\s]+(?:,\s*[A-Z]{2}|,\s*[A-Z][a-z]+))',
+        # "Location: Los Angeles, CA"
+        r'[Ll]ocation[:\s]+([A-Z][a-zA-Z\s]+(?:,\s*[A-Z]{2}|,\s*[A-Z][a-z]+))',
+        # Address patterns: "123 Main St, Los Angeles, CA" or "Los Angeles, CA 90001"
+        r'([A-Z][a-zA-Z\s]+),\s*([A-Z]{2})\s*(?:\d{5}|$)',
+        # City, State format at start of line (common in contact sections)
+        r'^([A-Z][a-zA-Z\s]+),\s*([A-Z]{2}|[A-Z][a-z]+)(?:\s|$)',
+        # "Los Angeles, California" or "New York, New York"
+        r'([A-Z][a-zA-Z\s]+),\s*([A-Z][a-z]+)(?:\s|,|$)',
     ]
+    
     for pattern in patterns:
-        match = re.search(pattern, resume_text)
+        match = re.search(pattern, resume_text, re.MULTILINE)
         if match:
-            return match.group(1).strip()
+            location = match.group(1).strip() if match.lastindex >= 1 else None
+            if match.lastindex >= 2:
+                # If we captured city and state separately, combine them
+                city = match.group(1).strip()
+                state = match.group(2).strip()
+                # Normalize state abbreviations
+                state_abbrev = {
+                    'california': 'CA', 'new york': 'NY', 'texas': 'TX',
+                    'florida': 'FL', 'illinois': 'IL', 'pennsylvania': 'PA',
+                    'ohio': 'OH', 'georgia': 'GA', 'north carolina': 'NC',
+                    'michigan': 'MI', 'new jersey': 'NJ', 'virginia': 'VA',
+                    'washington': 'WA', 'arizona': 'AZ', 'massachusetts': 'MA',
+                    'tennessee': 'TN', 'indiana': 'IN', 'missouri': 'MO',
+                    'maryland': 'MD', 'wisconsin': 'WI', 'colorado': 'CO',
+                    'minnesota': 'MN', 'south carolina': 'SC', 'alabama': 'AL',
+                    'louisiana': 'LA', 'kentucky': 'KY', 'oregon': 'OR',
+                    'oklahoma': 'OK', 'connecticut': 'CT', 'utah': 'UT',
+                    'iowa': 'IA', 'nevada': 'NV', 'arkansas': 'AR',
+                    'mississippi': 'MS', 'kansas': 'KS', 'new mexico': 'NM',
+                    'nebraska': 'NE', 'west virginia': 'WV', 'idaho': 'ID',
+                    'hawaii': 'HI', 'new hampshire': 'NH', 'maine': 'ME',
+                    'montana': 'MT', 'rhode island': 'RI', 'delaware': 'DE',
+                    'south dakota': 'SD', 'north dakota': 'ND', 'alaska': 'AK',
+                    'vermont': 'VT', 'wyoming': 'WY', 'district of columbia': 'DC'
+                }
+                state_lower = state.lower()
+                if state_lower in state_abbrev:
+                    state = state_abbrev[state_lower]
+                elif len(state) == 2 and state.isupper():
+                    # Already an abbreviation
+                    pass
+                else:
+                    # Try to find abbreviation
+                    for full_name, abbrev in state_abbrev.items():
+                        if full_name in state_lower:
+                            state = abbrev
+                            break
+                location = f"{city}, {state}"
+            
+            if location and len(location) > 3:
+                # Clean up the location string
+                location = re.sub(r'\s+', ' ', location).strip()
+                return location
+    
     return None
 
 
@@ -186,6 +242,7 @@ def parse_resume_info(resume_text):
   "university": "University Name",
   "major": "Major/Field of Study",
   "year": "Graduation Year or Class Year",
+  "location": "City, State or City, ST (e.g., 'Los Angeles, CA' or 'New York, NY') - extract from address, contact info, or 'based in' statements. Use empty string if not found.",
   "key_experiences": ["Brief description of 2-3 most relevant experiences/projects"],
   "skills": ["Top 3-5 relevant skills"],
   "achievements": ["1-2 notable achievements or accomplishments"],

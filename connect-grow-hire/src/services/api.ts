@@ -31,6 +31,31 @@ export interface ProContactSearchRequest extends ContactSearchRequest {
   resume: File;
 }
 
+// ================================
+// Prompt Search Types (Experimental)
+// ================================
+export interface ParsedSearchFilters {
+  company: string[];
+  roles: string[];
+  location: string[];
+  schools: string[];
+  industries: string[];
+  max_results: number;
+  confidence: number;
+}
+
+// Simple prompt search response
+export interface PromptSearchResponse {
+  contacts: Contact[];
+  parsed_query: {
+    job_title: string;
+    company: string;
+    location: string;
+    school: string;
+  };
+  count: number;
+}
+
 export interface Contact {
   FirstName: string;
   LastName: string;
@@ -622,6 +647,9 @@ class ApiService {
     formData.append('resume', request.resume);
     formData.append('saveToDirectory', 'false'); // Always false since we handle saving on frontend
     formData.append('collegeAlumni', request.collegeAlumni || ''); // ✅ Include collegeAlumni
+    if (request.batchSize) {
+      formData.append('batchSize', request.batchSize.toString()); // ✅ Include batch size
+    }
 
     if (request.userProfile) {
       formData.append('userProfile', JSON.stringify(request.userProfile));
@@ -638,6 +666,7 @@ class ApiService {
       console.log(`  company: "${request.company}"`);
       console.log(`  location: "${request.location}"`);
       console.log(`  resume: ${request.resume.name} (${request.resume.size} bytes)`);
+      console.log(`  batchSize: ${request.batchSize || 'not set'}`);
       console.log(`  userProfile: ${JSON.stringify(request.userProfile)}`);
       console.log(`  careerInterests: ${JSON.stringify(request.careerInterests)}`);
       console.log(`  collegeAlumni: "${request.collegeAlumni || ''}"`);
@@ -718,6 +747,36 @@ class ApiService {
   async runAdvancedSearch(request: ContactSearchRequest): Promise<SearchResult> {
     console.warn('runAdvancedSearch is deprecated. Redirecting to Free tier.');
     return this.runFreeSearch(request);
+  }
+
+  // ================================
+  // Prompt Search Endpoints (Experimental)
+  // ================================
+
+  /**
+   * Parse a natural language prompt into structured search filters.
+   * This is a FREE operation - no credits are deducted.
+   */
+  async parseSearchPrompt(prompt: string): Promise<ParsedSearchFilters | ApiError> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<ParsedSearchFilters | ApiError>('/search/parse-prompt', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ prompt }),
+    });
+  }
+
+  /**
+   * Simple prompt-based search that parses prompt and returns contacts.
+   * Uses existing search_contacts_with_smart_location_strategy() backend.
+   */
+  async promptSearch(prompt: string, maxContacts: number = 8): Promise<PromptSearchResponse | ApiError> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<PromptSearchResponse | ApiError>('/prompt-search', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ prompt, max_contacts: maxContacts }),
+    });
   }
 
   // ================================

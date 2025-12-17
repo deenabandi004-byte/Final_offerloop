@@ -1061,7 +1061,30 @@ def es_title_block_from_enrichment(primary_title: str, similar_titles: list[str]
 def determine_location_strategy(location_input):
     """Determine whether to use metro or locality search based on input location"""
     try:
+        # Handle empty/None location
+        if not location_input or not isinstance(location_input, str) or not location_input.strip():
+            return {
+                'strategy': 'no_location',
+                'metro_location': None,
+                'city': None,
+                'state': None,
+                'original_input': '',
+                'matched_metro': None
+            }
+        
         location_lower = location_input.lower().strip()
+        
+        # Check for country-only searches (United States, USA, US)
+        us_aliases = ['united states', 'usa', 'us', 'united states of america']
+        if location_lower in us_aliases:
+            return {
+                'strategy': 'country_only',
+                'metro_location': None,
+                'city': None,
+                'state': None,
+                'original_input': location_input,
+                'matched_metro': None
+            }
         
         # Parse input location
         if ',' in location_lower:
@@ -1562,57 +1585,73 @@ def try_metro_search_optimized(clean_title, similar_titles, company, location_st
         print("❌ No valid job title")
         return []
     
+    strategy = location_strategy.get("strategy", "locality_primary")
     metro_location = (location_strategy.get("metro_location") or "").lower()
     city = (location_strategy.get("city") or "").lower()
     state = (location_strategy.get("state") or "").lower()
     
-    if not metro_location and not city:
+    # Handle country-only search (United States, USA, US)
+    if strategy == 'country_only':
+        # Build title block with validation
+        title_block = es_title_block_from_enrichment(clean_title, similar_titles)
+        
+        # Validate title block isn't empty
+        if not title_block.get("bool", {}).get("should") and not title_block.get("exists"):
+            print("❌ Empty title block")
+            return []
+        
+        # Only filter by country for country-only searches
+        location_must = [{"term": {"location_country": "united states"}}]
+        loc_block = {"bool": {"must": location_must}}
+    elif not metro_location and not city:
         print("❌ No valid location")
         return []
-    
-    # Build title block with validation
-    title_block = es_title_block_from_enrichment(clean_title, similar_titles)
-    
-    # Validate title block isn't empty
-    if not title_block.get("bool", {}).get("should") and not title_block.get("exists"):
-        print("❌ Empty title block")
-        return []
-    
-    # Build location filter
-    location_must = []
-    
-    # Use match instead of term for more flexible location matching
-    if metro_location and city:
-        location_must.append({
-            "bool": {
-                "should": [
-                    {"match": {"location_metro": metro_location}},
-                    {"match": {"location_locality": city}}
-                ]
-            }
-        })
-    elif metro_location:
-        location_must.append({"match": {"location_metro": metro_location}})
-    elif city:
-        location_must.append({"match": {"location_locality": city}})
-    
-    # Make state optional - use should instead of must
-    if state:
-        location_must.append({
-            "bool": {
-                "should": [
-                    {"match": {"location_region": state}},
-                    {"match": {"location_locality": state}}  # Sometimes state is in city field
-                ]
-            }
-        })
-    
-    location_must.append({"term": {"location_country": "united states"}})
-    
-    loc_block = {"bool": {"must": location_must}}
+    else:
+        # Build title block with validation
+        title_block = es_title_block_from_enrichment(clean_title, similar_titles)
+        
+        # Validate title block isn't empty
+        if not title_block.get("bool", {}).get("should") and not title_block.get("exists"):
+            print("❌ Empty title block")
+            return []
+        
+        # Build location filter
+        location_must = []
+        
+        # Use match instead of term for more flexible location matching
+        if metro_location and city:
+            location_must.append({
+                "bool": {
+                    "should": [
+                        {"match": {"location_metro": metro_location}},
+                        {"match": {"location_locality": city}}
+                    ]
+                }
+            })
+        elif metro_location:
+            location_must.append({"match": {"location_metro": metro_location}})
+        elif city:
+            location_must.append({"match": {"location_locality": city}})
+        
+        # Make state optional - use should instead of must
+        if state:
+            location_must.append({
+                "bool": {
+                    "should": [
+                        {"match": {"location_region": state}},
+                        {"match": {"location_locality": state}}  # Sometimes state is in city field
+                    ]
+                }
+            })
+        
+        location_must.append({"term": {"location_country": "united states"}})
+        
+        loc_block = {"bool": {"must": location_must}}
 
-    # Build final query
-    must = [title_block, loc_block]
+    # Build final query - only include blocks that exist
+    must = [title_block]
+    if loc_block:
+        must.append(loc_block)
     
     # Add optional filters - use both match_phrase and match for flexibility
     if company and company.strip():
@@ -1712,38 +1751,46 @@ def try_metro_search_optimized(clean_title, similar_titles, company, location_st
 def try_locality_search_optimized(clean_title, similar_titles, company, location_strategy, max_contacts=8, college_alumni=None, exclude_keys=None):
     """
     Locality-focused version (used when metro results are thin).
-    STRICT LOCATION: city AND state AND country
+    STRICT LOCATION: city AND state AND country, or country-only for United States
     """
     # ✅ Handle exclusion keys
     excluded_keys = exclude_keys or set()
     
     title_block = es_title_block_from_enrichment(clean_title, similar_titles)
     
-    # BUILD STRICT LOCATION FILTER
-    city = (location_strategy.get("city") or "").lower()
-    state = (location_strategy.get("state") or "").lower()
+    strategy = location_strategy.get("strategy", "locality_primary")
     
-    location_must = []
-    
-    # Use match for more flexible city matching
-    if city:
-        location_must.append({"match": {"location_locality": city}})
-    
-    # Make state optional - use should for flexibility
-    if state:
-        location_must.append({
-            "bool": {
-                "should": [
-                    {"match": {"location_region": state}},
-                    {"match": {"location_locality": state}}  # Sometimes state is in city field
-                ]
-            }
-        })
-    
-    # Always require USA
-    location_must.append({"term": {"location_country": "united states"}})
-    
-    loc_block = {"bool": {"must": location_must}}
+    # Handle country-only search (United States, USA, US)
+    if strategy == 'country_only':
+        # Only filter by country for country-only searches
+        location_must = [{"term": {"location_country": "united states"}}]
+        loc_block = {"bool": {"must": location_must}}
+    else:
+        # BUILD STRICT LOCATION FILTER
+        city = (location_strategy.get("city") or "").lower()
+        state = (location_strategy.get("state") or "").lower()
+        
+        location_must = []
+        
+        # Use match for more flexible city matching
+        if city:
+            location_must.append({"match": {"location_locality": city}})
+        
+        # Make state optional - use should for flexibility
+        if state:
+            location_must.append({
+                "bool": {
+                    "should": [
+                        {"match": {"location_region": state}},
+                        {"match": {"location_locality": state}}  # Sometimes state is in city field
+                    ]
+                }
+            })
+        
+        # Always require USA
+        location_must.append({"term": {"location_country": "united states"}})
+        
+        loc_block = {"bool": {"must": location_must}}
 
     must = [title_block, loc_block]
     if company:
@@ -1758,27 +1805,15 @@ def try_locality_search_optimized(clean_title, similar_titles, company, location
             }
         })
     
-    # ✅ ADD EDUCATION FILTER TO QUERY - use both match_phrase and match
-    if college_alumni:
-        aliases = _school_aliases(college_alumni)
-        if aliases:
-            # Use both match_phrase (exact) and match (flexible) for better coverage
-            education_clauses = []
-            for a in aliases:
-                education_clauses.append({"match_phrase": {"education.school.name": a}})
-                education_clauses.append({"match": {"education.school.name": a}})
-            must.append({
-                "bool": {
-                    "should": education_clauses
-                }
-            })
+    # ✅ NO EDUCATION FILTER IN QUERY - alumni filtering happens post-fetch via _contact_has_school_as_primary_education_lenient()
+    # This makes the PDL query broader (title + company + location) and more likely to return results
+    # Python post-filtering then verifies alumni status
 
     # ✅ ALL FILTERS IN MUST CLAUSE - PDL only returns people matching ALL criteria:
     #   1. Job title (title_block)
     #   2. Location (loc_block) 
     #   3. Company (if provided)
-    #   4. Education/school (if provided)
-    # This is efficient - PDL filters at query time, not post-processing
+    # Education/school filtering happens post-fetch in Python
     query_obj = {"bool": {"must": must}}
 
     PDL_URL = f"{PDL_BASE_URL}/person/search"
@@ -1788,12 +1823,14 @@ def try_locality_search_optimized(clean_title, similar_titles, company, location
         "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
     }
 
-    # ✅ Request MORE than needed to account for filtering + variation
-    # When alumni filter is active, PDL already narrows results
+    # ✅ Request MORE than needed to account for post-filtering
+    # Since we're post-filtering for alumni instead of query-filtering, we need to fetch more
+    # to account for the fact that not all results will be alumni
     if college_alumni:
-        fetch_limit = max_contacts * 2  # Alumni filter in query = high hit rate
+        # Post-filtering means we need to fetch many more to get enough alumni
+        fetch_limit = max_contacts * 10  # Post-filtering = lower hit rate, need more buffer
     else:
-        fetch_limit = max_contacts * 5  # No alumni filter = need more buffer
+        fetch_limit = max_contacts * 8  # No alumni filter = need more buffer
     
     page_size = min(100, max(1, fetch_limit))
 
@@ -1887,27 +1924,15 @@ def try_job_title_levels_search_enhanced(job_title_enrichment, company, city, st
 
     must.append({"bool": {"must": location_must}})
 
-    # ✅ ADD EDUCATION FILTER TO QUERY - use both match_phrase and match
-    if college_alumni:
-        aliases = _school_aliases(college_alumni)
-        if aliases:
-            # Use both match_phrase (exact) and match (flexible) for better coverage
-            education_clauses = []
-            for a in aliases:
-                education_clauses.append({"match_phrase": {"education.school.name": a}})
-                education_clauses.append({"match": {"education.school.name": a}})
-            must.append({
-                "bool": {
-                    "should": education_clauses
-                }
-            })
+    # ✅ NO EDUCATION FILTER IN QUERY - alumni filtering happens post-fetch via _contact_has_school_as_primary_education_lenient()
+    # This makes the PDL query broader (title + company + location) and more likely to return results
+    # Python post-filtering then verifies alumni status
 
     # ✅ ALL FILTERS IN MUST CLAUSE - PDL only returns people matching ALL criteria:
     #   1. Job title (title_block)
     #   2. Location (loc_block) 
     #   3. Company (if provided)
-    #   4. Education/school (if provided)
-    # This is efficient - PDL filters at query time, not post-processing
+    # Education/school filtering happens post-fetch in Python
     query_obj = {"bool": {"must": must}}
 
     PDL_URL = f"{PDL_BASE_URL}/person/search"
@@ -1917,12 +1942,14 @@ def try_job_title_levels_search_enhanced(job_title_enrichment, company, city, st
         "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
     }
 
-    # ✅ Request MORE than needed to account for filtering + variation
-    # When alumni filter is active, PDL already narrows results
+    # ✅ Request MORE than needed to account for post-filtering
+    # Since we're post-filtering for alumni instead of query-filtering, we need to fetch more
+    # to account for the fact that not all results will be alumni
     if college_alumni:
-        fetch_limit = max_contacts * 2  # Alumni filter in query = high hit rate
+        # Post-filtering means we need to fetch many more to get enough alumni
+        fetch_limit = max_contacts * 10  # Post-filtering = lower hit rate, need more buffer
     else:
-        fetch_limit = max_contacts * 5  # No alumni filter = need more buffer
+        fetch_limit = max_contacts * 8  # No alumni filter = need more buffer
     
     page_size = min(100, max(1, fetch_limit))
 
@@ -1990,10 +2017,12 @@ def search_contacts_with_smart_location_strategy(
         print(f"  └─ exclude_keys: {len(exclude_keys) if exclude_keys else 0} contacts")
         
         # ✅ VALIDATE REQUIRED INPUTS
-        if not job_title or not job_title.strip():
-            print(f"❌ ERROR: job_title is required but was empty or None")
-            return []
+        # Note: job_title can be empty for prompt search (will search without job title filter)
+        # if not job_title or not job_title.strip():
+        #     print(f"❌ ERROR: job_title is required but was empty or None")
+        #     return []
         
+        # Location is required for general search (not prompt search)
         if not location or not location.strip():
             print(f"❌ ERROR: location is required but was empty or None")
             return []

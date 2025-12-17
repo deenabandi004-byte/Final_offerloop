@@ -6,7 +6,7 @@ import { CreditPill } from "@/components/credits";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { Search, FileText, Upload, Download } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 // ScoutBubble removed - now using ScoutHeaderButton in PageHeaderActions
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,10 +24,13 @@ import { PageHeaderActions } from "@/components/PageHeaderActions";
 import { db, storage, auth } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { PromptSearchFlow } from "@/components/search/PromptSearchFlow";
+import { trackFeatureActionCompleted, trackError } from "../lib/analytics";
 
 const ContactSearchPage: React.FC = () => {
   const { user, checkCredits, updateCredits } = useFirebaseAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const effectiveUser = user || {
     credits: 0,
     maxCredits: 0,
@@ -73,7 +76,8 @@ const ContactSearchPage: React.FC = () => {
   const [batchSize, setBatchSize] = useState<number>(1);
   
   const maxBatchSize = useMemo(() => {
-    const tierMax = userTier === 'free' ? 3 : 8; // pro and elite both get 8
+    // Get tier-specific max contacts: free=3, pro=8, elite=15
+    const tierMax = userTier === 'free' ? 3 : userTier === 'pro' ? 8 : 15;
     const creditMax = Math.floor((effectiveUser.credits ?? 0) / 15);
     return Math.min(tierMax, creditMax);
   }, [userTier, effectiveUser.credits]);
@@ -89,8 +93,36 @@ const ContactSearchPage: React.FC = () => {
 
   // Tab state
   const [activeTab, setActiveTab] = useState<string>("contact-search");
+  
+  // Search mode state (traditional vs prompt)
+  const [searchMode, setSearchMode] = useState<'traditional' | 'prompt'>('traditional');
 
-  const currentTierConfig = TIER_CONFIGS[userTier];
+  // Fallback to 'free' config if tier not found (safety for new tiers)
+  const currentTierConfig = TIER_CONFIGS[userTier] || TIER_CONFIGS.free;
+
+  // Read URL parameters (e.g., from "View Contacts" in Firm Library)
+  useEffect(() => {
+    const companyParam = searchParams.get('company');
+    const locationParam = searchParams.get('location');
+    
+    if (companyParam || locationParam) {
+      if (companyParam) {
+        setCompany(companyParam);
+      }
+      if (locationParam) {
+        setLocation(locationParam);
+      }
+      
+      // Clear URL params after reading to avoid re-triggering
+      setSearchParams({}, { replace: true });
+      
+      // Show toast to indicate pre-fill
+      toast({
+        title: "Search pre-filled",
+        description: `Finding contacts at ${companyParam || 'this company'}`,
+      });
+    }
+  }, []); // Run once on mount
 
   // Helper functions
   const stripUndefined = <T extends Record<string, any>>(obj: T) =>
@@ -624,6 +656,14 @@ const ContactSearchPage: React.FC = () => {
         setProgressValue(100);
         setSearchComplete(true);
 
+        // Track PostHog event
+        // Note: Only captures metadata (counts, credits, filter presence), not actual search terms or user input
+        trackFeatureActionCompleted('contact_search', 'search', true, {
+          results_count: result.contacts.length,
+          credits_spent: creditsUsed,
+          alumni_filter: !!(collegeAlumni || '').trim(),
+        });
+
         // Log activity for contact search
         if (user?.uid && result.contacts.length > 0) {
           try {
@@ -686,6 +726,8 @@ const ContactSearchPage: React.FC = () => {
           if (progressInterval) clearInterval(progressInterval);
           setIsSearching(false);
           setProgressValue(0);
+          const errorType = result.error?.includes("Insufficient credits") ? "insufficient_credits" : "api_error";
+          trackError('contact_search', 'search', errorType, result.error);
           if (result.error?.includes("Insufficient credits")) {
             toast({
               title: "Insufficient Credits",
@@ -719,6 +761,14 @@ const ContactSearchPage: React.FC = () => {
 
         setProgressValue(100);
         setSearchComplete(true);
+
+        // Track PostHog event
+        // Note: Only captures metadata (counts, credits, filter presence), not actual search terms or user input
+        trackFeatureActionCompleted('contact_search', 'search', true, {
+          results_count: result.contacts.length,
+          credits_spent: creditsUsed,
+          alumni_filter: !!(collegeAlumni || '').trim(),
+        });
         
         // Log activity for contact search
         if (user?.uid && result.contacts.length > 0) {
@@ -957,6 +1007,96 @@ const ContactSearchPage: React.FC = () => {
                 </div>
 
                 <TabsContent value="contact-search" className="mt-6">
+                  {/* Prompt Search Toggle */}
+                  <div className="mb-6 flex justify-center">
+                    <div className="inline-flex rounded-lg border border-border bg-muted p-1">
+                      <button
+                        onClick={() => setSearchMode('traditional')}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                          searchMode === 'traditional'
+                            ? 'bg-background text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        Traditional Search
+                      </button>
+                      <button
+                        onClick={() => userTier === 'elite' ? setSearchMode('prompt') : null}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
+                          searchMode === 'prompt'
+                            ? 'bg-background text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        } ${userTier !== 'elite' ? 'opacity-70 cursor-not-allowed' : ''}`}
+                        title={userTier !== 'elite' ? 'Upgrade to Elite to unlock Prompt Search' : ''}
+                      >
+                        Prompt Search
+                        {userTier !== 'elite' && (
+                          <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded">
+                            ELITE
+                          </span>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Prompt Search Flow */}
+                  {searchMode === 'prompt' && (
+                    <div className="mb-6">
+                      {userTier === 'elite' ? (
+                        <PromptSearchFlow
+                          onSearchComplete={(contacts, parsedQuery) => {
+                            setLastResults(contacts);
+                            setSearchComplete(true);
+                            setProgressValue(100);
+                            setIsSearching(false);
+                            // Pass the parsed location to autoSaveToDirectory
+                            const searchLocation = parsedQuery?.location || '';
+                            autoSaveToDirectory(contacts, searchLocation);
+                            // Track PostHog event
+                            // Note: Only captures metadata (counts, credits, filter presence), not actual search terms or user input
+                            const creditsUsed = contacts.length * 15;
+                            trackFeatureActionCompleted('contact_search', 'search', true, {
+                              results_count: contacts.length,
+                              credits_spent: creditsUsed,
+                              alumni_filter: !!(parsedQuery?.school || '').trim(),
+                            });
+                          }}
+                          onSearchStart={() => {
+                            setIsSearching(true);
+                            setSearchComplete(false);
+                            setLastResults([]); // Clear previous results
+                            setProgressValue(0);
+                          }}
+                          userTier={userTier}
+                          userCredits={effectiveUser.credits ?? 0}
+                        />
+                      ) : (
+                        <div className="p-8 rounded-xl border border-purple-500/30 bg-gradient-to-br from-purple-500/5 to-indigo-500/5">
+                          <div className="text-center space-y-4">
+                            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-purple-500/20 to-indigo-500/20 mb-2">
+                              <span className="text-3xl">✨</span>
+                            </div>
+                            <h3 className="text-xl font-semibold text-foreground">
+                              Prompt Search is an Elite Feature
+                            </h3>
+                            <p className="text-muted-foreground max-w-md mx-auto">
+                              Describe who you want to reach in natural language - our AI parses your prompt and finds the perfect contacts automatically.
+                            </p>
+                            <button
+                              onClick={() => navigate('/pricing')}
+                              className="mt-4 px-6 py-3 rounded-lg bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-medium hover:from-purple-600 hover:to-indigo-600 transition-all"
+                            >
+                              Upgrade to Elite
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Traditional Search Form */}
+                  {searchMode === 'traditional' && (
+                    <>
                   {/* Fit Context Indicator - Shows when emails will be targeted */}
                   {currentFitContext && currentFitContext.job_title && (
                     <Card className="mb-6 bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200">
@@ -1158,7 +1298,7 @@ const ContactSearchPage: React.FC = () => {
                           </div>
                         </div>
 
-                        {maxBatchSize < (userTier === 'free' ? 3 : 8) && (
+                        {maxBatchSize < (userTier === 'free' ? 3 : userTier === 'pro' ? 8 : 15) && (
                           <div className="mt-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
                             <p className="text-xs text-yellow-700 flex items-start gap-2">
                               <span>Warning</span>
@@ -1301,6 +1441,30 @@ const ContactSearchPage: React.FC = () => {
                         </Card>
                       )}
 
+                      {searchComplete && lastResults.length === 0 && (
+                        <div className="mt-4 p-4 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border-2 border-yellow-500/50 rounded-lg">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="text-base font-semibold text-yellow-700">
+                              No Contacts Found
+                            </div>
+                          </div>
+                          <div className="text-sm text-yellow-700 mt-2">
+                            <p className="mb-2">The search criteria may be too restrictive. Try:</p>
+                            <ul className="list-disc list-inside space-y-1 ml-2">
+                              <li>Using a broader job title (e.g., "analyst" instead of "investment banking analyst")</li>
+                              <li>Removing the company filter</li>
+                              <li>Using a broader location (e.g., just the state instead of city)</li>
+                              <li>Removing the school filter if searching for alumni</li>
+                            </ul>
+                            {searchMode === 'prompt' && (
+                              <p className="mt-3 text-xs text-yellow-600">
+                                💡 Tip: Edit the filters in the confirmation screen to make them less specific
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
                       {hasResults && lastSearchStats && (
                         <div className="mt-4 p-4 bg-gradient-to-r from-green-500/10 to-blue-500/10 border-2 border-green-500/50 rounded-lg">
                           <div className="flex items-center justify-between mb-2">
@@ -1332,6 +1496,8 @@ const ContactSearchPage: React.FC = () => {
                       )}
                     </CardContent>
                   </Card>
+                    </>
+                  )}
                 </TabsContent>
 
                 <TabsContent value="contact-library" className="mt-6">

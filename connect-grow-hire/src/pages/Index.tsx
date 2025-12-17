@@ -378,26 +378,18 @@ const Index = () => {
           data-scene="0"
           style={{ overflow: 'clip' }}
         >
-          {/* Hero Text - Left-Aligned Linear Style */}
+          {/* Hero Text - Centered */}
           <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-12 mb-12 md:mb-20">
-            <div className="max-w-5xl">
+            <div className="max-w-5xl mx-auto text-center">
               <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold mb-6" style={{ overflow: 'visible', lineHeight: '1.1', letterSpacing: '-0.02em' }}>
                 <span className="text-hero-primary tracking-tight">
-                  Offerloop is your <span
-                    style={{
-                      color: '#3B82F6',
-                      fontStyle: 'italic',
-                    }}
-                  >
-                    AI co-pilot
-                  </span> for competitive recruiting.
+                  One recruiting workspace.
+                  <br />
+                  <span style={{ color: '#3B82F6' }}>No busywork.</span>
               </span>
             </h1>
-              <p className="text-lg md:text-xl text-hero-subtitle mb-4 max-w-3xl leading-relaxed">
-                Automate research, outreach, and interview prep all in one place.
-              </p>
-              <p className="text-lg md:text-xl text-hero-subtitle mb-12 max-w-3xl leading-relaxed">
-                Work smarter. Network faster. Land better opportunities.
+              <p className="text-lg md:text-xl text-black mb-12 max-w-3xl mx-auto leading-relaxed">
+                Offerloop helps early-career candidates automate personalized outreach, research, and interview prep, turning 1 hour of work into 10.
             </p>
             <button
               onClick={() => navigate("/signin?mode=signup")}
@@ -427,10 +419,10 @@ const Index = () => {
           <FeatureCards />
         </section>
 
-          {/* No More Header */}
+          {/* Recruiting doesn't have to mean Header */}
           <div className="text-center mt-16 mb-8">
             <h2 className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold text-section-heading flex items-baseline justify-center">
-              No More
+              Recruiting doesn't have to mean
               <AnimatedDots />
             </h2>
           </div>
@@ -448,20 +440,32 @@ const Index = () => {
                   playsInline
                   className="rounded-3xl shadow-lg w-full md:w-1/2 h-64 md:h-80 object-cover border-8 border-black"
                 />
-                <div className="w-full md:w-1/2 flex items-center justify-center">
-                  <RetriggerableTextType
-                    text="Burnout"
-                    className="gradient-text-teal text-6xl md:text-7xl lg:text-8xl font-bold"
-                  />
+                <div className="w-full md:w-1/2 flex flex-col items-end md:items-center justify-center">
+                  <div style={{ marginTop: '-40px' }} className="text-right md:text-center">
+                    <RetriggerableTextType
+                      text="Burnout"
+                      className="text-6xl md:text-7xl lg:text-8xl font-bold"
+                      style={{ color: '#3B82F6' }}
+                    />
+                    <p className="text-base md:text-lg text-black mt-3 text-right md:text-center">
+                      From endless tabs, repeated research, and manual follow-ups.
+                    </p>
+                  </div>
                 </div>
               </div>
               {/* Row 2 - Text Space on Left, Second Video on Right */}
               <div className="flex flex-col md:flex-row items-center gap-6">
-                <div className="w-full md:w-1/2 flex items-center justify-center">
-                  <RetriggerableTextType
-                    text="Stress"
-                    className="gradient-text-teal text-6xl md:text-7xl lg:text-8xl font-bold"
-                  />
+                <div className="w-full md:w-1/2 flex flex-col items-start md:items-center justify-center">
+                  <div style={{ marginTop: '-40px' }} className="text-left md:text-center">
+                    <RetriggerableTextType
+                      text="Stress"
+                      className="text-6xl md:text-7xl lg:text-8xl font-bold"
+                      style={{ color: '#3B82F6' }}
+                    />
+                    <p className="text-base md:text-lg text-black mt-3 text-left md:text-center">
+                      From losing track of who you contacted and what's next.
+                    </p>
+                  </div>
                 </div>
                 <video 
                   src={ScaredScout}
@@ -485,15 +489,30 @@ const Index = () => {
                     style={{ transform: 'scale(1.00)', objectPosition: 'center' }}
                   />
                 </div>
-                <div className="w-full md:w-1/2 flex items-center justify-end md:justify-center">
-                  <RetriggerableTextType
-                    text="FOMO"
-                    className="gradient-text-teal text-6xl md:text-7xl lg:text-8xl font-bold md:ml-[100px]"
-                  />
+                <div className="w-full md:w-1/2 flex flex-col items-center justify-end md:justify-center">
+                  <div style={{ marginTop: '-40px' }} className="text-right md:text-center">
+                    <RetriggerableTextType
+                      text="FOMO"
+                      className="text-6xl md:text-7xl lg:text-8xl font-bold md:ml-[100px]"
+                      style={{ color: '#3B82F6' }}
+                    />
+                    <p className="text-base md:text-lg text-black mt-3 text-right md:text-center">
+                      From being tired at home wishing you were out enjoying your life.
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
           </section>
+
+        {/* Offerloop replaces section */}
+        <section className="py-12 px-6">
+          <div className="max-w-7xl mx-auto text-center">
+            <p className="text-xl md:text-2xl font-bold text-black max-w-5xl mx-auto">
+              Offerloop replaces scattered recruiting work with one clear system, so progress feels manageable instead of overwhelming.
+            </p>
+          </div>
+        </section>
 
         {/* Made for Section */}
         <section className="py-24 px-6 relative overflow-visible">

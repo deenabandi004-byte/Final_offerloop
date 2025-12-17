@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { useEffect, useState, useRef } from "react";
 import { getAuth } from 'firebase/auth';
+import { trackCheckoutCompleted, trackError } from "../lib/analytics";
 
 export default function PaymentSuccess() {
   const navigate = useNavigate();
@@ -159,6 +160,10 @@ export default function PaymentSuccess() {
           setStatus('success');
           setMessage('Successfully upgraded to Pro! 🎉');
           
+          // Track checkout completion
+          const plan = result.user?.tier || 'pro';
+          trackCheckoutCompleted(plan);
+          
           // Refresh user data
           try {
             await refreshUser();
@@ -177,6 +182,7 @@ export default function PaymentSuccess() {
           const errorMsg = result.error || result.message || 'Upgrade failed. Please contact support.';
           setStatus('error');
           setMessage(errorMsg);
+          trackError('checkout', 'complete_upgrade', 'api_error');
         }
 
       } catch (e) {
@@ -184,6 +190,7 @@ export default function PaymentSuccess() {
         const errorMessage = e instanceof Error ? e.message : 'Unknown error';
         setStatus('error');
         setMessage(`An error occurred during upgrade: ${errorMessage}. Please contact support if your account is not upgraded within 5 minutes.`);
+        trackError('checkout', 'complete_upgrade', 'network_error');
       }
     }
 

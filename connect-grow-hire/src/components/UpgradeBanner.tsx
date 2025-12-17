@@ -1,6 +1,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { Info } from "lucide-react";
+import { trackUpgradeClick } from "../lib/analytics";
 
 interface UpgradeBannerProps {
   /** Whether user has exhausted their monthly limit (not just credits) */
@@ -73,7 +74,13 @@ export const UpgradeBanner: React.FC<UpgradeBannerProps> = ({
             {/* Simple text link button */}
             {showUpgradeButton && (
               <button
-                onClick={() => navigate('/pricing')}
+                onClick={() => {
+                  trackUpgradeClick(featureName.toLowerCase().replace(/\s+/g, '_'), {
+                    from_action: isCreditsIssue ? 'insufficient_credits' : 'limit_reached',
+                    from_location: 'banner',
+                  });
+                  navigate('/pricing');
+                }}
                 className="mt-2 text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors"
               >
                 Upgrade to {nextTier} →

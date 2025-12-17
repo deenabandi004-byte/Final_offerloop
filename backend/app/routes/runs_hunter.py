@@ -341,8 +341,8 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                     print(f"   💡 Deleting contacts from library will allow them to appear in searches")
                     
                     tier = user_data.get('tier', 'free')
-                    if tier != 'pro':
-                        return {'error': 'Pro tier subscription required', 'contacts': []}
+                    if tier not in ['pro', 'elite']:
+                        return {'error': 'Pro or Elite tier subscription required', 'contacts': []}
                     if credits_available < 15:
                         return {
                             'error': 'Insufficient credits',
@@ -353,7 +353,17 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
             except Exception:
                 pass
         
-        tier_max = TIER_CONFIGS['pro']['max_contacts']
+        # Use user's actual tier to get correct max_contacts (pro=8, elite=15)
+        user_tier = 'pro'  # Default
+        if db and user_id:
+            try:
+                user_doc = db.collection('users').document(user_id).get()
+                if user_doc.exists:
+                    user_tier = user_doc.to_dict().get('tier', 'pro')
+            except Exception:
+                pass
+        
+        tier_max = TIER_CONFIGS.get(user_tier, TIER_CONFIGS['pro'])['max_contacts']
         max_contacts = batch_size if batch_size and 1 <= batch_size <= tier_max else tier_max
         
         # Search contacts

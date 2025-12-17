@@ -24,6 +24,17 @@ export const TIER_CONFIGS = {
     timeSavedMinutes: 1200,
     usesResume: true,
   },
+  elite: {
+    maxContacts: 15,
+    minContacts: 1,
+    name: "Search Elite Plan Tier",
+    credits: 3000,
+    description: "Full access - up to 15 contacts + All premium features",
+    coffeeChat: true,
+    interviewPrep: true,
+    timeSavedMinutes: 5000,
+    usesResume: true,
+  },
 } as const;
 
 export type CoffeeChatHistoryItem = {

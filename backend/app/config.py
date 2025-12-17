@@ -75,6 +75,11 @@ CACHE_DURATION = timedelta(days=365)
 CREATE_GMAIL_DRAFTS = False  # Set True to create Gmail drafts; False to only return subject/body and compose links
 
 # ========================================
+# Feature Flags
+# ========================================
+PROMPT_SEARCH_ENABLED = os.getenv('PROMPT_SEARCH_ENABLED', 'false').lower() == 'true'  # Experimental prompt-first search
+
+# ========================================
 # Database Configuration
 # ========================================
 # Get absolute path to contacts.db in project root

@@ -16,6 +16,7 @@ import {
 } from "firebase/auth";
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
+import posthog from "../lib/posthog";
 
 const getMonthKey = () => new Date().toISOString().slice(0, 7);
 const initialCreditsByTier = (tier: "free" | "pro" | "elite") => {
@@ -109,13 +110,34 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
     };
   }, []);
 
+  const identifyUser = (user: User, userDocData?: any) => {
+    try {
+      const properties: Record<string, any> = {
+        // Note: Email is NOT included to avoid sending PII to analytics
+        // PostHog identifies users by UID, which is sufficient for tracking
+        plan: user.tier || "free",
+      };
+
+      // Include signup_source if available in user document
+      if (userDocData?.signup_source) {
+        properties.signup_source = userDocData.signup_source;
+      }
+
+      posthog.identify(user.uid, properties);
+      // Removed console.log to avoid exposing user data in browser console
+    } catch (error) {
+      // Only log errors, not user data
+      console.error("❌ [PostHog] Failed to identify user:", error);
+    }
+  };
+
   const loadUserData = async (firebaseUser: FirebaseUser) => {
     try {
       const userDocRef = doc(db, "users", firebaseUser.uid);
       const snap = await getDoc(userDocRef);
       if (snap.exists()) {
         const d = snap.data() as Partial<User>;
-        setUser({
+        const userData = {
           uid: firebaseUser.uid,
           email: firebaseUser.email || "",
           name: firebaseUser.displayName || "",
@@ -132,7 +154,10 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
           emailsUsedThisMonth: d.emailsUsedThisMonth ?? 0,
           needsOnboarding: d.needsOnboarding ?? false,
           
-        });
+        };
+        setUser(userData);
+        // Identify user after data is loaded
+        identifyUser(userData, d);
       } else {
         const newUser: User = {
           uid: firebaseUser.uid,
@@ -148,6 +173,8 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
         };
         await setDoc(userDocRef, { ...newUser, createdAt: new Date().toISOString() });
         setUser(newUser);
+        // Identify new user after data is set
+        identifyUser(newUser);
       }
     } catch (err) {
       console.error("Error loading user data:", err);
@@ -214,6 +241,14 @@ const signIn = async (opts?: SignInOptions): Promise<NextRoute> => {
       console.log("🔐 [AUTH CONTEXT] signOut() called");
       console.log("🔐 [AUTH CONTEXT] Current user before signOut:", user?.email || "none");
       await firebaseSignOut(auth);
+      // Reset PostHog user session
+      try {
+        posthog.reset();
+        // Removed console.log to avoid logging user actions
+      } catch (error) {
+        // Only log errors, not user actions
+        console.error("❌ [PostHog] Failed to reset session:", error);
+      }
       console.log("🔐 [AUTH CONTEXT] Firebase signOut() completed, setting user state to null");
       setUser(null);
       console.log("🔐 [AUTH CONTEXT] User state set to null");

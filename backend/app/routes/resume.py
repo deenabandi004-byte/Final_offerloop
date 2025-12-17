@@ -47,6 +47,7 @@ def save_resume_to_firebase(user_id, resume_text, resume_url, parsed_info=None):
                 'university': parsed_info.get('university', ''),
                 'major': parsed_info.get('major', ''),
                 'year': parsed_info.get('year', ''),
+                'location': parsed_info.get('location', ''),  # Include location for job search
                 'key_experiences': parsed_info.get('key_experiences', []),
                 'skills': parsed_info.get('skills', []),
                 'achievements': parsed_info.get('achievements', []),

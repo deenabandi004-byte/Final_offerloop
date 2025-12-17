@@ -17,6 +17,7 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import LightningIcon from "../assets/Lightning.png";
 import OfferloopLogo from "../assets/Offerloop_logo.png";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
+import { trackNavClick, trackUpgradeClick } from "../lib/analytics";
 
 import {
   Sidebar,
@@ -161,6 +162,17 @@ export function AppSidebar() {
                             isActive,
                           })}`
                         }
+                        onClick={() => {
+                          const featureMap: Record<string, string> = {
+                            'Home': 'dashboard',
+                            'Contact Search': 'contact_search',
+                            'Firm Search': 'firm_search',
+                            'Coffee Chat Prep': 'coffee_chat_prep',
+                            'Interview Prep': 'interview_prep',
+                            'Pricing': 'pricing',
+                          };
+                          trackNavClick(item.title, 'sidebar', featureMap[item.title]);
+                        }}
                       >
                         <item.icon className="h-6 w-6" />
                         {state !== "collapsed" && <span className="text-lg">{item.title}</span>}
@@ -210,6 +222,9 @@ export function AppSidebar() {
                                 isActive,
                               })}`
                             }
+                            onClick={() => {
+                              trackNavClick(item.title, 'sidebar');
+                            }}
                           >
                             <span className="text-lg">{item.title}</span>
                           </NavLink>
@@ -248,7 +263,12 @@ export function AppSidebar() {
 
                 {/* Gradient Upgrade Button */}
                 <button
-                  onClick={() => navigate("/pricing")}
+                  onClick={() => {
+                    trackUpgradeClick('sidebar', {
+                      from_location: 'sidebar',
+                    });
+                    navigate("/pricing");
+                  }}
                   className="w-full rounded-xl py-3 px-4 mb-4 text-white transition-all shadow-sm hover:opacity-90"
                   style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
                 >
@@ -264,7 +284,12 @@ export function AppSidebar() {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
-                      onClick={() => navigate("/pricing")}
+                      onClick={() => {
+                        trackUpgradeClick('sidebar', {
+                          from_location: 'sidebar',
+                        });
+                        navigate("/pricing");
+                      }}
                       className="w-full rounded-xl p-2 text-white transition-all shadow-sm hover:opacity-90 flex items-center justify-center"
                       style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
                     >
@@ -301,7 +326,7 @@ export function AppSidebar() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate text-foreground">{user?.name || "User"}</p>
                   <p className="text-xs text-muted-foreground truncate">
-                    {user?.tier === "pro" ? "Pro Member" : "Free Tier"}
+                    {user?.tier === "elite" ? "Elite Member" : user?.tier === "pro" ? "Pro Member" : "Free Tier"}
                   </p>
                 </div>
               )}

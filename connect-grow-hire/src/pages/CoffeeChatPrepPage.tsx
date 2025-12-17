@@ -36,6 +36,7 @@ import { logActivity, generateCoffeeChatPrepSummary } from "@/utils/activityLogg
 import { PageHeaderActions } from "@/components/PageHeaderActions";
 import { useSubscription } from "@/hooks/useSubscription";
 import { canUseFeature, getRemainingUses, getFeatureLimit } from "@/utils/featureAccess";
+import { trackFeatureActionCompleted, trackContentViewed, trackError } from "../lib/analytics";
 
 const CoffeeChatPrepPage: React.FC = () => {
   const navigate = useNavigate();
@@ -233,6 +234,14 @@ const CoffeeChatPrepPage: React.FC = () => {
                 setRenderKey((prev: number) => prev + 1);
               });
               
+              // Track PostHog event
+              // Note: company and role come from enriched LinkedIn profile data, not user input
+              const contactData = statusResult.contactData || {};
+              trackFeatureActionCompleted('coffee_chat_prep', 'generate', true, {
+                company: contactData.company || contactData.companyName || '',
+                role: contactData.jobTitle || contactData.title || undefined,
+              });
+              
               toast({
                 title: "Coffee Chat Prep Ready!",
                 description: "Your one-pager has been generated successfully.",
@@ -265,6 +274,7 @@ const CoffeeChatPrepPage: React.FC = () => {
       console.error('Coffee chat prep failed:', error);
       setCoffeeChatStatus('failed');
       setCoffeeChatProgress('Generation failed');
+      trackError('coffee_chat_prep', 'generate', 'api_error', error.message);
       toast({
         title: "Generation Failed",
         description: error.message || "Please try again.",
@@ -323,11 +333,15 @@ const CoffeeChatPrepPage: React.FC = () => {
         document.body.removeChild(a);
       }
 
+      // Track PostHog event
+      trackContentViewed('coffee_chat_prep', 'pdf');
+
       toast({
         title: "PDF Ready",
         description: "Opened your Coffee Chat one-pager in a new tab.",
       });
     } catch (err) {
+      trackError('coffee_chat_prep', 'download', 'network_error', err instanceof Error ? err.message : undefined);
       toast({
         title: "Download Failed",
         description: err instanceof Error ? err.message : "Could not download the PDF.",
@@ -340,15 +354,20 @@ const CoffeeChatPrepPage: React.FC = () => {
     try {
       if (prep.pdfUrl) {
         window.open(prep.pdfUrl, "_blank", "noopener");
+        // Track PostHog event
+        trackContentViewed('coffee_chat_prep', 'pdf', prep.id);
         return;
       }
       const { pdfUrl } = await apiService.downloadCoffeeChatPDF(prep.id);
       if (pdfUrl) {
         window.open(pdfUrl, "_blank", "noopener");
+        // Track PostHog event
+        trackContentViewed('coffee_chat_prep', 'pdf', prep.id);
       } else {
         throw new Error("PDF URL not available yet");
       }
     } catch (error) {
+      trackError('coffee_chat_prep', 'download', 'network_error', error instanceof Error ? error.message : undefined);
       toast({
         title: "Download failed",
         description: "Could not open the PDF. Please try again.",

@@ -867,7 +867,7 @@ Be concise. Each strength/gap should be under 15 words.
         try:
             return await asyncio.wait_for(
                 self._analyze_job_fit_internal(job, user_resume),
-                timeout=35.0  # Overall timeout for entire analysis
+                timeout=50.0  # Overall timeout for entire analysis (URL fetch + OpenAI)
             )
         except asyncio.TimeoutError:
             print("[Scout] Job fit analysis timed out (overall timeout)")
@@ -973,7 +973,7 @@ Be honest but constructive. If the job doesn't align well with their major/backg
                     max_tokens=800,
                     response_format={"type": "json_object"},
                 ),
-                timeout=30.0  # Increased from 25s to handle slower API responses
+                timeout=45.0  # Increased from 30s - analysis can be slow with large resumes
             )
             
             result_text = completion.choices[0].message.content.strip()
@@ -1105,6 +1105,48 @@ Be honest but constructive. If the job doesn't align well with their major/backg
             if job_titles:
                 print(f"[Scout] Running resume-based search with titles: {job_titles}")
                 
+                # Extract location from resume if not already set
+                # This is CRITICAL - we MUST use resume location for search, not job results
+                if not location and user_resume:
+                    print(f"[Scout] 🔍 Extracting location from resume for job search...")
+                    print(f"[Scout] DEBUG: user_resume keys: {list(user_resume.keys())}")
+                    resume_location = user_resume.get("location")
+                    print(f"[Scout] DEBUG: resume_location from user_resume: {resume_location}")
+                    
+                    # Also check resumeParsed.location if user_resume has nested structure
+                    if not resume_location:
+                        resume_parsed = user_resume.get("resumeParsed") or {}
+                        if isinstance(resume_parsed, dict):
+                            resume_location = resume_parsed.get("location")
+                            print(f"[Scout] DEBUG: resume_location from resumeParsed: {resume_location}")
+                        # Also check if user_resume itself is the parsed structure
+                        if not resume_location and isinstance(user_resume, dict):
+                            resume_location = user_resume.get("location")
+                    
+                    if resume_location and isinstance(resume_location, str) and resume_location.strip():
+                        location = resume_location.strip()
+                        print(f"[Scout] ✅ Using location from resume for job search: {location}")
+                    else:
+                        # Fallback: try to extract location from resume text using regex
+                        resume_text = user_resume.get("resume_text") or user_resume.get("text") or user_resume.get("rawText") or user_resume.get("resumeText") or ""
+                        print(f"[Scout] DEBUG: resume_text length: {len(resume_text)}")
+                        if resume_text:
+                            from app.utils.users import extract_hometown_from_resume
+                            extracted_location = extract_hometown_from_resume(resume_text)
+                            if extracted_location:
+                                location = extracted_location
+                                print(f"[Scout] ✅ Extracted location from resume text for job search: {location}")
+                            else:
+                                print(f"[Scout] ⚠️ Could not extract location from resume text")
+                                print(f"[Scout] ⚠️ Will search without location filter - results may be from anywhere")
+                        else:
+                            print(f"[Scout] ⚠️ No resume text available for location extraction")
+                            print(f"[Scout] ⚠️ Will search without location filter - results may be from anywhere")
+                else:
+                    if not location:
+                        print(f"[Scout] ⚠️ No location extracted and no user_resume provided")
+                        print(f"[Scout] ⚠️ Will search without location filter - results may be from anywhere")
+                
                 # Search for each generated title
                 for title in job_titles[:3]:  # Max 3 searches
                     query = title
@@ -1146,8 +1188,8 @@ Be honest but constructive. If the job doesn't align well with their major/backg
             all_jobs = await self._filter_and_rank_jobs_by_resume(all_jobs, user_resume)
             print(f"[Scout] After filtering: {len(all_jobs)} relevant jobs")
         
-        # Extract fields from results
-        fields = self._aggregate_fields_from_jobs(all_jobs, extracted)
+        # Extract fields from results - pass user_resume so it can prioritize resume location
+        fields = self._aggregate_fields_from_jobs(all_jobs, extracted, user_resume)
         
         # Build response message
         location_display = fields.location if fields.location else extracted.get("location", "your area")
@@ -1215,9 +1257,27 @@ Be honest but constructive. If the job doesn't align well with their major/backg
         # Add location if extracted, or use resume location preference
         location = extracted.get("location")
         if not location and user_resume:
-            # Could extract location from resume if available
-            # For now, we'll use extracted location or let user specify
-            pass
+            # Extract location from resume if available
+            resume_location = user_resume.get("location")
+            
+            # Also check resumeParsed.location if user_resume has nested structure
+            if not resume_location:
+                resume_parsed = user_resume.get("resumeParsed") or {}
+                if isinstance(resume_parsed, dict):
+                    resume_location = resume_parsed.get("location")
+            
+            if resume_location and isinstance(resume_location, str) and resume_location.strip():
+                location = resume_location.strip()
+                print(f"[Scout] Using location from resume: {location}")
+            else:
+                # Fallback: try to extract location from resume text using regex
+                resume_text = user_resume.get("resume_text") or user_resume.get("text") or user_resume.get("rawText") or user_resume.get("resumeText") or ""
+                if resume_text:
+                    from app.utils.users import extract_hometown_from_resume
+                    extracted_location = extract_hometown_from_resume(resume_text)
+                    if extracted_location:
+                        location = extracted_location
+                        print(f"[Scout] Extracted location from resume text: {location}")
         
         if location:
             query_parts.append(f"in {location}")
@@ -1706,7 +1766,8 @@ Return JSON only:
     def _aggregate_fields_from_jobs(
         self,
         jobs: List[JobListing],
-        extracted: Dict[str, Any]
+        extracted: Dict[str, Any],
+        user_resume: Optional[Dict[str, Any]] = None
     ) -> SearchFields:
         """Aggregate the most common/relevant fields from job listings."""
         # Use extracted fields as base
@@ -1715,6 +1776,18 @@ Return JSON only:
         job_title = self._simplify_job_title(raw_job_title) if raw_job_title else None
         company = extracted.get("company")
         location = extracted.get("location")
+        
+        # CRITICAL: Prioritize location from user resume over job results
+        # Only use job result locations if we have NO user location preference
+        if not location and user_resume:
+            resume_location = user_resume.get("location")
+            if not resume_location:
+                resume_parsed = user_resume.get("resumeParsed") or {}
+                if isinstance(resume_parsed, dict):
+                    resume_location = resume_parsed.get("location")
+            if resume_location and isinstance(resume_location, str) and resume_location.strip():
+                location = resume_location.strip()
+                print(f"[Scout] ✅ Using resume location in aggregated fields: {location}")
         
         # Filter out invalid jobs
         valid_jobs = [
@@ -1752,6 +1825,8 @@ Return JSON only:
                     most_common_company = max(company_counts.items(), key=lambda x: x[1])
                     company = most_common_company[0].title()
         
+        # Only use job result locations if we STILL don't have a location from user/resume
+        # This prevents job results from overriding the user's actual location preference
         if not location and valid_jobs:
             locations = [j.location for j in valid_jobs if j.location]
             if locations:
@@ -1763,6 +1838,8 @@ Return JSON only:
                 if location_counts:
                     most_common_location = max(location_counts.items(), key=lambda x: x[1])
                     location = most_common_location[0].title()
+                    print(f"[Scout] ⚠️ Using location from job results (no user location found): {location}")
+                    print(f"[Scout] ⚠️ This may not match your actual location - consider updating your resume")
         
         # Apply normalization to aggregated fields
         return SearchFields(
@@ -2677,6 +2754,13 @@ If you can extract job search fields from the conversation, mention them."""
     ) -> Dict[str, Any]:
         """Generate a firm search query based on user's resume/background."""
         
+        if not self._openai:
+            return {
+                "status": "error",
+                "message": "Scout is temporarily unavailable. Please try again later.",
+                "action_type": "generate_query",
+            }
+        
         if not user_resume:
             return {
                 "status": "ok",
@@ -2763,7 +2847,7 @@ Return JSON:
                     max_tokens=400,
                     response_format={"type": "json_object"},
                 ),
-                timeout=12.0
+                timeout=20.0  # Increased from 12s - resume analysis can be slow
             )
             
             result = json.loads(completion.choices[0].message.content)
@@ -2791,8 +2875,17 @@ Return JSON:
                 "action_type": "generate_query",
             }
             
+        except asyncio.TimeoutError:
+            print("[Scout] Generate firm query timed out")
+            return {
+                "status": "error",
+                "message": "The request timed out. Please try again!",
+                "action_type": "generate_query",
+            }
         except Exception as e:
-            print(f"[Scout] Generate firm query failed: {e}")
+            print(f"[Scout] Generate firm query failed: {type(e).__name__}: {e}")
+            import traceback
+            print(f"[Scout] Traceback: {traceback.format_exc()}")
             return {
                 "status": "error",
                 "message": "I had trouble analyzing your resume. Could you try asking me to recommend firms instead?",
@@ -2806,6 +2899,13 @@ Return JSON:
         user_resume: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """Help user refine their firm search query."""
+        
+        if not self._openai:
+            return {
+                "status": "error",
+                "message": "Scout is temporarily unavailable. Please try again later.",
+                "action_type": "refine_query",
+            }
         
         current_query = firm_context.get("current_query", "")
         current_results = firm_context.get("current_results", [])
@@ -2885,6 +2985,13 @@ Return JSON:
         fit_context: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """Recommend firms based on user's background."""
+        
+        if not self._openai:
+            return {
+                "status": "error",
+                "message": "Scout is temporarily unavailable. Please try again later.",
+                "action_type": "recommend_firms",
+            }
         
         current_results = firm_context.get("current_results", [])
         
@@ -3000,6 +3107,13 @@ Return JSON:
         firm_context: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Research a specific firm for the user."""
+        
+        if not self._openai:
+            return {
+                "status": "error",
+                "message": "Scout is temporarily unavailable. Please try again later.",
+                "action_type": "research_firm",
+            }
         
         current_results = firm_context.get("current_results", [])
         
@@ -3183,6 +3297,13 @@ What would you like to do?"""
         conversation_history: Optional[List[Dict[str, str]]],
     ) -> Dict[str, Any]:
         """Handle general firm search questions."""
+        
+        if not self._openai:
+            return {
+                "status": "error",
+                "message": "Scout is temporarily unavailable. Please try again later.",
+                "action_type": "general",
+            }
         
         current_results = firm_context.get("current_results", [])
         current_query = firm_context.get("current_query", "")
