@@ -5,7 +5,7 @@ import { BackToHomeButton } from "@/components/BackToHomeButton";
 import { CreditPill } from "@/components/credits";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
-import { Search, FileText, Upload, Download } from "lucide-react";
+import { Search, FileText, Upload as UploadIcon, Download } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 // ScoutBubble removed - now using ScoutHeaderButton in PageHeaderActions
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { PromptSearchFlow } from "@/components/search/PromptSearchFlow";
 import { trackFeatureActionCompleted, trackError } from "../lib/analytics";
+import ContactImport from "@/components/ContactImport";
 
 const ContactSearchPage: React.FC = () => {
   const { user, checkCredits, updateCredits } = useFirebaseAuth();
@@ -988,7 +989,7 @@ const ContactSearchPage: React.FC = () => {
             <div className="max-w-5xl mx-auto">
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <div className="flex justify-center mb-8">
-                  <TabsList className="h-14 tabs-container-gradient border border-border grid grid-cols-2 max-w-lg w-full rounded-xl p-1 bg-white">
+                  <TabsList className="h-14 tabs-container-gradient border border-border grid grid-cols-3 max-w-2xl w-full rounded-xl p-1 bg-white">
                     <TabsTrigger
                       value="contact-search"
                       className="h-12 font-medium text-base data-[state=active] data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
@@ -1002,6 +1003,13 @@ const ContactSearchPage: React.FC = () => {
                     >
                       <FileText className="h-5 w-5 mr-2" />
                       Contact Library
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="import"
+                      className="h-12 font-medium text-base data-[state=active] data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
+                    >
+                      <UploadIcon className="h-5 w-5 mr-2" />
+                      Import
                     </TabsTrigger>
                   </TabsList>
                 </div>
@@ -1364,7 +1372,7 @@ const ContactSearchPage: React.FC = () => {
                                 disabled={isSearching || isUploadingResume}
                               />
                               <div className={`${isSearching || isUploadingResume ? "opacity-50 cursor-not-allowed" : ""}`}>
-                                <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                                <UploadIcon className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
                                 <p className="text-sm text-foreground mb-1 font-medium">
                                   {isUploadingResume 
                                     ? "Uploading resume..." 
@@ -1502,6 +1510,17 @@ const ContactSearchPage: React.FC = () => {
 
                 <TabsContent value="contact-library" className="mt-6">
                   <ContactDirectoryComponent />
+                </TabsContent>
+
+                <TabsContent value="import" className="mt-6">
+                  <div className="bg-white border border-border rounded-xl p-6">
+                    <ContactImport 
+                      onImportComplete={() => {
+                        // Switch to Contact Library tab and refresh
+                        setActiveTab('contact-library');
+                      }} 
+                    />
+                  </div>
                 </TabsContent>
               </Tabs>
             </div>
