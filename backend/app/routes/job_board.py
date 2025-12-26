@@ -2021,6 +2021,108 @@ Return ONLY valid JSON."""
 # API ROUTES
 # =============================================================================
 
+def fetch_personalized_jobs(
+    user_profile: dict,
+    job_types: List[str],
+    locations: List[str],
+    max_jobs: int = 150,
+    refresh: bool = False
+) -> tuple[List[dict], dict]:
+    """
+    Fetch jobs using multiple personalized queries and merge results.
+    
+    Args:
+        user_profile: User's career profile
+        job_types: List of job types
+        locations: List of preferred locations
+        max_jobs: Maximum jobs to return
+        refresh: Whether to bypass cache
+        
+    Returns:
+        Tuple of (jobs list, metadata dict)
+    """
+    queries = build_personalized_queries(user_profile, job_types)
+    location = build_location_query(locations)
+    
+    all_jobs = []
+    seen_ids = set()
+    query_weights = {}  # Track which query each job came from
+    queries_used = []
+    
+    # Limit API calls - fetch from top 3-4 queries
+    max_queries = min(4, len(queries))
+    jobs_per_query = max(30, max_jobs // max_queries)
+    
+    primary_job_type = job_types[0] if job_types else None
+    
+    for query_info in queries[:max_queries]:
+        query = query_info["query"]
+        weight = query_info.get("weight", 1.0)
+        source = query_info.get("source", "unknown")
+        
+        try:
+            # Fetch jobs for this query (up to 30 per query)
+            # We'll fetch 3 pages (30 jobs) per query
+            query_jobs = []
+            current_token = None
+            for page_num in range(3):  # 3 pages = 30 jobs max
+                jobs_batch, next_token = fetch_jobs_from_serpapi(
+                    query=query,
+                    location=location,
+                    job_type=primary_job_type,
+                    num_results=10,  # Google Jobs returns 10 per page
+                    use_cache=not refresh and page_num == 0,  # Only cache first page
+                    page_token=current_token,
+                )
+                
+                if not jobs_batch:
+                    break
+                
+                # Deduplicate within this query's results
+                for job in jobs_batch:
+                    job_id = job.get("id")
+                    if job_id and job_id not in seen_ids:
+                        seen_ids.add(job_id)
+                        query_weights[job_id] = weight
+                        job["_query_source"] = source  # Track source for debugging
+                        query_jobs.append(job)
+                
+                if len(query_jobs) >= jobs_per_query or not next_token:
+                    break
+                
+                current_token = next_token
+            
+            queries_used.append({
+                "query": query,
+                "source": source,
+                "jobs_found": len(query_jobs)
+            })
+            
+            all_jobs.extend(query_jobs)
+            
+            # Stop if we have enough jobs
+            if len(all_jobs) >= max_jobs:
+                break
+                
+        except Exception as e:
+            print(f"[JobBoard] Error fetching for query '{query}': {e}")
+            import traceback
+            traceback.print_exc()
+            continue
+    
+    # Score all jobs using the new scoring function
+    scored_jobs = score_jobs_by_resume_match(all_jobs, user_profile, query_weights)
+    
+    # Return top jobs
+    metadata = {
+        "queries_used": queries_used,
+        "total_fetched": len(all_jobs),
+        "location": location
+    }
+    
+    return scored_jobs[:max_jobs], metadata
+
+
 @job_board_bp.route("/jobs", methods=["POST"])
 @require_firebase_auth
 def get_job_listings():
@@ -2052,176 +2154,33 @@ def get_job_listings():
         per_page = data.get("perPage", 20)
         start = (page - 1) * per_page
         
-        # Get user data for resume-based matching
-        db = get_db()
-        user_major = None
-        user_skills = None
-        user_key_experiences = None
-        if db and user_id:
-            user_ref = db.collection("users").document(user_id)
-            user_doc = user_ref.get()
-            if user_doc.exists:
-                user_data = user_doc.to_dict()
-                professional_info = user_data.get("professionalInfo", {})
-                user_major = professional_info.get("fieldOfStudy") or professional_info.get("major")
-                
-                # Extract resume data for better job matching
-                resume_parsed = user_data.get("resumeParsed", {})
-                if resume_parsed:
-                    # Sanitize resume data to avoid DocumentReference issues
-                    resume_parsed = sanitize_firestore_data(resume_parsed, depth=0, max_depth=10)
-                    user_skills = resume_parsed.get("skills", [])
-                    user_key_experiences = resume_parsed.get("key_experiences", [])
-                    # Ensure they're lists and filter out any non-string items
-                    if isinstance(user_skills, list):
-                        user_skills = [s for s in user_skills if isinstance(s, str)]
-                    else:
-                        user_skills = []
-                    if isinstance(user_key_experiences, list):
-                        user_key_experiences = [e for e in user_key_experiences if isinstance(e, str)]
-                    else:
-                        user_key_experiences = []
+        # Get comprehensive user profile
+        user_profile = get_user_career_profile(user_id)
         
-        # Build search query with resume data
-        if search_query:
-            query = search_query
-        else:
-            query = build_search_query(
-                job_types, 
-                industries, 
-                user_major,
-                user_skills,
-                user_key_experiences
-            )
+        # Add request params to profile
+        user_profile["target_industries"] = industries or user_profile.get("target_industries", [])
+        user_profile["job_types"] = job_types
         
-        # Build location
-        location = build_location_query(locations)
-        
-        # Determine primary job type for filtering
-        primary_job_type = job_types[0] if job_types else None
-        
-        # For first page, fetch a large batch (100 jobs) to get more results
-        # For subsequent pages, fetch normally
+        # Fetch personalized jobs using multi-query approach
         if page == 1:
-            # Fetch 100 jobs on first page to get more results
-            fetch_size = 100
-            fetch_start = 0
-        else:
-            fetch_size = per_page
-            fetch_start = start
-        
-        # Fetch jobs using next_page_token pagination (with fallback to start parameter)
-        # For first page, we'll make multiple requests to get more jobs
-        all_jobs = []
-        current_token = None
-        current_start = 0  # Fallback pagination using start parameter
-        max_pages_to_fetch = 20 if page == 1 else 1  # Fetch up to 20 pages (200 jobs) on first request
-        consecutive_empty_results = 0
-        use_start_pagination = False  # Track if we're using start parameter pagination
-        
-        for page_num in range(max_pages_to_fetch):
-            # Determine which pagination method to use
-            pagination_param = None
-            if use_start_pagination:
-                # Using start parameter pagination
-                pagination_param = f"start={current_start}"
-            elif current_token:
-                # Using next_page_token pagination
-                pagination_param = current_token
-            
-            jobs_batch, next_token = fetch_jobs_from_serpapi(
-                query=query,
-                location=location,
-                job_type=primary_job_type,
-                num_results=10,  # Google Jobs returns 10 per page
-                use_cache=not refresh and page_num == 0,  # Only use cache for first page, bypass for subsequent pages to ensure fresh data
-                page_token=pagination_param,
+            jobs, metadata = fetch_personalized_jobs(
+                user_profile=user_profile,
+                job_types=job_types,
+                locations=locations,
+                max_jobs=150,  # Fetch 150 jobs on first page
+                refresh=refresh
             )
-            
-            if not jobs_batch:
-                consecutive_empty_results += 1
-                # If we got no results and no next token, definitely stop
-                if not next_token:
-                    print(f"[JobBoard] No more results available (no next_token), stopping after {page_num} pages")
-                    break
-                # If we get 3 consecutive empty results, stop (likely exhausted)
-                if consecutive_empty_results >= 3:
-                    print(f"[JobBoard] Got {consecutive_empty_results} consecutive empty results, stopping")
-                    break
-                # Otherwise, try next page even if this one was empty
-                if next_token:
-                    current_token = next_token
-                    continue
-                else:
-                    break
-            else:
-                consecutive_empty_results = 0  # Reset counter on successful fetch
-                
-            # Avoid duplicates
-            existing_ids = {job["id"] for job in all_jobs}
-            new_jobs = [job for job in jobs_batch if job["id"] not in existing_ids]
-            all_jobs.extend(new_jobs)
-            
-            print(f"[JobBoard] Page {page_num + 1}: Got {len(jobs_batch)} jobs ({len(new_jobs)} new), Total: {len(all_jobs)}, Next token: {'Yes' if next_token else 'No'}, Using start param: {use_start_pagination}")
-            
-            # For first page, fetch up to 200 jobs if available
-            # For other pages, stop after getting per_page jobs
-            if page == 1:
-                # Continue fetching until we have 200 jobs or run out of pages
-                if len(all_jobs) >= 200:
-                    print(f"[JobBoard] Reached target of 200 jobs, stopping")
-                    break
-                
-                # If no next token and we got exactly 10 jobs, try using start parameter
-                if not next_token and len(jobs_batch) == 10 and not use_start_pagination:
-                    # Switch to start parameter pagination
-                    print(f"[JobBoard] No next_page_token but got 10 jobs, switching to 'start' parameter pagination")
-                    use_start_pagination = True
-                    current_start = 10  # Start at offset 10 for next page
-                    current_token = None
-                    continue
-                elif not next_token and len(jobs_batch) < 10:
-                    # Less than 10 jobs and no next token means we've reached the end
-                    print(f"[JobBoard] No next_page_token and got {len(jobs_batch)} jobs (less than 10), reached end of results")
-                    break
-                elif not next_token and use_start_pagination:
-                    # Using start parameter but no more results
-                    if len(jobs_batch) < 10:
-                        print(f"[JobBoard] Got {len(jobs_batch)} jobs with start parameter (less than 10), reached end of results")
-                        break
-                    # Continue with next start offset (will be updated below)
-                elif not next_token:
-                    print(f"[JobBoard] No next_page_token available, stopping with {len(all_jobs)} jobs")
-                    break
-            else:
-                # For subsequent pages, stop after getting per_page results
-                if len(all_jobs) >= per_page or (not next_token and not use_start_pagination):
-                    break
-            
-            # Update pagination state for next iteration
-            if next_token and not use_start_pagination:
-                current_token = next_token
-            elif use_start_pagination:
-                # Increment start offset for next page
-                current_start += 10
-                current_token = None  # Will use start parameter next iteration
-            elif not next_token and not use_start_pagination:
-                # No more pages available
-                break
-        
-        jobs = all_jobs
-        print(f"[JobBoard] Fetched {len(jobs)} total jobs for page {page}")
-        
-        # Score and rank jobs based on resume match (if resume data available)
-        if user_skills or user_key_experiences:
-            jobs = score_jobs_by_resume_match(jobs, user_skills, user_key_experiences, user_major)
-        
-        # For first page, return all jobs (up to 200)
-        # For subsequent pages, return paginated slice
-        if page == 1:
-            paginated_jobs = jobs  # Return all jobs on first page (up to 200)
         else:
-            paginated_jobs = jobs[:per_page]
+            # For subsequent pages, use simpler single-query approach with pagination
+            # (For now, we'll return empty for page > 1 - can be enhanced later)
+            # TODO: Implement pagination for multi-query results
+            jobs = []
+            metadata = {"queries_used": [], "total_fetched": 0, "location": build_location_query(locations)}
+        
+        # Paginate results
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        paginated_jobs = jobs[start_idx:end_idx]
         
         # Fallback to mock data if needed
         if not paginated_jobs:
@@ -2232,29 +2191,39 @@ def get_job_listings():
             source = "serpapi"
         
         # Determine if there are more jobs available
-        # For first page, if we got 200 jobs, assume there are more
-        # For other pages, if we got a full page, assume there are more
-        if page == 1:
-            has_more = len(paginated_jobs) >= 200  # If we got 200, there are likely more
-        else:
-            has_more = len(paginated_jobs) >= per_page
+        has_more = end_idx < len(jobs)
         
-        # Estimate total - be more optimistic (Google Jobs typically has thousands of results)
-        estimated_total = len(paginated_jobs) + (500 if has_more else 0)
+        # Estimate total
+        estimated_total = len(jobs)
+        
+        # Get primary query for display
+        primary_query = ""
+        if metadata.get("queries_used"):
+            primary_query = metadata["queries_used"][0].get("query", "")
+        elif search_query:
+            primary_query = search_query
+        
+        location = metadata.get("location", build_location_query(locations))
         
         print(f"[JobBoard] Returning {len(paginated_jobs)} jobs, hasMore={has_more}, estimatedTotal={estimated_total}")
         
         return jsonify({
             "jobs": paginated_jobs,
-            "total": len(paginated_jobs),
+            "total": len(jobs),
             "estimatedTotal": estimated_total,
             "page": page,
             "perPage": per_page,
             "hasMore": has_more,
             "source": source,
-            "query": query,
+            "query": primary_query,
             "location": location,
             "cached": source == "serpapi" and not refresh,
+            "personalization": {
+                "major": user_profile.get("major"),
+                "skills_used": len(user_profile.get("skills", [])),
+                "ec_signals": len(extract_career_signals(user_profile.get("extracurriculars", []))),
+                "queries_used": len(metadata.get("queries_used", []))
+            }
         }), 200
         
     except Exception as e:
