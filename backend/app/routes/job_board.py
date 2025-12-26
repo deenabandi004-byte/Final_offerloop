@@ -1035,62 +1035,160 @@ def build_location_query(locations: List[str]) -> str:
     return primary_location
 
 
-def score_jobs_by_resume_match(
-    jobs: List[Dict[str, Any]],
-    user_skills: Optional[List[str]] = None,
-    user_key_experiences: Optional[List[str]] = None,
-    user_major: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+def score_job_for_user(job: dict, user_profile: dict, query_weight: float = 1.0) -> int:
     """
-    Score and rank jobs based on how well they match the user's resume.
-    Adds a 'matchScore' field to each job (0-100).
+    Calculate a comprehensive match score for a job based on user's profile.
+    
+    Scoring breakdown (100 points max):
+    - Major alignment: 25 points
+    - Skills match: 25 points
+    - Extracurricular alignment: 20 points
+    - Experience relevance: 15 points
+    - Interest/Industry match: 10 points
+    - Graduation timing fit: 5 points
+    
+    Args:
+        job: Job dict with title, description, requirements
+        user_profile: User's career profile
+        query_weight: Multiplier based on query source (1.0-1.2)
+        
+    Returns:
+        Match score 0-100
     """
-    if not jobs:
+    score = 0
+    
+    # Build searchable job text
+    job_title = job.get("title", "").lower()
+    job_desc = job.get("description", "").lower()
+    job_reqs = " ".join(job.get("requirements", [])).lower()
+    job_company = job.get("company", "").lower()
+    job_text = f"{job_title} {job_desc} {job_reqs} {job_company}"
+    
+    # 1. MAJOR ALIGNMENT (25 points)
+    major = user_profile.get("major", "")
+    if major:
+        major_jobs = get_job_keywords_for_major(major)
+        major_matches = sum(1 for kw in major_jobs if kw.lower() in job_text)
+        
+        # Direct major mention in title is highest signal
+        if major.lower() in job_title:
+            score += 25
+        else:
+            score += min(25, major_matches * 6)
+    
+    # 2. SKILLS MATCH (25 points)
+    skills = user_profile.get("skills", [])
+    if skills:
+        # Weight title matches higher than description matches
+        title_skill_matches = sum(2 for skill in skills if skill.lower() in job_title)
+        desc_skill_matches = sum(1 for skill in skills if skill.lower() in job_text and skill.lower() not in job_title)
+        skill_score = title_skill_matches + desc_skill_matches
+        score += min(25, skill_score * 3)
+    
+    # 3. EXTRACURRICULAR ALIGNMENT (20 points)
+    extracurriculars = user_profile.get("extracurriculars", [])
+    if extracurriculars:
+        ec_signals = extract_career_signals(extracurriculars)
+        ec_matches = sum(1 for signal in ec_signals if signal.lower() in job_text)
+        
+        # Leadership experience bonus
+        has_leadership = any(
+            any(role in ec.get("role", "").lower() for role in LEADERSHIP_ROLES)
+            for ec in extracurriculars
+        )
+        if has_leadership and any(word in job_text for word in ["lead", "manager", "leadership", "team"]):
+            ec_matches += 2
+        
+        score += min(20, ec_matches * 5)
+    
+    # 4. EXPERIENCE RELEVANCE (15 points)
+    experiences = user_profile.get("experiences", [])
+    exp_score = 0
+    for exp in experiences:
+        exp_title = exp.get("title", "").lower()
+        exp_keywords = exp.get("keywords", [])
+        
+        # Similar job title
+        if any(word in job_title for word in exp_title.split() if len(word) > 3):
+            exp_score += 5
+        
+        # Keyword matches
+        for kw in exp_keywords:
+            if kw.lower() in job_text:
+                exp_score += 2
+    
+    score += min(15, exp_score)
+    
+    # 5. INTEREST/INDUSTRY MATCH (10 points)
+    interests = user_profile.get("interests", [])
+    target_industries = user_profile.get("target_industries", [])
+    
+    for interest in interests:
+        if interest.lower() in job_text:
+            score += 3
+    
+    for industry in target_industries:
+        industry_keywords = INDUSTRY_TO_KEYWORDS.get(industry.lower(), [industry])
+        if any(kw.lower() in job_text for kw in industry_keywords):
+            score += 4
+            break
+    
+    # Cap interest/industry component at 10 points (already handled by increment logic above)
+    
+    # 6. GRADUATION TIMING FIT (5 points)
+    grad_year = user_profile.get("graduation_year")
+    if grad_year:
+        from datetime import datetime
+        current_year = datetime.now().year
+        years_to_grad = grad_year - current_year
+        
+        job_type = job.get("type", "").lower()
+        
+        if years_to_grad <= 0:  # Already graduated or graduating
+            if "new grad" in job_text or "entry level" in job_text or job_type == "full-time":
+                score += 5
+        elif years_to_grad == 1:  # Graduating next year
+            if "internship" in job_text or "new grad" in job_text:
+                score += 5
+        else:  # Still in school
+            if "internship" in job_text or job_type == "internship":
+                score += 5
+    
+    # Apply query weight multiplier
+    score = int(score * query_weight)
+    
+    # Ensure score is in valid range
+    return max(0, min(100, score))
+
+
+def score_jobs_by_resume_match(jobs: List[dict], user_profile: dict, query_weights: dict = None) -> List[dict]:
+    """
+    Score and rank all jobs based on user profile match.
+    
+    Args:
+        jobs: List of job dicts
+        user_profile: User's career profile
+        query_weights: Optional dict mapping job_id to query weight
+        
+    Returns:
+        List of jobs with matchScore added, sorted by score descending
+    """
+    if not user_profile:
+        # No profile, assign neutral scores
+        for job in jobs:
+            job["matchScore"] = 50
         return jobs
     
-    user_skills_lower = [s.lower() for s in (user_skills or [])]
-    user_experiences_lower = [e.lower() for e in (user_key_experiences or [])]
-    user_major_lower = (user_major or "").lower()
+    query_weights = query_weights or {}
     
-    scored_jobs = []
     for job in jobs:
-        score = 50  # Base score
-        
-        # Combine job text for matching
-        job_text = " ".join([
-            job.get("title", ""),
-            job.get("description", ""),
-            job.get("company", ""),
-        ]).lower()
-        
-        # Score based on skills match
-        if user_skills_lower:
-            skills_found = sum(1 for skill in user_skills_lower if skill in job_text)
-            if skills_found > 0:
-                score += min(30, skills_found * 10)  # Up to 30 points for skills
-        
-        # Score based on experience match
-        if user_experiences_lower:
-            exp_matches = sum(1 for exp in user_experiences_lower if any(word in job_text for word in exp.split()[:3]))
-            if exp_matches > 0:
-                score += min(20, exp_matches * 7)  # Up to 20 points for experience
-        
-        # Score based on major match
-        if user_major_lower and user_major_lower in job_text:
-            score += 10  # 10 points for major match
-        
-        # Normalize score to 0-100
-        score = min(100, max(0, score))
-        
-        # Add match score to job
-        job_with_score = job.copy()
-        job_with_score["matchScore"] = score
-        scored_jobs.append(job_with_score)
+        weight = query_weights.get(job.get("id"), 1.0)
+        job["matchScore"] = score_job_for_user(job, user_profile, weight)
     
-    # Sort by match score (highest first)
-    scored_jobs.sort(key=lambda x: x.get("matchScore", 0), reverse=True)
+    # Sort by match score descending
+    jobs.sort(key=lambda x: x.get("matchScore", 0), reverse=True)
     
-    return scored_jobs
+    return jobs
 
 
 # =============================================================================
