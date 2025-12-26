@@ -845,6 +845,118 @@ def get_job_keywords_for_major(major: str) -> List[str]:
     return ["entry level", "associate", "analyst", "coordinator"]
 
 
+# Industry to keywords mapping (for query building)
+INDUSTRY_TO_KEYWORDS = {
+    "technology": ["software", "tech", "IT", "developer", "engineer"],
+    "finance": ["financial", "banking", "investment", "analyst"],
+    "consulting": ["consultant", "advisory", "strategy"],
+    "healthcare": ["health", "medical", "clinical", "hospital"],
+    "marketing": ["marketing", "advertising", "brand", "digital"],
+    "media": ["media", "entertainment", "content", "journalism"],
+    "retail": ["retail", "e-commerce", "merchandising"],
+    "manufacturing": ["manufacturing", "operations", "supply chain"],
+    "education": ["education", "teaching", "academic", "learning"],
+    "government": ["government", "public sector", "policy", "federal"],
+    "nonprofit": ["nonprofit", "NGO", "social impact", "foundation"],
+    "real estate": ["real estate", "property", "development"],
+    "energy": ["energy", "oil", "gas", "renewable", "utilities"],
+    "automotive": ["automotive", "auto", "vehicle", "transportation"],
+    "aerospace": ["aerospace", "aviation", "defense", "space"],
+}
+
+
+def build_personalized_queries(user_profile: dict, job_types: List[str]) -> List[dict]:
+    """
+    Build multiple targeted search queries based on user's career profile.
+    
+    Args:
+        user_profile: Comprehensive user career profile
+        job_types: List of job types (e.g., ["Internship", "Full-Time"])
+        
+    Returns:
+        List of query dicts: [{query: str, priority: int, source: str, weight: float}]
+    """
+    queries = []
+    job_type_str = job_types[0].lower() if job_types else "internship"
+    
+    # Normalize job type for search
+    if job_type_str == "full-time":
+        job_type_str = "entry level"
+    
+    major = user_profile.get("major", "")
+    skills = user_profile.get("skills", [])
+    extracurriculars = user_profile.get("extracurriculars", [])
+    interests = user_profile.get("interests", [])
+    target_industries = user_profile.get("target_industries", [])
+    
+    # Query 1: Major-focused (highest priority)
+    if major:
+        major_jobs = get_job_keywords_for_major(major)[:4]
+        if major_jobs:
+            major_query = f"{job_type_str} ({' OR '.join(major_jobs[:3])})"
+            queries.append({
+                "query": major_query,
+                "priority": 1,
+                "source": "major",
+                "weight": 1.2  # Boost jobs from this query
+            })
+    
+    # Query 2: Top skills focused
+    if skills and len(skills) >= 2:
+        top_skills = skills[:4]
+        skills_query = f"{job_type_str} ({' OR '.join(top_skills[:3])})"
+        queries.append({
+            "query": skills_query,
+            "priority": 2,
+            "source": "skills",
+            "weight": 1.1
+        })
+    
+    # Query 3: Extracurricular-aligned
+    ec_signals = extract_career_signals(extracurriculars)
+    if ec_signals and len(ec_signals) >= 2:
+        ec_query = f"{job_type_str} ({' OR '.join(ec_signals[:3])})"
+        queries.append({
+            "query": ec_query,
+            "priority": 3,
+            "source": "extracurriculars",
+            "weight": 1.15
+        })
+    
+    # Query 4: Industry-focused
+    if target_industries:
+        industry = target_industries[0]
+        industry_keywords = INDUSTRY_TO_KEYWORDS.get(industry.lower(), [industry])
+        industry_query = f"{job_type_str} {' OR '.join(industry_keywords[:2])}"
+        queries.append({
+            "query": industry_query,
+            "priority": 4,
+            "source": "industry",
+            "weight": 1.0
+        })
+    
+    # Query 5: Interest-based (if specified)
+    if interests:
+        interest_query = f"{job_type_str} {interests[0]}"
+        queries.append({
+            "query": interest_query,
+            "priority": 5,
+            "source": "interests",
+            "weight": 1.0
+        })
+    
+    # Fallback: Generic query if no personalized queries built
+    if not queries:
+        queries.append({
+            "query": f"{job_type_str} jobs",
+            "priority": 10,
+            "source": "fallback",
+            "weight": 0.8
+        })
+    
+    return queries
+
+
 def build_search_query(
     job_types: List[str],
     industries: List[str],
