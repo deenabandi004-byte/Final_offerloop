@@ -9,7 +9,7 @@ export const useAutocomplete = (dataType: string, query: string, enabled = true)
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const debouncedQuery = useDebounce(query, 300); // 300ms delay
+  const debouncedQuery = useDebounce(query, 500); // 500ms delay (increased from 300ms to reduce PDL API calls)
 
   useEffect(() => {
     if (!enabled || !debouncedQuery || debouncedQuery.length < 2) {

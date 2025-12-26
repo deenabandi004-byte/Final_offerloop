@@ -111,7 +111,7 @@ def save_search_to_history(uid: str, query: str, parsed_filters: dict, results: 
 @firm_search_bp.route('/search', methods=['POST'])
 @require_firebase_auth
 def search_firms_route():
-    # Rate limiting is handled globally by Flask-Limiter (default: 50/hour, 200/day)
+    # No self-imposed rate limits - PDL plan limits apply
     """
     Natural language firm search WITH CREDIT SYSTEM.
     

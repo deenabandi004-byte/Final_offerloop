@@ -86,6 +86,20 @@ const ScoutHeaderButton: React.FC<ScoutHeaderButtonProps> = ({ onJobTitleSuggest
     loadUserResume();
   }, [user?.uid]);
 
+  // Listen for onboarding walkthrough events to open/close Scout
+  useEffect(() => {
+    const handleOpenScout = () => setIsScoutChatOpen(true);
+    const handleCloseScout = () => setIsScoutChatOpen(false);
+    
+    window.addEventListener('openScout', handleOpenScout);
+    window.addEventListener('closeScout', handleCloseScout);
+    
+    return () => {
+      window.removeEventListener('openScout', handleOpenScout);
+      window.removeEventListener('closeScout', handleCloseScout);
+    };
+  }, []);
+
   // Add wave animation keyframes
   useEffect(() => {
     const waveKeyframes = `

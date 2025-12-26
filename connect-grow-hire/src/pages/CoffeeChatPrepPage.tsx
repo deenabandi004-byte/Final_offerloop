@@ -37,6 +37,7 @@ import { PageHeaderActions } from "@/components/PageHeaderActions";
 import { useSubscription } from "@/hooks/useSubscription";
 import { canUseFeature, getRemainingUses, getFeatureLimit } from "@/utils/featureAccess";
 import { trackFeatureActionCompleted, trackContentViewed, trackError } from "../lib/analytics";
+import { OnboardingWalkthrough } from "@/components/OnboardingWalkthrough";
 
 const CoffeeChatPrepPage: React.FC = () => {
   const navigate = useNavigate();
@@ -407,6 +408,7 @@ const CoffeeChatPrepPage: React.FC = () => {
 
   return (
     <SidebarProvider>
+      <OnboardingWalkthrough />
       <div className="flex min-h-screen w-full bg-transparent text-foreground">
         <AppSidebar />
 

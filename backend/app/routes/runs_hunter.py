@@ -223,20 +223,31 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                         body = email_result.get('body', '')
                         if subject and body:
                             try:
-                                draft_id = create_gmail_draft_for_user(
+                                draft_result = create_gmail_draft_for_user(
                                     contact, subject, body,
                                     tier='free', user_email=user_email, resume_url=resume_url, user_info=user_info
                                 )
-                                if draft_id and not draft_id.startswith('mock_'):
+                                # Handle both dict and string returns from create_gmail_draft_for_user
+                                if isinstance(draft_result, dict):
+                                    draft_id = draft_result.get('draft_id', '')
+                                    message_id = draft_result.get('message_id', '')
+                                    gmail_url = draft_result.get('draft_url', '')
+                                else:
+                                    draft_id = draft_result
+                                    message_id = None
+                                    gmail_url = None
+                                
+                                if draft_id and not str(draft_id).startswith('mock_'):
                                     successful_drafts += 1
-                                    # Store draft URL with contact
-                                    gmail_url = (
-                                        f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft_id}"
-                                        if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
-                                    )
+                                    # Use message_id for URL - this is what Gmail needs
+                                    if message_id and (not gmail_url or '#draft' in gmail_url):
+                                        gmail_url = f"https://mail.google.com/mail/u/0/?compose={message_id}"
+                                    elif not gmail_url:
+                                        gmail_url = f"https://mail.google.com/mail/u/0/#drafts"
                                     contact['gmailDraftId'] = draft_id
+                                    contact['gmailMessageId'] = message_id
                                     contact['gmailDraftUrl'] = gmail_url
-                                    print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
+                                    print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id} (msg: {message_id})")
                                 else:
                                     print(f"⚠️ [{i}] Draft creation returned mock/invalid ID for {contact.get('FirstName', 'Unknown')}")
                             except Exception as draft_error:
@@ -474,20 +485,31 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                         body = email_result.get('body', '')
                         if subject and body:
                             try:
-                                draft_id = create_gmail_draft_for_user(
+                                draft_result = create_gmail_draft_for_user(
                                     contact, subject, body,
                                     tier='pro', user_email=user_email, resume_url=resume_url, user_info=user_info
                                 )
-                                if draft_id and not draft_id.startswith('mock_'):
+                                # Handle both dict and string returns from create_gmail_draft_for_user
+                                if isinstance(draft_result, dict):
+                                    draft_id = draft_result.get('draft_id', '')
+                                    message_id = draft_result.get('message_id', '')
+                                    gmail_url = draft_result.get('draft_url', '')
+                                else:
+                                    draft_id = draft_result
+                                    message_id = None
+                                    gmail_url = None
+                                
+                                if draft_id and not str(draft_id).startswith('mock_'):
                                     successful_drafts += 1
-                                    # Store draft URL with contact
-                                    gmail_url = (
-                                        f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft_id}"
-                                        if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
-                                    )
+                                    # Use message_id for URL - this is what Gmail needs
+                                    if message_id and (not gmail_url or '#draft' in gmail_url):
+                                        gmail_url = f"https://mail.google.com/mail/u/0/?compose={message_id}"
+                                    elif not gmail_url:
+                                        gmail_url = f"https://mail.google.com/mail/u/0/#drafts"
                                     contact['gmailDraftId'] = draft_id
+                                    contact['gmailMessageId'] = message_id
                                     contact['gmailDraftUrl'] = gmail_url
-                                    print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
+                                    print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id} (msg: {message_id})")
                                 else:
                                     print(f"⚠️ [{i}] Draft creation returned mock/invalid ID for {contact.get('FirstName', 'Unknown')}")
                             except Exception as draft_error:

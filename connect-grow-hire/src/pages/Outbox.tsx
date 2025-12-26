@@ -168,34 +168,60 @@ export default function Outbox() {
   };
 
   const handleOpenDraft = () => {
-    // Get draft ID first
-    const draftId = selectedThread?.gmailDraftId;
+    if (!selectedThread) return;
     
-    if (!draftId) {
-      toast({
-        title: "No Gmail draft found",
-        description: "Generate or regenerate a reply draft first.",
-        variant: "destructive",
-      });
+    const { gmailDraftId, gmailMessageId, gmailThreadId, gmailDraftUrl, status } = selectedThread;
+    
+    // Debug logging - always log draft state for troubleshooting
+    console.log('[handleOpenDraft] Draft state:', {
+      draftId: gmailDraftId,
+      messageId: gmailMessageId,
+      threadId: gmailThreadId,
+      draftUrl: gmailDraftUrl,
+      status,
+      messageIdMissing: (selectedThread as any).gmailMessageIdMissing
+    });
+    
+    // Case 1: Sent email - open thread in inbox
+    if (status !== 'no_reply_yet' && gmailThreadId) {
+      const url = `https://mail.google.com/mail/u/0/#inbox/${gmailThreadId}`;
+      console.log('[handleOpenDraft] Opening sent email thread:', url);
+      window.open(url, "_blank");
       return;
     }
     
-    // Always construct the correct URL format: #draft (singular) not #drafts (plural)
-    // The correct format opens the specific draft, not the drafts folder
-    let draftUrl = selectedThread?.gmailDraftUrl;
-    
-    // If URL exists but uses wrong format (#drafts), fix it
-    if (draftUrl && draftUrl.includes('#drafts/')) {
-      draftUrl = draftUrl.replace('#drafts/', '#draft/');
+    // Case 2: Draft with message_id - use compose URL (correct deep-link)
+    if (gmailMessageId) {
+      const url = `https://mail.google.com/mail/u/0/?compose=${gmailMessageId}`;
+      console.log('[handleOpenDraft] Opening draft with message_id:', url);
+      window.open(url, "_blank");
+      return;
     }
     
-    // If no URL or invalid format, construct correct one
-    if (!draftUrl || !draftUrl.includes('#draft/')) {
-      draftUrl = `https://mail.google.com/mail/u/0/#draft/${draftId}`;
+    // Case 3: Draft exists but message_id missing - DATA INTEGRITY ISSUE
+    if (gmailDraftId) {
+      console.error('[handleOpenDraft] 🚨 BUG: Draft exists but gmailMessageId is missing!');
+      console.error('[handleOpenDraft] Draft ID:', gmailDraftId);
+      console.error('[handleOpenDraft] This is a data integrity issue - deep-link cannot work');
+      
+      // Show user-facing warning instead of silent fallback
+      toast({
+        title: "Draft link unavailable",
+        description: "Opening your drafts folder. Please locate this draft manually.",
+        variant: "destructive",
+      });
+      
+      // Open drafts folder as last resort, but user is informed
+      window.open("https://mail.google.com/mail/u/0/#drafts", "_blank");
+      return;
     }
     
-    console.log('Opening draft URL:', draftUrl);
-    window.open(draftUrl, "_blank");
+    // Case 4: No draft at all
+    toast({
+      title: "No Gmail draft found",
+      description: "Generate or regenerate a reply draft first.",
+      variant: "destructive",
+    });
   };
 
   const handleRegenerate = async () => {

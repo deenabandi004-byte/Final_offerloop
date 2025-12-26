@@ -244,6 +244,10 @@ PDL_METRO_AREAS = {
 # ========================================
 if not PEOPLE_DATA_LABS_API_KEY:
     print("WARNING: PEOPLE_DATA_LABS_API_KEY not found in .env file")
+else:
+    # Log API key prefix for debugging (helps verify correct key is loaded)
+    key_prefix = PEOPLE_DATA_LABS_API_KEY[:8] if len(PEOPLE_DATA_LABS_API_KEY) > 8 else "SHORT_KEY"
+    print(f"✓ PDL API Key loaded: {key_prefix}... (verify this matches your $10K business plan key)")
 
 if not OPENAI_API_KEY:
     print("WARNING: OPENAI_API_KEY not found in .env file")

@@ -170,6 +170,8 @@ const SpreadsheetContactDirectory: React.FC = () => {
           emailBody: c.email_body ?? c.emailBody ?? undefined,
           gmailThreadId: c.gmailThreadId ?? c.gmail_thread_id ?? undefined,
           gmailMessageId: c.gmailMessageId ?? c.gmail_message_id ?? undefined,
+          gmailDraftId: c.gmailDraftId ?? c.gmail_draft_id ?? undefined,
+          gmailDraftUrl: c.gmailDraftUrl ?? c.gmail_draft_url ?? undefined,
           hasUnreadReply: false,
           notificationsMuted: false,
         })
@@ -311,8 +313,28 @@ const SpreadsheetContactDirectory: React.FC = () => {
 
   const buildGmailLink = (contact: Contact) => {
     // If a Gmail draft exists, open that instead (has resume attached)
-    if (contact.gmailDraftUrl) {
-      return contact.gmailDraftUrl;
+    // Use message ID for the URL - this is what Gmail needs
+    const messageId = (contact as any).gmailMessageId;
+    
+    if (contact.gmailDraftUrl || contact.gmailDraftId || messageId) {
+      let url = contact.gmailDraftUrl;
+      
+      // Check if URL already has correct format (?compose= without hash)
+      if (url && url.includes('?compose=') && !url.includes('#')) {
+        return url;
+      }
+      
+      // Build correct URL using message_id (preferred)
+      if (messageId) {
+        return `https://mail.google.com/mail/u/0/?compose=${messageId}`;
+      }
+      
+      // Fallback to drafts folder if no message ID
+      if (contact.gmailDraftId) {
+        return `https://mail.google.com/mail/u/0/#drafts`;
+      }
+      
+      return url || '#';
     }
     
     const to = contact.email;
@@ -328,13 +350,38 @@ const SpreadsheetContactDirectory: React.FC = () => {
   };
 
   const handleEmailClick = (contact: Contact) => {
-    // If Gmail draft exists, open it directly (has resume attached)
-    if (contact.gmailDraftUrl) {
-      window.open(contact.gmailDraftUrl, '_blank');
+    const messageId = (contact as any).gmailMessageId;
+    const draftId = contact.gmailDraftId;
+    const draftUrl = contact.gmailDraftUrl;
+    
+    // Debug logging
+    console.log('[handleEmailClick] Contact draft state:', {
+      email: contact.email,
+      draftId,
+      messageId,
+      draftUrl
+    });
+    
+    // Case 1: Has message_id - use correct deep-link
+    if (messageId) {
+      const url = `https://mail.google.com/mail/u/0/?compose=${messageId}`;
+      console.log('[handleEmailClick] Opening draft with message_id:', url);
+      window.open(url, '_blank');
       return;
     }
     
-    // Otherwise, show dialog to choose mail app
+    // Case 2: Has draft but no message_id - DATA INTEGRITY ISSUE
+    if (draftId || draftUrl) {
+      console.error('[handleEmailClick] 🚨 BUG: Draft exists but messageId is missing!');
+      console.error('[handleEmailClick] Draft ID:', draftId);
+      
+      // Inform user before falling back
+      alert('Draft link unavailable. Opening your drafts folder - please locate this draft manually.');
+      window.open('https://mail.google.com/mail/u/0/#drafts', '_blank');
+      return;
+    }
+    
+    // Case 3: No draft - show mail app dialog
     setSelectedContactForEmail(contact);
     setMailAppDialogOpen(true);
   };

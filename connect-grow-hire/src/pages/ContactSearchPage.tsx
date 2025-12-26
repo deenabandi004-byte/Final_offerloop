@@ -6,6 +6,7 @@ import { CreditPill } from "@/components/credits";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { Search, FileText, Upload as UploadIcon, Download } from "lucide-react";
+import { OnboardingWalkthrough } from "@/components/OnboardingWalkthrough";
 import { useNavigate, useSearchParams } from "react-router-dom";
 // ScoutBubble removed - now using ScoutHeaderButton in PageHeaderActions
 import { Button } from "@/components/ui/button";
@@ -973,6 +974,7 @@ const ContactSearchPage: React.FC = () => {
 
   return (
     <SidebarProvider>
+      <OnboardingWalkthrough />
       <div className="flex min-h-screen w-full bg-transparent text-foreground">
         <AppSidebar />
 

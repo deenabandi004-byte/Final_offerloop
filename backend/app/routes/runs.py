@@ -270,21 +270,44 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                                     user_info=user_info, user_id=user_id
                                 )
                                 
-                                # Handle both dict response (new) and string response (old/fallback)
+                                # Handle draft result - message_id is REQUIRED for deep-linking
                                 if isinstance(draft_result, dict):
                                     draft_id = draft_result.get('draft_id', '')
+                                    message_id = draft_result.get('message_id')  # Don't default to empty string
                                     draft_url = draft_result.get('draft_url', '')
+                                    message_id_missing = draft_result.get('message_id_missing', message_id is None)
+                                    
+                                    # CRITICAL: Log if message_id is missing
+                                    if message_id_missing or not message_id:
+                                        print(f"   🚨 [{i}] DEEP-LINK FAILURE: message_id missing for {contact.get('FirstName', 'Unknown')}")
+                                        print(f"   🚨 [{i}] Draft {draft_id} will NOT deep-link correctly")
                                 else:
+                                    # Legacy string response - this format is deprecated and breaks deep-linking
                                     draft_id = draft_result
-                                    draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}" if draft_id and not draft_id.startswith('mock_') else None
+                                    message_id = None
+                                    draft_url = None
+                                    print(f"   🚨 [{i}] DEPRECATED: String draft response received - message_id unavailable")
+                                    print(f"   🚨 [{i}] Draft {draft_id} will NOT deep-link correctly")
+                                
+                                # Construct URL with message_id if available, otherwise explicit fallback
+                                if message_id:
+                                    draft_url = f"https://mail.google.com/mail/u/0/?compose={message_id}"
+                                elif draft_id and not draft_id.startswith('mock_'):
+                                    draft_url = f"https://mail.google.com/mail/u/0/#drafts"
+                                    print(f"   ⚠️ [{i}] Using fallback #drafts URL - deep-link will fail")
                                 
                                 if draft_id and not draft_id.startswith('mock_'):
                                     successful_drafts += 1
-                                    # Store draft URL with contact
-                                    if draft_url:
-                                        contact['gmailDraftId'] = draft_id
-                                        contact['gmailDraftUrl'] = draft_url
-                                    print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
+                                    # ALWAYS set these fields - message_id may be None but must be explicit
+                                    contact['gmailDraftId'] = draft_id
+                                    contact['gmailMessageId'] = message_id  # May be None - Firestore will store null
+                                    contact['gmailDraftUrl'] = draft_url
+                                    contact['gmailMessageIdMissing'] = message_id is None  # Explicit tracking flag
+                                    
+                                    if message_id:
+                                        print(f"   ✅ [{i}] Draft ready for {contact.get('FirstName', 'Unknown')}: {draft_id} (msg: {message_id})")
+                                    else:
+                                        print(f"   ⚠️ [{i}] Draft created but message_id MISSING for {contact.get('FirstName', 'Unknown')}")
                                 else:
                                     print(f"⚠️ [{i}] Draft creation returned mock/invalid ID for {contact.get('FirstName', 'Unknown')}")
                             except Exception as draft_error:
@@ -549,21 +572,44 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                                     user_info=user_info, user_id=user_id
                                 )
                                 
-                                # Handle both dict response (new) and string response (old/fallback)
+                                # Handle draft result - message_id is REQUIRED for deep-linking
                                 if isinstance(draft_result, dict):
                                     draft_id = draft_result.get('draft_id', '')
+                                    message_id = draft_result.get('message_id')  # Don't default to empty string
                                     draft_url = draft_result.get('draft_url', '')
+                                    message_id_missing = draft_result.get('message_id_missing', message_id is None)
+                                    
+                                    # CRITICAL: Log if message_id is missing
+                                    if message_id_missing or not message_id:
+                                        print(f"   🚨 [{i}] DEEP-LINK FAILURE: message_id missing for {contact.get('FirstName', 'Unknown')}")
+                                        print(f"   🚨 [{i}] Draft {draft_id} will NOT deep-link correctly")
                                 else:
+                                    # Legacy string response - this format is deprecated and breaks deep-linking
                                     draft_id = draft_result
-                                    draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}" if draft_id and not draft_id.startswith('mock_') else None
+                                    message_id = None
+                                    draft_url = None
+                                    print(f"   🚨 [{i}] DEPRECATED: String draft response received - message_id unavailable")
+                                    print(f"   🚨 [{i}] Draft {draft_id} will NOT deep-link correctly")
+                                
+                                # Construct URL with message_id if available, otherwise explicit fallback
+                                if message_id:
+                                    draft_url = f"https://mail.google.com/mail/u/0/?compose={message_id}"
+                                elif draft_id and not draft_id.startswith('mock_'):
+                                    draft_url = f"https://mail.google.com/mail/u/0/#drafts"
+                                    print(f"   ⚠️ [{i}] Using fallback #drafts URL - deep-link will fail")
                                 
                                 if draft_id and not draft_id.startswith('mock_'):
                                     successful_drafts += 1
-                                    # Store draft URL with contact
-                                    if draft_url:
-                                        contact['gmailDraftId'] = draft_id
-                                        contact['gmailDraftUrl'] = draft_url
-                                    print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
+                                    # ALWAYS set these fields - message_id may be None but must be explicit
+                                    contact['gmailDraftId'] = draft_id
+                                    contact['gmailMessageId'] = message_id  # May be None - Firestore will store null
+                                    contact['gmailDraftUrl'] = draft_url
+                                    contact['gmailMessageIdMissing'] = message_id is None  # Explicit tracking flag
+                                    
+                                    if message_id:
+                                        print(f"   ✅ [{i}] Draft ready for {contact.get('FirstName', 'Unknown')}: {draft_id} (msg: {message_id})")
+                                    else:
+                                        print(f"   ⚠️ [{i}] Draft created but message_id MISSING for {contact.get('FirstName', 'Unknown')}")
                                 else:
                                     print(f"⚠️ [{i}] Draft creation returned mock/invalid ID for {contact.get('FirstName', 'Unknown')}")
                             except Exception as draft_error:

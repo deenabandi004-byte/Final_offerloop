@@ -253,26 +253,38 @@ def generate_and_draft():
             print(f"📤 [{i}] Draft created: {draft}")
             draft_ids.append(draft.get("id"))
             
-            # Extract threadId from draft (Gmail creates a thread when draft is created)
+            # Extract threadId and messageId from draft (Gmail creates a thread when draft is created)
+            draft_id = draft.get("id")
+            message_id = draft.get("message", {}).get("id")
             thread_id = draft.get("message", {}).get("threadId")
-            if not thread_id:
-                # If threadId not in draft response, get it from the draft message
+            
+            # CRITICAL: Fetch message_id explicitly if not in create response
+            if not message_id:
+                print(f"   ⚠️ [{i}] message_id not in create response, fetching...")
                 try:
-                    draft_message = gmail.users().drafts().get(userId="me", id=draft["id"], format="full").execute()
-                    thread_id = draft_message.get("message", {}).get("threadId")
+                    draft_message = gmail.users().drafts().get(userId="me", id=draft_id, format="minimal").execute()
+                    message_id = draft_message.get("message", {}).get("id")
+                    thread_id = thread_id or draft_message.get("message", {}).get("threadId")
+                    if message_id:
+                        print(f"   ✅ [{i}] Retrieved message_id: {message_id}")
                 except Exception as e:
-                    print(f"⚠️ [{i}] Could not get threadId from draft: {e}")
+                    print(f"   ❌ [{i}] Failed to fetch message_id: {e}")
 
-            # Use the correct format to open the specific draft (singular "draft" not "drafts")
-            gmail_url = (
-                f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft['id']}"
-                if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft['id']}"
-            )
+            # Build URL with multi-account support
+            if message_id:
+                if connected_email:
+                    gmail_url = f"https://mail.google.com/mail/?authuser={connected_email}&compose={message_id}"
+                else:
+                    gmail_url = f"https://mail.google.com/mail/u/0/?compose={message_id}"
+            else:
+                gmail_url = f"https://mail.google.com/mail/u/0/#drafts"
+                print(f"   🚨 [{i}] No message_id - using fallback #drafts URL")
 
             created.append({
                 "index": i,
                 "to": to_addr,
-                "draftId": draft["id"],
+                "draftId": draft_id,
+                "messageId": message_id,
                 "threadId": thread_id,
                 "gmailUrl": gmail_url
             })
@@ -285,7 +297,7 @@ def generate_and_draft():
                 existing_contacts = list(contacts_ref.where("email", "==", to_addr).limit(1).stream())
                 
                 contact_data = {
-                    "gmailDraftId": draft["id"],
+                    "gmailDraftId": draft_id,
                     "gmailDraftUrl": gmail_url,
                     "emailSubject": r["subject"],
                     "emailBody": body,
@@ -298,6 +310,12 @@ def generate_and_draft():
                 # Add threadId if we have it
                 if thread_id:
                     contact_data["gmailThreadId"] = thread_id
+                # CRITICAL: Always set gmailMessageId when saving draft info
+                if message_id:
+                    contact_data["gmailMessageId"] = message_id
+                else:
+                    contact_data["gmailMessageId"] = None
+                    contact_data["gmailMessageIdMissing"] = True
                 
                 # Add contact fields from the original contact data
                 if c.get("FirstName"):
@@ -319,14 +337,14 @@ def generate_and_draft():
                     # Update existing contact
                     contact_doc = existing_contacts[0]
                     contact_doc.reference.update(contact_data)
-                    print(f"✅ [{i}] Updated contact {contact_doc.id} with draftId {draft['id']}" + (f" and threadId {thread_id}" if thread_id else ""))
+                    print(f"✅ [{i}] Updated contact {contact_doc.id} with draftId {draft_id}" + (f" and threadId {thread_id}" if thread_id else ""))
                 else:
                     # Create new contact
                     contact_data["email"] = to_addr
                     contact_data["createdAt"] = datetime.utcnow().isoformat()
                     new_contact_ref = contacts_ref.document()
                     new_contact_ref.set(contact_data)
-                    print(f"✅ [{i}] Created new contact {new_contact_ref.id} with draftId {draft['id']}" + (f" and threadId {thread_id}" if thread_id else ""))
+                    print(f"✅ [{i}] Created new contact {new_contact_ref.id} with draftId {draft_id}" + (f" and threadId {thread_id}" if thread_id else ""))
             except Exception as e:
                 print(f"⚠️ [{i}] Failed to save contact to Firestore: {e}")
                 import traceback

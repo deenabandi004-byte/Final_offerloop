@@ -109,14 +109,28 @@ def _build_outbox_thread(doc):
         or gmail_draft_id
     )
     
-    # If we have a draft ID but no URL, construct the URL
-    if gmail_draft_id and not gmail_draft_url:
-        gmail_draft_url = f"https://mail.google.com/mail/u/0/#draft/{gmail_draft_id}"
+    # Get the message ID - THIS is what Gmail needs for the URL, not draft ID
+    gmail_message_id = data.get("gmailMessageId") or data.get("gmail_message_id")
     
-    # Fix incorrect URLs that use #drafts (plural) instead of #draft (singular)
-    # #drafts opens the drafts folder, #draft opens the specific draft
-    if gmail_draft_url and '#drafts/' in gmail_draft_url:
-        gmail_draft_url = gmail_draft_url.replace('#drafts/', '#draft/')
+    # CRITICAL: Validate message_id availability for drafts
+    if has_draft and not gmail_message_id:
+        contact_name_log = (first + " " + last).strip() or email
+        print(f"   🚨 OUTBOX: Contact {contact_name_log} has draft but NO gmailMessageId - deep-link will fail")
+    
+    # Build draft URL - message_id is REQUIRED for deep-linking
+    if gmail_message_id:
+        # Correct format: ?compose={message_id}
+        gmail_draft_url = f"https://mail.google.com/mail/u/0/?compose={gmail_message_id}"
+    elif gmail_draft_id:
+        # FALLBACK: No message_id available - this is a data integrity issue
+        gmail_draft_url = f"https://mail.google.com/mail/u/0/#drafts"
+        print(f"   ⚠️ OUTBOX: Using fallback #drafts URL for draft {gmail_draft_id}")
+    
+    # Fix any legacy URLs that use incorrect formats
+    if gmail_draft_url and gmail_message_id:
+        if '#draft' in gmail_draft_url or '#inbox' in gmail_draft_url:
+            # Override with correct format
+            gmail_draft_url = f"https://mail.google.com/mail/u/0/?compose={gmail_message_id}"
 
     return {
         "id": contact_id,
@@ -131,6 +145,9 @@ def _build_outbox_thread(doc):
         "suggestedReply": suggested_reply,
         "gmailDraftUrl": gmail_draft_url,
         "gmailDraftId": gmail_draft_id,
+        "gmailThreadId": gmail_thread_id,  # Include thread ID for opening sent emails
+        "gmailMessageId": gmail_message_id,  # MUST use normalized variable with snake_case fallback
+        "gmailMessageIdMissing": has_draft and not gmail_message_id,  # NEW: explicit flag for data integrity issues
         "replyType": reply_type,
     }
 
@@ -316,6 +333,19 @@ def list_threads():
 
     print(f"📧 Contacts with threads/drafts: {len(contacts)}")
     threads = [_build_outbox_thread(doc) for doc in contacts]
+    
+    # Data integrity check - log any drafts missing message_id
+    drafts_missing_message_id = [
+        t for t in threads 
+        if t.get('hasDraft') and not t.get('gmailMessageId')
+    ]
+    if drafts_missing_message_id:
+        print(f"🚨 DATA INTEGRITY WARNING: {len(drafts_missing_message_id)} drafts missing gmailMessageId")
+        for t in drafts_missing_message_id[:5]:  # Log first 5
+            print(f"   - {t.get('contactName')}: draftId={t.get('gmailDraftId')}")
+        if len(drafts_missing_message_id) > 5:
+            print(f"   ... and {len(drafts_missing_message_id) - 5} more")
+    
     threads.sort(key=lambda t: t.get("lastActivityAt") or "", reverse=True)
 
     return jsonify({"threads": threads}), 200
@@ -437,13 +467,31 @@ def regenerate(thread_id):
         
         draft = gmail_service.users().drafts().create(userId='me', body=draft_body).execute()
         draft_id = draft['id']
-        # Use the correct URL format to open the specific draft (singular "draft" not "drafts")
-        gmail_draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
+        message_id = draft.get("message", {}).get("id")
         
-        print(f"✅ Created Gmail draft {draft_id} for reply")
+        # If message_id not in response, fetch explicitly
+        if not message_id:
+            print(f"   ⚠️ message_id not in create response, fetching explicitly...")
+            try:
+                full_draft = gmail_service.users().drafts().get(userId='me', id=draft_id).execute()
+                message_id = full_draft.get('message', {}).get('id')
+                if message_id:
+                    print(f"   ✅ Retrieved message_id via explicit fetch: {message_id}")
+            except Exception as e:
+                print(f"   ❌ Failed to fetch message_id: {e}")
+        
+        # Build URL with message_id
+        if message_id:
+            gmail_draft_url = f"https://mail.google.com/mail/u/0/?compose={message_id}"
+        else:
+            gmail_draft_url = f"https://mail.google.com/mail/u/0/#drafts"
+            print(f"   🚨 REGENERATE: No message_id - deep-link will fail for draft {draft_id}")
+        
+        print(f"✅ Created Gmail draft {draft_id} (message_id: {message_id}) for reply")
     except Exception as draft_error:
         print(f"⚠️ Could not create Gmail draft: {draft_error}")
         draft_id = None
+        message_id = None
         gmail_draft_url = None
     
     # Update contact with suggested reply
@@ -458,6 +506,9 @@ def regenerate(thread_id):
         updates["gmailDraftUrl"] = gmail_draft_url
     if draft_id:
         updates["gmailDraftId"] = draft_id
+    # CRITICAL: Always set gmailMessageId
+    updates["gmailMessageId"] = message_id  # May be None
+    updates["gmailMessageIdMissing"] = message_id is None
     
     contact_ref.update(updates)
 

@@ -279,15 +279,19 @@ def init_app_extensions(app: Flask):
     """Initializes Flask extensions like CORS, Rate Limiting, and Firebase."""
     global limiter
     # Initialize rate limiter with custom key function that excludes static assets
+    # NOTE: Self-imposed rate limits REMOVED (was: 200/day, 50/hour)
+    # PDL has its own rate limits based on your plan tier ($10K business plan)
+    # We only keep the limiter infrastructure for potential abuse protection
     limiter = Limiter(
         app=app,
         key_func=get_rate_limit_key,
-        default_limits=["200 per day", "50 per hour"],
+        default_limits=[],  # NO GLOBAL RATE LIMITS - PDL plan handles this
         storage_uri="memory://",  # Use in-memory storage (can upgrade to Redis later)
         strategy="fixed-window",
         headers_enabled=True  # Include rate limit headers in response
     )
     app.limiter = limiter
+    print("✓ Rate limiter initialized (no global limits - PDL plan limits apply)")
     
     # Check if we're in development mode
     is_dev = (

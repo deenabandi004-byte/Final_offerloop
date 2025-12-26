@@ -44,6 +44,7 @@ export interface Contact {
   gmailMessageId?: string;
   gmailDraftId?: string;
   gmailDraftUrl?: string;
+  gmailMessageIdMissing?: boolean;  // Explicit flag for data integrity issues
   hasUnreadReply?: boolean;
   notificationsMuted?: boolean;
   draftCreatedAt?: string;

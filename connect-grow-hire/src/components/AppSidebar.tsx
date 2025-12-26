@@ -68,8 +68,8 @@ export function AppSidebar() {
 
   const getNavClass = ({ isActive }: { isActive: boolean }) =>
     isActive
-      ? "!text-white !font-medium !bg-sidebar-accent/0 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0"
-      : "text-muted-foreground hover:!text-white hover:!bg-sidebar-accent/0 data-[active=true]:!text-white data-[active=true]:!bg-sidebar-accent/0";
+      ? "!text-white !font-medium"
+      : "text-muted-foreground hover:!text-white hover:!bg-sidebar-accent/0";
 
   const getSettingsClass = () =>
     isSettingsActive || settingsExpanded

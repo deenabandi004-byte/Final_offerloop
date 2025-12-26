@@ -7,6 +7,7 @@ import { CreditPill } from "@/components/credits";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { Search, Sheet, History, Loader2, AlertCircle, ArrowUp, Download, Trash2 } from "lucide-react";
+import { OnboardingWalkthrough } from "@/components/OnboardingWalkthrough";
 // ScoutBubble removed - now using ScoutHeaderButton in PageHeaderActions
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -772,6 +773,7 @@ const FirmSearchPage: React.FC = () => {
 
   return (
     <SidebarProvider className="bg-transparent">
+      <OnboardingWalkthrough />
       <div className="flex min-h-screen w-full bg-transparent text-foreground">
         <AppSidebar />
 

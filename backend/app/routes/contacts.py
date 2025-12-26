@@ -402,6 +402,8 @@ def generate_reply_draft(contact_id):
         }
         
         draft = gmail_service.users().drafts().create(userId='me', body=draft_body).execute()
+        draft_id = draft['id']
+        message_id = draft.get('message', {}).get('id')
         
         # Mark as read
         gmail_service.users().threads().modify(
@@ -410,17 +412,25 @@ def generate_reply_draft(contact_id):
             body={'removeLabelIds': ['UNREAD']}
         ).execute()
         
+        # Use message_id for URL - this is what Gmail needs to open the specific draft
+        if message_id:
+            gmail_url = f"https://mail.google.com/mail/u/0/?compose={message_id}"
+        else:
+            gmail_url = f"https://mail.google.com/mail/u/0/#drafts"
+        
         # Update contact
         contact_ref.update({
             'hasUnreadReply': False,
-            'lastReplyDraftId': draft['id']
+            'lastReplyDraftId': draft_id,
+            'gmailMessageId': message_id
         })
         
         return jsonify({
             'success': True,
-            'draftId': draft['id'],
+            'draftId': draft_id,
+            'messageId': message_id,
             'threadId': thread_id,
-            'gmailUrl': f"https://mail.google.com/mail/u/0/#draft/{draft['id']}"
+            'gmailUrl': gmail_url
         })
         
     except Exception as e:
@@ -493,13 +503,19 @@ def bulk_create_contacts():
                     is_duplicate = True
             
             if is_duplicate:
-                # Update existing contact with email subject/body and draft URL if provided
+                # Update existing contact with email subject/body and draft info if provided
                 email_subject = (rc.get('emailSubject') or rc.get('email_subject') or '').strip()
                 email_body = (rc.get('emailBody') or rc.get('email_body') or '').strip()
                 gmail_draft_id = (rc.get('gmailDraftId') or rc.get('gmail_draft_id') or '').strip()
                 gmail_draft_url = (rc.get('gmailDraftUrl') or rc.get('gmail_draft_url') or '').strip()
+                gmail_message_id = (rc.get('gmailMessageId') or rc.get('gmail_message_id') or '').strip()
                 
-                if email_subject or email_body or gmail_draft_url:
+                # CRITICAL: Log when we have a draft but no message_id
+                if gmail_draft_id and not gmail_message_id:
+                    print(f"   🚨 PERSISTENCE WARNING: Contact has gmailDraftId={gmail_draft_id} but NO gmailMessageId")
+                    print(f"   🚨 Deep-linking will fail for {first_name} {last_name}")
+                
+                if email_subject or email_body or gmail_draft_url or gmail_message_id or gmail_draft_id:
                     # Find the existing contact document
                     existing_doc = None
                     if email:
@@ -521,11 +537,15 @@ def bulk_create_contacts():
                             update_data['emailBody'] = email_body
                         if gmail_draft_id:
                             update_data['gmailDraftId'] = gmail_draft_id
+                        # CRITICAL: Always update gmailMessageId when updating draft
+                        if gmail_draft_id:  # If we're updating draft info, include message_id status
+                            update_data['gmailMessageId'] = gmail_message_id if gmail_message_id else None
+                            update_data['gmailMessageIdMissing'] = not bool(gmail_message_id)
                         if gmail_draft_url:
                             update_data['gmailDraftUrl'] = gmail_draft_url
                         if update_data:
                             existing_doc.reference.update(update_data)
-                            print(f"✅ Updated existing contact {first_name} {last_name} with email subject/body/draft URL")
+                            print(f"✅ Updated existing contact {first_name} {last_name} with email subject/body/draft info")
                 
                 skipped += 1
                 print(f"🚫 Skipping duplicate contact: {first_name} {last_name} ({email or linkedin or 'no email/linkedin'})")
@@ -536,6 +556,12 @@ def bulk_create_contacts():
             email_body = (rc.get('emailBody') or rc.get('email_body') or '').strip()
             gmail_draft_id = (rc.get('gmailDraftId') or rc.get('gmail_draft_id') or '').strip()
             gmail_draft_url = (rc.get('gmailDraftUrl') or rc.get('gmail_draft_url') or '').strip()
+            gmail_message_id = (rc.get('gmailMessageId') or rc.get('gmail_message_id') or '').strip()
+            
+            # CRITICAL: Log when we have a draft but no message_id
+            if gmail_draft_id and not gmail_message_id:
+                print(f"   🚨 PERSISTENCE WARNING: New contact has gmailDraftId={gmail_draft_id} but NO gmailMessageId")
+                print(f"   🚨 Deep-linking will fail for {first_name} {last_name}")
             
             contact = {
                 'firstName': first_name,
@@ -560,9 +586,12 @@ def bulk_create_contacts():
                 contact['emailSubject'] = email_subject
             if email_body:
                 contact['emailBody'] = email_body
-            # Add Gmail draft URL if available (draft has resume attached)
+            # Gmail draft info - MUST include gmailMessageId for correct URL format
             if gmail_draft_id:
                 contact['gmailDraftId'] = gmail_draft_id
+                # ALWAYS set gmailMessageId field (even if empty) when draft exists
+                contact['gmailMessageId'] = gmail_message_id if gmail_message_id else None
+                contact['gmailMessageIdMissing'] = not bool(gmail_message_id)
             if gmail_draft_url:
                 contact['gmailDraftUrl'] = gmail_draft_url
             

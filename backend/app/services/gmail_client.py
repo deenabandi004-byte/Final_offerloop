@@ -1000,7 +1000,28 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
             print(f"   🔄 Calling Gmail API to create draft...")
             draft_result = gmail_service.users().drafts().create(userId='me', body=draft_body).execute()
             draft_id = draft_result['id']
-            print(f"   ✅ Gmail API returned draft ID: {draft_id}")
+            # Extract message ID - THIS is what we need for the URL, not draft_id
+            message_id = draft_result.get('message', {}).get('id')
+            print(f"   ✅ Gmail API returned draft ID: {draft_id}, message ID: {message_id}")
+            
+            # If message_id not in initial response, fetch it explicitly - THIS IS REQUIRED FOR DEEP-LINKING
+            if not message_id:
+                print(f"   ⚠️ message_id not in create response, fetching explicitly...")
+                try:
+                    full_draft = gmail_service.users().drafts().get(userId='me', id=draft_id).execute()
+                    message_id = full_draft.get('message', {}).get('id')
+                    if message_id:
+                        print(f"   ✅ Retrieved message_id via explicit fetch: {message_id}")
+                    else:
+                        print(f"   ❌ CRITICAL: Could not retrieve message_id even with explicit fetch")
+                except Exception as fetch_err:
+                    print(f"   ❌ CRITICAL: Failed to fetch message_id: {fetch_err}")
+            
+            # CRITICAL: message_id is REQUIRED for deep-linking. Log loudly if missing.
+            if not message_id:
+                print(f"   🚨 DEEP-LINK WILL FAIL: No message_id available for draft {draft_id}")
+                print(f"   🚨 User will be redirected to drafts folder instead of specific draft")
+                
         except Exception as api_error:
             print(f"   ❌ Gmail API error creating draft: {api_error}")
             print(f"   📋 Error type: {type(api_error).__name__}")
@@ -1009,29 +1030,42 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
             raise  # Re-raise to be caught by outer exception handler
         
         # Get the Gmail account where the draft was created and build draft URL
-        # Use the correct URL format to open the specific draft (singular "draft" not "drafts")
+        # Use ?compose=<message_id> format - MUST use message ID, not draft ID!
         gmail_draft_url = None
+        account_email = None
         try:
             account_email = gmail_service.users().getProfile(userId='me').execute().get('emailAddress')
-            # Use URL format that opens the specific draft directly
-            gmail_draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
             print(f"✅ Created {tier.capitalize()} Gmail draft {draft_id}")
             print(f"   📧 Draft saved in Gmail account: {account_email}")
             print(f"   👤 Requested by user: {user_email}")
             print(f"   📬 To: {recipient_email}")
             print(f"   📝 Subject: {email_subject[:50]}{'...' if len(email_subject) > 50 else ''}")
-            print(f"   🔗 Draft URL: {gmail_draft_url}")
-            print(f"   💡 Check your Gmail drafts folder to see the draft!")
         except Exception as profile_err:
             print(f"✅ Created {tier.capitalize()} Gmail draft {draft_id}")
             print(f"   (Could not fetch account details: {profile_err})")
-            # Still create URL even if we can't get profile - use format that opens specific draft
-            gmail_draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
         
-        # Return both draft_id and URL as a dict for easier access
+        # Build Gmail draft URL with multi-account support
+        if message_id:
+            if account_email:
+                # Use authuser for multi-account Gmail - ensures correct account opens
+                gmail_draft_url = f"https://mail.google.com/mail/?authuser={account_email}&compose={message_id}"
+            else:
+                gmail_draft_url = f"https://mail.google.com/mail/u/0/?compose={message_id}"
+        else:
+            # Explicit fallback with warning - this should trigger investigation
+            gmail_draft_url = f"https://mail.google.com/mail/u/0/#drafts"
+            print(f"   🚨 FALLBACK URL: Using #drafts because message_id is missing")
+        
+        print(f"   🔗 Draft URL: {gmail_draft_url}")
+        print(f"   💡 Check your Gmail drafts folder to see the draft!")
+        
+        # Return draft_id, message_id and URL as a dict for easier access
+        # Ensure message_id is always included (even if None) for explicit handling upstream
         return {
             'draft_id': draft_id,
-            'draft_url': gmail_draft_url
+            'message_id': message_id,  # May be None - callers MUST handle this
+            'draft_url': gmail_draft_url,
+            'message_id_missing': message_id is None  # Explicit flag for callers
         }
         
     except Exception as e:

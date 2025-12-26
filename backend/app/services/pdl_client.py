@@ -957,9 +957,49 @@ def enrich_job_title_with_pdl(job_title):
     }
 
 
+# In-memory cache for autocomplete suggestions
+_autocomplete_cache = {}
+_autocomplete_cache_timestamps = {}
+AUTOCOMPLETE_CACHE_TTL = 60  # 60 seconds cache
+
+
+def _get_autocomplete_cache_key(query: str, data_type: str) -> str:
+    """Generate cache key for autocomplete"""
+    return f"{data_type}:{query.lower().strip()}"
+
+
+def _get_cached_autocomplete(query: str, data_type: str):
+    """Get cached autocomplete suggestions if available and not expired"""
+    from datetime import datetime
+    cache_key = _get_autocomplete_cache_key(query, data_type)
+    if cache_key in _autocomplete_cache:
+        timestamp = _autocomplete_cache_timestamps.get(cache_key)
+        if timestamp and (datetime.now() - timestamp).total_seconds() < AUTOCOMPLETE_CACHE_TTL:
+            return _autocomplete_cache[cache_key]
+        else:
+            # Expired - clean up
+            _autocomplete_cache.pop(cache_key, None)
+            _autocomplete_cache_timestamps.pop(cache_key, None)
+    return None
+
+
+def _set_autocomplete_cache(query: str, data_type: str, suggestions: list):
+    """Cache autocomplete suggestions"""
+    from datetime import datetime
+    cache_key = _get_autocomplete_cache_key(query, data_type)
+    _autocomplete_cache[cache_key] = suggestions
+    _autocomplete_cache_timestamps[cache_key] = datetime.now()
+
+
 def get_autocomplete_suggestions(query, data_type='job_title'):
-    """Enhanced autocomplete with proper PDL field mapping"""
+    """Enhanced autocomplete with proper PDL field mapping and caching"""
     try:
+        # Check cache first
+        cached = _get_cached_autocomplete(query, data_type)
+        if cached is not None:
+            print(f"✅ Autocomplete cache hit for {data_type}: '{query}' ({len(cached)} suggestions)")
+            return cached
+        
         print(f"Getting autocomplete suggestions for {data_type}: {query}")
         
         # Map your frontend field names to PDL's supported field names
@@ -997,9 +1037,13 @@ def get_autocomplete_suggestions(query, data_type='job_title'):
             if auto_data.get('status') == 200 and auto_data.get('data'):
                 suggestions = auto_data['data']
                 print(f"Autocomplete suggestions: {suggestions}")
+                # Cache the successful response
+                _set_autocomplete_cache(query, data_type, suggestions)
                 return suggestions
             else:
                 print(f"PDL autocomplete no data: {auto_data}")
+                # Cache empty result too to avoid repeated failed requests
+                _set_autocomplete_cache(query, data_type, [])
                 return []
         
         elif response.status_code == 400:
@@ -1017,7 +1061,38 @@ def get_autocomplete_suggestions(query, data_type='job_title'):
             print("PDL API: Payment required for autocomplete")
             return []
         elif response.status_code == 429:
-            print("PDL API rate limited for autocomplete")
+            # ===== COMPREHENSIVE 429 LOGGING =====
+            print(f"\n🚨 PDL AUTOCOMPLETE RATE LIMITED (429)")
+            print(f"   Query: {data_type} = '{query}'")
+            
+            # Log ALL response headers
+            print(f"   📋 Response Headers:")
+            for header, value in response.headers.items():
+                print(f"      {header}: {value}")
+            
+            # Log specific rate limit headers if present
+            retry_after = response.headers.get('Retry-After')
+            rate_limit = response.headers.get('X-RateLimit-Limit')
+            rate_remaining = response.headers.get('X-RateLimit-Remaining')
+            rate_reset = response.headers.get('X-RateLimit-Reset')
+            
+            print(f"   ⏱️  Rate Limit Info:")
+            print(f"      Retry-After: {retry_after or 'NOT PROVIDED'}")
+            print(f"      X-RateLimit-Limit: {rate_limit or 'NOT PROVIDED'}")
+            print(f"      X-RateLimit-Remaining: {rate_remaining or 'NOT PROVIDED'}")
+            print(f"      X-RateLimit-Reset: {rate_reset or 'NOT PROVIDED'}")
+            
+            # Log response body
+            try:
+                error_body = response.json()
+                print(f"   📄 Response Body: {error_body}")
+            except Exception:
+                print(f"   📄 Response Body (text): {response.text[:500]}")
+            
+            print(f"   🔑 API Key Prefix: {PEOPLE_DATA_LABS_API_KEY[:8] if PEOPLE_DATA_LABS_API_KEY else 'NOT SET'}...")
+            print(f"   🌐 Endpoint: {PDL_BASE_URL}/autocomplete")
+            print(f"")
+            # ===== END COMPREHENSIVE LOGGING =====
             return []
         else:
             print(f"PDL autocomplete error {response.status_code}: {response.text}")

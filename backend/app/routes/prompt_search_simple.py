@@ -294,15 +294,22 @@ def prompt_search():
                                 # Handle both dict response (new) and string response (old/fallback)
                                 if isinstance(draft_result, dict):
                                     draft_id = draft_result.get('draft_id', '')
+                                    message_id = draft_result.get('message_id', '')
                                     draft_url = draft_result.get('draft_url', '')
+                                    # Use message_id for URL - this is what Gmail needs
+                                    if message_id and (not draft_url or '#draft' in draft_url):
+                                        draft_url = f"https://mail.google.com/mail/u/0/?compose={message_id}"
                                 else:
                                     draft_id = draft_result
-                                    draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}" if draft_id and not draft_id.startswith('mock_') else None
+                                    message_id = None
+                                    # Fallback to drafts folder if no message_id
+                                    draft_url = f"https://mail.google.com/mail/u/0/#drafts" if draft_id and not draft_id.startswith('mock_') else None
                                 
                                 if draft_id and not draft_id.startswith('mock_'):
                                     successful_drafts += 1
                                     if draft_url:
                                         contact['gmailDraftId'] = draft_id
+                                        contact['gmailMessageId'] = message_id
                                         contact['gmailDraftUrl'] = draft_url
                             except Exception as draft_error:
                                 logger.error(f"❌ Failed to create draft for {contact.get('FirstName', 'Unknown')}: {draft_error}")

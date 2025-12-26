@@ -137,6 +137,9 @@ export interface OutboxThread {
   suggestedReply?: string;
   gmailDraftUrl?: string;
   gmailDraftId?: string;
+  gmailThreadId?: string;    // Thread ID for opening sent emails
+  gmailMessageId?: string;   // Message ID as alternative for URL
+  gmailMessageIdMissing?: boolean;  // Explicit flag for data integrity issues
   replyType?: "positive" | "referral" | "delay" | "decline" | "question";
 }
 

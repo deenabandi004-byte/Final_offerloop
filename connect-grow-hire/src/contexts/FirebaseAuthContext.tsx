@@ -44,7 +44,7 @@ interface User {
   emailsUsedThisMonth?: number;
   emailsMonthKey?: string;
   needsOnboarding?: boolean;
-
+  hasCompletedWalkthrough?: boolean;
 }
 
 type SignInOptions = {
@@ -153,7 +153,7 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
           emailsMonthKey: d.emailsMonthKey || getMonthKey(),
           emailsUsedThisMonth: d.emailsUsedThisMonth ?? 0,
           needsOnboarding: d.needsOnboarding ?? false,
-          
+          hasCompletedWalkthrough: d.hasCompletedWalkthrough ?? false,
         };
         setUser(userData);
         // Identify user after data is loaded
@@ -218,7 +218,11 @@ const signIn = async (opts?: SignInOptions): Promise<NextRoute> => {
       });
       return "onboarding";
     } else {
-      await updateDoc(ref, { lastSignIn: new Date().toISOString() });
+      // Reset walkthrough so it shows again on each sign in
+      await updateDoc(ref, { 
+        lastSignIn: new Date().toISOString(),
+        hasCompletedWalkthrough: false 
+      });
     }
 
     const data = snap.data() as Partial<User>;
@@ -249,6 +253,8 @@ const signIn = async (opts?: SignInOptions): Promise<NextRoute> => {
         // Only log errors, not user actions
         console.error("❌ [PostHog] Failed to reset session:", error);
       }
+      // Clear onboarding walkthrough state so it shows again on next sign in
+      sessionStorage.removeItem('offerloop_walkthrough_step');
       console.log("🔐 [AUTH CONTEXT] Firebase signOut() completed, setting user state to null");
       setUser(null);
       console.log("🔐 [AUTH CONTEXT] User state set to null");
