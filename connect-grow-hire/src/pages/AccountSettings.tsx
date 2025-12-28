@@ -177,11 +177,18 @@ export default function AccountSettings() {
 
         // Keep your current localStorage-based UI in sync (optional)
         if (data.resumeParsed) {
+          // Handle both old format (flat) and new format (nested education)
+          const parsed = data.resumeParsed;
+          const education = parsed.education || {};
+          const year = parsed.year || (education.graduation ? education.graduation.match(/20\d{2}/)?.[0] : '') || '';
+          const major = parsed.major || education.major || '';
+          const university = parsed.university || education.university || '';
+          
           localStorage.setItem('resumeData', JSON.stringify({
-            name: data.resumeParsed.name || '',
-            year: data.resumeParsed.year || '',
-            major: data.resumeParsed.major || '',
-            university: data.resumeParsed.university || '',
+            name: parsed.name || '',
+            year: year,
+            major: major,
+            university: university,
             fileName: data.resumeFileName || 'Resume.pdf',
             uploadDate: data.resumeUpdatedAt || new Date().toISOString(),
           }));
@@ -251,24 +258,16 @@ export default function AccountSettings() {
       await uploadBytes(storageRef, file);
 
       // 3) Get a download URL and write to Firestore
+      // NOTE: Backend already saves the complete parsed structure to Firestore
+      // We only need to update the URL and filename here, not overwrite the parsed data
       const downloadUrl = await getDownloadURL(storageRef);
       const userRef = doc(db, 'users', uid);
       await updateDoc(userRef, {
         resumeUrl: downloadUrl,
         resumeFileName: file.name,
         resumeUpdatedAt: new Date().toISOString(),
-        resumeParsed: {
-          name: result.data.name || '',
-          university: result.data.university || '',
-          major: result.data.major || '',
-          year: result.data.year || '',
-          location: result.data.location || '', // Include location for job search
-          // Include all parsed fields for Scout and other features
-          key_experiences: result.data.key_experiences || [],
-          skills: result.data.skills || [],
-          achievements: result.data.achievements || [],
-          interests: result.data.interests || [],
-        },
+        // DO NOT overwrite resumeParsed - backend already saved the complete structure
+        // The backend saves: experience, projects, education, skills, etc. in v2 format
       });
 
       // 4) Update local state immediately
@@ -305,29 +304,35 @@ export default function AccountSettings() {
 
   // Handle resume deletion
   const handleResumeDelete = async () => {
+    // Confirm with user
+    const confirmed = window.confirm(
+      'Are you sure you want to delete your resume? This cannot be undone.'
+    );
+    
+    if (!confirmed) return;
+
     try {
       const { auth } = await import('../lib/firebase');
-      const uid = auth.currentUser?.uid;
-      if (!uid) throw new Error('Not signed in');
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+      if (!token) throw new Error('Not signed in');
 
-      // If we have a storage URL, try deleting the file
-      if (resumeUrl) {
-        try {
-          const fileRef = ref(storage, resumeUrl);
-          await deleteObject(fileRef);
-        } catch (deleteErr) {
-          console.warn('Could not delete file from storage (may already be deleted):', deleteErr);
-        }
-      }
+      const API_URL = window.location.hostname === 'localhost'
+        ? 'http://localhost:5001'
+        : 'https://www.offerloop.ai';
 
-      // Clear Firestore pointers
-      const userRef = doc(db, 'users', uid);
-      await updateDoc(userRef, {
-        resumeUrl: null,
-        resumeFileName: null,
-        resumeUpdatedAt: null,
-        resumeParsed: null,
+      // Call the backend DELETE endpoint
+      const response = await fetch(`${API_URL}/api/resume`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
       });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete resume');
+      }
 
       // Clear local state & localStorage
       setResumeUrl(null);
@@ -337,10 +342,22 @@ export default function AccountSettings() {
       localStorage.removeItem('resumeData');
       localStorage.removeItem('resumeFile');
 
+      // Reload resume data from Firestore to ensure UI is in sync
       await loadResumeFromFirestore();
+
+      // Show success message
+      toast({
+        title: "Success",
+        description: "Resume deleted successfully",
+      });
     } catch (e) {
       console.error('Delete resume failed', e);
-      alert('Could not delete resume. Please try again.');
+      const errorMessage = e instanceof Error ? e.message : 'Could not delete resume. Please try again.';
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
     }
   };
 

@@ -3374,6 +3374,104 @@ Keep responses under 100 words unless detail is needed.
             }
 
 
+    # ========================================================================
+    # RESUME FORMATTING
+    # ========================================================================
+    
+    def format_resume_pdf(self, parsed_resume: Dict[str, Any]) -> bytes:
+        """
+        Generate a professionally styled resume PDF from structured resume data using HTML/CSS template.
+        
+        Args:
+            parsed_resume: Structured resume data dictionary with sections like:
+                - name: str
+                - email, phone, linkedin, location: str (optional)
+                - summary: str (optional)
+                - experience: List[Dict] with keys: title, company, dates, bullets, location
+                - education: List[Dict] with keys: degree, school, dates, gpa, honors, coursework
+                - skills: Dict[str, List[str]] or List[str]
+                - projects: List[Dict] with keys: name, context, bullets, technologies, date
+                - achievements: List[str] or List[Dict]
+                - certifications: List[str] or List[Dict]
+        
+        Returns:
+            PDF bytes
+        """
+        try:
+            from jinja2 import Environment, FileSystemLoader
+            from weasyprint import HTML
+            import os
+            
+            # Get template directory - templates are in app/templates relative to this file
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            app_dir = os.path.dirname(current_dir)  # Go from services/ to app/
+            template_dir = os.path.join(app_dir, 'templates')
+            env = Environment(loader=FileSystemLoader(template_dir))
+            template = env.get_template('resume.html')
+            
+            # Prepare resume data for template
+            # Handle contact info - can be direct fields or nested in 'contact' dict
+            contact_info = {}
+            if isinstance(parsed_resume.get('contact'), dict):
+                contact_info = parsed_resume['contact']
+            else:
+                # Extract contact fields directly from resume
+                if parsed_resume.get('email'):
+                    contact_info['email'] = parsed_resume['email']
+                if parsed_resume.get('phone'):
+                    contact_info['phone'] = parsed_resume['phone']
+                if parsed_resume.get('linkedin'):
+                    linkedin = parsed_resume['linkedin']
+                    if not linkedin.startswith('http'):
+                        linkedin = f"linkedin.com/in/{linkedin.lstrip('/')}"
+                    contact_info['linkedin'] = linkedin
+                if parsed_resume.get('github'):
+                    contact_info['github'] = parsed_resume['github']
+                if parsed_resume.get('website'):
+                    contact_info['website'] = parsed_resume['website']
+                if parsed_resume.get('location'):
+                    contact_info['location'] = parsed_resume['location']
+            
+            # Prepare template context
+            # Handle education - ensure it's a list
+            education_data = parsed_resume.get('education', [])
+            if not isinstance(education_data, list):
+                # If it's a dict, convert to list
+                if isinstance(education_data, dict):
+                    education_data = [education_data]
+                else:
+                    education_data = []
+            
+            template_data = {
+                'name': parsed_resume.get('name', ''),
+                'contact': contact_info if contact_info else None,
+                'summary': parsed_resume.get('summary') or parsed_resume.get('objective', ''),
+                'experience': parsed_resume.get('experience', []),
+                'education': education_data,
+                'skills': parsed_resume.get('skills'),
+                'projects': parsed_resume.get('projects', []),
+                'achievements': parsed_resume.get('achievements', []),
+                'certifications': parsed_resume.get('certifications', []),
+            }
+            
+            # Render HTML from template
+            html_content = template.render(**template_data)
+            
+            # Convert HTML to PDF using WeasyPrint
+            html_doc = HTML(string=html_content)
+            pdf_bytes = html_doc.write_pdf()
+            
+            print(f"[Scout] Successfully generated resume PDF ({len(pdf_bytes)} bytes)")
+            return pdf_bytes
+            
+        except Exception as e:
+            print(f"[Scout] Error generating resume PDF: {e}")
+            import traceback
+            traceback.print_exc()
+            # Return empty PDF bytes as fallback
+            return b""
+
+
 # ============================================================================
 # SINGLETON INSTANCE
 # ============================================================================

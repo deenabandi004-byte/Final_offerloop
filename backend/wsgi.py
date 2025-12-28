@@ -25,6 +25,7 @@ from .app.routes.prompt_search import prompt_search_bp
 from .app.routes.prompt_search_simple import prompt_search_simple_bp
 from .app.routes.parse_prompt import parse_prompt_bp
 from .app.routes.contact_import import contact_import_bp
+from .app.routes.job_board import job_board_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -108,6 +109,7 @@ def create_app() -> Flask:
     app.register_blueprint(prompt_search_simple_bp)
     app.register_blueprint(parse_prompt_bp)
     app.register_blueprint(contact_import_bp)
+    app.register_blueprint(job_board_bp)
 
     # --- Debug route to check frontend build ---
     @app.route('/api/debug/frontend')

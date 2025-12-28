@@ -9,8 +9,10 @@ import hashlib
 import json
 import os
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urlparse, parse_qs
 
 from flask import Blueprint, jsonify, request
@@ -18,7 +20,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from app.extensions import require_firebase_auth, get_db
-from app.services.auth import deduct_credits_atomic, check_and_reset_credits
+from app.services.auth import deduct_credits_atomic, refund_credits_atomic, check_and_reset_credits
 from app.services.openai_client import get_async_openai_client
 
 job_board_bp = Blueprint("job_board", __name__, url_prefix="/api/job-board")
@@ -31,6 +33,35 @@ job_board_bp = Blueprint("job_board", __name__, url_prefix="/api/job-board")
 OPTIMIZATION_CREDIT_COST = 20
 COVER_LETTER_CREDIT_COST = 15
 CACHE_DURATION_HOURS = 6  # How long to cache job results
+
+# Error Messages for Resume Optimization
+ERROR_MESSAGES = {
+    'url_parse_failed': 'Could not extract job details from that URL. Try pasting the job description directly.',
+    'url_not_supported': 'That job board is not supported yet. Please paste the job description instead.',
+    'resume_not_found': 'No resume found. Please upload your resume in Account Settings first.',
+    'resume_incomplete': 'Your resume is missing required sections. Please update your profile.',
+    'ai_timeout': 'The optimization is taking longer than expected. Your credits have been refunded. Please try again.',
+    'ai_rate_limit': 'Our AI service is busy. Your credits have been refunded. Please try again in a few minutes.',
+    'ai_error': 'Something went wrong with the optimization. Your credits have been refunded.',
+    'invalid_job_description': 'The job description is too short or invalid. Please provide more details.',
+    'credits_insufficient': 'Not enough credits. You need 20 credits to optimize your resume.',
+    'database_error': 'Database error occurred. Please try again.',
+    'json_parse_error': 'Error processing the optimization results. Please try again.',
+}
+
+def get_status_code(error_code: str) -> int:
+    """Get HTTP status code for error code."""
+    if error_code == 'credits_insufficient':
+        return 402
+    if error_code in ['resume_not_found', 'resume_incomplete', 'url_parse_failed', 'url_not_supported', 'invalid_job_description']:
+        return 400
+    if error_code in ['ai_timeout', 'ai_rate_limit']:
+        return 503
+    return 500
+
+# Job Quality Configuration
+MAX_JOB_AGE_DAYS = int(os.getenv('MAX_JOB_AGE_DAYS', 30))  # Filter out jobs older than this
+MIN_QUALITY_SCORE = int(os.getenv('MIN_QUALITY_SCORE', 15))  # Minimum quality score threshold
 
 # SerpAPI Configuration
 SERPAPI_KEY = os.getenv("SERPAPI_KEY") or os.getenv("SERP_API_KEY")
@@ -328,8 +359,20 @@ def fetch_jobs_from_serpapi(
             return [], None
         
         if "error" in data:
-            print(f"[JobBoard] SerpAPI API error: {data.get('error', 'Unknown error')}")
-            if "error" in data and isinstance(data["error"], dict):
+            error_msg = data.get('error', 'Unknown error')
+            # Check if this is a "no more results" error (expected when pagination exhausted)
+            if isinstance(error_msg, str):
+                if "hasn't returned any results" in error_msg.lower() or "no results" in error_msg.lower():
+                    # This is expected when there are no more results for pagination
+                    print(f"[JobBoard] No more results available for pagination (expected): {error_msg}")
+                    return [], None  # Return empty to stop pagination gracefully
+                elif "invalid" in error_msg.lower() and "token" in error_msg.lower():
+                    # Invalid token - might be expired or malformed
+                    print(f"[JobBoard] Invalid pagination token (may be expired): {error_msg}")
+                    return [], None
+            # For other errors, log as actual errors
+            print(f"[JobBoard] SerpAPI API error: {error_msg}")
+            if isinstance(data["error"], dict):
                 print(f"[JobBoard] Error details: {data['error']}")
             return [], None
         
@@ -473,6 +516,189 @@ def fetch_jobs_from_serpapi(
 # ENHANCED RESUME DATA EXTRACTION & MAPPINGS (Parts 1-3)
 # =============================================================================
 
+def extract_user_profile_from_resume(user_data: dict) -> dict:
+    """
+    Extract user profile data from resumeParsed, handling both old and new formats.
+    
+    Old format (flat):
+        resumeParsed.major, resumeParsed.skills (array), resumeParsed.university
+    
+    New format (nested):
+        resumeParsed.education.major, resumeParsed.skills.programming_languages, etc.
+    
+    Returns a normalized profile dict.
+    """
+    resume_parsed = user_data.get('resumeParsed', {})
+    professional_info = user_data.get('professionalInfo', {})
+    
+    # === EDUCATION ===
+    # Try new format first (nested under education)
+    education = resume_parsed.get('education', {}) if resume_parsed else {}
+    major = (
+        education.get('major') or 
+        (resume_parsed.get('major', '') if resume_parsed else '') or
+        professional_info.get('fieldOfStudy') or
+        professional_info.get('major') or
+        ''
+    )
+    university = (
+        education.get('university') or 
+        (resume_parsed.get('university', '') if resume_parsed else '') or
+        professional_info.get('university') or
+        ''
+    )
+    graduation = (
+        education.get('graduation') or 
+        (resume_parsed.get('year', '') if resume_parsed else '') or
+        professional_info.get('graduationYear') or
+        ''
+    )
+    coursework = education.get('coursework', [])
+    
+    # === SKILLS ===
+    # Try new format first (nested object with categories)
+    skills_data = resume_parsed.get('skills', {}) if resume_parsed else {}
+    
+    if isinstance(skills_data, dict):
+        # New format: skills is an object with categories
+        programming_languages = skills_data.get('programming_languages', [])
+        tools_frameworks = skills_data.get('tools_frameworks', [])
+        core_skills = skills_data.get('core_skills', [])
+        databases = skills_data.get('databases', [])
+        cloud_devops = skills_data.get('cloud_devops', [])
+        soft_skills = skills_data.get('soft_skills', [])
+        
+        # Combine all skills into a flat list for matching
+        all_skills = (
+            programming_languages + 
+            tools_frameworks + 
+            core_skills + 
+            databases + 
+            cloud_devops
+        )
+    elif isinstance(skills_data, list):
+        # Old format: skills is a flat array
+        all_skills = [s for s in skills_data if isinstance(s, str)]
+        programming_languages = all_skills
+        tools_frameworks = []
+        core_skills = []
+    else:
+        all_skills = []
+        programming_languages = []
+        tools_frameworks = []
+        core_skills = []
+    
+    # === EXPERIENCE ===
+    # Try new format first (array of objects with company, title, bullets)
+    experience = resume_parsed.get('experience', []) if resume_parsed else []
+    
+    if not experience:
+        # Fall back to old format
+        key_experiences = resume_parsed.get('key_experiences', []) if resume_parsed else []
+        experience = [
+            {
+                'title': exp if isinstance(exp, str) else exp.get('title', ''),
+                'company': '' if isinstance(exp, str) else exp.get('company', ''),
+                'bullets': [exp] if isinstance(exp, str) else exp.get('bullets', []),
+                'keywords': [] if isinstance(exp, str) else exp.get('keywords', [])
+            }
+            for exp in key_experiences
+        ]
+    
+    # Extract experience details for matching
+    experience_titles = []
+    experience_companies = []
+    experience_bullets = []
+    
+    for exp in experience:
+        if isinstance(exp, dict):
+            if exp.get('title'):
+                experience_titles.append(exp['title'])
+            if exp.get('company'):
+                experience_companies.append(exp['company'])
+            if exp.get('bullets'):
+                if isinstance(exp['bullets'], list):
+                    experience_bullets.extend(exp['bullets'])
+                else:
+                    experience_bullets.append(str(exp['bullets']))
+        elif isinstance(exp, str):
+            # Old format: just strings
+            experience_bullets.append(exp)
+    
+    # === PROJECTS ===
+    projects = resume_parsed.get('projects', []) if resume_parsed else []
+    project_names = [p.get('name', '') for p in projects if isinstance(p, dict)]
+    project_descriptions = [p.get('description', '') for p in projects if isinstance(p, dict)]
+    project_technologies = []
+    for p in projects:
+        if isinstance(p, dict) and p.get('technologies'):
+            if isinstance(p['technologies'], list):
+                project_technologies.extend(p['technologies'])
+    
+    # === EXTRACURRICULARS ===
+    extracurriculars = resume_parsed.get('extracurriculars', []) if resume_parsed else []
+    if not extracurriculars:
+        # Try old format
+        extracurriculars = resume_parsed.get('interests', []) if resume_parsed else []
+    
+    # Normalize extracurriculars to dict format
+    normalized_extracurriculars = []
+    for ec in extracurriculars:
+        if isinstance(ec, dict):
+            normalized_extracurriculars.append({
+                'name': ec.get('name', ''),
+                'role': ec.get('role', ''),
+                'description': ec.get('description', '')
+            })
+        elif isinstance(ec, str):
+            normalized_extracurriculars.append({
+                'name': ec,
+                'role': '',
+                'description': ''
+            })
+    
+    # === CONTACT ===
+    contact = resume_parsed.get('contact', {}) if resume_parsed else {}
+    location = contact.get('location') or resume_parsed.get('location', '') if resume_parsed else ''
+    
+    return {
+        # Education
+        'major': major,
+        'university': university,
+        'graduation': graduation,
+        'coursework': coursework,
+        
+        # Skills (categorized)
+        'all_skills': all_skills,
+        'programming_languages': programming_languages,
+        'tools_frameworks': tools_frameworks,
+        'core_skills': core_skills,
+        
+        # Experience
+        'experience': experience,
+        'experience_titles': experience_titles,
+        'experience_companies': experience_companies,
+        'experience_bullets': experience_bullets,
+        'experience_count': len(experience),
+        
+        # Projects
+        'projects': projects,
+        'project_names': project_names,
+        'project_descriptions': project_descriptions,
+        'project_technologies': project_technologies,
+        'project_count': len(projects),
+        
+        # Other
+        'extracurriculars': normalized_extracurriculars,
+        'location': location,
+        
+        # For logging
+        'has_major': bool(major),
+        'skills_count': len(all_skills),
+        'extracurriculars_count': len(normalized_extracurriculars),
+    }
+
+
 def get_user_career_profile(uid: str) -> dict:
     """
     Extract comprehensive career profile from user's Firestore data.
@@ -503,77 +729,23 @@ def get_user_career_profile(uid: str) -> dict:
             return {}
         
         user_data = user_doc.to_dict()
-        professional_info = user_data.get("professionalInfo", {})
-        resume_parsed = user_data.get("resumeParsed", {})
         
         # Sanitize data to handle DocumentReferences
+        resume_parsed = user_data.get("resumeParsed", {})
         if resume_parsed:
             resume_parsed = sanitize_firestore_data(resume_parsed, depth=0, max_depth=10)
+            user_data["resumeParsed"] = resume_parsed
         
-        # Extract major (check multiple locations)
-        major = (
-            professional_info.get("fieldOfStudy") or
-            professional_info.get("major") or
-            resume_parsed.get("major", "") if resume_parsed else ""
-        )
+        # Use helper function to extract profile from both old and new formats
+        profile = extract_user_profile_from_resume(user_data)
+        professional_info = user_data.get("professionalInfo", {})
         
-        # Extract minor
+        # Extract minor (only from professionalInfo, not in resumeParsed)
         minor = professional_info.get("minor") or None
-        
-        # Extract skills
-        skills = []
-        if resume_parsed and isinstance(resume_parsed.get("skills"), list):
-            skills = [s for s in resume_parsed.get("skills", []) if isinstance(s, str)]
-        
-        # Extract extracurriculars (handle both array and dict formats)
-        extracurriculars = []
-        if resume_parsed:
-            ec_data = resume_parsed.get("extracurriculars")
-            if isinstance(ec_data, list):
-                extracurriculars = [
-                    ec if isinstance(ec, dict) else {"name": str(ec), "role": "", "description": ""}
-                    for ec in ec_data
-                ]
-            elif isinstance(ec_data, dict):
-                # Single extracurricular object
-                extracurriculars = [ec_data]
-        
-        # Extract experiences (convert key_experiences to structured format)
-        experiences = []
-        if resume_parsed:
-            key_experiences = resume_parsed.get("key_experiences", [])
-            if isinstance(key_experiences, list):
-                experiences = [
-                    {
-                        "title": exp if isinstance(exp, str) else exp.get("title", ""),
-                        "company": "" if isinstance(exp, str) else exp.get("company", ""),
-                        "keywords": [] if isinstance(exp, str) else exp.get("keywords", [])
-                    }
-                    for exp in key_experiences[:10]  # Limit to top 10
-                ]
-            
-            # Also check for structured experience field
-            experience_data = resume_parsed.get("experience")
-            if isinstance(experience_data, list):
-                for exp in experience_data:
-                    if isinstance(exp, dict):
-                        experiences.append({
-                            "title": exp.get("title", ""),
-                            "company": exp.get("company", ""),
-                            "keywords": exp.get("keywords", [])
-                        })
-        
-        # Extract interests
-        interests = []
-        if resume_parsed and isinstance(resume_parsed.get("interests"), list):
-            interests = [i for i in resume_parsed.get("interests", []) if isinstance(i, str)]
         
         # Extract graduation year
         graduation_year = None
-        year_str = (
-            professional_info.get("graduationYear") or
-            resume_parsed.get("year", "") if resume_parsed else ""
-        )
+        year_str = profile.get('graduation') or professional_info.get("graduationYear")
         if year_str:
             try:
                 graduation_year = int(str(year_str).strip()[:4])  # Take first 4 digits
@@ -600,12 +772,29 @@ def get_user_career_profile(uid: str) -> dict:
         if not isinstance(job_types, list):
             job_types = []
         
+        # Extract interests (from professionalInfo or user_data, not resumeParsed)
+        interests = professional_info.get("interests", [])
+        if not interests:
+            interests = user_data.get("interests", [])
+        if not isinstance(interests, list):
+            interests = []
+        
+        # Convert experience list to expected format
+        experiences = []
+        for exp in profile.get('experience', [])[:10]:
+            if isinstance(exp, dict):
+                experiences.append({
+                    "title": exp.get("title", ""),
+                    "company": exp.get("company", ""),
+                    "keywords": exp.get("keywords", [])
+                })
+        
         return {
-            "major": major or "",
+            "major": profile.get("major", ""),
             "minor": minor,
-            "skills": skills[:20],  # Limit to top 20 skills
-            "extracurriculars": extracurriculars[:15],  # Limit to top 15
-            "experiences": experiences[:10],  # Limit to top 10
+            "skills": profile.get("all_skills", [])[:20],  # Limit to top 20 skills
+            "extracurriculars": profile.get("extracurriculars", [])[:15],  # Limit to top 15
+            "experiences": experiences,  # Already limited to top 10
             "interests": interests[:10],  # Limit to top 10
             "graduation_year": graduation_year,
             "gpa": gpa,
@@ -706,9 +895,9 @@ def extract_career_signals(extracurriculars: List[dict]) -> List[str]:
     has_leadership = False
     
     for ec in extracurriculars:
-        ec_name = ec.get("name", "").lower()
-        ec_role = ec.get("role", "").lower()
-        ec_desc = ec.get("description", "").lower()
+        ec_name = (ec.get("name") or "").lower()
+        ec_role = (ec.get("role") or "").lower()
+        ec_desc = (ec.get("description") or "").lower()
         combined_text = f"{ec_name} {ec_role} {ec_desc}"
         
         # Check for leadership roles
@@ -816,7 +1005,7 @@ def get_job_keywords_for_major(major: str) -> List[str]:
     Get relevant job title keywords for a given major.
     
     Args:
-        major: User's academic major
+        major: User's academic major (e.g., "Data Science and Economics")
         
     Returns:
         List of relevant job title keywords
@@ -825,6 +1014,28 @@ def get_job_keywords_for_major(major: str) -> List[str]:
         return ["entry level", "associate", "analyst"]
     
     major_lower = major.lower().strip()
+    
+    # Combined majors (like "Data Science and Economics")
+    if 'data' in major_lower and 'economics' in major_lower:
+        return ['Data Scientist', 'Data Analyst', 'Quantitative Analyst', 'Financial Analyst', 'Business Intelligence']
+    if 'data' in major_lower and 'finance' in major_lower:
+        return ['Data Scientist', 'Data Analyst', 'Quantitative Analyst', 'Financial Analyst', 'Business Intelligence']
+    
+    # Data Science / Analytics
+    if 'data science' in major_lower or 'data analytics' in major_lower:
+        return ['Data Scientist', 'Data Analyst', 'Machine Learning', 'ML Engineer', 'Data Engineer', 'Analytics']
+    
+    # Computer Science / Software Engineering
+    if 'computer science' in major_lower or 'software' in major_lower:
+        return ['Software Engineer', 'Developer', 'SWE', 'Backend', 'Frontend', 'Full Stack']
+    
+    # Economics / Finance
+    if 'economics' in major_lower or 'finance' in major_lower:
+        return ['Financial Analyst', 'Investment Banking', 'Quantitative', 'Economics', 'Strategy']
+    
+    # Business / Management
+    if 'business' in major_lower or 'management' in major_lower:
+        return ['Business Analyst', 'Product Manager', 'Strategy', 'Consultant', 'Operations']
     
     # Direct match
     if major_lower in MAJOR_TO_JOBS:
@@ -863,6 +1074,163 @@ INDUSTRY_TO_KEYWORDS = {
     "automotive": ["automotive", "auto", "vehicle", "transportation"],
     "aerospace": ["aerospace", "aviation", "defense", "space"],
 }
+
+# ============================================
+# COMPANY TIER LISTS (for quality filtering)
+# ============================================
+
+TOP_TECH_COMPANIES = [
+    # FAANG / MAANG
+    "google", "meta", "amazon", "apple", "netflix", "microsoft",
+    # Top Tech
+    "nvidia", "salesforce", "adobe", "oracle", "ibm", "intel", "cisco",
+    # Unicorns & High-Growth
+    "stripe", "databricks", "figma", "canva", "notion", "airtable", "plaid",
+    "coinbase", "robinhood", "instacart", "doordash", "uber", "lyft", "airbnb",
+    "snowflake", "datadog", "mongodb", "twilio", "okta", "crowdstrike",
+    "palantir", "splunk", "servicenow", "workday", "zoom", "slack", "dropbox",
+    "spotify", "pinterest", "snap", "twitter", "linkedin", "tiktok", "bytedance",
+    # Defense/Gov Tech
+    "anduril", "scale ai", "openai", "anthropic",
+]
+
+TOP_FINANCE_COMPANIES = [
+    # Investment Banks (Bulge Bracket)
+    "goldman sachs", "jp morgan", "jpmorgan", "morgan stanley", "bank of america",
+    "citigroup", "citi", "barclays", "deutsche bank", "ubs", "credit suisse",
+    # Elite Boutiques
+    "evercore", "lazard", "moelis", "centerview", "perella weinberg", "pwp",
+    "pjt partners", "greenhill", "rothschild",
+    # Private Equity
+    "blackstone", "kkr", "carlyle", "apollo", "tpg", "warburg pincus",
+    "advent international", "bain capital", "silver lake", "thoma bravo",
+    # Hedge Funds
+    "citadel", "bridgewater", "two sigma", "de shaw", "jane street", "point72",
+    "millennium", "aqr", "renaissance", "man group",
+    # Asset Management
+    "blackrock", "vanguard", "fidelity", "t. rowe price", "state street",
+    "pimco", "wellington", "capital group",
+    # Venture Capital
+    "sequoia", "andreessen horowitz", "a16z", "kleiner perkins", "accel",
+    "benchmark", "greylock", "lightspeed", "general catalyst",
+]
+
+TOP_CONSULTING_COMPANIES = [
+    # MBB
+    "mckinsey", "bain", "boston consulting", "bcg",
+    # Big 4
+    "deloitte", "pwc", "pricewaterhousecoopers", "ey", "ernst young", "kpmg",
+    # Tier 2 Consulting
+    "accenture", "booz allen", "oliver wyman", "roland berger", "strategy&",
+    "l.e.k.", "lek", "simon-kucher", "kearney", "atkearney",
+    # Boutique/Specialty
+    "parthenon", "ey-parthenon", "zs associates", "cornerstone research",
+]
+
+FORTUNE_500_KEYWORDS = [
+    "fortune 500", "fortune500", "f500",
+    "walmart", "exxon", "chevron", "berkshire", "unitedhealth",
+    "johnson & johnson", "j&j", "procter & gamble", "p&g",
+    "jpmorgan", "visa", "mastercard", "home depot", "pfizer",
+    "coca-cola", "pepsi", "nike", "starbucks", "disney", "boeing",
+    "3m", "caterpillar", "general electric", "ge", "honeywell",
+    "lockheed martin", "raytheon", "northrop grumman",
+]
+
+# Generic/Low-Quality company name patterns to filter out
+LOW_QUALITY_COMPANY_PATTERNS = [
+    "recruiting", "staffing", "placement", "agency", "temp ",
+    "personnel", "workforce", "employment services", "hiring",
+    "talent acquisition", "job seekers", "career services",
+    "remote jobs", "work from home", "wfh jobs",
+]
+
+# Spam keywords to detect in descriptions
+SPAM_KEYWORDS = [
+    "make money fast", "work from home!!!", "earn $", "$$",
+    "no experience needed", "hiring immediately!!!", "urgent!!!",
+    "apply now!!!", "!!!",
+]
+
+# High-quality job sources (prioritize these)
+HIGH_QUALITY_SOURCES = [
+    "linkedin", "company website", "glassdoor", "indeed", 
+    "lever", "greenhouse", "workday", "careers page",
+]
+
+# Industry to top companies mapping
+INDUSTRY_TOP_COMPANIES = {
+    "technology": TOP_TECH_COMPANIES,
+    "tech": TOP_TECH_COMPANIES,
+    "software": TOP_TECH_COMPANIES,
+    "finance": TOP_FINANCE_COMPANIES,
+    "banking": TOP_FINANCE_COMPANIES,
+    "investment": TOP_FINANCE_COMPANIES,
+    "consulting": TOP_CONSULTING_COMPANIES,
+    "strategy": TOP_CONSULTING_COMPANIES,
+}
+
+# =============================================================================
+# SKILL SYNONYMS FOR SEMANTIC MATCHING
+# =============================================================================
+
+SKILL_SYNONYMS = {
+    # Programming Languages
+    "python": ["python3", "python programming", "python development", "py"],
+    "javascript": ["js", "node.js", "nodejs", "node", "es6", "typescript", "ts"],
+    "java": ["java programming", "j2ee", "spring", "spring boot"],
+    "c++": ["cpp", "c plus plus", "cplusplus"],
+    "c#": ["csharp", "c sharp", ".net", "dotnet"],
+    "sql": ["mysql", "postgresql", "postgres", "sqlite", "database", "queries"],
+    "r": ["r programming", "r language", "rstudio"],
+    
+    # Data Science / ML
+    "machine learning": ["ml", "deep learning", "neural networks", "ai", "artificial intelligence"],
+    "data science": ["data analytics", "data analysis", "statistical analysis", "analytics"],
+    "data analysis": ["data analytics", "analytics", "business intelligence", "bi"],
+    "tensorflow": ["tf", "keras", "pytorch", "deep learning framework"],
+    "pandas": ["dataframes", "data manipulation", "python data"],
+    
+    # Web Development
+    "react": ["reactjs", "react.js", "react native"],
+    "angular": ["angularjs", "angular.js"],
+    "vue": ["vuejs", "vue.js"],
+    "html": ["html5", "html/css", "web development"],
+    "css": ["css3", "scss", "sass", "styling"],
+    "flask": ["python flask", "flask framework"],
+    "django": ["python django", "django framework"],
+    
+    # Cloud & DevOps
+    "aws": ["amazon web services", "cloud computing", "ec2", "s3", "lambda"],
+    "azure": ["microsoft azure", "cloud"],
+    "gcp": ["google cloud", "google cloud platform"],
+    "docker": ["containers", "containerization", "kubernetes", "k8s"],
+    "kubernetes": ["k8s", "container orchestration", "docker"],
+    "ci/cd": ["continuous integration", "continuous deployment", "devops", "jenkins", "github actions"],
+    
+    # Business / Finance
+    "financial modeling": ["financial analysis", "dcf", "valuation", "excel modeling"],
+    "excel": ["spreadsheets", "microsoft excel", "google sheets", "vlookup", "pivot tables"],
+    "powerpoint": ["presentations", "slides", "ppt", "google slides"],
+    "accounting": ["bookkeeping", "financial reporting", "gaap"],
+    "investment banking": ["ib", "m&a", "mergers and acquisitions", "capital markets"],
+    
+    # Soft Skills
+    "leadership": ["team lead", "management", "leading teams", "team leadership"],
+    "communication": ["written communication", "verbal communication", "presentation skills"],
+    "project management": ["pm", "agile", "scrum", "project planning", "pmp"],
+    "teamwork": ["collaboration", "team player", "cross-functional"],
+    "problem solving": ["analytical", "critical thinking", "troubleshooting"],
+}
+
+# Build reverse mapping for quick lookup
+SKILL_TO_SYNONYMS: Dict[str, Set[str]] = {}
+for primary, synonyms in SKILL_SYNONYMS.items():
+    all_terms = {primary.lower()} | {s.lower() for s in synonyms}
+    for term in all_terms:
+        if term not in SKILL_TO_SYNONYMS:
+            SKILL_TO_SYNONYMS[term] = set()
+        SKILL_TO_SYNONYMS[term].update(all_terms)
 
 
 def build_personalized_queries(user_profile: dict, job_types: List[str]) -> List[dict]:
@@ -912,6 +1280,17 @@ def build_personalized_queries(user_profile: dict, job_types: List[str]) -> List
             "weight": 1.1
         })
     
+    # Query 2.5: Skill-pair combination (targeted matches with 2 skills)
+    if skills and len(skills) >= 2:
+        top_2_skills = skills[:2]
+        skill_pair_query = f"{job_type_str} {top_2_skills[0]} {top_2_skills[1]}"
+        queries.append({
+            "query": skill_pair_query,
+            "priority": 2,
+            "source": "skill_pair",
+            "weight": 1.15
+        })
+    
     # Query 3: Extracurricular-aligned
     ec_signals = extract_career_signals(extracurriculars)
     if ec_signals and len(ec_signals) >= 2:
@@ -935,6 +1314,18 @@ def build_personalized_queries(user_profile: dict, job_types: List[str]) -> List
             "weight": 1.0
         })
     
+    # Query 4.5: Remote-specific query (targets remote opportunities)
+    if major:
+        major_jobs = get_job_keywords_for_major(major)[:4]
+        if major_jobs:
+            remote_query = f"remote {job_type_str} ({' OR '.join(major_jobs[:3])})"
+            queries.append({
+                "query": remote_query,
+                "priority": 3,
+                "source": "remote",
+                "weight": 1.1
+            })
+    
     # Query 5: Interest-based (if specified)
     if interests:
         interest_query = f"{job_type_str} {interests[0]}"
@@ -943,6 +1334,17 @@ def build_personalized_queries(user_profile: dict, job_types: List[str]) -> List
             "priority": 5,
             "source": "interests",
             "weight": 1.0
+        })
+    
+    # Query 6: TOP COMPANIES QUERY (for quality)
+    # Add a query specifically targeting prestigious companies based on user's industry
+    top_companies_query = build_top_companies_query(user_profile, job_type_str)
+    if top_companies_query:
+        queries.append({
+            "query": top_companies_query,
+            "priority": 2,  # High priority
+            "source": "top_companies",
+            "weight": 1.25  # Highest weight - these are premium jobs
         })
     
     # Fallback: Generic query if no personalized queries built
@@ -955,6 +1357,51 @@ def build_personalized_queries(user_profile: dict, job_types: List[str]) -> List
         })
     
     return queries
+
+
+def build_top_companies_query(user_profile: dict, job_type_str: str) -> str:
+    """
+    Build a query targeting top/prestigious companies based on user's profile.
+    
+    Args:
+        user_profile: User's career profile
+        job_type_str: Job type (internship, entry level, etc.)
+        
+    Returns:
+        Query string targeting top companies, or empty string if no match
+    """
+    major = (user_profile.get("major") or "").lower()
+    target_industries = user_profile.get("target_industries", [])
+    
+    # Determine which company tier list to use
+    companies_to_target = []
+    
+    # Check major for industry signals
+    if any(kw in major for kw in ["computer", "software", "data", "information", "electrical"]):
+        companies_to_target = TOP_TECH_COMPANIES[:8]
+    elif any(kw in major for kw in ["finance", "economics", "accounting", "business"]):
+        # Mix of finance and consulting
+        companies_to_target = TOP_FINANCE_COMPANIES[:5] + TOP_CONSULTING_COMPANIES[:3]
+    elif any(kw in major for kw in ["math", "statistics", "physics"]):
+        # Quant-friendly companies
+        companies_to_target = ["jane street", "two sigma", "citadel", "de shaw"] + TOP_TECH_COMPANIES[:4]
+    
+    # Override with target industries if specified
+    if target_industries:
+        industry = target_industries[0].lower()
+        if industry in INDUSTRY_TOP_COMPANIES:
+            companies_to_target = INDUSTRY_TOP_COMPANIES[industry][:8]
+    
+    if not companies_to_target:
+        # Default to a mix of top companies
+        companies_to_target = TOP_TECH_COMPANIES[:3] + TOP_FINANCE_COMPANIES[:2] + TOP_CONSULTING_COMPANIES[:2]
+    
+    # Build query with company names
+    # Take top 5 to keep query reasonable
+    top_5 = companies_to_target[:5]
+    company_or_clause = " OR ".join([f'"{c}"' for c in top_5])
+    
+    return f"{job_type_str} ({company_or_clause})"
 
 
 def build_search_query(
@@ -1035,17 +1482,129 @@ def build_location_query(locations: List[str]) -> str:
     return primary_location
 
 
+# =============================================================================
+# JOB MATCHING HELPER FUNCTIONS
+# =============================================================================
+
+def expand_skill_terms(skill: str) -> Set[str]:
+    """Expand a skill into all its synonyms and variations."""
+    skill_lower = skill.lower().strip()
+    expanded = SKILL_TO_SYNONYMS.get(skill_lower, {skill_lower})
+    
+    for primary, synonyms in SKILL_SYNONYMS.items():
+        all_terms = [primary.lower()] + [s.lower() for s in synonyms]
+        if skill_lower in all_terms:
+            expanded.update(all_terms)
+    
+    return expanded
+
+
+def semantic_skill_match(skill: str, job_text: str) -> Tuple[bool, float]:
+    """
+    Check if skill matches job text, considering synonyms.
+    Returns (matched, confidence_score).
+    """
+    expanded_skills = expand_skill_terms(skill)
+    job_text_lower = job_text.lower()
+    
+    for term in expanded_skills:
+        if len(term) <= 4:
+            pattern = r'\b' + re.escape(term) + r'\b'
+            if re.search(pattern, job_text_lower):
+                confidence = 1.0 if term == skill.lower() else 0.85
+                return True, confidence
+        else:
+            if term in job_text_lower:
+                confidence = 1.0 if term == skill.lower() else 0.85
+                return True, confidence
+    
+    return False, 0.0
+
+
+def calculate_field_affinity(user_major: str, job_title: str, job_desc: str) -> float:
+    """
+    Calculate how related the user's field is to the job.
+    Returns 0.0 - 1.0 affinity score.
+    """
+    if not user_major:
+        return 0.3
+    
+    major_lower = user_major.lower()
+    job_text = f"{job_title} {job_desc}".lower()
+    job_title_lower = job_title.lower()
+    
+    # Field clusters
+    tech_fields = ["computer science", "software", "data science", "information", "computer engineering", "cs"]
+    finance_fields = ["finance", "accounting", "economics", "business", "mba"]
+    engineering_fields = ["mechanical", "electrical", "civil", "chemical", "aerospace", "biomedical"]
+    science_fields = ["biology", "chemistry", "physics", "mathematics", "statistics"]
+    
+    # Job type indicators
+    pure_tech_jobs = ["software engineer", "developer", "programmer", "swe", "frontend", "backend", "full stack"]
+    data_tech_jobs = ["data scientist", "data science", "data engineer", "data analyst", "machine learning", "ml engineer", "ai engineer", "analytics"]
+    pure_finance_jobs = ["investment banking", "investment analyst", "financial analyst", "trader", "equity research"]
+    quant_jobs = ["quantitative", "quant analyst", "quant developer", "algorithmic"]
+    
+    if major_lower in job_text:
+        return 1.0
+    
+    job_is_pure_tech = any(j in job_title_lower for j in pure_tech_jobs)
+    job_is_data_tech = any(j in job_title_lower for j in data_tech_jobs)
+    job_is_pure_finance = any(j in job_title_lower for j in pure_finance_jobs)
+    job_is_quant = any(j in job_title_lower for j in quant_jobs)
+    
+    user_is_tech = any(f in major_lower for f in tech_fields)
+    user_is_finance = any(f in major_lower for f in finance_fields)
+    user_is_engineering = any(f in major_lower for f in engineering_fields)
+    user_is_science = any(f in major_lower for f in science_fields)
+    
+    # Combined majors (e.g., "Data Science and Economics")
+    # These should match both data tech and finance jobs well
+    user_is_data_and_finance = ('data' in major_lower and ('economics' in major_lower or 'finance' in major_lower))
+    
+    # Strong matches
+    if user_is_data_and_finance and (job_is_data_tech or job_is_quant or job_is_pure_finance):
+        return 0.9  # Very good match for combined majors
+    if user_is_tech and (job_is_pure_tech or job_is_data_tech):
+        return 0.95
+    if user_is_finance and job_is_pure_finance:
+        return 0.95
+    if user_is_science and job_is_quant:
+        return 0.85
+    if user_is_tech and job_is_quant:
+        return 0.75
+    
+    # Partial matches
+    if user_is_data_and_finance and job_is_pure_tech:
+        return 0.5  # Moderate match for SWE roles
+    if user_is_engineering and job_is_pure_tech:
+        return 0.6
+    if user_is_science and job_is_data_tech:
+        return 0.7
+    if user_is_finance and job_is_data_tech:
+        return 0.4
+    
+    # Weak matches
+    if user_is_tech and job_is_pure_finance:
+        return 0.15
+    if user_is_finance and job_is_pure_tech:
+        return 0.1
+    if user_is_science and job_is_pure_finance:
+        return 0.3
+    
+    return 0.2
+
+
 def score_job_for_user(job: dict, user_profile: dict, query_weight: float = 1.0) -> int:
     """
-    Calculate a comprehensive match score for a job based on user's profile.
+    Calculate a match score for a job based on user's profile.
     
     Scoring breakdown (100 points max):
-    - Major alignment: 25 points
-    - Skills match: 25 points
-    - Extracurricular alignment: 20 points
+    - Base relevance: 20 points (having a profile)
+    - Field/Major affinity: 20 points (semantic matching)
+    - Skills match: 30 points (with synonym expansion)
     - Experience relevance: 15 points
-    - Interest/Industry match: 10 points
-    - Graduation timing fit: 5 points
+    - Additional signals: 15 points (extracurriculars, interests, timing)
     
     Args:
         job: Job dict with title, description, requirements
@@ -1055,115 +1614,372 @@ def score_job_for_user(job: dict, user_profile: dict, query_weight: float = 1.0)
     Returns:
         Match score 0-100
     """
-    score = 0
+    score = 0.0
     
-    # Build searchable job text
-    job_title = job.get("title", "").lower()
-    job_desc = job.get("description", "").lower()
-    job_reqs = " ".join(job.get("requirements", [])).lower()
-    job_company = job.get("company", "").lower()
+    job_title = (job.get("title") or "").lower()
+    job_desc = (job.get("description") or "").lower()
+    job_reqs = " ".join(job.get("requirements") or []).lower()
+    job_company = (job.get("company") or "").lower()
     job_text = f"{job_title} {job_desc} {job_reqs} {job_company}"
     
-    # 1. MAJOR ALIGNMENT (25 points)
-    major = user_profile.get("major", "")
-    if major:
-        major_jobs = get_job_keywords_for_major(major)
-        major_matches = sum(1 for kw in major_jobs if kw.lower() in job_text)
-        
-        # Direct major mention in title is highest signal
-        if major.lower() in job_title:
-            score += 25
-        else:
-            score += min(25, major_matches * 6)
+    # 1. BASE RELEVANCE (20 points max)
+    has_profile = bool(user_profile.get("major") or user_profile.get("skills"))
+    if has_profile:
+        score += 15.0
+        job_type = (job.get("type") or "").lower()
+        user_job_types = user_profile.get("job_types", [])
+        if user_job_types and any(jt.lower() in job_type or job_type in jt.lower() for jt in user_job_types):
+            score += 5.0
     
-    # 2. SKILLS MATCH (25 points)
+    # 2. FIELD/MAJOR AFFINITY (20 points)
+    major = user_profile.get("major") or ""
+    field_affinity = calculate_field_affinity(major, job_title, job_desc)
+    score += field_affinity * 20
+    
+    # 3. SKILLS MATCH (30 points)
     skills = user_profile.get("skills", [])
     if skills:
-        # Weight title matches higher than description matches
-        title_skill_matches = sum(2 for skill in skills if skill.lower() in job_title)
-        desc_skill_matches = sum(1 for skill in skills if skill.lower() in job_text and skill.lower() not in job_title)
-        skill_score = title_skill_matches + desc_skill_matches
-        score += min(25, skill_score * 3)
-    
-    # 3. EXTRACURRICULAR ALIGNMENT (20 points)
-    extracurriculars = user_profile.get("extracurriculars", [])
-    if extracurriculars:
-        ec_signals = extract_career_signals(extracurriculars)
-        ec_matches = sum(1 for signal in ec_signals if signal.lower() in job_text)
+        skill_points = 0.0
+        generic_terms = {"strong", "excellent", "good", "experience", "skills", "ability", 
+                        "abilities", "working", "team", "work", "looking", "candidates"}
         
-        # Leadership experience bonus
-        has_leadership = any(
-            any(role in ec.get("role", "").lower() for role in LEADERSHIP_ROLES)
-            for ec in extracurriculars
-        )
-        if has_leadership and any(word in job_text for word in ["lead", "manager", "leadership", "team"]):
-            ec_matches += 2
+        title_matches = 0
+        desc_matches = 0
         
-        score += min(20, ec_matches * 5)
+        for skill in skills[:15]:
+            if not skill:
+                continue
+            skill_lower = skill.lower().strip()
+            if len(skill_lower) < 3 or skill_lower in generic_terms:
+                continue
+            
+            matched_title, conf_title = semantic_skill_match(skill, job_title)
+            if matched_title:
+                title_matches += 1
+                skill_points += 6.0 * conf_title
+                continue
+            
+            matched_desc, conf_desc = semantic_skill_match(skill, job_text)
+            if matched_desc and conf_desc >= 0.8:
+                desc_matches += 1
+                skill_points += 3.0 * conf_desc
+        
+        total_matches = title_matches + desc_matches
+        if total_matches > 0:
+            skill_points *= (1 + 0.03 * min(total_matches, 5))
+        
+        score += min(skill_points, 30.0)
     
     # 4. EXPERIENCE RELEVANCE (15 points)
     experiences = user_profile.get("experiences", [])
-    exp_score = 0
-    for exp in experiences:
-        exp_title = exp.get("title", "").lower()
-        exp_keywords = exp.get("keywords", [])
+    if experiences:
+        exp_score = 0.0
+        for exp in experiences[:5]:
+            exp_title = (exp.get("title") or "").lower()
+            exp_keywords = exp.get("keywords", [])
+            
+            title_words = [w for w in exp_title.split() if len(w) > 3]
+            for word in title_words:
+                if word in job_title:
+                    exp_score += 4.0
+                    break
+            
+            for kw in exp_keywords[:5]:
+                if not kw:
+                    continue
+                matched, conf = semantic_skill_match(kw, job_text)
+                if matched:
+                    exp_score += 1.5 * conf
         
-        # Similar job title
-        if any(word in job_title for word in exp_title.split() if len(word) > 3):
-            exp_score += 5
-        
-        # Keyword matches
-        for kw in exp_keywords:
-            if kw.lower() in job_text:
-                exp_score += 2
+        score += min(15.0, exp_score)
     
-    score += min(15, exp_score)
+    # 5. ADDITIONAL SIGNALS (15 points)
+    additional_score = 0.0
     
-    # 5. INTEREST/INDUSTRY MATCH (10 points)
+    # Extracurriculars (6 points max)
+    extracurriculars = user_profile.get("extracurriculars", [])
+    if extracurriculars:
+        ec_matches = 0
+        for ec in extracurriculars[:5]:
+            ec_name = (ec.get('name') or "")
+            ec_role = (ec.get('role') or "")
+            ec_desc = (ec.get('description') or "")
+            ec_text = f"{ec_name} {ec_role} {ec_desc}".lower()
+            ec_words = [w for w in ec_text.split() if len(w) > 3]
+            for word in ec_words[:10]:
+                if word in job_text:
+                    ec_matches += 1
+                    break
+        additional_score += min(6, ec_matches * 2)
+    
+    # Interests (4 points max)
     interests = user_profile.get("interests", [])
+    interest_score = sum(1.5 for interest in interests[:5] if interest and (interest.lower() in job_text))
+    additional_score += min(4, interest_score)
+    
+    # Industry match (3 points)
     target_industries = user_profile.get("target_industries", [])
-    
-    for interest in interests:
-        if interest.lower() in job_text:
-            score += 3
-    
-    for industry in target_industries:
-        industry_keywords = INDUSTRY_TO_KEYWORDS.get(industry.lower(), [industry])
-        if any(kw.lower() in job_text for kw in industry_keywords):
-            score += 4
+    industry_keywords = {
+        "technology": ["software", "tech", "developer", "engineering"],
+        "finance": ["financial", "banking", "investment", "analyst"],
+        "consulting": ["consultant", "advisory", "strategy"],
+        "healthcare": ["health", "medical", "clinical"],
+    }
+    for industry in target_industries[:3]:
+        industry_lower = industry.lower()
+        if industry_lower in job_text:
+            additional_score += 3
+            break
+        if industry_lower in industry_keywords and any(kw in job_text for kw in industry_keywords[industry_lower]):
+            additional_score += 2
             break
     
-    # Cap interest/industry component at 10 points (already handled by increment logic above)
-    
-    # 6. GRADUATION TIMING FIT (5 points)
+    # Graduation timing (2 points)
     grad_year = user_profile.get("graduation_year")
     if grad_year:
-        from datetime import datetime
         current_year = datetime.now().year
         years_to_grad = grad_year - current_year
+        job_type = (job.get("type") or "").lower()
         
-        job_type = job.get("type", "").lower()
+        if years_to_grad <= 0 and ("new grad" in job_text or "entry level" in job_text or job_type == "full-time"):
+            additional_score += 2
+        elif years_to_grad == 1 and ("internship" in job_text or "new grad" in job_text):
+            additional_score += 2
+        elif years_to_grad > 1 and ("internship" in job_text or job_type == "internship"):
+            additional_score += 2
+    
+    score += min(15.0, additional_score)
+    
+    # Apply query weight and return
+    score = score * query_weight
+    return max(0, min(100, int(round(score))))
+
+
+def calculate_quality_score(job: dict) -> int:
+    """
+    Calculate a quality score for a job based on various signals.
+    
+    Quality factors (0-50 points):
+    - Description quality: 0-15 points
+    - Source quality: 0-10 points
+    - Company quality: 0-15 points
+    - Recency: 0-10 points
+    
+    Args:
+        job: Job dict
         
-        if years_to_grad <= 0:  # Already graduated or graduating
-            if "new grad" in job_text or "entry level" in job_text or job_type == "full-time":
-                score += 5
-        elif years_to_grad == 1:  # Graduating next year
-            if "internship" in job_text or "new grad" in job_text:
-                score += 5
-        else:  # Still in school
-            if "internship" in job_text or job_type == "internship":
-                score += 5
+    Returns:
+        Quality score 0-50
+    """
+    score = 0
     
-    # Apply query weight multiplier
-    score = int(score * query_weight)
+    # 1. DESCRIPTION QUALITY (0-15 points)
+    description = job.get("description", "")
     
-    # Ensure score is in valid range
-    return max(0, min(100, score))
+    # Length bonus
+    if len(description) > 500:
+        score += 8
+    elif len(description) > 300:
+        score += 5
+    elif len(description) < 100:
+        score -= 5  # Penalty for too short
+    
+    # Structure bonus - has clear sections
+    if any(section in description.lower() for section in ["requirements", "qualifications", "responsibilities", "benefits"]):
+        score += 4
+    
+    # Has salary information
+    if job.get("salary") or "$" in description or "salary" in description.lower():
+        score += 3
+    
+    # Spam detection (penalty)
+    desc_lower = description.lower()
+    if any(spam in desc_lower for spam in SPAM_KEYWORDS):
+        score -= 10
+    
+    # 2. SOURCE QUALITY (0-10 points)
+    via = job.get("via", "").lower()
+    
+    if any(source in via for source in HIGH_QUALITY_SOURCES):
+        score += 10
+    elif any(pattern in via for pattern in ["recruiter", "staffing", "agency"]):
+        score -= 5  # Penalty for generic recruiters
+    else:
+        score += 3  # Neutral source
+    
+    # 3. COMPANY QUALITY (0-15 points)
+    company = job.get("company", "").lower()
+    
+    # Check against top company lists
+    if any(top_co in company for top_co in TOP_TECH_COMPANIES):
+        score += 15
+    elif any(top_co in company for top_co in TOP_FINANCE_COMPANIES):
+        score += 15
+    elif any(top_co in company for top_co in TOP_CONSULTING_COMPANIES):
+        score += 15
+    elif any(f500 in company for f500 in FORTUNE_500_KEYWORDS):
+        score += 12
+    elif any(pattern in company for pattern in LOW_QUALITY_COMPANY_PATTERNS):
+        score -= 10  # Penalty for generic/staffing companies
+    else:
+        score += 5  # Neutral company
+    
+    # 4. RECENCY (0-10 points)
+    posted = job.get("posted", "").lower()
+    
+    try:
+        if "hour" in posted or "just" in posted or "today" in posted:
+            score += 10  # Very fresh
+        elif "day" in posted:
+            days = int(''.join(filter(str.isdigit, posted.split("day")[0])) or "0")
+            if days <= 3:
+                score += 10
+            elif days <= 7:
+                score += 8
+            elif days <= 14:
+                score += 5
+            else:
+                score += 2
+        elif "week" in posted:
+            weeks = int(''.join(filter(str.isdigit, posted.split("week")[0])) or "0")
+            if weeks <= 2:
+                score += 5
+            else:
+                score += 1
+        elif "month" in posted:
+            score -= 3  # Old posting penalty
+    except (ValueError, IndexError):
+        score += 3  # Unknown recency, neutral
+    
+    return max(0, min(50, score))
+
+
+def _parse_job_age_days(job: dict) -> Optional[int]:
+    """
+    Parse the job's posted date and return age in days.
+    
+    Args:
+        job: Job dict with 'posted' field
+        
+    Returns:
+        Age in days, or None if cannot be parsed
+    """
+    posted = job.get("posted", "").lower()
+    if not posted:
+        return None
+    
+    try:
+        if "hour" in posted or "just" in posted or "today" in posted:
+            return 0
+        elif "day" in posted:
+            days_str = ''.join(filter(str.isdigit, posted.split("day")[0]))
+            days = int(days_str) if days_str else 0
+            return days
+        elif "week" in posted:
+            weeks_str = ''.join(filter(str.isdigit, posted.split("week")[0]))
+            weeks = int(weeks_str) if weeks_str else 0
+            return weeks * 7
+        elif "month" in posted:
+            months_str = ''.join(filter(str.isdigit, posted.split("month")[0]))
+            months = int(months_str) if months_str else 0
+            return months * 30
+        else:
+            return None
+    except (ValueError, IndexError):
+        return None
+
+
+def is_job_quality_acceptable(job: dict, min_quality_score: int = 0) -> bool:
+    """
+    Check if a job meets minimum quality standards.
+    
+    Args:
+        job: Job dict
+        min_quality_score: Minimum quality score threshold
+        
+    Returns:
+        True if job is acceptable, False if it should be filtered out
+    """
+    company = job.get("company", "").lower()
+    description = job.get("description", "")
+    
+    # Hard filters - always exclude these
+    
+    # 1. Generic/placeholder company names
+    if company in ["company", "employer", "organization", "confidential", ""]:
+        return False
+    
+    # 2. Low-quality company patterns
+    if any(pattern in company for pattern in LOW_QUALITY_COMPANY_PATTERNS):
+        # Allow if description is high quality (might be legit staffing for good company)
+        if len(description) < 300:
+            return False
+    
+    # 3. Too short descriptions
+    if len(description) < 50:
+        return False
+    
+    # 4. Spam keywords
+    desc_lower = description.lower()
+    if any(spam in desc_lower for spam in SPAM_KEYWORDS):
+        return False
+    
+    # 5. Recency filter - remove jobs older than MAX_JOB_AGE_DAYS
+    job_age_days = _parse_job_age_days(job)
+    if job_age_days is not None and job_age_days > MAX_JOB_AGE_DAYS:
+        return False
+    
+    # 6. Quality score threshold
+    if min_quality_score > 0:
+        quality_score = calculate_quality_score(job)
+        if quality_score < min_quality_score:
+            return False
+    
+    return True
+
+
+def filter_jobs_by_quality(jobs: List[dict], min_quality_score: int = MIN_QUALITY_SCORE) -> List[dict]:
+    """
+    Filter out low-quality jobs.
+    
+    Args:
+        jobs: List of job dicts
+        min_quality_score: Minimum quality score to keep (default 10)
+        
+    Returns:
+        Filtered list of jobs
+    """
+    filtered = []
+    removed_count = 0
+    removed_for_recency = 0
+    
+    for job in jobs:
+        # Check recency separately for logging
+        job_age_days = _parse_job_age_days(job)
+        if job_age_days is not None and job_age_days > MAX_JOB_AGE_DAYS:
+            removed_count += 1
+            removed_for_recency += 1
+            continue
+        
+        if is_job_quality_acceptable(job, min_quality_score):
+            filtered.append(job)
+        else:
+            removed_count += 1
+    
+    if removed_count > 0:
+        print(f"[JobBoard] Filtered out {removed_count} low-quality jobs (recency: {removed_for_recency}, quality: {removed_count - removed_for_recency})")
+    
+    return filtered
 
 
 def score_jobs_by_resume_match(jobs: List[dict], user_profile: dict, query_weights: dict = None) -> List[dict]:
     """
-    Score and rank all jobs based on user profile match.
+    Score and rank all jobs based on user profile match AND quality.
+    
+    Combined scoring:
+    - Resume Match Score: 0-100 (how well job matches user's profile)
+    - Quality Score: 0-50 (job posting quality signals)
+    - Final Score: Weighted combination with match prioritized
     
     Args:
         jobs: List of job dicts
@@ -1171,22 +1987,50 @@ def score_jobs_by_resume_match(jobs: List[dict], user_profile: dict, query_weigh
         query_weights: Optional dict mapping job_id to query weight
         
     Returns:
-        List of jobs with matchScore added, sorted by score descending
+        List of jobs with matchScore and qualityScore added, sorted by combined score descending
     """
-    if not user_profile:
-        # No profile, assign neutral scores
+    # Check if profile is empty or has no meaningful data
+    has_profile_data = (
+        user_profile and 
+        (
+            user_profile.get("major") or
+            user_profile.get("skills") or
+            user_profile.get("extracurriculars") or
+            user_profile.get("experiences") or
+            user_profile.get("interests") or
+            user_profile.get("target_industries")
+        )
+    )
+    
+    if not has_profile_data:
+        # No profile or empty profile, assign neutral match scores but still calculate quality
+        print("[JobBoard] No user profile data found, using neutral scores")
         for job in jobs:
             job["matchScore"] = 50
+            job["qualityScore"] = calculate_quality_score(job)
+            job["combinedScore"] = 50 + (job["qualityScore"] * 0.5)  # Quality as tiebreaker
+        jobs.sort(key=lambda x: x.get("combinedScore", 0), reverse=True)
         return jobs
     
     query_weights = query_weights or {}
     
     for job in jobs:
         weight = query_weights.get(job.get("id"), 1.0)
-        job["matchScore"] = score_job_for_user(job, user_profile, weight)
+        
+        # Calculate both scores
+        match_score = score_job_for_user(job, user_profile, weight)
+        quality_score = calculate_quality_score(job)
+        
+        # Combined score: 70% match, 30% quality
+        # This prioritizes relevance while still surfacing higher quality jobs
+        combined_score = (match_score * 0.7) + (quality_score * 0.6)
+        
+        job["matchScore"] = match_score
+        job["qualityScore"] = quality_score
+        job["combinedScore"] = round(combined_score, 1)
     
-    # Sort by match score descending
-    jobs.sort(key=lambda x: x.get("matchScore", 0), reverse=True)
+    # Sort by combined score descending
+    jobs.sort(key=lambda x: x.get("combinedScore", 0), reverse=True)
     
     return jobs
 
@@ -1217,6 +2061,7 @@ def is_document_reference(obj):
 def sanitize_firestore_data(obj, depth=0, max_depth=10):
     """
     Recursively convert Firestore-specific types to JSON-serializable types.
+    Optimized: Removed verbose logging to improve performance.
     """
     # Prevent infinite recursion
     if depth > max_depth:
@@ -1234,18 +2079,13 @@ def sanitize_firestore_data(obj, depth=0, max_depth=10):
     if is_document_reference(obj):
         try:
             if hasattr(obj, 'path'):
-                path_str = str(obj.path)
-                print(f"[JobBoard] Found DocumentReference, converting to: {path_str}")
-                return path_str
+                return str(obj.path)
             elif hasattr(obj, 'id'):
-                id_str = str(obj.id)
-                print(f"[JobBoard] Found DocumentReference (by id), converting to: {id_str}")
-                return id_str
+                return str(obj.id)
             else:
-                obj_str = str(obj)
-                print(f"[JobBoard] Found DocumentReference (fallback), converting to: {obj_str}")
-                return obj_str
+                return str(obj)
         except Exception as e:
+            # Only log actual errors, not normal conversions
             print(f"[JobBoard] Error converting DocumentReference: {e}")
             return None
     
@@ -1284,6 +2124,180 @@ def sanitize_firestore_data(obj, depth=0, max_depth=10):
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
+
+def extract_relevant_resume_data_for_cover_letter(resume: Dict[str, Any], max_length_per_field: int = 500) -> Dict[str, Any]:
+    """
+    Extract only relevant resume sections for cover letter generation.
+    This significantly reduces prompt size and improves generation speed.
+    
+    Args:
+        resume: Full resume dictionary
+        max_length_per_field: Maximum characters for text fields
+        
+    Returns:
+        Optimized resume dictionary with only relevant sections
+    """
+    if not isinstance(resume, dict):
+        return {}
+    
+    relevant = {}
+    
+    # Always include name
+    if resume.get("name"):
+        relevant["name"] = str(resume["name"])
+    
+    # Extract top education entries (max 2)
+    if resume.get("education"):
+        education = resume["education"]
+        if isinstance(education, list):
+            relevant["education"] = education[:2]
+        elif isinstance(education, dict):
+            # Handle single education dict
+            edu_copy = education.copy()
+            if "coursework" in edu_copy and isinstance(edu_copy["coursework"], list):
+                edu_copy["coursework"] = edu_copy["coursework"][:10]  # Limit coursework
+            relevant["education"] = [edu_copy]
+    
+    # Extract top experiences (max 5)
+    if resume.get("experience"):
+        experience = resume.get("experience", [])
+        if isinstance(experience, list):
+            cleaned_experience = []
+            for exp in experience[:5]:
+                if isinstance(exp, dict):
+                    exp_copy = exp.copy()
+                    # Truncate long descriptions
+                    if "description" in exp_copy:
+                        desc = str(exp_copy["description"])
+                        if len(desc) > max_length_per_field:
+                            exp_copy["description"] = desc[:max_length_per_field] + "..."
+                    if "bullets" in exp_copy and isinstance(exp_copy["bullets"], list):
+                        # Limit bullets per experience
+                        exp_copy["bullets"] = exp_copy["bullets"][:8]
+                    cleaned_experience.append(exp_copy)
+            relevant["experience"] = cleaned_experience
+    
+    # Extract top projects (max 3)
+    if resume.get("projects"):
+        projects = resume.get("projects", [])
+        if isinstance(projects, list):
+            cleaned_projects = []
+            for proj in projects[:3]:
+                if isinstance(proj, dict):
+                    proj_copy = proj.copy()
+                    if "description" in proj_copy:
+                        desc = str(proj_copy["description"])
+                        if len(desc) > max_length_per_field:
+                            proj_copy["description"] = desc[:max_length_per_field] + "..."
+                    cleaned_projects.append(proj_copy)
+            relevant["projects"] = cleaned_projects
+    
+    # Extract skills (limit to top 20-25 skills total)
+    if resume.get("skills"):
+        skills = resume.get("skills", {})
+        if isinstance(skills, dict):
+            cleaned_skills = {}
+            for skill_category, skill_list in skills.items():
+                if isinstance(skill_list, list):
+                    cleaned_skills[skill_category] = skill_list[:15]  # Limit per category
+            relevant["skills"] = cleaned_skills
+        elif isinstance(skills, list):
+            relevant["skills"] = {"all": skills[:25]}
+    
+    # Extract summary/objective (truncate)
+    if resume.get("summary"):
+        summary = str(resume["summary"])
+        relevant["summary"] = summary[:max_length_per_field] + "..." if len(summary) > max_length_per_field else summary
+    
+    if resume.get("objective"):
+        objective = str(resume["objective"])
+        relevant["objective"] = objective[:max_length_per_field] + "..." if len(objective) > max_length_per_field else objective
+    
+    # Extract contact info (minimal)
+    if resume.get("contact"):
+        contact = resume.get("contact", {})
+        if isinstance(contact, dict):
+            relevant["contact"] = {
+                "email": contact.get("email"),
+                "location": contact.get("location")
+            }
+    
+    return {k: v for k, v in relevant.items() if v}  # Remove empty values
+
+
+def get_or_cache_sanitized_resume(user_id: str, raw_resume: Dict[str, Any], db) -> Optional[str]:
+    """
+    Get sanitized resume from cache or generate and cache it.
+    This avoids repeated expensive sanitization operations.
+    
+    Args:
+        user_id: User ID
+        raw_resume: Raw resume dictionary from Firestore
+        db: Firestore database instance
+        
+    Returns:
+        JSON string of sanitized resume, or None if caching disabled
+    """
+    try:
+        user_ref = db.collection("users").document(user_id)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            return None
+        
+        user_data = user_doc.to_dict()
+        
+        # Generate hash of raw resume for cache validation
+        resume_json_str = json.dumps(raw_resume, sort_keys=True, default=str)
+        resume_hash = hashlib.md5(resume_json_str.encode()).hexdigest()
+        
+        # Check if we have cached sanitized resume with matching hash
+        cached = user_data.get("resumeParsedSanitized")
+        cached_hash = user_data.get("resumeParsedHash")
+        
+        if cached and cached_hash == resume_hash and isinstance(cached, str):
+            print(f"[JobBoard] ✅ Using cached sanitized resume (hash: {resume_hash[:8]}...)")
+            return cached
+        
+        # Generate and cache sanitized resume
+        print(f"[JobBoard] Generating new sanitized resume (hash: {resume_hash[:8]}...)")
+        sanitized = sanitize_firestore_data(raw_resume, depth=0, max_depth=20)
+        
+        # Custom JSON encoder that handles DocumentReferences
+        def json_default(obj):
+            """Custom default handler for json.dumps that catches DocumentReferences."""
+            if is_document_reference(obj):
+                try:
+                    if hasattr(obj, 'path'):
+                        return str(obj.path)
+                    elif hasattr(obj, 'id'):
+                        return str(obj.id)
+                    return str(obj)
+                except:
+                    return None
+            try:
+                return str(obj)
+            except:
+                return None
+        
+        resume_json = json.dumps(sanitized, default=json_default, ensure_ascii=False)
+        
+        # Cache the result
+        try:
+            user_ref.update({
+                "resumeParsedSanitized": resume_json,
+                "resumeParsedHash": resume_hash
+            })
+            print(f"[JobBoard] ✅ Cached sanitized resume")
+        except Exception as cache_error:
+            print(f"[JobBoard] ⚠️ Failed to cache sanitized resume: {cache_error}")
+            # Continue anyway, just return the JSON
+        
+        return resume_json
+        
+    except Exception as e:
+        print(f"[JobBoard] Error in get_or_cache_sanitized_resume: {e}")
+        return None
 
 
 def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
@@ -1662,61 +2676,121 @@ async def optimize_resume_with_ai(
         print(f"[JobBoard] Invalid JSON in resume_json: {e}")
         raise
     
-    # Build prompt with try-catch to see exactly where it fails
+    # Build prompt with strict rules to prevent fabrication
     try:
-        prompt = f"""TASK:
-Optimize the resume below to better match the job description while maintaining full authenticity.
+        RESUME_OPTIMIZATION_PROMPT = """You are an expert resume optimizer. Your task is to enhance a resume for a specific job while following STRICT rules.
 
-JOB DETAILS:
-- Title: {job_title_safe}
-- Company: {company_safe}
-- Description: {job_desc_safe}
+## ABSOLUTE RULES (NEVER VIOLATE)
 
-KEYWORDS TO CONSIDER (use only when relevant):
-{keywords_str}
+### Rule 1: NEVER FABRICATE
+- NEVER change degree types (Bachelor's stays Bachelor's, not Master's)
+- NEVER change or invent dates
+- NEVER change company names or job titles
+- NEVER add skills, certifications, or experiences the candidate doesn't have
+- NEVER guess or fill in missing information
+- If something is unclear, keep it exactly as-is
 
-CURRENT RESUME:
+### Rule 2: PRESERVE ALL CONTENT
+- Keep ALL sections from the original resume (Education, Experience, Projects, Skills, etc.)
+- Keep ALL bullet points — you may reword them but never delete them
+- Keep ALL projects listed — these demonstrate technical ability
+- Keep ALL skills listed — you may reorder by relevance but never remove
+- Keep coursework if present — it shows relevant knowledge
+
+### Rule 3: PRESERVE ALL FACTS
+These must remain EXACTLY as in the original:
+- Degree type and major (e.g., "Bachelor of Science in Data Science and Economics")
+- University name
+- Graduation date/expected graduation
+- Company names (e.g., "Offerloop.ai" not "AI-powered platform")
+- Job titles (e.g., "Student IT Assistant" not "Technical Support Specialist")
+- Employment dates (e.g., "March 2024 – May 2025" not "2019-2020")
+- Locations
+- Quantified achievements (e.g., "100 students" stays "100 students")
+
+### Rule 4: WHAT YOU CAN CHANGE
+- Reword bullet points for stronger impact (stronger verbs, clearer outcomes)
+- Reorder bullet points to prioritize most relevant ones first
+- Reorder skills to put job-relevant skills first
+- Add job-relevant keywords INTO existing bullet points where they fit naturally
+- Improve action verbs (e.g., "helped with" → "supported", "did" → "executed")
+- Make quantified impacts more prominent
+- Tighten verbose language
+
+### Rule 5: KEYWORD INTEGRATION
+- Review the job keywords provided
+- Insert keywords ONLY into existing content where they make sense
+- DO NOT add keywords as standalone items if the candidate doesn't have that experience
+- Example GOOD: Original "Built data pipelines" → Enhanced "Built ETL data pipelines using Python"
+  (if candidate knows Python and job mentions ETL)
+- Example BAD: Adding "Kubernetes" when candidate has no container experience
+
+---
+
+## JOB DETAILS
+
+**Target Position:** {job_title}
+**Company:** {company}
+**Job Description:**
+{job_description}
+
+**Key Keywords to Consider (only use where naturally applicable):**
+{keywords_list}
+
+---
+
+## ORIGINAL RESUME DATA
+
 {resume_json}
 
-INSTRUCTIONS:
-1. Rewrite experience bullets to better align with job requirements
-2. Use keywords ONLY where they naturally fit existing experience
-3. Highlight transferable skills where direct experience is missing
-4. Improve action verbs and quantifiable impact (without inventing metrics)
-5. Ensure clean ATS-readable formatting (no tables, clear sections)
-6. Do NOT fabricate roles, employers, certifications, or responsibilities
+---
 
-ATS SCORE DEFINITIONS:
-- keywords: Coverage and relevance of job-specific keywords
-- formatting: ATS readability and structure
-- relevance: Alignment of experience to role responsibilities
-- overall: Weighted judgment of the above (not a simple average)
+## YOUR TASK
 
-SCORING RULES:
-- Scores must range from 0–100
-- Scores should reflect real gaps; values below 60 are acceptable
-- Do not default to high scores
+1. Read the original resume carefully
+2. Identify which experiences and skills are most relevant to the target job
+3. Enhance bullet points with stronger language and relevant keywords
+4. Reorder content to prioritize relevance (most relevant first)
+5. Return the optimized resume in the exact JSON format specified below
 
-OUTPUT JSON FORMAT:
+## OUTPUT FORMAT
+
+Return ONLY valid JSON in this exact structure:
+
 {{
-  "optimized_content": "Full optimized resume text with clear sections (Summary, Experience, Education, Skills)",
+  "optimized_content": "Full optimized resume text with clear sections (Summary, Experience, Education, Skills). ALL original content must be preserved - only enhanced wording.",
   "ats_score": {{
-    "overall": "<0-100>",
-    "keywords": "<0-100>",
-    "formatting": "<0-100>",
-    "relevance": "<0-100>"
+    "overall": 0-100,
+    "keywords": 0-100,
+    "formatting": 0-100,
+    "relevance": 0-100
   }},
-  "keywords_added": ["keyword1", "keyword2"],
-  "important_keywords_missing": ["keywordA", "keywordB"],
-  "sections_optimized": [
-    {{
-      "section": "Experience",
-      "changes_made": "Description of how this section was improved"
-    }}
-  ],
-  "suggestions": ["Concrete next-step improvement suggestions"],
-  "confidence_level": "high | medium | low"
-}}"""
+  "keywords_added": ["list of keywords you successfully integrated into existing content"],
+  "important_keywords_missing": ["list of job keywords that didn't fit candidate's actual experience"],
+  "sections_optimized": ["list of sections you improved"],
+  "suggestions": ["specific, actionable suggestions for the candidate to genuinely improve their resume"],
+  "warnings": ["any concerns, e.g., 'Candidate lacks X skill mentioned in job requirements'"]
+}}
+
+## FINAL CHECKLIST (Verify before responding)
+
+- [ ] All dates match the original exactly
+- [ ] All company names match the original exactly  
+- [ ] All job titles match the original exactly
+- [ ] Degree type matches the original exactly (Bachelor's/Master's/etc.)
+- [ ] All projects from original are included
+- [ ] All skills from original are included (none removed)
+- [ ] All bullet points from original are included (none deleted)
+- [ ] No skills or experiences were invented
+- [ ] Keywords were only added where they fit existing experience"""
+
+        prompt = RESUME_OPTIMIZATION_PROMPT.format(
+            job_title=job_title_safe,
+            company=company_safe,
+            job_description=job_desc_safe,
+            keywords_list=keywords_str,
+            resume_json=resume_json
+        )
     except Exception as prompt_error:
         print(f"[JobBoard] ERROR building prompt f-string: {prompt_error}")
         import traceback
@@ -1741,7 +2815,11 @@ OUTPUT JSON FORMAT:
             prompt = str(prompt)
         
         # Ensure all message content is strings
-        system_content = "You are an expert resume optimizer and ATS specialist.\nReturn ONLY valid JSON. Do not include explanations or markdown."
+        system_content = """You are a resume optimization expert. You MUST follow all rules exactly.
+Your primary directive is to ENHANCE the resume without CHANGING any facts.
+Never fabricate, never delete content, never change dates/titles/companies/degrees.
+If you're unsure about something, keep it exactly as-is.
+Return ONLY valid JSON. Do not include explanations or markdown."""
         user_content = str(prompt)  # Force to string
         
         print(f"[JobBoard] System content type: {type(system_content)}")
@@ -1753,33 +2831,67 @@ OUTPUT JSON FORMAT:
         ]
         
         print(f"[JobBoard] Messages list created. About to call API...")
-        print(f"[JobBoard] Setting timeout to 120 seconds (2 minutes)...")
-        print(f"[JobBoard] Model: gpt-4-turbo-preview, Max tokens: 3500")
+        print(f"[JobBoard] Model: gpt-4o, Max tokens: 3500")
         
-        try:
-            # Use asyncio.wait_for for explicit timeout handling
-            response = await asyncio.wait_for(
-                openai_client.chat.completions.create(
-                    model="gpt-4-turbo-preview",
+        # Retry configuration - increased timeouts for large prompts
+        max_retries = 2
+        base_timeout = 180.0  # 3 minutes per attempt (increased from 120s)
+        
+        # For long-running requests, create a fresh client to avoid connection pool issues
+        from app.services.openai_client import create_async_openai_client
+        openai_client = create_async_openai_client()
+        if not openai_client:
+            raise Exception("OpenAI client not available")
+        
+        last_error = None
+        for retry_attempt in range(max_retries):
+            timeout = base_timeout + (retry_attempt * 60.0)  # Increase by 60s for retries (was 30s)
+            print(f"[JobBoard] Attempt {retry_attempt + 1}/{max_retries} with {timeout}s timeout...")
+            
+            try:
+                # Create the API call with increased timeout
+                # Note: The timeout parameter controls the HTTP client timeout
+                api_call = openai_client.chat.completions.create(
+                    model="gpt-4o",
                     messages=messages,
                     temperature=0.7,
-                    max_tokens=3500,  # Reduced from 4000 to speed up generation
-                    timeout=120.0,  # Client-level timeout as backup
-                ),
-                timeout=120.0  # Explicit asyncio timeout (2 minutes)
-            )
-            print("[JobBoard] ✅ OpenAI API call completed successfully")
-        except asyncio.TimeoutError:
-            print("[JobBoard] ❌ API call timed out after 120 seconds")
-            import traceback
-            traceback.print_exc()
-            raise Exception("Resume optimization timed out after 2 minutes. Please try again with a shorter job description or contact support.")
-        except Exception as api_error:
-            print(f"[JobBoard] ❌ API call failed: {api_error}")
-            print(f"[JobBoard] Error type: {type(api_error)}")
-            import traceback
-            traceback.print_exc()
-            raise
+                    max_tokens=3500,
+                    timeout=timeout,  # HTTP client timeout
+                )
+                
+                # Wait for response with additional buffer for connection pool
+                # Add extra buffer for connection acquisition and processing
+                response = await asyncio.wait_for(api_call, timeout=timeout + 60.0)  # Increased buffer to 60s for connection pool
+                print(f"[JobBoard] ✅ OpenAI API call completed successfully (attempt {retry_attempt + 1})")
+                last_error = None
+                break  # Success, exit retry loop
+                
+            except asyncio.TimeoutError:
+                last_error = TimeoutError(f"OpenAI API call timed out after {timeout} seconds (attempt {retry_attempt + 1}/{max_retries})")
+                print(f"[JobBoard] ❌ {last_error}")
+                if retry_attempt == max_retries - 1:
+                    # Last attempt failed
+                    import traceback
+                    traceback.print_exc()
+                    raise Exception("Resume optimization timed out after multiple attempts. Please try again or contact support if the issue persists.")
+                # Wait before retry
+                await asyncio.sleep(2.0)
+                
+            except Exception as api_error:
+                last_error = api_error
+                print(f"[JobBoard] ❌ API call failed (attempt {retry_attempt + 1}/{max_retries}): {api_error}")
+                print(f"[JobBoard] Error type: {type(api_error)}")
+                if retry_attempt == max_retries - 1:
+                    # Last attempt failed
+                    import traceback
+                    traceback.print_exc()
+                    raise
+                # Wait before retry
+                await asyncio.sleep(2.0)
+        
+        # If we exited the loop without success
+        if last_error:
+            raise last_error
         print(f"[JobBoard] Response type: {type(response)}")
         print(f"[JobBoard] Number of choices: {len(response.choices) if hasattr(response, 'choices') else 'N/A'}")
         
@@ -1817,6 +2929,7 @@ OUTPUT JSON FORMAT:
         suggestions = safe_string_list(result.get("suggestions", []))
         keywords_added = safe_string_list(result.get("keywords_added", []))
         important_keywords_missing = safe_string_list(result.get("important_keywords_missing", []))
+        warnings = safe_string_list(result.get("warnings", []))
         
         # Handle sections_optimized - can be array of strings or array of objects
         sections_optimized_raw = result.get("sections_optimized", [])
@@ -1846,10 +2959,32 @@ OUTPUT JSON FORMAT:
         print(f"[JobBoard] Keywords added count: {len(keywords_added)}")
         print(f"[JobBoard] Important keywords missing count: {len(important_keywords_missing)}")
         print(f"[JobBoard] Sections optimized count: {len(sections_optimized)}")
+        print(f"[JobBoard] Warnings count: {len(warnings)}")
         print(f"[JobBoard] Confidence level: {confidence_level}")
+        
+        # Include structured resume data for PDF generation
+        # The optimized resume should maintain the same structure as the original
+        structured_resume = None
+        if isinstance(user_resume, dict):
+            # Create a copy of the structured resume data
+            # This will be used by the frontend PDF generator
+            structured_resume = {
+                "name": user_resume.get("name", ""),
+                "contact": user_resume.get("contact") or user_resume.get("Contact") or {},
+                "Summary": user_resume.get("summary") or user_resume.get("Summary") or user_resume.get("objective") or user_resume.get("Objective") or "",
+                "Experience": user_resume.get("experience") or user_resume.get("Experience") or [],
+                "Education": user_resume.get("education") or user_resume.get("Education") or None,
+                "Skills": user_resume.get("skills") or user_resume.get("Skills") or None,
+                "Projects": user_resume.get("projects") or user_resume.get("Projects") or [],
+                "Extracurriculars": user_resume.get("extracurriculars") or user_resume.get("Extracurriculars") or [],
+            }
+            # Clean up empty contact object
+            if structured_resume["contact"] and not any(structured_resume["contact"].values()):
+                structured_resume["contact"] = {}
         
         return_dict = {
             "content": str(result.get("optimized_content", "")),
+            "structured": structured_resume,  # Add structured data for PDF generation
             "atsScore": {
                 "overall": int(ats_score.get("overall", 75)) if ats_score else 75,
                 "keywords": int(ats_score.get("keywords", 70)) if ats_score else 70,
@@ -1860,6 +2995,7 @@ OUTPUT JSON FORMAT:
             "keywordsAdded": keywords_added,
             "importantKeywordsMissing": important_keywords_missing,
             "sectionsOptimized": sections_optimized,
+            "warnings": warnings,
             "confidenceLevel": confidence_level,
         }
         
@@ -1895,12 +3031,14 @@ async def generate_cover_letter_with_ai(
 ) -> Dict[str, Any]:
     """
     Generate a personalized cover letter using AI.
+    Optimized for performance: reduced retries, smaller prompts, faster generation.
+    Uses gpt-4o for faster responses with optimized retry logic.
     """
-    # Sanitize user_resume one more time to be absolutely sure
-    user_resume = sanitize_firestore_data(user_resume, depth=0, max_depth=20)
+    # Extract only relevant resume sections to reduce prompt size
+    relevant_resume = extract_relevant_resume_data_for_cover_letter(user_resume)
     
     # Extract name for closing signature
-    user_name = str(user_resume.get("name", "") or "")
+    user_name = str(relevant_resume.get("name", "") or "")
     
     # Custom JSON encoder that handles DocumentReferences and other non-serializable objects
     def json_default(obj):
@@ -1919,38 +3057,30 @@ async def generate_cover_letter_with_ai(
         except:
             return None
     
-    # Safely serialize the entire resume as JSON for comprehensive context
-    # This gives the AI full access to all resume information, not just limited fields
-    print(f"[JobBoard] Serializing full resume for cover letter generation...")
-    print(f"[JobBoard] Resume keys: {list(user_resume.keys()) if isinstance(user_resume, dict) else 'N/A'}")
-    resume_json = None
-    for attempt in range(3):
-        try:
-            user_resume = sanitize_firestore_data(user_resume, depth=0, max_depth=20)
-            resume_json = json.dumps(user_resume, indent=2, default=json_default, ensure_ascii=False)
-            # Verify it's valid JSON
-            json.loads(resume_json)
-            print(f"[JobBoard] ✅ Resume serialized successfully (length: {len(resume_json)} chars)")
-            break
-        except Exception as e:
-            print(f"[JobBoard] Error serializing resume (attempt {attempt + 1}): {e}")
-            if attempt == 2:
-                raise
+    # Serialize optimized resume (no indentation for smaller size)
+    try:
+        resume_json = json.dumps(relevant_resume, default=json_default, ensure_ascii=False)
+        # Verify it's valid JSON
+        json.loads(resume_json)
+        print(f"[JobBoard] ✅ Resume serialized successfully (length: {len(resume_json)} chars)")
+    except Exception as e:
+        print(f"[JobBoard] Error serializing resume: {e}")
+        raise ValueError(f"Failed to serialize resume data: {e}")
     
-    if not resume_json:
-        raise ValueError("Failed to serialize resume data")
+    # Truncate job description to prevent overly long prompts
+    job_desc_truncated = job_description[:3000] if len(job_description) > 3000 else job_description
     
     prompt = f"""You are an expert cover letter writer who creates compelling, personalized cover letters.
 
 TASK: Write a professional cover letter for this job application.
 
-APPLICANT'S FULL RESUME:
+APPLICANT'S RESUME:
 {resume_json}
 
 JOB DETAILS:
 - Title: {job_title or 'Not specified'}
 - Company: {company or 'Not specified'}
-- Description: {job_description[:3000]}
+- Description: {job_desc_truncated}
 
 COVER LETTER REQUIREMENTS:
 1. Professional but personable tone - suitable for a college student/new grad
@@ -1970,56 +3100,170 @@ OUTPUT FORMAT (JSON):
 
 Return ONLY valid JSON."""
 
-    try:
-        openai_client = get_async_openai_client()
-        if not openai_client:
-            raise Exception("OpenAI client not available")
-            
-        print(f"[JobBoard] Calling OpenAI API for cover letter generation...")
-        print(f"[JobBoard] Prompt length: {len(prompt)} chars, max_tokens: 2000")
+    # Use fresh OpenAI client per request to avoid connection pool issues
+    from app.services.openai_client import create_async_openai_client
+    openai_client = create_async_openai_client()
+    if not openai_client:
+        raise Exception("OpenAI client not available")
+    
+    # Use gpt-4o for faster responses
+    model = "gpt-4o"
+    max_retries = 2  # Reduced from 3
+    base_timeout = 45.0  # Reduced from 60s
+    
+    print(f"[JobBoard] Calling OpenAI API for cover letter generation...")
+    print(f"[JobBoard] Model: {model}, Prompt length: {len(prompt)} chars, max_tokens: 1200")
+    
+    last_error = None
+    for retry_attempt in range(max_retries):
         try:
-            # Double-wrap with asyncio.wait_for for extra safety (OpenAI client timeout can be unreliable)
+            # Exponential backoff: 45s, 60s
+            timeout = base_timeout + (retry_attempt * 15.0)
+            
+            if retry_attempt > 0:
+                wait_time = 2 ** retry_attempt  # 2s, 4s
+                print(f"[JobBoard] Retry attempt {retry_attempt + 1}/{max_retries} after {wait_time}s wait...")
+                await asyncio.sleep(wait_time)
+            
             api_call = openai_client.chat.completions.create(
-                model="gpt-4-turbo-preview",
+                model=model,
                 messages=[
                     {"role": "system", "content": "You are an expert cover letter writer. Return only valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.8,
-                max_tokens=2000,
-                timeout=120.0,  # 2 minute timeout to prevent hanging
+                temperature=0.7,  # Reduced from 0.8 for slightly faster, more deterministic responses
+                max_tokens=1200,  # Reduced from 2000 (cover letters are typically 400-600 words)
+                timeout=timeout,
             )
-            # Additional asyncio.wait_for wrapper for extra reliability
-            response = await asyncio.wait_for(api_call, timeout=125.0)  # 125s wrapper (5s buffer over client timeout)
-            print(f"[JobBoard] ✅ OpenAI API call completed for cover letter")
-        except asyncio.TimeoutError as timeout_err:
-            print(f"[JobBoard] ❌ OpenAI API call timed out after 125 seconds")
-            raise
+            
+            # Wait for response with slightly longer timeout
+            response = await asyncio.wait_for(api_call, timeout=timeout + 10.0)
+            print(f"[JobBoard] ✅ OpenAI API call completed for cover letter (attempt {retry_attempt + 1})")
+            
+            content = response.choices[0].message.content.strip()
+            if content.startswith("```"):
+                content = re.sub(r"```json?\n?", "", content)
+                content = re.sub(r"\n?```", "", content)
+            
+            result = json.loads(content)
+            return {
+                "content": result.get("content", ""),
+                "highlights": result.get("highlights", []),
+                "tone": result.get("tone", "Professional"),
+            }
+            
+        except asyncio.TimeoutError:
+            last_error = TimeoutError(f"OpenAI API call timed out after {timeout} seconds (attempt {retry_attempt + 1}/{max_retries})")
+            print(f"[JobBoard] ❌ {last_error}")
+            if retry_attempt == max_retries - 1:
+                raise last_error
         except Exception as api_err:
-            print(f"[JobBoard] ❌ OpenAI API call error: {api_err}")
-            print(f"[JobBoard] Error type: {type(api_err)}")
-            raise
-        
-        content = response.choices[0].message.content.strip()
-        if content.startswith("```"):
-            content = re.sub(r"```json?\n?", "", content)
-            content = re.sub(r"\n?```", "", content)
-        
-        result = json.loads(content)
-        return {
-            "content": result.get("content", ""),
-            "highlights": result.get("highlights", []),
-            "tone": result.get("tone", "Professional"),
-        }
-        
-    except Exception as e:
-        print(f"[JobBoard] Cover letter generation error: {e}")
-        raise
+            last_error = api_err
+            print(f"[JobBoard] ❌ OpenAI API call error (attempt {retry_attempt + 1}/{max_retries}): {api_err}")
+            if retry_attempt == max_retries - 1:
+                raise
+    
+    # Should never reach here, but just in case
+    if last_error:
+        raise last_error
+    raise Exception("Cover letter generation failed after all retries")
 
 
 # =============================================================================
 # API ROUTES
 # =============================================================================
+
+def _fetch_jobs_for_query(
+    query_info: dict,
+    location: str,
+    primary_job_type: Optional[str],
+    jobs_per_query: int,
+    refresh: bool
+) -> tuple[List[dict], dict]:
+    """
+    Helper function to fetch jobs for a single query.
+    Used for parallel execution.
+    
+    Returns:
+        Tuple of (jobs list, query metadata dict)
+    """
+    query = query_info["query"]
+    weight = query_info.get("weight", 1.0)
+    source = query_info.get("source", "unknown")
+    
+    query_jobs = []
+    current_token = None
+    
+    try:
+        # Fetch jobs for this query (up to 50 per query)
+        # We'll fetch 5 pages (50 jobs) per query
+        for page_num in range(5):  # 5 pages = 50 jobs max
+            jobs_batch, next_token = fetch_jobs_from_serpapi(
+                query=query,
+                location=location,
+                job_type=primary_job_type,
+                num_results=10,  # Google Jobs returns 10 per page
+                use_cache=not refresh and page_num == 0,  # Only cache first page
+                page_token=current_token,
+            )
+            
+            if not jobs_batch:
+                if page_num == 0:
+                    print(f"[JobBoard] No jobs found for query '{query}' on first page")
+                else:
+                    print(f"[JobBoard] Pagination stopped for query '{query}' at page {page_num + 1} (no more results)")
+                break
+            
+            # Early exit if no new jobs were added (avoid wasting API calls)
+            jobs_before = len(query_jobs)
+            
+            # Deduplicate within this query's results (local deduplication)
+            seen_in_query = set()
+            for job in jobs_batch:
+                job_id = job.get("id")
+                if job_id and job_id not in seen_in_query:
+                    seen_in_query.add(job_id)
+                    job["_query_weight"] = weight  # Store weight in job for later aggregation
+                    job["_query_source"] = source  # Track source for debugging
+                    query_jobs.append(job)
+            
+            # Early exit if no new jobs were added
+            jobs_after = len(query_jobs)
+            if jobs_after == jobs_before:
+                print(f"[JobBoard] No new jobs added on page {page_num + 1} for query '{query}', stopping pagination")
+                break
+            
+            if len(query_jobs) >= jobs_per_query:
+                print(f"[JobBoard] Reached target jobs per query ({jobs_per_query}) for '{query}'")
+                break
+            
+            if not next_token:
+                print(f"[JobBoard] No more pages available for query '{query}' (no next_token)")
+                break
+            
+            current_token = next_token
+        
+        query_metadata = {
+            "query": query,
+            "source": source,
+            "jobs_found": len(query_jobs),
+            "weight": weight
+        }
+        
+        return query_jobs, query_metadata
+        
+    except Exception as e:
+        print(f"[JobBoard] Error fetching for query '{query}': {e}")
+        import traceback
+        traceback.print_exc()
+        return [], {
+            "query": query,
+            "source": source,
+            "jobs_found": 0,
+            "weight": weight,
+            "error": str(e)
+        }
+
 
 def fetch_personalized_jobs(
     user_profile: dict,
@@ -2030,6 +3274,7 @@ def fetch_personalized_jobs(
 ) -> tuple[List[dict], dict]:
     """
     Fetch jobs using multiple personalized queries and merge results.
+    Uses parallel execution for faster performance.
     
     Args:
         user_profile: User's career profile
@@ -2049,74 +3294,77 @@ def fetch_personalized_jobs(
     query_weights = {}  # Track which query each job came from
     queries_used = []
     
-    # Limit API calls - fetch from top 3-4 queries
-    max_queries = min(4, len(queries))
-    jobs_per_query = max(30, max_jobs // max_queries)
+    # Limit API calls - fetch from top 6 queries
+    max_queries = min(6, len(queries))
+    jobs_per_query = max(50, max_jobs // max_queries)
     
     primary_job_type = job_types[0] if job_types else None
     
-    for query_info in queries[:max_queries]:
-        query = query_info["query"]
-        weight = query_info.get("weight", 1.0)
-        source = query_info.get("source", "unknown")
+    # Execute queries in parallel
+    print(f"[JobBoard] Executing {max_queries} queries in parallel...")
+    start_time = datetime.now()
+    
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        # Submit all queries
+        future_to_query = {
+            executor.submit(
+                _fetch_jobs_for_query,
+                query_info,
+                location,
+                primary_job_type,
+                jobs_per_query,
+                refresh
+            ): query_info
+            for query_info in queries[:max_queries]
+        }
         
-        try:
-            # Fetch jobs for this query (up to 30 per query)
-            # We'll fetch 3 pages (30 jobs) per query
-            query_jobs = []
-            current_token = None
-            for page_num in range(3):  # 3 pages = 30 jobs max
-                jobs_batch, next_token = fetch_jobs_from_serpapi(
-                    query=query,
-                    location=location,
-                    job_type=primary_job_type,
-                    num_results=10,  # Google Jobs returns 10 per page
-                    use_cache=not refresh and page_num == 0,  # Only cache first page
-                    page_token=current_token,
-                )
+        # Collect results as they complete
+        for future in as_completed(future_to_query):
+            query_info = future_to_query[future]
+            try:
+                query_jobs, query_metadata = future.result()
                 
-                if not jobs_batch:
-                    break
-                
-                # Deduplicate within this query's results
-                for job in jobs_batch:
+                # Deduplicate across all queries
+                for job in query_jobs:
                     job_id = job.get("id")
                     if job_id and job_id not in seen_ids:
                         seen_ids.add(job_id)
+                        weight = job.pop("_query_weight", query_info.get("weight", 1.0))
                         query_weights[job_id] = weight
-                        job["_query_source"] = source  # Track source for debugging
-                        query_jobs.append(job)
+                        all_jobs.append(job)
                 
-                if len(query_jobs) >= jobs_per_query or not next_token:
+                queries_used.append(query_metadata)
+                
+                # Stop if we have enough jobs
+                if len(all_jobs) >= max_jobs:
+                    print(f"[JobBoard] Reached max_jobs ({max_jobs}), stopping query execution")
+                    # Cancel remaining futures (they'll complete but we won't process results)
                     break
-                
-                current_token = next_token
-            
-            queries_used.append({
-                "query": query,
-                "source": source,
-                "jobs_found": len(query_jobs)
-            })
-            
-            all_jobs.extend(query_jobs)
-            
-            # Stop if we have enough jobs
-            if len(all_jobs) >= max_jobs:
-                break
-                
-        except Exception as e:
-            print(f"[JobBoard] Error fetching for query '{query}': {e}")
-            import traceback
-            traceback.print_exc()
-            continue
+                    
+            except Exception as e:
+                print(f"[JobBoard] Query '{query_info.get('query', 'unknown')}' failed: {e}")
+                queries_used.append({
+                    "query": query_info.get("query", "unknown"),
+                    "source": query_info.get("source", "unknown"),
+                    "jobs_found": 0,
+                    "error": str(e)
+                })
     
-    # Score all jobs using the new scoring function
-    scored_jobs = score_jobs_by_resume_match(all_jobs, user_profile, query_weights)
+    elapsed_time = (datetime.now() - start_time).total_seconds()
+    print(f"[JobBoard] Parallel query execution completed in {elapsed_time:.2f} seconds")
+    
+    # Filter out low-quality jobs BEFORE scoring
+    filtered_jobs = filter_jobs_by_quality(all_jobs, min_quality_score=MIN_QUALITY_SCORE)
+    
+    # Score remaining jobs (match + quality scoring)
+    scored_jobs = score_jobs_by_resume_match(filtered_jobs, user_profile, query_weights)
     
     # Return top jobs
     metadata = {
         "queries_used": queries_used,
         "total_fetched": len(all_jobs),
+        "total_after_filter": len(filtered_jobs),
+        "filtered_out": len(all_jobs) - len(filtered_jobs),
         "location": location
     }
     
@@ -2156,6 +3404,13 @@ def get_job_listings():
         
         # Get comprehensive user profile
         user_profile = get_user_career_profile(user_id)
+        
+        # Debug: Log profile data (without sensitive info)
+        major_value = user_profile.get('major', '')
+        print(f"[JobBoard] User profile summary: major={bool(major_value)} ({major_value}), "
+              f"skills={len(user_profile.get('skills', []))}, "
+              f"extracurriculars={len(user_profile.get('extracurriculars', []))}, "
+              f"experiences={len(user_profile.get('experiences', []))}")
         
         # Add request params to profile
         user_profile["target_industries"] = industries or user_profile.get("target_industries", [])
@@ -2205,6 +3460,9 @@ def get_job_listings():
         
         location = metadata.get("location", build_location_query(locations))
         
+        # Quality filter toggle (default to True)
+        quality_filter = data.get("qualityFilter", True)
+        
         print(f"[JobBoard] Returning {len(paginated_jobs)} jobs, hasMore={has_more}, estimatedTotal={estimated_total}")
         
         return jsonify({
@@ -2218,6 +3476,10 @@ def get_job_listings():
             "query": primary_query,
             "location": location,
             "cached": source == "serpapi" and not refresh,
+            "quality": {
+                "filtered_out": metadata.get("filtered_out", 0),
+                "filter_enabled": quality_filter
+            },
             "personalization": {
                 "major": user_profile.get("major"),
                 "skills_used": len(user_profile.get("skills", [])),
@@ -2278,8 +3540,11 @@ def search_jobs():
 def optimize_resume():
     """
     Optimize user's resume for a specific job.
-    Cost: 20 credits
+    Cost: 20 credits (refunded on failure)
     """
+    stages = {}
+    start_time = time.time()
+    
     try:
         data = request.get_json(force=True, silent=True) or {}
         user_id = request.firebase_user.get('uid')
@@ -2289,30 +3554,64 @@ def optimize_resume():
         job_title = data.get("jobTitle", "")
         company = data.get("company", "")
         
-        # Check credits
+        # Stage 1: Validate inputs and check database
+        stages['validate'] = {'start': time.time()}
         db = get_db()
         if not db:
-            return jsonify({"error": "Database not available"}), 500
+            return jsonify({
+                "error": True,
+                "error_code": "database_error",
+                "message": ERROR_MESSAGES.get("database_error", "Database not available"),
+                "credits_refunded": False
+            }), 500
             
         user_ref = db.collection("users").document(user_id)
         user_doc = user_ref.get()
         
         if not user_doc.exists:
-            return jsonify({"error": "User not found"}), 404
+            return jsonify({
+                "error": True,
+                "error_code": "user_not_found",
+                "message": "User not found",
+                "credits_refunded": False
+            }), 404
+        
+        # Validate job description input
+        if not job_url and not job_description:
+            stages['validate']['end'] = time.time()
+            return jsonify({
+                "error": True,
+                "error_code": "invalid_job_description",
+                "message": ERROR_MESSAGES.get("invalid_job_description"),
+                "credits_refunded": False
+            }), get_status_code("invalid_job_description")
+        
+        if job_description and len(job_description.strip()) < 50:
+            stages['validate']['end'] = time.time()
+            return jsonify({
+                "error": True,
+                "error_code": "invalid_job_description",
+                "message": ERROR_MESSAGES.get("invalid_job_description"),
+                "credits_refunded": False
+            }), get_status_code("invalid_job_description")
         
         user_data = user_doc.to_dict()
         # Sanitize user_data before using it - it might contain DocumentReferences
         print(f"[JobBoard] Sanitizing user_data before credit check...")
         user_data = sanitize_firestore_data(user_data, depth=0, max_depth=20)
         current_credits = check_and_reset_credits(user_ref, user_data)
+        stages['validate']['end'] = time.time()
         
         # Check credits first
         if current_credits < OPTIMIZATION_CREDIT_COST:
             return jsonify({
-                "error": "Insufficient credits",
+                "error": True,
+                "error_code": "credits_insufficient",
+                "message": ERROR_MESSAGES.get("credits_insufficient"),
                 "required": OPTIMIZATION_CREDIT_COST,
                 "current": current_credits,
-            }), 402
+                "credits_refunded": False
+            }), get_status_code("credits_insufficient")
         
         # Deduct credits BEFORE doing the expensive optimization
         # This prevents negative balances and ensures we have credits before proceeding
@@ -2323,99 +3622,99 @@ def optimize_resume():
         if not success:
             # Deduction failed (likely insufficient credits due to race condition)
             return jsonify({
-                "error": "Failed to deduct credits. Insufficient credits or system error.",
+                "error": True,
+                "error_code": "credits_insufficient",
+                "message": ERROR_MESSAGES.get("credits_insufficient"),
                 "current": new_credits,
                 "required": OPTIMIZATION_CREDIT_COST,
-            }), 402
+                "credits_refunded": False
+            }), get_status_code("credits_insufficient")
         
         print(f"[JobBoard] Credits deducted successfully. New balance: {new_credits}")
         
-        # Get job details from URL if provided
-        # Always parse URL when provided to ensure we get the latest job info
+        # Stage 2: Parse job URL (if provided)
+        stages['parse_job'] = {'start': time.time()}
         if job_url:
             print(f"[JobBoard] Parsing job URL: {job_url}")
-            parsed_job = parse_job_url(job_url)
-            if parsed_job:
-                print(f"[JobBoard] Successfully parsed job from URL")
-                print(f"[JobBoard] Parsed title: {parsed_job.get('title')}")
-                print(f"[JobBoard] Parsed company: {parsed_job.get('company')}")
-                print(f"[JobBoard] Parsed description length: {len(parsed_job.get('description', '') or '')}")
-                # URL data takes precedence over existing fields
-                if parsed_job.get("title"):
-                    job_title = parsed_job.get("title")
-                if parsed_job.get("company"):
-                    company = parsed_job.get("company")
-                if parsed_job.get("description"):
-                    job_description = parsed_job.get("description")
-            else:
-                print(f"[JobBoard] Failed to parse job from URL, using provided fields")
+            try:
+                parsed_job = parse_job_url(job_url)
+                if parsed_job:
+                    # Parsing succeeded - use title/company from URL if available
+                    if parsed_job.get("title"):
+                        job_title = parsed_job.get("title")
+                        print(f"[JobBoard] Parsed title from URL: {job_title}")
+                    if parsed_job.get("company"):
+                        company = parsed_job.get("company")
+                        print(f"[JobBoard] Parsed company from URL: {company}")
+                    # Use description from URL if available and valid, otherwise keep manually pasted one
+                    if parsed_job.get("description") and len(parsed_job.get("description", "").strip()) >= 50:
+                        job_description = parsed_job.get("description")
+                        print(f"[JobBoard] Using description from URL ({len(job_description)} chars)")
+                    else:
+                        print(f"[JobBoard] URL parsing didn't provide a valid description, will use manually pasted description if available")
+                else:
+                    print(f"[JobBoard] URL parsing returned None, will use manually pasted description if available")
+            except Exception as url_error:
+                print(f"[JobBoard] Error parsing URL (non-fatal): {url_error}")
+                # Don't fail here - continue to use manually pasted description if available
+                import traceback
+                traceback.print_exc()
         
-        if not job_description:
-            return jsonify({"error": "Job description is required. Please paste the job description or provide a valid URL."}), 400
+        stages['parse_job']['end'] = time.time()
         
-        # Get user's resume - sanitize to remove Firestore-specific types
+        # Validate job description - must have either from URL or manually pasted
+        if not job_description or len(job_description.strip()) < 50:
+            refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
+            print(f"[JobBoard] Refunded credits due to invalid/missing job description: {refund_success}")
+            return jsonify({
+                "error": True,
+                "error_code": "invalid_job_description",
+                "message": ERROR_MESSAGES.get("invalid_job_description"),
+                "credits_refunded": True
+            }), get_status_code("invalid_job_description")
+        
+        # Stage 3: Retrieve resume
+        stages['retrieve_resume'] = {'start': time.time()}
         raw_resume = user_data.get("resumeParsed", {})
         if not raw_resume:
+            stages['retrieve_resume']['end'] = time.time()
+            refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
+            print(f"[JobBoard] Refunded credits due to missing resume: {refund_success}")
             return jsonify({
-                "error": "No resume found. Please upload your resume in Account Settings first."
-            }), 400
+                "error": True,
+                "error_code": "resume_not_found",
+                "message": ERROR_MESSAGES.get("resume_not_found"),
+                "credits_refunded": True
+            }), get_status_code("resume_not_found")
         
         # Deep sanitization - run multiple times to catch nested references
-        # Run sanitization multiple times to catch deeply nested DocumentReferences
         print(f"[JobBoard] Starting sanitization of resume data. Type: {type(raw_resume)}")
         user_resume = raw_resume
         for i in range(3):  # Multiple passes
             print(f"[JobBoard] Sanitization pass {i+1}")
             user_resume = sanitize_firestore_data(user_resume, depth=0, max_depth=20)
-            # Check if any DocumentReferences remain
-            if isinstance(user_resume, dict):
-                for key, value in user_resume.items():
-                    if is_document_reference(value):
-                        print(f"[JobBoard] WARNING: DocumentReference still found in key '{key}' after pass {i+1}")
-                    elif isinstance(value, (list, tuple)):
-                        for idx, item in enumerate(value):
-                            if is_document_reference(item):
-                                print(f"[JobBoard] WARNING: DocumentReference still found in {key}[{idx}] after pass {i+1}")
         
-        # Additional check: manually inspect and clean ALL list fields
-        list_fields = ['experience', 'key_experiences', 'achievements', 'interests', 'skills']
+        # Additional check: manually inspect and clean ALL list fields (handle both old and new formats)
+        list_fields = ['experience', 'key_experiences', 'achievements', 'interests', 'skills', 'projects', 'extracurriculars', 'certifications', 'publications', 'awards', 'volunteer']
         for field_name in list_fields:
             if isinstance(user_resume, dict) and field_name in user_resume:
                 field_value = user_resume.get(field_name, [])
-                print(f"[JobBoard] Cleaning {field_name} array. Type: {type(field_value)}, Length: {len(field_value) if isinstance(field_value, list) else 'N/A'}")
                 if isinstance(field_value, list):
                     cleaned_list = []
                     for idx, item in enumerate(field_value):
                         if item is not None:
-                            if is_document_reference(item):
-                                print(f"[JobBoard] Found DocumentReference in {field_name}[{idx}], converting...")
-                            # Recursively sanitize nested structures
                             cleaned_item = sanitize_firestore_data(item, depth=0, max_depth=20)
-                            # Check if item is a dict with nested DocumentReferences
                             if isinstance(cleaned_item, dict):
                                 cleaned_item = {k: sanitize_firestore_data(v, depth=0, max_depth=20) for k, v in cleaned_item.items()}
-                            # Remove any remaining DocumentReference-like objects
                             if cleaned_item is not None and not is_document_reference(cleaned_item):
                                 cleaned_list.append(cleaned_item)
-                            else:
-                                print(f"[JobBoard] Removed problematic item from {field_name}[{idx}]")
                     user_resume[field_name] = cleaned_list
-                    print(f"[JobBoard] {field_name} array cleaned. New length: {len(cleaned_list)}")
-
-        if not user_resume:
-            return jsonify({
-                "error": "No resume found. Please upload your resume in Account Settings first."
-            }), 400
-        
-        # Final check before passing to AI function - check ALL keys and nested structures
-        print(f"[JobBoard] Final check before AI call. Resume type: {type(user_resume)}")
         
         def recursive_check_for_refs(obj, path="root", max_depth=5, current_depth=0):
             """Recursively check for DocumentReferences and remove them."""
             if current_depth > max_depth:
                 return obj
             if is_document_reference(obj):
-                print(f"[JobBoard]   ⚠️ Found DocumentReference at {path}, removing...")
                 return None
             elif isinstance(obj, dict):
                 cleaned = {}
@@ -2433,60 +3732,59 @@ def optimize_resume():
                 return cleaned
             return obj
         
-        # Final aggressive cleanup
-        print(f"[JobBoard] Running final recursive cleanup...")
         user_resume = recursive_check_for_refs(user_resume, "root")
-        print(f"[JobBoard] Final cleanup complete")
         
-        # Optimize resume
+        def final_clean(obj):
+            """Final aggressive clean - convert everything to basic types."""
+            if is_document_reference(obj):
+                return str(obj.path) if hasattr(obj, 'path') else str(obj)
+            elif isinstance(obj, dict):
+                return {k: final_clean(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [final_clean(item) for item in obj]
+            elif not isinstance(obj, (str, int, float, bool, type(None))):
+                return str(obj)
+            return obj
+        
+        user_resume = final_clean(user_resume)
+        stages['retrieve_resume']['end'] = time.time()
+        
+        if not user_resume:
+            refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
+            print(f"[JobBoard] Refunded credits due to empty resume after sanitization: {refund_success}")
+            return jsonify({
+                "error": True,
+                "error_code": "resume_incomplete",
+                "message": ERROR_MESSAGES.get("resume_incomplete"),
+                "credits_refunded": True
+            }), get_status_code("resume_incomplete")
+        
+        # Stage 4: Extract keywords
+        stages['extract_keywords'] = {'start': time.time()}
+        # Keywords will be extracted in optimize_resume_with_ai
+        stages['extract_keywords']['end'] = time.time()
+        
+        # Stage 5: AI optimization (longest stage)
+        stages['ai_optimization'] = {'start': time.time()}
         print(f"[JobBoard] Calling optimize_resume_with_ai...")
         try:
-            # Final safety check - ensure user_resume is completely clean
-            print(f"[JobBoard] Final pre-call check: ensuring all values are serializable...")
-            def final_clean(obj):
-                """Final aggressive clean - convert everything to basic types."""
-                if is_document_reference(obj):
-                    return str(obj.path) if hasattr(obj, 'path') else str(obj)
-                elif isinstance(obj, dict):
-                    return {k: final_clean(v) for k, v in obj.items()}
-                elif isinstance(obj, list):
-                    return [final_clean(item) for item in obj]
-                elif not isinstance(obj, (str, int, float, bool, type(None))):
-                    return str(obj)
-                return obj
-            user_resume = final_clean(user_resume)
-            print(f"[JobBoard] Final clean complete, calling AI function...")
-            
-            try:
-                # Wrap in timeout to prevent indefinite hanging
-                async def optimize_with_timeout():
-                    return await optimize_resume_with_ai(user_resume, job_description, job_title, company)
+            async def optimize_with_timeout():
+                return await optimize_resume_with_ai(user_resume, job_description, job_title, company)
                 
-                print(f"[JobBoard] Starting async optimization with 130 second timeout...")
-                optimized = asyncio.run(
-                    asyncio.wait_for(optimize_with_timeout(), timeout=130.0)  # 130 seconds total timeout (slightly longer than inner 120s)
-                )
-                print(f"[JobBoard] ✅ AI function returned successfully")
-            except asyncio.TimeoutError:
-                print(f"[JobBoard] ❌ Resume optimization timed out after 130 seconds")
-                import traceback
-                traceback.print_exc()
-                return jsonify({
-                    "error": "Resume optimization timed out after 2 minutes. Please try again with a shorter job description.",
-                }), 504
-            except Exception as async_error:
-                print(f"[JobBoard] ❌ Error in async optimization: {async_error}")
-                print(f"[JobBoard] Error type: {type(async_error)}")
-                import traceback
-                traceback.print_exc()
-                # Re-raise to be caught by outer exception handler
-                raise
-            print(f"[JobBoard] Optimized result type: {type(optimized)}")
-            print(f"[JobBoard] Optimized result keys: {list(optimized.keys()) if isinstance(optimized, dict) else 'N/A'}")
+            # Increased outer timeout to match increased API timeouts
+            # Base: 180s, Retry: 240s, Buffer: 30s, so max is ~270s, use 300s for safety
+            print(f"[JobBoard] Starting async optimization with 300 second timeout...")
+            optimized = asyncio.run(
+                asyncio.wait_for(optimize_with_timeout(), timeout=300.0)  # Increased from 190s to 300s
+            )
+            print(f"[JobBoard] ✅ AI function returned successfully")
+            stages['ai_optimization']['end'] = time.time()
+                
             
             # Final sanitization of the optimized result before returning
             print(f"[JobBoard] Sanitizing optimized result before jsonify...")
             optimized = sanitize_firestore_data(optimized, depth=0, max_depth=20)
+                
             
             # Verify it's JSON serializable
             try:
@@ -2496,19 +3794,64 @@ def optimize_resume():
                 print(f"[JobBoard] ERROR: Optimized result is not JSON serializable: {json_error}")
                 import traceback
                 traceback.print_exc()
-                raise
+                # Refund credits on JSON serialization error
+                refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
+                print(f"[JobBoard] Refunded credits due to JSON serialization error: {refund_success}")
+                return jsonify({
+                    "error": True,
+                    "error_code": "json_parse_error",
+                    "message": ERROR_MESSAGES.get("json_parse_error"),
+                    "credits_refunded": True
+                }), get_status_code("json_parse_error")
             
-        except Exception as e:
-            print(f"[JobBoard] Error in optimize_resume_with_ai: {e}")
-            print(f"[JobBoard] Error type: {type(e)}")
+        except asyncio.TimeoutError:
+            print(f"[JobBoard] ❌ Resume optimization timed out after 130 seconds")
             import traceback
-            print(f"[JobBoard] Full traceback:")
             traceback.print_exc()
-            raise
+            stages['ai_optimization']['end'] = time.time()
+            refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
+            print(f"[JobBoard] Refunded credits due to timeout: {refund_success}")
+            return jsonify({
+                "error": True,
+                "error_code": "ai_timeout",
+                "message": ERROR_MESSAGES.get("ai_timeout"),
+                "credits_refunded": True
+            }), get_status_code("ai_timeout")
+        except Exception as optimization_error:
+            print(f"[JobBoard] ❌ Error in optimization: {optimization_error}")
+            print(f"[JobBoard] Error type: {type(optimization_error)}")
+            import traceback
+            traceback.print_exc()
+            stages['ai_optimization']['end'] = time.time()
+            
+            # Check for rate limit errors
+            error_str = str(optimization_error).lower()
+            if 'rate limit' in error_str or '429' in error_str:
+                refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
+                print(f"[JobBoard] Refunded credits due to rate limit: {refund_success}")
+                return jsonify({
+                    "error": True,
+                    "error_code": "ai_rate_limit",
+                    "message": ERROR_MESSAGES.get("ai_rate_limit"),
+                    "credits_refunded": True
+                }), get_status_code("ai_rate_limit")
+            else:
+                # Generic AI error
+                refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
+                print(f"[JobBoard] Refunded credits due to AI error: {refund_success}")
+                return jsonify({
+                    "error": True,
+                    "error_code": "ai_error",
+                    "message": ERROR_MESSAGES.get("ai_error"),
+                    "credits_refunded": True
+                }), get_status_code("ai_error")
         
         # Credits were already deducted before the optimization
         # Use the new_credits from the earlier deduction
         print(f"[JobBoard] Using credits from pre-deduction. Balance: {new_credits}")
+        
+        # Calculate processing time
+        processing_time_ms = int((time.time() - start_time) * 1000)
         
         # Build response - ensure all values are basic types
         print(f"[JobBoard] Building final response...")
@@ -2516,6 +3859,7 @@ def optimize_resume():
             "optimizedResume": optimized,
             "creditsUsed": int(OPTIMIZATION_CREDIT_COST),
             "creditsRemaining": int(new_credits) if new_credits is not None else 0,
+            "processingTimeMs": processing_time_ms,
         }
         
         # Sanitize the entire response one more time
@@ -2532,22 +3876,52 @@ def optimize_resume():
             print(f"[JobBoard] Response data: {response_data}")
             import traceback
             traceback.print_exc()
-            raise
+            # Refund credits if response building fails
+            refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
+            print(f"[JobBoard] Refunded credits due to response serialization error: {refund_success}")
+            return jsonify({
+                "error": True,
+                "error_code": "json_parse_error",
+                "message": ERROR_MESSAGES.get("json_parse_error"),
+                "credits_refunded": True
+            }), get_status_code("json_parse_error")
         
         print(f"[JobBoard] Calling jsonify...")
         try:
             result = jsonify(response_data)
             print(f"[JobBoard] ✅ jsonify successful, returning response...")
+            print(f"[JobBoard] Processing time: {processing_time_ms}ms")
             return result, 200
         except Exception as jsonify_error:
             print(f"[JobBoard] ERROR in jsonify: {jsonify_error}")
             import traceback
             traceback.print_exc()
-            raise
+            # Refund credits if jsonify fails
+            refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
+            print(f"[JobBoard] Refunded credits due to jsonify error: {refund_success}")
+            return jsonify({
+                "error": True,
+                "error_code": "json_parse_error",
+                "message": ERROR_MESSAGES.get("json_parse_error"),
+                "credits_refunded": True
+            }), get_status_code("json_parse_error")
         
     except Exception as e:
-        print(f"[JobBoard] Resume optimization error: {e}")
-        return jsonify({"error": str(e)}), 500
+        print(f"[JobBoard] Unexpected error in resume optimization: {e}")
+        import traceback
+        traceback.print_exc()
+        # Try to refund credits on unexpected error
+        try:
+            refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
+            print(f"[JobBoard] Refunded credits due to unexpected error: {refund_success}")
+        except Exception as refund_error:
+            print(f"[JobBoard] Failed to refund credits: {refund_error}")
+        return jsonify({
+            "error": True,
+            "error_code": "ai_error",
+            "message": ERROR_MESSAGES.get("ai_error"),
+            "credits_refunded": True
+        }), get_status_code("ai_error")
 
 
 @job_board_bp.route("/generate-cover-letter", methods=["POST"])
@@ -2610,32 +3984,17 @@ def generate_cover_letter():
         if not job_description:
             return jsonify({"error": "Job description is required. Please paste the job description or provide a valid URL."}), 400
         
-        # Get user's resume - sanitize to remove Firestore-specific types
+        # Get user's resume - use cached sanitized version if available
         raw_resume = user_data.get("resumeParsed", {})
         if not raw_resume:
             return jsonify({
                 "error": "No resume found. Please upload your resume in Account Settings first."
             }), 400
         
-        # Deep sanitization - run multiple times to catch nested references
-        # Run sanitization multiple times to catch deeply nested DocumentReferences
-        user_resume = raw_resume
-        for _ in range(3):  # Multiple passes
-            user_resume = sanitize_firestore_data(user_resume, depth=0, max_depth=20)
+        # Sanitize resume once (removed redundant multiple passes for performance)
+        # The generate_cover_letter_with_ai function will further optimize by extracting only relevant sections
+        user_resume = sanitize_firestore_data(raw_resume, depth=0, max_depth=20)
         
-        # Additional check: manually inspect and clean experience array if it exists
-        if isinstance(user_resume, dict) and 'experience' in user_resume:
-            experience = user_resume.get('experience', [])
-            if isinstance(experience, list):
-                cleaned_experience = []
-                for item in experience:
-                    if item is not None:
-                        cleaned_item = sanitize_firestore_data(item, depth=0, max_depth=20)
-                        # Remove any remaining DocumentReference-like objects
-                        if cleaned_item is not None and not any(x in str(type(cleaned_item)).lower() for x in ['reference', 'firestore']):
-                            cleaned_experience.append(cleaned_item)
-                user_resume['experience'] = cleaned_experience
-
         if not user_resume:
             return jsonify({
                 "error": "No resume found. Please upload your resume in Account Settings first."
@@ -2659,30 +4018,50 @@ def generate_cover_letter():
         
         # Generate cover letter
         print(f"[JobBoard] Starting cover letter generation...")
+        # Total timeout: 2 retries * (45s + 15s buffer) + retry delays (2s + 4s) + buffer = ~120s
+        total_timeout = 120.0  # Reduced from 200s
         try:
             # Wrap in timeout to prevent indefinite hanging
-            # Use the same pattern as optimize_resume for consistency
+            # Use a longer timeout to account for retries (3 attempts with exponential backoff)
             async def generate_with_timeout():
                 return await generate_cover_letter_with_ai(user_resume, job_description, job_title, company)
             
-            print(f"[JobBoard] Starting async cover letter generation with 130 second timeout...")
+            print(f"[JobBoard] Starting async cover letter generation with {total_timeout} second timeout...")
             cover_letter = asyncio.run(
-                asyncio.wait_for(generate_with_timeout(), timeout=130.0)  # 130 seconds total timeout (slightly longer than inner 120s)
+                asyncio.wait_for(generate_with_timeout(), timeout=total_timeout)
             )
             print(f"[JobBoard] ✅ Cover letter generation completed successfully")
         except asyncio.TimeoutError:
-            print(f"[JobBoard] ❌ Cover letter generation timed out after 130 seconds")
+            print(f"[JobBoard] ❌ Cover letter generation timed out after {total_timeout} seconds")
+            # Refund credits on timeout
+            print(f"[JobBoard] Refunding {COVER_LETTER_CREDIT_COST} credits due to timeout...")
+            refund_success, refunded_credits = refund_credits_atomic(user_id, COVER_LETTER_CREDIT_COST, "cover_letter_timeout_refund")
+            if refund_success:
+                print(f"[JobBoard] ✅ Credits refunded successfully. New balance: {refunded_credits}")
+            else:
+                print(f"[JobBoard] ⚠️ Failed to refund credits (user may need manual refund)")
             import traceback
             traceback.print_exc()
             return jsonify({
-                "error": "Cover letter generation timed out after 2 minutes. Please try again.",
+                "error": "Cover letter generation timed out. Your credits have been refunded. Please try again.",
+                "creditsRefunded": refund_success,
             }), 504
         except Exception as gen_error:
             print(f"[JobBoard] ❌ Error during cover letter generation: {gen_error}")
             print(f"[JobBoard] Error type: {type(gen_error)}")
+            # Refund credits on error
+            print(f"[JobBoard] Refunding {COVER_LETTER_CREDIT_COST} credits due to error...")
+            refund_success, refunded_credits = refund_credits_atomic(user_id, COVER_LETTER_CREDIT_COST, "cover_letter_error_refund")
+            if refund_success:
+                print(f"[JobBoard] ✅ Credits refunded successfully. New balance: {refunded_credits}")
+            else:
+                print(f"[JobBoard] ⚠️ Failed to refund credits (user may need manual refund)")
             import traceback
             traceback.print_exc()
-            raise
+            return jsonify({
+                "error": f"Cover letter generation failed: {str(gen_error)}. Your credits have been refunded.",
+                "creditsRefunded": refund_success,
+            }), 500
         
         return jsonify({
             "coverLetter": cover_letter,

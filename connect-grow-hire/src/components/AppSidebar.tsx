@@ -12,6 +12,7 @@ import {
   Search,
   Briefcase,
   Building2,
+  Newspaper,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import LightningIcon from "../assets/Lightning.png";
@@ -42,6 +43,7 @@ const navigationItems = [
   { title: "Home", url: "/home", icon: Home },
   { title: "Contact Search", url: "/contact-search", icon: Search },
   { title: "Firm Search", url: "/firm-search", icon: Building2 },
+  { title: "Job Board", url: "/job-board", icon: Newspaper },
   { title: "Coffee Chat Prep", url: "/coffee-chat-prep", icon: Coffee },
   { title: "Interview Prep", url: "/interview-prep", icon: Briefcase },
   { title: "Pricing", url: "/pricing", icon: CreditCard },

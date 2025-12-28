@@ -3,10 +3,12 @@ Resume parsing routes
 """
 from flask import Blueprint, request, jsonify
 from firebase_admin import auth as fb_auth
+from firebase_admin import firestore
+import urllib.parse
 
 from app.services.resume_parser import extract_text_from_pdf
 from ..extensions import require_firebase_auth
-from app.utils.users import parse_resume_info
+from app.utils.users import parse_resume_info, validate_parsed_resume
 from ..extensions import get_db
 
 resume_bp = Blueprint('resume', __name__, url_prefix='/api')
@@ -26,38 +28,150 @@ def upload_resume_to_firebase_storage(user_id, file):
         return None
 
 
-def save_resume_to_firebase(user_id, resume_text, resume_url, parsed_info=None):
-    """Save resume text, URL, and parsed info to Firestore"""
+def extract_storage_path_from_url(storage_url):
+    """
+    Extract the blob path from a Firebase Storage URL.
+    
+    Firebase Storage URLs have format:
+    https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{encoded_path}?alt=media&token=...
+    
+    Returns the decoded blob path, or None if URL format is invalid.
+    """
+    if not storage_url:
+        return None
+    
     try:
+        # Parse the URL
+        parsed = urllib.parse.urlparse(storage_url)
+        
+        # Check if it's a Firebase Storage URL
+        if 'firebasestorage.googleapis.com' not in parsed.netloc:
+            return None
+        
+        # Extract path from /v0/b/{bucket}/o/{encoded_path}
+        path_parts = parsed.path.split('/o/')
+        if len(path_parts) != 2:
+            return None
+        
+        # Decode the path (URL-encoded)
+        encoded_path = path_parts[1]
+        decoded_path = urllib.parse.unquote(encoded_path)
+        
+        return decoded_path
+    except Exception as e:
+        print(f"[Resume] Error extracting storage path from URL: {e}")
+        return None
+
+
+def delete_file_from_storage(storage_url):
+    """
+    Delete a file from Firebase Storage using its public URL.
+    
+    Returns True if deletion succeeded, False otherwise.
+    """
+    if not storage_url:
+        return False
+    
+    try:
+        from firebase_admin import storage
+        bucket = storage.bucket()
+        
+        # Extract blob path from URL
+        blob_path = extract_storage_path_from_url(storage_url)
+        if not blob_path:
+            print(f"[Resume] Could not extract path from URL: {storage_url[:50]}...")
+            return False
+        
+        # Get blob and delete
+        blob = bucket.blob(blob_path)
+        if blob.exists():
+            blob.delete()
+            print(f"[Resume] Deleted storage file: {blob_path}")
+            return True
+        else:
+            print(f"[Resume] Storage file does not exist: {blob_path}")
+            return False
+    except Exception as e:
+        print(f"[Resume] Error deleting file from storage: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def save_resume_to_firebase(user_id, resume_text, resume_url, parsed_info=None):
+    """Save resume text, URL, and parsed info to Firestore with full structure"""
+    try:
+        from datetime import datetime
+        import json
+        
         db = get_db()
         if not db:
+            print("[Resume] ERROR: No database connection")
             return False
+        
+        # DEBUG: Log the full parsed_info structure
+        print(f"[Resume DEBUG] parsed_info type: {type(parsed_info)}")
+        print(f"[Resume DEBUG] parsed_info keys: {list(parsed_info.keys()) if parsed_info else 'None'}")
+        
+        if parsed_info:
+            # Log each major section
+            print(f"[Resume DEBUG] experience: {len(parsed_info.get('experience', []))} entries")
+            print(f"[Resume DEBUG] projects: {len(parsed_info.get('projects', []))} entries")
+            print(f"[Resume DEBUG] education: {parsed_info.get('education', {})}")
+            
+            # Log first experience entry for verification
+            if parsed_info.get('experience'):
+                print(f"[Resume DEBUG] First experience: {json.dumps(parsed_info['experience'][0], indent=2)}")
+            
+            # Log first project entry for verification
+            if parsed_info.get('projects'):
+                print(f"[Resume DEBUG] First project: {json.dumps(parsed_info['projects'][0], indent=2)}")
         
         update_data = {
             'resumeText': resume_text,
+            'originalResumeText': resume_text,  # Backup of original text
             'resumeUrl': resume_url,
             'resumeFileName': 'resume.pdf',
-            'resumeUpdatedAt': datetime.now()
+            'resumeUpdatedAt': datetime.now().isoformat()
         }
         
-        # Also save parsed resume data if available (for Scout and other features)
+        # Save parsed resume data with full structure (v2 format)
         if parsed_info:
-            update_data['resumeParsed'] = {
-                'name': parsed_info.get('name', ''),
-                'university': parsed_info.get('university', ''),
-                'major': parsed_info.get('major', ''),
-                'year': parsed_info.get('year', ''),
-                'location': parsed_info.get('location', ''),  # Include location for job search
-                'key_experiences': parsed_info.get('key_experiences', []),
-                'skills': parsed_info.get('skills', []),
-                'achievements': parsed_info.get('achievements', []),
-                'interests': parsed_info.get('interests', []),
-            }
+            # Store the complete parsed structure
+            update_data['resumeParsed'] = parsed_info
+            update_data['resumeParseVersion'] = 2  # Track schema version
+            
+            # DEBUG: Log what we're about to save
+            print(f"[Resume DEBUG] update_data['resumeParsed'] keys: {list(update_data['resumeParsed'].keys())}")
+            print(f"[Resume DEBUG] About to save to Firestore...")
+            
+            print(f"[Resume] Saved resume with version 2 structure")
+            print(f"[Resume] Experience entries: {len(parsed_info.get('experience', []))}")
+            print(f"[Resume] Project entries: {len(parsed_info.get('projects', []))}")
+            if 'skills' in parsed_info:
+                if isinstance(parsed_info['skills'], dict):
+                    total_skills = sum(len(v) if isinstance(v, list) else 0 for v in parsed_info['skills'].values())
+                    print(f"[Resume] Total skills: {total_skills}")
+                else:
+                    print(f"[Resume] Skills (legacy format): {len(parsed_info['skills']) if isinstance(parsed_info['skills'], list) else 'N/A'}")
         
+        # Save to Firestore
         db.collection('users').document(user_id).update(update_data)
+        
+        # DEBUG: Read back and verify
+        print(f"[Resume DEBUG] Verifying save...")
+        saved_doc = db.collection('users').document(user_id).get()
+        saved_data = saved_doc.to_dict()
+        saved_parsed = saved_data.get('resumeParsed', {})
+        print(f"[Resume DEBUG] Saved resumeParsed keys: {list(saved_parsed.keys())}")
+        print(f"[Resume DEBUG] Saved experience count: {len(saved_parsed.get('experience', []))}")
+        print(f"[Resume DEBUG] Saved projects count: {len(saved_parsed.get('projects', []))}")
+        
         return True
     except Exception as e:
         print(f"Firestore save failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
@@ -100,7 +214,20 @@ def parse_resume():
         # Parse user info
         print("🔍 Parsing resume info...")
         parsed_info = parse_resume_info(resume_text)
-        print(f"✅ Parsed: {parsed_info.get('name', 'Unknown')}")
+        
+        # Validate parsed resume
+        if parsed_info:
+            is_valid, errors = validate_parsed_resume(parsed_info)
+            if errors:
+                print(f"⚠️  Validation {'warnings' if is_valid else 'errors'}: {', '.join(errors)}")
+            if not is_valid:
+                print(f"❌ Resume parsing validation failed, but continuing with partial data")
+        
+        name = parsed_info.get('name') if parsed_info else 'Unknown'
+        if not name and parsed_info and 'education' in parsed_info:
+            # Try to get name from education if available
+            name = 'Unknown'
+        print(f"✅ Parsed: {name}")
         
         # Get user ID from auth token
         user_id = None
@@ -168,4 +295,80 @@ def parse_resume():
         import traceback
         traceback.print_exc()
         return jsonify({'error': 'Failed to parse resume'}), 500
+
+
+@resume_bp.route('/resume', methods=['DELETE'])
+@require_firebase_auth
+def delete_resume():
+    """Completely delete all resume data for a user."""
+    try:
+        user_id = request.firebase_user.get('uid')
+        if not user_id:
+            return jsonify({'error': 'User ID not found'}), 401
+        
+        db = get_db()
+        if not db:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            return jsonify({'error': 'User not found'}), 404
+        
+        user_data = user_doc.to_dict()
+        
+        print(f"[Resume] Starting deletion for user {user_id}")
+        
+        # 1. Delete files from Firebase Storage
+        storage_urls = [
+            user_data.get('resumeUrl'),
+            user_data.get('originalResumeUrl'),
+        ]
+        
+        for url in storage_urls:
+            if url:
+                try:
+                    delete_file_from_storage(url)
+                except Exception as e:
+                    print(f"[Resume] Warning: Failed to delete storage file {url[:50] if url else 'None'}...: {e}")
+                    # Continue even if storage deletion fails
+        
+        # 2. Delete ALL resume fields from Firestore using DELETE_FIELD
+        # This completely removes the fields instead of setting them to null
+        update_data = {
+            # Current resume data
+            'resumeParsed': firestore.DELETE_FIELD,
+            'resumeText': firestore.DELETE_FIELD,
+            'resumeUrl': firestore.DELETE_FIELD,
+            'resumeFileName': firestore.DELETE_FIELD,
+            'resumeUpdatedAt': firestore.DELETE_FIELD,
+            'resumeParseVersion': firestore.DELETE_FIELD,
+            'resumeSource': firestore.DELETE_FIELD,
+            'resumeNeedsOCR': firestore.DELETE_FIELD,
+            
+            # Original resume data (backup copies)
+            'originalResumeParsed': firestore.DELETE_FIELD,
+            'originalResumeText': firestore.DELETE_FIELD,
+            'originalResumeUrl': firestore.DELETE_FIELD,
+            'originalResumeFileName': firestore.DELETE_FIELD,
+            
+            # Metadata
+            'resumeBackfilledAt': firestore.DELETE_FIELD,
+        }
+        
+        user_ref.update(update_data)
+        
+        print(f"[Resume] Successfully deleted all resume data for user {user_id}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Resume deleted successfully'
+        }), 200
+        
+    except Exception as e:
+        print(f"[Resume] Error deleting resume: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Failed to delete resume'}), 500
 

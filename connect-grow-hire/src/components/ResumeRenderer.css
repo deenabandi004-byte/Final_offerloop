@@ -1,0 +1,55 @@
+/* Resume Renderer Styles */
+.resume-renderer {
+  font-family: 'Times New Roman', Georgia, serif;
+  line-height: 1.4;
+  max-width: 8.5in;
+  margin: 0 auto;
+  padding: 0.5in;
+}
+
+/* Print-friendly styles */
+@media print {
+  .resume-renderer {
+    padding: 0;
+    max-width: 100%;
+    font-size: 11pt;
+  }
+  
+  .resume-renderer h1 {
+    font-size: 18pt;
+  }
+  
+  .resume-renderer h2 {
+    font-size: 12pt;
+  }
+  
+  .resume-renderer section {
+    page-break-inside: avoid;
+  }
+  
+  /* Hide non-printable elements */
+  .no-print {
+    display: none !important;
+  }
+}
+
+/* Modern/Clean theme option */
+.resume-renderer.theme-modern {
+  font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+}
+
+.resume-renderer.theme-modern h2 {
+  color: #2563eb;
+  border-color: #2563eb;
+}
+
+/* Classic theme (default) */
+.resume-renderer.theme-classic {
+  font-family: 'Times New Roman', Georgia, serif;
+}
+
+.resume-renderer.theme-classic h2 {
+  color: #1f2937;
+  border-color: #1f2937;
+}
+

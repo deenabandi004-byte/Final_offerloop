@@ -30,6 +30,7 @@ const AccountSettings = React.lazy(() => import("./pages/AccountSettings"));
 const Pricing = React.lazy(() => import("./pages/Pricing"));
 const Dashboard = React.lazy(() => import("./pages/Dashboard"));
 const DashboardPage = React.lazy(() => import("./pages/DashboardPage"));
+const JobBoardPage = React.lazy(() => import("./pages/JobBoardPage"));
 const NotFound = React.lazy(() => import("./pages/NotFound"));
 const PaymentSuccess = React.lazy(() => import("./pages/PaymentSuccess"));
 // Feature Pages - These are the largest, most important to lazy load
@@ -209,6 +210,7 @@ const AppRoutes: React.FC = () => {
       <Route path="/contact-search" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ContactSearchPage /></Suspense></ProtectedRoute>} />
       <Route path="/interview-prep" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><InterviewPrepPage /></Suspense></ProtectedRoute>} />
       <Route path="/firm-search" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><FirmSearchPage /></Suspense></ProtectedRoute>} />
+      <Route path="/job-board" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><JobBoardPage /></Suspense></ProtectedRoute>} />
       
 
 

@@ -202,3 +202,50 @@ def deduct_credits_atomic(user_id: str, amount: int, operation_name: str = "oper
         except:
             pass
         return False, 0
+
+
+def refund_credits_atomic(user_id: str, amount: int, operation_name: str = "refund") -> tuple[bool, int]:
+    """
+    Atomically refund credits to user account using Firestore transaction.
+    Prevents race conditions when multiple requests try to refund credits simultaneously.
+    
+    Args:
+        user_id: Firebase user ID
+        amount: Number of credits to refund
+        operation_name: Name of operation for logging
+    
+    Returns:
+        Tuple of (success: bool, new_credits: int)
+    """
+    db = get_db()
+    user_ref = db.collection('users').document(user_id)
+    
+    @firestore.transactional
+    def refund_in_transaction(transaction):
+        """Transaction function to atomically refund credits"""
+        user_doc = user_ref.get(transaction=transaction)
+        
+        if not user_doc.exists:
+            print(f"❌ User {user_id} not found for credit refund")
+            return False, 0
+        
+        user_data = user_doc.to_dict()
+        current_credits = check_and_reset_credits(user_ref, user_data)
+        
+        # Refund credits atomically
+        new_credits = current_credits + amount
+        transaction.update(user_ref, {
+            'credits': new_credits,
+            'lastCreditUpdate': datetime.now().isoformat()
+        })
+        
+        print(f"✅ Refunded {amount} credits for {operation_name}: {current_credits} -> {new_credits}")
+        return True, new_credits
+    
+    try:
+        transaction = db.transaction()
+        success, credits = refund_in_transaction(transaction)
+        return success, credits
+    except Exception as e:
+        print(f"❌ Error in atomic credit refund: {e}")
+        return False, 0

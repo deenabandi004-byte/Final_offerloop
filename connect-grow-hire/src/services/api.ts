@@ -419,6 +419,101 @@ export interface SearchHistoryItem {
 }
 
 // ================================
+// Job Board Types
+// ================================
+export interface JobListingsRequest {
+  jobTypes?: string[];
+  industries?: string[];
+  locations?: string[];
+  refresh?: boolean;
+  searchQuery?: string;
+  page?: number;
+  perPage?: number;
+}
+
+export interface Job {
+  id: string;
+  title: string;
+  company: string;
+  location: string;
+  salary?: string;
+  type: "Internship" | "Full-Time" | "Part-Time" | "Contract";
+  posted: string;
+  description: string;
+  requirements: string[];
+  url: string;
+  logo?: string;
+  remote?: boolean;
+  experienceLevel?: string;
+  via?: string;
+  matchScore?: number; // Resume match score (0-100)
+}
+
+export interface JobListingsResponse {
+  jobs: Job[];
+  total: number;
+  estimatedTotal?: number;
+  page?: number;
+  perPage?: number;
+  hasMore?: boolean;
+  source: string;
+  query?: string;
+  location?: string;
+  cached?: boolean;
+}
+
+export interface OptimizeResumeRequest {
+  jobUrl?: string;
+  jobDescription?: string;
+  jobTitle?: string;
+  company?: string;
+  userId: string;
+}
+
+export interface ATSScore {
+  overall: number;
+  keywords: number;
+  formatting: number;
+  relevance: number;
+  suggestions: string[];
+}
+
+export interface OptimizedResume {
+  content: string;
+  atsScore: ATSScore;
+  keywordsAdded: string[];
+  sectionsOptimized: string[];
+  warnings?: string[];
+}
+
+export interface OptimizeResumeResponse {
+  optimizedResume: OptimizedResume;
+  creditsUsed: number;
+  creditsRemaining: number;
+  processingTimeMs?: number;
+}
+
+export interface GenerateCoverLetterRequest {
+  jobUrl?: string;
+  jobDescription?: string;
+  jobTitle?: string;
+  company?: string;
+  userId: string;
+}
+
+export interface CoverLetter {
+  content: string;
+  highlights: string[];
+  tone: string;
+}
+
+export interface GenerateCoverLetterResponse {
+  coverLetter: CoverLetter;
+  creditsUsed: number;
+  creditsRemaining: number;
+}
+
+// ================================
 // ApiService
 // ================================
 class ApiService {
@@ -1255,6 +1350,55 @@ async regenerateOutboxReply(
       startDate: response.startDate,
       targetDeadline: response.targetDeadline,
     };
+  }
+
+  // ================================
+  // Job Board Endpoints
+  // ================================
+
+  async getJobListings(params: JobListingsRequest): Promise<JobListingsResponse> {
+    const response = await this.makeRequest<JobListingsResponse>(
+      '/job-board/jobs',
+      {
+        method: 'POST',
+        headers: {
+          ...await this.getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(params),
+      }
+    );
+    return response;
+  }
+
+  async optimizeResume(params: OptimizeResumeRequest): Promise<OptimizeResumeResponse> {
+    const response = await this.makeRequest<OptimizeResumeResponse>(
+      '/job-board/optimize-resume',
+      {
+        method: 'POST',
+        headers: {
+          ...await this.getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(params),
+      }
+    );
+    return response;
+  }
+
+  async generateCoverLetter(params: GenerateCoverLetterRequest): Promise<GenerateCoverLetterResponse> {
+    const response = await this.makeRequest<GenerateCoverLetterResponse>(
+      '/job-board/generate-cover-letter',
+      {
+        method: 'POST',
+        headers: {
+          ...await this.getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(params),
+      }
+    );
+    return response;
   }
 }
 

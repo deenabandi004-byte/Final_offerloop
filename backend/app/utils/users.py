@@ -227,45 +227,145 @@ def extract_companies_from_resume(resume_text):
 
 
 def parse_resume_info(resume_text):
-    """Parse comprehensive info from resume text using OpenAI"""
+    """Parse comprehensive info from resume text using OpenAI - extracts full structure"""
     try:
         client = get_openai_client()
         if not client or not resume_text:
             return {}
         
-        # Use more of the resume for better extraction
-        resume_snippet = resume_text[:4000]  # Increased from 2000
+        # Use full resume text (or reasonable limit for very long resumes)
+        resume_snippet = resume_text[:8000]  # Increased to capture full resume
         
-        prompt = f"""Extract comprehensive information from this resume. Return ONLY a JSON object with these exact keys:
+        RESUME_PARSING_PROMPT = """You are an expert resume parser. Extract ALL information from the resume into a structured JSON format.
+
+## CRITICAL RULES
+
+1. **EXTRACT EVERYTHING** — Do not summarize or condense. Keep all details.
+2. **PRESERVE EXACT TEXT** — Company names, job titles, dates, and degrees must be copied exactly as written.
+3. **KEEP ALL BULLETS** — Every bullet point in experience and projects must be preserved.
+4. **KEEP ALL SKILLS** — Extract every skill mentioned, organized by category.
+5. **KEEP COURSEWORK** — Extract all courses listed.
+6. **KEEP PROJECTS** — Extract all projects with full descriptions.
+
+## RESUME TEXT
+
+{resume_text}
+
+## OUTPUT FORMAT
+
+Return ONLY valid JSON in this exact structure:
+
 {{
-  "name": "Full Name",
-  "university": "University Name",
-  "major": "Major/Field of Study",
-  "year": "Graduation Year or Class Year",
-  "location": "City, State or City, ST (e.g., 'Los Angeles, CA' or 'New York, NY') - extract from address, contact info, or 'based in' statements. Use empty string if not found.",
-  "key_experiences": ["Brief description of 2-3 most relevant experiences/projects"],
-  "skills": ["Top 3-5 relevant skills"],
-  "achievements": ["1-2 notable achievements or accomplishments"],
-  "interests": ["Any relevant interests or passions mentioned"]
+  "name": "Full name exactly as written",
+  "contact": {{
+    "email": "email if present, null otherwise",
+    "phone": "phone if present, null otherwise",
+    "location": "city, state if present",
+    "linkedin": "LinkedIn URL if present, null otherwise",
+    "github": "GitHub URL if present, null otherwise",
+    "website": "personal website if present, null otherwise"
+  }},
+  "objective": "Objective or summary statement if present, null otherwise",
+  
+  "education": {{
+    "degree": "Exact degree type (e.g., 'Bachelor of Science', 'Master of Arts')",
+    "major": "Major/field of study",
+    "university": "Full university name exactly as written",
+    "location": "City, State of university",
+    "graduation": "Graduation date exactly as written (e.g., 'Dec 2025', 'May 2024')",
+    "gpa": "GPA if present, null otherwise",
+    "coursework": ["Course 1", "Course 2", "...all courses listed..."],
+    "honors": ["Honor 1", "Honor 2", "...all honors/awards listed..."],
+    "minor": "Minor if present, null otherwise"
+  }},
+  
+  "experience": [
+    {{
+      "company": "Exact company name as written",
+      "title": "Exact job title as written",
+      "dates": "Exact date range as written (e.g., 'March 2024 – May 2025')",
+      "location": "City, State or 'Remote' if specified",
+      "bullets": [
+        "First bullet point exactly as written",
+        "Second bullet point exactly as written",
+        "...ALL bullet points, do not skip any..."
+      ]
+    }}
+  ],
+  
+  "projects": [
+    {{
+      "name": "Exact project name",
+      "description": "Full project description exactly as written",
+      "technologies": ["Tech 1", "Tech 2", "...technologies mentioned..."],
+      "date": "Date if present, null otherwise",
+      "link": "URL if present, null otherwise"
+    }}
+  ],
+  
+  "skills": {{
+    "programming_languages": ["Language 1", "Language 2", "..."],
+    "tools_frameworks": ["Tool 1", "Framework 1", "..."],
+    "databases": ["Database 1", "..."],
+    "cloud_devops": ["AWS", "Docker", "..."],
+    "core_skills": ["Skill 1", "Skill 2", "..."],
+    "soft_skills": ["Communication", "Leadership", "..."],
+    "languages": ["English", "Spanish", "..."]
+  }},
+  
+  "extracurriculars": [
+    {{
+      "activity": "Activity name",
+      "role": "Role if specified",
+      "organization": "Organization name if specified",
+      "dates": "Dates if specified",
+      "description": "Description if present"
+    }}
+  ],
+  
+  "certifications": [
+    {{
+      "name": "Certification name",
+      "issuer": "Issuing organization",
+      "date": "Date obtained",
+      "expiry": "Expiry date if applicable"
+    }}
+  ],
+  
+  "publications": [],
+  "awards": [],
+  "volunteer": []
 }}
 
-Resume text:
-{resume_snippet}
+## IMPORTANT REMINDERS
 
-Return ONLY the JSON object, no other text."""
+- If a section doesn't exist in the resume, use an empty array [] or null
+- Do NOT invent or infer information that isn't explicitly stated
+- Do NOT summarize bullet points — copy them exactly
+- Do NOT merge multiple experiences into one
+- Do NOT skip any experiences, projects, or skills
+- Dates should be copied exactly as formatted in the resume
+- Company names and job titles must match the resume exactly"""
+
+        prompt = RESUME_PARSING_PROMPT.format(resume_text=resume_snippet)
         
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You extract structured information from resumes. Return only valid JSON."},
+                {"role": "system", "content": "You are an expert resume parser. Extract ALL information from resumes without summarizing. Return only valid JSON."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=500,  # Increased to handle more fields
+            max_tokens=4000,  # Significantly increased to handle full structure
             temperature=0.1
         )
         
         import json
         result_text = response.choices[0].message.content.strip()
+        
+        # DEBUG: Log the raw response
+        print(f"[Resume Parser DEBUG] Raw OpenAI response length: {len(result_text)}")
+        print(f"[Resume Parser DEBUG] Raw response preview: {result_text[:500]}...")
+        
         # Remove markdown code blocks if present
         if '```' in result_text:
             result_text = result_text.split('```')[1]
@@ -273,17 +373,89 @@ Return ONLY the JSON object, no other text."""
                 result_text = result_text[4:]
             result_text = result_text.strip()
         
+        # DEBUG: Log after cleaning
+        print(f"[Resume Parser DEBUG] Cleaned response length: {len(result_text)}")
+        
         parsed = json.loads(result_text)
-        # Ensure lists are lists, not strings
-        for key in ['key_experiences', 'skills', 'achievements', 'interests']:
+        
+        # DEBUG: Log parsed structure
+        print(f"[Resume Parser DEBUG] Parsed keys: {list(parsed.keys())}")
+        print(f"[Resume Parser DEBUG] Experience count: {len(parsed.get('experience', []))}")
+        print(f"[Resume Parser DEBUG] Projects count: {len(parsed.get('projects', []))}")
+        
+        # Ensure proper structure for nested objects
+        if 'contact' in parsed and not isinstance(parsed['contact'], dict):
+            parsed['contact'] = {}
+        if 'education' in parsed and not isinstance(parsed['education'], dict):
+            parsed['education'] = {}
+        if 'skills' in parsed and not isinstance(parsed['skills'], dict):
+            # Convert old format to new format if needed
+            old_skills = parsed['skills'] if isinstance(parsed['skills'], list) else []
+            parsed['skills'] = {
+                'programming_languages': old_skills,
+                'tools_frameworks': [],
+                'databases': [],
+                'cloud_devops': [],
+                'core_skills': [],
+                'soft_skills': [],
+                'languages': []
+            }
+        
+        # Ensure arrays are arrays
+        for key in ['experience', 'projects', 'extracurriculars', 'certifications', 'publications', 'awards', 'volunteer']:
             if key in parsed and not isinstance(parsed[key], list):
                 parsed[key] = []
+        
+        # Ensure education arrays
+        if 'education' in parsed:
+            edu = parsed['education']
+            if 'coursework' in edu and not isinstance(edu['coursework'], list):
+                edu['coursework'] = []
+            if 'honors' in edu and not isinstance(edu['honors'], list):
+                edu['honors'] = []
         
         return parsed
         
     except Exception as e:
         print(f"Resume parsing failed: {e}")
+        import traceback
+        traceback.print_exc()
         return {}
+
+
+def validate_parsed_resume(parsed: dict) -> tuple[bool, list[str]]:
+    """Validate that parsed resume has essential fields."""
+    errors = []
+    
+    # Required fields
+    if not parsed.get('name'):
+        errors.append("Missing name")
+    
+    if not parsed.get('education') or not parsed['education'].get('university'):
+        errors.append("Missing education/university")
+    
+    # Experience is recommended but not strictly required for some students
+    if not parsed.get('experience') or len(parsed.get('experience', [])) == 0:
+        errors.append("Warning: Missing experience section")
+    
+    if not parsed.get('skills'):
+        errors.append("Missing skills section")
+    
+    # Validate experience entries have required fields
+    for i, exp in enumerate(parsed.get('experience', [])):
+        if not exp.get('company'):
+            errors.append(f"Experience {i+1} missing company name")
+        if not exp.get('title'):
+            errors.append(f"Experience {i+1} missing job title")
+        if not exp.get('bullets') or len(exp.get('bullets', [])) == 0:
+            errors.append(f"Experience {i+1} missing bullet points")
+    
+    # Separate warnings from errors
+    warnings = [e for e in errors if e.startswith("Warning:")]
+    errors_only = [e for e in errors if not e.startswith("Warning:")]
+    
+    is_valid = len(errors_only) == 0
+    return is_valid, errors
 
 
 def extract_comprehensive_user_info(resume_text=None, user_profile=None):
@@ -337,10 +509,13 @@ def extract_user_info_from_resume_priority(resume_text, profile):
             parsed = parse_resume_info(resume_text)
             if parsed:
                 user_info.update(parsed)
-                # Ensure list fields are properly set
-                for key in ['key_experiences', 'skills', 'achievements', 'interests']:
-                    if key not in user_info or not isinstance(user_info[key], list):
-                        user_info[key] = []
+                # Ensure list fields are properly set (using new format)
+                for key in ['experience', 'projects', 'skills', 'extracurriculars', 'certifications']:
+                    if key not in user_info or not isinstance(user_info[key], (list, dict)):
+                        if key == 'skills':
+                            user_info[key] = {}
+                        else:
+                            user_info[key] = []
         except Exception as e:
             print(f"Resume parsing failed: {e}")
     
@@ -348,17 +523,32 @@ def extract_user_info_from_resume_priority(resume_text, profile):
     if profile:
         if not user_info.get('name'):
             user_info['name'] = profile.get('name') or f"{profile.get('firstName', '')} {profile.get('lastName', '')}".strip()
+        # Extract year from education if available
         if not user_info.get('year'):
-            user_info['year'] = profile.get('year') or profile.get('graduationYear') or ""
+            edu = user_info.get('education', {})
+            if isinstance(edu, dict) and edu.get('graduation'):
+                # Try to extract year from graduation date
+                import re
+                grad_date = edu.get('graduation', '')
+                year_match = re.search(r'20\d{2}', grad_date)
+                if year_match:
+                    user_info['year'] = year_match.group()
+            if not user_info.get('year'):
+                user_info['year'] = profile.get('year') or profile.get('graduationYear') or ""
+        # Extract major from education if available
         if not user_info.get('major'):
-            user_info['major'] = profile.get('major') or profile.get('fieldOfStudy') or ""
+            edu = user_info.get('education', {})
+            if isinstance(edu, dict) and edu.get('major'):
+                user_info['major'] = edu.get('major')
+            if not user_info.get('major'):
+                user_info['major'] = profile.get('major') or profile.get('fieldOfStudy') or ""
+        # Extract university from education if available
         if not user_info.get('university'):
-            user_info['university'] = profile.get('university') or ""
-    
-    # Ensure all expected fields exist
-    for key in ['key_experiences', 'skills', 'achievements', 'interests']:
-        if key not in user_info:
-            user_info[key] = []
+            edu = user_info.get('education', {})
+            if isinstance(edu, dict) and edu.get('university'):
+                user_info['university'] = edu.get('university')
+            if not user_info.get('university'):
+                user_info['university'] = profile.get('university') or ""
     
     return user_info
 

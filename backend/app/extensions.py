@@ -136,6 +136,7 @@ def require_firebase_auth(fn):
     Decorator to require Firebase authentication for an endpoint.
     Extracts and verifies the Firebase ID token from the Authorization header.
     Allows OPTIONS requests (CORS preflight) to pass through without authentication.
+    Includes retry logic for transient network errors.
     """
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
@@ -161,24 +162,105 @@ def require_firebase_auth(fn):
 
             id_token = auth_header.split(' ', 1)[1].strip()
 
+            # Retry logic for network errors
+            import time
             try:
-                decoded = fb_auth.verify_id_token(id_token)
-                request.firebase_user = decoded
-                print(f"✅ Token verified for user: {decoded.get('uid')}")
-            except ValueError as ve:
-                # Firebase Admin SDK not initialized error
-                error_str = str(ve)
-                if 'initialize' in error_str.lower() or 'init' in error_str.lower():
-                    error_msg = "Firebase Admin SDK not initialized. Call init_firebase() first."
-                    print(f"❌ {error_msg}")
-                    return jsonify({'error': error_msg}), 500
-                else:
-                    print(f"❌ Token verification failed: {ve}")
-                    return jsonify({'error': 'Invalid or expired token'}), 401
-            except Exception as token_error:
-                print(f"❌ Token verification failed: {token_error}")
-                # SECURITY: No fallback - all tokens must be valid
-                return jsonify({'error': 'Invalid or expired token. Please sign in again.'}), 401
+                import urllib3.exceptions
+                URLLIB3_AVAILABLE = True
+            except ImportError:
+                URLLIB3_AVAILABLE = False
+            
+            max_retries = 3
+            retry_delay = 0.5  # seconds
+            
+            for attempt in range(max_retries):
+                try:
+                    decoded = fb_auth.verify_id_token(id_token)
+                    request.firebase_user = decoded
+                    print(f"✅ Token verified for user: {decoded.get('uid')}")
+                    break  # Success, exit retry loop
+                except ValueError as ve:
+                    # Firebase Admin SDK not initialized error or invalid token format
+                    error_str = str(ve)
+                    if 'initialize' in error_str.lower() or 'init' in error_str.lower():
+                        error_msg = "Firebase Admin SDK not initialized. Call init_firebase() first."
+                        print(f"❌ {error_msg}")
+                        return jsonify({'error': error_msg}), 500
+                    else:
+                        # Invalid token format - don't retry
+                        print(f"❌ Token verification failed: {ve}")
+                        return jsonify({'error': 'Invalid or expired token'}), 401
+                except (ConnectionError, OSError) as network_error:
+                    # Network-related errors - retry
+                    error_str = str(network_error)
+                    is_network_error = any(keyword in error_str.lower() for keyword in [
+                        'connection', 'remote', 'disconnected', 'aborted', 'timeout', 
+                        'network', 'unreachable', 'refused'
+                    ])
+                    
+                    if is_network_error and attempt < max_retries - 1:
+                        print(f"⚠️ Network error during token verification (attempt {attempt + 1}/{max_retries}): {network_error}")
+                        time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                        continue
+                    else:
+                        # Max retries reached or non-retryable network error
+                        print(f"❌ Token verification failed after {attempt + 1} attempts: {network_error}")
+                        return jsonify({
+                            'error': 'Network error during authentication. Please try again.',
+                            'retry': True
+                        }), 503  # Service Unavailable for network errors
+                except Exception as token_error:
+                    # Check if it's a network-related error by examining the exception
+                    error_str = str(token_error)
+                    error_type = type(token_error).__name__
+                    
+                    # Check for urllib3 errors if available
+                    if URLLIB3_AVAILABLE:
+                        try:
+                            if isinstance(token_error, urllib3.exceptions.HTTPError):
+                                if attempt < max_retries - 1:
+                                    print(f"⚠️ HTTP error during token verification (attempt {attempt + 1}/{max_retries}): {token_error}")
+                                    time.sleep(retry_delay * (attempt + 1))
+                                    continue
+                                else:
+                                    return jsonify({
+                                        'error': 'Network error during authentication. Please try again.',
+                                        'retry': True
+                                    }), 503
+                        except:
+                            pass
+                    
+                    # Check for network-related errors in the exception message or type
+                    is_network_error = (
+                        any(keyword in error_str.lower() for keyword in [
+                            'connection', 'remote', 'disconnected', 'aborted', 'timeout',
+                            'network', 'unreachable', 'refused'
+                        ]) or
+                        'Connection' in error_type or
+                        'Remote' in error_type
+                    )
+                    
+                    if is_network_error and attempt < max_retries - 1:
+                        print(f"⚠️ Network error during token verification (attempt {attempt + 1}/{max_retries}): {token_error}")
+                        time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                        continue
+                    else:
+                        # Not a network error or max retries reached - treat as auth failure
+                        print(f"❌ Token verification failed: {token_error}")
+                        if is_network_error:
+                            return jsonify({
+                                'error': 'Network error during authentication. Please try again.',
+                                'retry': True
+                            }), 503
+                        else:
+                            return jsonify({'error': 'Invalid or expired token. Please sign in again.'}), 401
+            else:
+                # All retries exhausted
+                print(f"❌ Token verification failed after {max_retries} attempts")
+                return jsonify({
+                    'error': 'Authentication service temporarily unavailable. Please try again.',
+                    'retry': True
+                }), 503
 
         # Call the route handler - let its exceptions bubble up normally
         # For OPTIONS, the handler will return early; Flask-CORS will add headers
