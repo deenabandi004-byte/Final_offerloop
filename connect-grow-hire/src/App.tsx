@@ -6,9 +6,11 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { FirebaseAuthProvider, useFirebaseAuth } from "./contexts/FirebaseAuthContext";
+import { ScoutProvider } from "./contexts/ScoutContext";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DynamicGradientBackground } from "./components/background/DynamicGradientBackground";
 import { LoadingSkeleton } from "./components/LoadingSkeleton";
+import { ScoutSidePanel } from "./components/ScoutSidePanel";
 
 // Keep critical pages non-lazy for faster initial load
 import Index from "./pages/Index";
@@ -38,6 +40,8 @@ const CoffeeChatPrepPage = React.lazy(() => import("./pages/CoffeeChatPrepPage")
 const ContactSearchPage = React.lazy(() => import("./pages/ContactSearchPage"));
 const InterviewPrepPage = React.lazy(() => import("./pages/InterviewPrepPage"));
 const FirmSearchPage = React.lazy(() => import("./pages/FirmSearchPage"));
+const ScoutPage = React.lazy(() => import("./pages/ScoutPage"));
+const ApplicationLabPage = React.lazy(() => import("./pages/ApplicationLabPage"));
 // New Lovable Onboarding Flow
 const OnboardingFlow = React.lazy(() => import("./pages/OnboardingFlow").then(m => ({ default: m.OnboardingFlow })));
 
@@ -211,8 +215,8 @@ const AppRoutes: React.FC = () => {
       <Route path="/interview-prep" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><InterviewPrepPage /></Suspense></ProtectedRoute>} />
       <Route path="/firm-search" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><FirmSearchPage /></Suspense></ProtectedRoute>} />
       <Route path="/job-board" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><JobBoardPage /></Suspense></ProtectedRoute>} />
-      
-
+      <Route path="/scout" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ScoutPage /></Suspense></ProtectedRoute>} />
+      <Route path="/application-lab" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ApplicationLabPage /></Suspense></ProtectedRoute>} />
 
       {/* Public informational pages */}
       <Route path="/about" element={<Suspense fallback={<PageLoader />}><AboutUs /></Suspense>} />
@@ -252,7 +256,10 @@ const App: React.FC = () => {
                     v7_relativeSplatPath: true,
                   }}
                 >
-                  <AppRoutes />
+                  <ScoutProvider>
+                    <AppRoutes />
+                    <ScoutSidePanel />
+                  </ScoutProvider>
                 </BrowserRouter>
               </ErrorBoundary>
             </div>

@@ -1,0 +1,724 @@
+/**
+ * Scout Knowledge Base - Comprehensive product knowledge for Scout AI Assistant
+ * 
+ * This file contains all the information Scout needs to help users navigate
+ * and understand Offerloop.
+ */
+
+// ============================================================================
+// PAGE DIRECTORY - Every page in the app
+// ============================================================================
+
+export const PAGES = {
+  home: {
+    route: "/home",
+    name: "Home / Dashboard",
+    description: "Your central hub for tracking networking progress, managing emails, and planning your recruiting timeline.",
+    tabs: ["Dashboard", "Outbox", "Calendar"],
+    features: [
+      "Activity statistics and progress tracking",
+      "Email thread management in Outbox",
+      "Personalized recruiting calendar and timeline"
+    ],
+    keywords: ["home", "dashboard", "main", "start", "overview", "stats", "activity"]
+  },
+
+  contactSearch: {
+    route: "/contact-search",
+    name: "Contact Search",
+    description: "Find professionals at companies to network with. Enter job title, company, and location to discover contacts and automatically generate personalized outreach emails.",
+    tabs: ["Contact Search", "Contact Library", "Import Contacts"],
+    features: [
+      "Search by job title, company, and location",
+      "AI-generated personalized email drafts",
+      "Gmail integration for sending emails",
+      "Save contacts to your library",
+      "Import contacts from CSV or manually",
+      "Resume matching for better personalization (Pro+)"
+    ],
+    creditCost: "15 credits per contact",
+    keywords: ["contact", "search", "find", "people", "professionals", "network", "networking", "email", "outreach", "connect"]
+  },
+
+  firmSearch: {
+    route: "/firm-search",
+    name: "Firm Search",
+    description: "Discover companies and firms matching your criteria. Search by industry, location, and size to find potential employers.",
+    tabs: ["Firm Search", "Saved Firms", "Search History"],
+    features: [
+      "Natural language search for companies",
+      "Filter by industry, location, and company size",
+      "Save firms to your list",
+      "View search history",
+      "Scout assistant for refined searches"
+    ],
+    creditCost: "5 credits per firm",
+    keywords: ["firm", "company", "companies", "business", "employer", "find companies", "search firms"]
+  },
+
+  jobBoard: {
+    route: "/job-board",
+    name: "Job Board",
+    description: "Browse job listings tailored to your profile. Optimize your resume for specific jobs, generate cover letters, and find recruiters.",
+    tabs: ["Job Listings", "Saved Jobs"],
+    features: [
+      "AI-curated job listings",
+      "Resume optimization for specific jobs",
+      "Cover letter generation",
+      "Find recruiters at target companies",
+      "Save jobs for later",
+      "Match score based on your resume"
+    ],
+    creditCost: "Varies by action - resume optimization and cover letters use credits",
+    keywords: ["job", "jobs", "listings", "board", "openings", "positions", "career", "resume", "cover letter", "recruiter"]
+  },
+
+  coffeeChatPrep: {
+    route: "/coffee-chat-prep",
+    name: "Coffee Chat Prep",
+    description: "Generate comprehensive preparation materials for networking conversations. Get talking points, questions to ask, and research on your contact.",
+    tabs: ["Generate Prep", "Prep Library"],
+    features: [
+      "Paste LinkedIn URL to generate prep",
+      "Company news and recent developments",
+      "Suggested questions to ask",
+      "Similarity analysis based on your background",
+      "PDF download of prep materials",
+      "Saved preps in library"
+    ],
+    creditCost: "15 credits per prep",
+    keywords: ["coffee chat", "prep", "preparation", "networking", "informational", "interview", "questions", "talking points"]
+  },
+
+  interviewPrep: {
+    route: "/interview-prep",
+    name: "Interview Prep",
+    description: "Generate interview preparation guides based on job postings. Get insights on company culture, common questions, and success tips.",
+    tabs: ["Generate Prep", "Prep Library"],
+    features: [
+      "Paste job posting URL to generate prep",
+      "Reddit and online research for real interview experiences",
+      "Common interview questions",
+      "Company culture insights",
+      "Success tips and what to avoid",
+      "PDF download of prep materials"
+    ],
+    creditCost: "25 credits per prep",
+    keywords: ["interview", "prep", "preparation", "questions", "practice", "prepare", "company research"]
+  },
+
+  applicationLab: {
+    route: "/application-lab",
+    name: "Application Lab",
+    description: "Deep job fit analysis and application strengthening. Get detailed analysis of how well you match a job, resume edits, and cover letter generation.",
+    features: [
+      "Job fit score and analysis",
+      "Requirement-by-requirement matching",
+      "AI-suggested resume edits",
+      "Custom cover letter generation",
+      "Score breakdown and improvement tips"
+    ],
+    creditCost: "Uses credits for analysis and generation",
+    keywords: ["application", "lab", "fit", "analysis", "resume", "cover letter", "match", "score", "optimize"]
+  },
+
+  pricing: {
+    route: "/pricing",
+    name: "Pricing",
+    description: "View and manage your subscription. Compare Free, Pro, and Elite plans.",
+    features: [
+      "Compare plan features",
+      "Upgrade or downgrade subscription",
+      "Manage billing through Stripe",
+      "View current plan and credits"
+    ],
+    keywords: ["pricing", "plans", "subscription", "upgrade", "pro", "elite", "free", "billing", "credits", "cost", "payment"]
+  },
+
+  accountSettings: {
+    route: "/account-settings",
+    name: "Account Settings",
+    description: "Manage your profile, upload resume, connect Gmail, and update preferences.",
+    features: [
+      "Update profile information",
+      "Upload and manage resume",
+      "Connect Gmail for email drafts",
+      "View and update preferences",
+      "Sign out"
+    ],
+    keywords: ["settings", "account", "profile", "resume", "gmail", "connect", "preferences", "upload"]
+  },
+
+  contactDirectory: {
+    route: "/contact-directory",
+    name: "Contact Directory",
+    description: "View and manage all your saved contacts from previous searches.",
+    features: [
+      "View all saved contacts",
+      "Search and filter contacts",
+      "Export contacts",
+      "Remove contacts"
+    ],
+    keywords: ["contacts", "directory", "library", "saved", "list"]
+  },
+
+  coffeeChatLibrary: {
+    route: "/coffee-chat-library",
+    name: "Coffee Chat Library",
+    description: "Access all your past coffee chat preparation materials.",
+    features: [
+      "View past preps",
+      "Download PDFs",
+      "Delete old preps"
+    ],
+    keywords: ["coffee chat", "library", "history", "past preps", "saved"]
+  },
+
+  outbox: {
+    route: "/home?tab=outbox",
+    name: "Outbox",
+    description: "Manage your email threads and track responses. View drafts, sent emails, and replies.",
+    features: [
+      "View all email threads",
+      "Track reply status",
+      "Regenerate suggested replies",
+      "Open emails in Gmail"
+    ],
+    keywords: ["outbox", "emails", "drafts", "sent", "replies", "threads", "messages"]
+  },
+
+  calendar: {
+    route: "/home?tab=calendar",
+    name: "Calendar",
+    description: "View your personalized recruiting timeline with key dates and milestones.",
+    features: [
+      "AI-generated recruiting timeline",
+      "Phase-based planning",
+      "Key milestones and deadlines",
+      "Customizable based on your goals"
+    ],
+    keywords: ["calendar", "timeline", "schedule", "dates", "deadlines", "milestones", "planning"]
+  }
+} as const;
+
+
+// ============================================================================
+// FEATURES DOCUMENTATION
+// ============================================================================
+
+export const FEATURES = {
+  contactSearch: {
+    name: "Contact Search",
+    whatItDoes: "Finds professionals at companies based on job title, company, and location. Automatically generates personalized outreach emails using AI.",
+    howToUse: [
+      "Go to Contact Search from the sidebar",
+      "Enter the job title you're targeting (e.g., 'Investment Banking Analyst')",
+      "Enter the company name (e.g., 'Goldman Sachs')",
+      "Enter the location (e.g., 'New York, NY')",
+      "Select how many contacts you want (1-15 depending on your plan)",
+      "Click Search to find contacts",
+      "Review generated emails and save to Gmail drafts"
+    ],
+    tips: [
+      "Be specific with job titles for better matches",
+      "Connect Gmail first to save email drafts automatically",
+      "Pro users can upload a resume for better email personalization"
+    ],
+    creditCost: 15,
+    creditUnit: "per contact"
+  },
+
+  firmSearch: {
+    name: "Firm Search",
+    whatItDoes: "Discovers companies matching your criteria using natural language search. Great for finding employers you might not know about.",
+    howToUse: [
+      "Go to Firm Search from the sidebar",
+      "Type a natural language query (e.g., 'Investment banks in NYC focused on healthcare M&A')",
+      "Select batch size (how many firms to return)",
+      "Click Search to find matching companies",
+      "Save interesting firms to your list"
+    ],
+    tips: [
+      "Use descriptive queries for better results",
+      "Include industry, location, and size preferences",
+      "Save firms before they disappear from results"
+    ],
+    creditCost: 5,
+    creditUnit: "per firm"
+  },
+
+  coffeeChatPrep: {
+    name: "Coffee Chat Prep",
+    whatItDoes: "Generates comprehensive preparation materials for networking conversations. Includes talking points, questions to ask, and research on the person and their company.",
+    howToUse: [
+      "Go to Coffee Chat Prep from the sidebar",
+      "Paste the LinkedIn URL of the person you're meeting",
+      "Click Generate Prep",
+      "Wait for the AI to research and compile materials (takes 1-2 minutes)",
+      "Review the prep and download as PDF"
+    ],
+    tips: [
+      "Generate prep a day before your meeting",
+      "Review the similarity summary to find common ground",
+      "Use the suggested questions during your conversation"
+    ],
+    creditCost: 15,
+    creditUnit: "per prep"
+  },
+
+  interviewPrep: {
+    name: "Interview Prep",
+    whatItDoes: "Generates interview preparation guides based on job postings. Scrapes Reddit and other sources for real interview experiences at that company.",
+    howToUse: [
+      "Go to Interview Prep from the sidebar",
+      "Paste the job posting URL",
+      "Click Generate Prep",
+      "Wait for research to complete (takes 2-3 minutes)",
+      "Review insights and download PDF"
+    ],
+    tips: [
+      "Use for companies with strong online presence for best results",
+      "Review the 'red flags to avoid' section carefully",
+      "Practice the common questions provided"
+    ],
+    creditCost: 25,
+    creditUnit: "per prep"
+  },
+
+  gmailIntegration: {
+    name: "Gmail Integration",
+    whatItDoes: "Connects your Gmail account to save email drafts automatically. Emails generated by Contact Search are saved directly to your Gmail drafts.",
+    howToUse: [
+      "Go to Account Settings",
+      "Click 'Connect Gmail'",
+      "Sign in with your Google account",
+      "Grant the required permissions",
+      "Now emails will be saved as drafts in Gmail"
+    ],
+    tips: [
+      "You must connect Gmail before using Contact Search for full functionality",
+      "Emails are saved as drafts - you review and send them manually",
+      "You can disconnect Gmail anytime in Account Settings"
+    ]
+  },
+
+  resumeUpload: {
+    name: "Resume Upload",
+    whatItDoes: "Upload your resume for better email personalization and job matching. Pro and Elite users get resume-matched emails.",
+    howToUse: [
+      "Go to Account Settings",
+      "Click 'Upload Resume'",
+      "Select your PDF resume file",
+      "Wait for parsing to complete",
+      "Your resume is now used for personalization"
+    ],
+    tips: [
+      "Use a clean, well-formatted PDF for best parsing",
+      "Update your resume when you have new experiences",
+      "Resume is used for Coffee Chat Prep similarity analysis too"
+    ]
+  },
+
+  applicationLab: {
+    name: "Application Lab",
+    whatItDoes: "Deep analysis of how well you match a specific job. Get requirement-by-requirement breakdown, resume edit suggestions, and custom cover letters.",
+    howToUse: [
+      "Go to Application Lab",
+      "Paste a job posting URL or description",
+      "Click Analyze",
+      "Review your fit score and requirement matches",
+      "Apply suggested resume edits",
+      "Generate a custom cover letter"
+    ],
+    tips: [
+      "Use this for jobs you're serious about",
+      "Apply the high-priority resume edits first",
+      "The cover letter addresses specific requirements automatically"
+    ]
+  }
+} as const;
+
+
+// ============================================================================
+// STEP-BY-STEP WORKFLOWS
+// ============================================================================
+
+export const WORKFLOWS = {
+  findingContacts: {
+    name: "Finding Contacts to Network With",
+    steps: [
+      "Connect Gmail in Account Settings (if not done)",
+      "Go to Contact Search",
+      "Enter job title, company, and location",
+      "Select batch size (1-15 contacts)",
+      "Click Search",
+      "Review the contacts and generated emails",
+      "Emails are saved to Gmail drafts automatically",
+      "Open Gmail, review, personalize if needed, and send"
+    ]
+  },
+
+  connectingGmail: {
+    name: "Connecting Gmail",
+    steps: [
+      "Click on Settings in the sidebar (or your profile)",
+      "Go to Account Settings",
+      "Find the Gmail section",
+      "Click 'Connect Gmail'",
+      "Sign in with your Google account",
+      "Grant permissions for draft access",
+      "You're connected! Emails will now save to drafts"
+    ]
+  },
+
+  buyingCredits: {
+    name: "Getting More Credits",
+    steps: [
+      "Go to Pricing from the sidebar",
+      "Compare Free, Pro, and Elite plans",
+      "Click 'Upgrade' on your chosen plan",
+      "Complete payment through Stripe",
+      "Credits are added immediately",
+      "Your new plan limits are now active"
+    ]
+  },
+
+  preparingForCoffeeChat: {
+    name: "Preparing for a Coffee Chat",
+    steps: [
+      "Go to Coffee Chat Prep",
+      "Find the LinkedIn URL of the person you're meeting",
+      "Paste the URL and click Generate",
+      "Wait 1-2 minutes for research to complete",
+      "Review the prep materials",
+      "Note the similarity points and suggested questions",
+      "Download PDF to reference during the meeting"
+    ]
+  },
+
+  preparingForInterview: {
+    name: "Preparing for an Interview",
+    steps: [
+      "Go to Interview Prep",
+      "Get the job posting URL",
+      "Paste it and click Generate Prep",
+      "Wait for Reddit and online research (2-3 minutes)",
+      "Review interview process and common questions",
+      "Study the success tips and red flags",
+      "Download PDF for offline review"
+    ]
+  },
+
+  optimizingResume: {
+    name: "Optimizing Your Resume for a Job",
+    steps: [
+      "Go to Job Board and find a job you like",
+      "Click 'Optimize Resume' on that job",
+      "AI analyzes your resume against the job",
+      "Review ATS score and suggestions",
+      "Apply the recommended changes",
+      "Download the optimized version"
+    ]
+  },
+
+  findingRecruiters: {
+    name: "Finding Recruiters for a Job",
+    steps: [
+      "Go to Job Board",
+      "Find a job listing you're interested in",
+      "Click 'Find Recruiter' button",
+      "AI searches for recruiters at that company",
+      "Review recruiter profiles and emails",
+      "Emails are drafted and saved to Gmail"
+    ]
+  }
+} as const;
+
+
+// ============================================================================
+// CREDIT SYSTEM
+// ============================================================================
+
+export const CREDIT_SYSTEM = {
+  costs: {
+    contactSearch: { amount: 15, unit: "per contact" },
+    firmSearch: { amount: 5, unit: "per firm" },
+    coffeeChatPrep: { amount: 15, unit: "per prep" },
+    interviewPrep: { amount: 25, unit: "per prep" },
+    resumeOptimization: { amount: 10, unit: "per optimization" },
+    coverLetter: { amount: 10, unit: "per letter" },
+    recruiterSearch: { amount: 15, unit: "per search" }
+  },
+
+  tiers: {
+    free: {
+      name: "Free",
+      price: "$0/month",
+      credits: 300,
+      maxCredits: 300,
+      maxContactsPerSearch: 3,
+      features: [
+        "300 monthly credits",
+        "Up to 3 contacts per search",
+        "Basic email generation",
+        "Coffee Chat Prep access",
+        "Gmail integration"
+      ],
+      limitations: [
+        "No resume-matched emails",
+        "Limited Interview Prep access",
+        "Basic personalization"
+      ]
+    },
+    pro: {
+      name: "Pro",
+      price: "$9.99/month",
+      credits: 1500,
+      maxCredits: 1500,
+      maxContactsPerSearch: 8,
+      features: [
+        "1,500+ monthly credits",
+        "Up to 8 contacts per search",
+        "Resume-matched personalized emails",
+        "Full Interview Prep access",
+        "Priority support"
+      ]
+    },
+    elite: {
+      name: "Elite",
+      price: "$34.99/month",
+      credits: 3000,
+      maxCredits: 3000,
+      maxContactsPerSearch: 15,
+      features: [
+        "3,000 monthly credits",
+        "Up to 15 contacts per search",
+        "All Pro features",
+        "Unlimited Coffee Chat Prep",
+        "Unlimited Interview Prep",
+        "Application Lab access",
+        "Advanced analytics"
+      ]
+    }
+  },
+
+  howCreditsWork: [
+    "Credits are your currency for using Offerloop features",
+    "Each action costs a specific number of credits",
+    "Credits reset monthly based on your subscription date",
+    "Free tier: 300 credits/month",
+    "Pro tier: 1,500 credits/month",
+    "Elite tier: 3,000 credits/month",
+    "Unused credits don't roll over",
+    "You can see your remaining credits in the sidebar"
+  ]
+} as const;
+
+
+// ============================================================================
+// TROUBLESHOOTING
+// ============================================================================
+
+export const TROUBLESHOOTING = {
+  gmailNotConnected: {
+    issue: "Gmail not connected",
+    symptoms: ["Emails not saving to drafts", "Connect Gmail button showing"],
+    solution: [
+      "Go to Account Settings",
+      "Click 'Connect Gmail'",
+      "Sign in with Google and grant permissions",
+      "Try your search again"
+    ]
+  },
+
+  outOfCredits: {
+    issue: "Out of credits",
+    symptoms: ["Searches failing", "'Insufficient credits' message", "Actions blocked"],
+    solution: [
+      "Check your credits in the sidebar",
+      "Go to Pricing to upgrade your plan",
+      "Credits reset monthly - check your reset date",
+      "Pro ($9.99) gives 1,500 credits, Elite ($34.99) gives 3,000"
+    ]
+  },
+
+  contactNotFound: {
+    issue: "No contacts found",
+    symptoms: ["Empty search results", "Few or no matches"],
+    solution: [
+      "Try broader job titles (e.g., 'Analyst' instead of 'Investment Banking Analyst')",
+      "Check spelling of company name",
+      "Try different locations or remove location filter",
+      "Some smaller companies may have limited data"
+    ]
+  },
+
+  emailNotPersonalized: {
+    issue: "Emails seem generic",
+    symptoms: ["Basic email templates", "No resume references"],
+    solution: [
+      "Make sure you've uploaded your resume in Account Settings",
+      "Pro/Elite users get resume-matched personalization",
+      "Complete your profile with career interests",
+      "The more info you provide, the better personalization"
+    ]
+  },
+
+  prepTakingTooLong: {
+    issue: "Coffee Chat or Interview Prep taking too long",
+    symptoms: ["Loading for more than 5 minutes", "Stuck on processing"],
+    solution: [
+      "This is normal for Interview Prep (can take 2-3 minutes)",
+      "Coffee Chat Prep usually takes 1-2 minutes",
+      "If stuck longer, refresh and try again",
+      "Check if the LinkedIn URL or job posting is accessible"
+    ]
+  },
+
+  subscriptionIssues: {
+    issue: "Subscription or billing problems",
+    symptoms: ["Payment failed", "Plan not updating", "Credits not showing"],
+    solution: [
+      "Go to Pricing and click 'Manage Subscription'",
+      "This opens Stripe where you can update payment",
+      "If plan upgraded but credits not showing, refresh the page",
+      "Contact support if issues persist"
+    ]
+  }
+} as const;
+
+
+// ============================================================================
+// ROUTE MAPPING - For auto-navigation
+// ============================================================================
+
+export const ROUTE_MAPPING = {
+  // Direct page routes
+  pages: {
+    "/home": ["home", "dashboard", "main", "start"],
+    "/contact-search": ["contact search", "find contacts", "search contacts", "network", "networking", "outreach", "email"],
+    "/firm-search": ["firm search", "company search", "find companies", "find firms", "search firms", "employers"],
+    "/job-board": ["job board", "jobs", "job listings", "openings", "positions", "resume", "cover letter", "recruiter"],
+    "/coffee-chat-prep": ["coffee chat", "coffee prep", "networking prep", "informational", "prep materials"],
+    "/interview-prep": ["interview prep", "interview preparation", "prepare interview", "interview questions"],
+    "/application-lab": ["application lab", "fit analysis", "job fit", "resume edits", "analyze application"],
+    "/pricing": ["pricing", "plans", "upgrade", "subscription", "pro", "elite", "credits", "billing", "payment"],
+    "/account-settings": ["settings", "account", "profile", "gmail", "resume upload", "preferences"],
+    "/contact-directory": ["contact directory", "contact library", "saved contacts", "my contacts"],
+    "/coffee-chat-library": ["coffee chat library", "past preps", "prep history"],
+    "/home?tab=outbox": ["outbox", "emails", "drafts", "sent", "replies", "messages"],
+    "/home?tab=calendar": ["calendar", "timeline", "schedule", "deadlines", "milestones"]
+  },
+
+  // Intent to route mapping
+  intents: {
+    findContacts: "/contact-search",
+    searchCompanies: "/firm-search",
+    browseJobs: "/job-board",
+    prepareCoffeeChat: "/coffee-chat-prep",
+    prepareInterview: "/interview-prep",
+    analyzeApplication: "/application-lab",
+    viewPricing: "/pricing",
+    manageAccount: "/account-settings",
+    viewSavedContacts: "/contact-directory",
+    viewEmails: "/home?tab=outbox",
+    viewCalendar: "/home?tab=calendar",
+    connectGmail: "/account-settings",
+    uploadResume: "/account-settings",
+    checkCredits: "/pricing"
+  }
+} as const;
+
+
+// ============================================================================
+// SUGGESTED QUESTIONS
+// ============================================================================
+
+export const SUGGESTED_QUESTIONS = [
+  "How do I find contacts?",
+  "What does each plan include?",
+  "How do I connect my Gmail?",
+  "How do credits work?"
+] as const;
+
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Find the best route for a user intent/query
+ */
+export function findRouteForIntent(query: string): string | null {
+  const lowerQuery = query.toLowerCase();
+  
+  // Check direct page matches first
+  for (const [route, keywords] of Object.entries(ROUTE_MAPPING.pages)) {
+    for (const keyword of keywords) {
+      if (lowerQuery.includes(keyword)) {
+        return route;
+      }
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Get page info by route
+ */
+export function getPageByRoute(route: string): typeof PAGES[keyof typeof PAGES] | null {
+  for (const [key, page] of Object.entries(PAGES)) {
+    if (page.route === route || page.route.startsWith(route)) {
+      return page;
+    }
+  }
+  return null;
+}
+
+/**
+ * Format knowledge base for system prompt
+ */
+export function formatKnowledgeForPrompt(): string {
+  const sections: string[] = [];
+  
+  // Pages
+  sections.push("PAGES AND ROUTES:");
+  for (const [key, page] of Object.entries(PAGES)) {
+    sections.push(`- ${page.name} (${page.route}): ${page.description}`);
+  }
+  
+  // Credit costs
+  sections.push("\nCREDIT COSTS:");
+  for (const [feature, cost] of Object.entries(CREDIT_SYSTEM.costs)) {
+    sections.push(`- ${feature}: ${cost.amount} credits ${cost.unit}`);
+  }
+  
+  // Tiers
+  sections.push("\nSUBSCRIPTION TIERS:");
+  for (const [tier, info] of Object.entries(CREDIT_SYSTEM.tiers)) {
+    sections.push(`- ${info.name} (${info.price}): ${info.credits} credits/month, ${info.maxContactsPerSearch} contacts/search`);
+  }
+  
+  // Troubleshooting
+  sections.push("\nCOMMON ISSUES:");
+  for (const [key, issue] of Object.entries(TROUBLESHOOTING)) {
+    sections.push(`- ${issue.issue}: ${issue.solution[0]}`);
+  }
+  
+  return sections.join("\n");
+}
+
+export default {
+  PAGES,
+  FEATURES,
+  WORKFLOWS,
+  CREDIT_SYSTEM,
+  TROUBLESHOOTING,
+  ROUTE_MAPPING,
+  SUGGESTED_QUESTIONS,
+  findRouteForIntent,
+  getPageByRoute,
+  formatKnowledgeForPrompt
+};
+

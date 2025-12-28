@@ -6,6 +6,7 @@ import { BackToHomeButton } from "@/components/BackToHomeButton";
 import { CreditPill } from "@/components/credits";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
+import { useScout } from "@/contexts/ScoutContext";
 import { Search, Sheet, History, Loader2, AlertCircle, ArrowUp, Download, Trash2 } from "lucide-react";
 // ScoutBubble removed - now using ScoutHeaderButton in PageHeaderActions
 import { Button } from "@/components/ui/button";
@@ -38,9 +39,13 @@ const EXAMPLE_PROMPTS = [
   "Software companies in Austin with 50-200 employees"
 ];
 
+// Session storage key for Scout auto-populate
+const SCOUT_AUTO_POPULATE_KEY = 'scout_auto_populate';
+
 const FirmSearchPage: React.FC = () => {
   const navigate = useNavigate();
   const { user, checkCredits } = useFirebaseAuth();
+  const { openPanelWithSearchHelp } = useScout();
   const effectiveUser = user || {
     credits: 0,
     maxCredits: 0,
@@ -94,6 +99,57 @@ const FirmSearchPage: React.FC = () => {
   useEffect(() => {
     resultsRef.current = results;
   }, [results]);
+
+  // Handle Scout auto-populate from failed search or chat requests
+  useEffect(() => {
+    const handleAutoPopulate = () => {
+      try {
+        const stored = sessionStorage.getItem(SCOUT_AUTO_POPULATE_KEY);
+        if (stored) {
+          const data = JSON.parse(stored);
+          
+          // Handle both formats: search help format (nested) and chat format (flat)
+          let populateData;
+          if (data.search_type === 'firm') {
+            if (data.auto_populate) {
+              // Search help format (nested)
+              populateData = data.auto_populate;
+            } else {
+              // Chat format (flat)
+              populateData = data;
+            }
+            
+            const { industry, location: autoLocation } = populateData;
+            // Build a new query from the suggestions
+            let newQuery = '';
+            if (industry) newQuery += industry;
+            if (autoLocation) newQuery += (newQuery ? ' in ' : '') + autoLocation;
+            
+            if (newQuery) {
+              setQuery(newQuery);
+              
+              // Clear the stored data
+              sessionStorage.removeItem(SCOUT_AUTO_POPULATE_KEY);
+              
+              toast({
+                title: "Search pre-filled",
+                description: "Scout has filled in your search fields. Click Search to find firms.",
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[Scout] Auto-populate error:', e);
+      }
+    };
+
+    // Run on mount
+    handleAutoPopulate();
+
+    // Also listen for custom event (for when already on page)
+    window.addEventListener('scout-auto-populate', handleAutoPopulate);
+    return () => window.removeEventListener('scout-auto-populate', handleAutoPopulate);
+  }, []);
 
   // Track recently deleted firm IDs to filter them out during reload
   const recentlyDeletedFirmIds = useRef<Set<string>>(new Set());
@@ -312,6 +368,17 @@ const FirmSearchPage: React.FC = () => {
 
         if (result.firms.length === 0) {
           setError('No firms found matching your criteria. Try broadening your search or adjusting the location/industry.');
+          
+          // Trigger Scout to help with suggestions
+          openPanelWithSearchHelp({
+            searchType: 'firm',
+            failedSearchParams: {
+              industry: result.parsedFilters?.industry || q,
+              location: result.parsedFilters?.location || '',
+              size: result.parsedFilters?.size || '',
+            },
+            errorType: 'no_results',
+          });
         } else {
           // For new searches, replace results. For library view, merge with existing.
           // Since we're on the search tab, replace the results to show only this search

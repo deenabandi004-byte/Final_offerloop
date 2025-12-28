@@ -5,6 +5,7 @@ import { BackToHomeButton } from "@/components/BackToHomeButton";
 import { CreditPill } from "@/components/credits";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
+import { useScout } from "@/contexts/ScoutContext";
 import { Search, FileText, Upload as UploadIcon, Download } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 // ScoutBubble removed - now using ScoutHeaderButton in PageHeaderActions
@@ -28,8 +29,12 @@ import { PromptSearchFlow } from "@/components/search/PromptSearchFlow";
 import { trackFeatureActionCompleted, trackError } from "../lib/analytics";
 import ContactImport from "@/components/ContactImport";
 
+// Session storage key for Scout auto-populate
+const SCOUT_AUTO_POPULATE_KEY = 'scout_auto_populate';
+
 const ContactSearchPage: React.FC = () => {
   const { user, checkCredits, updateCredits } = useFirebaseAuth();
+  const { openPanelWithSearchHelp } = useScout();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const effectiveUser = user || {
@@ -124,6 +129,65 @@ const ContactSearchPage: React.FC = () => {
       });
     }
   }, []); // Run once on mount
+
+  // Handle Scout auto-populate from failed search or chat requests
+  useEffect(() => {
+    const handleAutoPopulate = () => {
+      try {
+        const stored = sessionStorage.getItem(SCOUT_AUTO_POPULATE_KEY);
+        if (stored) {
+          const data = JSON.parse(stored);
+          
+          // Handle both formats: search help format (nested) and chat format (flat)
+          let populateData;
+          if (data.search_type === 'contact') {
+            if (data.auto_populate) {
+              // Search help format (nested)
+              populateData = data.auto_populate;
+            } else {
+              // Chat format (flat)
+              populateData = data;
+            }
+            
+            const { job_title, company: autoCompany, location: autoLocation } = populateData;
+            if (job_title) setJobTitle(job_title);
+            if (autoCompany) setCompany(autoCompany);
+            if (autoLocation) setLocation(autoLocation);
+            
+            // Clear the stored data
+            sessionStorage.removeItem(SCOUT_AUTO_POPULATE_KEY);
+            
+            toast({
+              title: "Search pre-filled",
+              description: "Scout has filled in your search fields. Click Search to find contacts.",
+            });
+          }
+        }
+      } catch (e) {
+        console.error('[Scout] Auto-populate error:', e);
+      }
+    };
+
+    // Run on mount
+    handleAutoPopulate();
+
+    // Also listen for custom event (for when already on page)
+    window.addEventListener('scout-auto-populate', handleAutoPopulate);
+    return () => window.removeEventListener('scout-auto-populate', handleAutoPopulate);
+  }, []);
+
+  // Helper function to trigger Scout on 0 results
+  const triggerScoutForNoResults = useCallback(() => {
+    openPanelWithSearchHelp({
+      searchType: 'contact',
+      failedSearchParams: {
+        job_title: jobTitle.trim(),
+        company: company.trim(),
+        location: location.trim(),
+      },
+      errorType: 'no_results',
+    });
+  }, [openPanelWithSearchHelp, jobTitle, company, location]);
 
   // Helper functions
   const stripUndefined = <T extends Record<string, any>>(obj: T) =>
@@ -657,6 +721,11 @@ const ContactSearchPage: React.FC = () => {
         setProgressValue(100);
         setSearchComplete(true);
 
+        // Trigger Scout if 0 results
+        if (result.contacts.length === 0) {
+          triggerScoutForNoResults();
+        }
+
         // Track PostHog event
         // Note: Only captures metadata (counts, credits, filter presence), not actual search terms or user input
         trackFeatureActionCompleted('contact_search', 'search', true, {
@@ -762,6 +831,11 @@ const ContactSearchPage: React.FC = () => {
 
         setProgressValue(100);
         setSearchComplete(true);
+
+        // Trigger Scout if 0 results
+        if (result.contacts.length === 0) {
+          triggerScoutForNoResults();
+        }
 
         // Track PostHog event
         // Note: Only captures metadata (counts, credits, filter presence), not actual search terms or user input
@@ -1057,6 +1131,20 @@ const ContactSearchPage: React.FC = () => {
                             setSearchComplete(true);
                             setProgressValue(100);
                             setIsSearching(false);
+                            
+                            // Trigger Scout if 0 results
+                            if (contacts.length === 0 && parsedQuery) {
+                              openPanelWithSearchHelp({
+                                searchType: 'contact',
+                                failedSearchParams: {
+                                  job_title: parsedQuery.jobTitle || '',
+                                  company: parsedQuery.company || '',
+                                  location: parsedQuery.location || '',
+                                },
+                                errorType: 'no_results',
+                              });
+                            }
+                            
                             // Pass the parsed location to autoSaveToDirectory
                             const searchLocation = parsedQuery?.location || '';
                             autoSaveToDirectory(contacts, searchLocation);
