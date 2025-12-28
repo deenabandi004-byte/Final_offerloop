@@ -21,7 +21,10 @@ from bs4 import BeautifulSoup
 
 from app.extensions import require_firebase_auth, get_db
 from app.services.auth import deduct_credits_atomic, refund_credits_atomic, check_and_reset_credits
-from app.services.openai_client import get_async_openai_client
+from app.services.openai_client import get_async_openai_client, get_openai_client
+from app.services.ats_scorer import calculate_ats_score
+from app.services.recruiter_finder import find_recruiters, determine_job_type
+from firebase_admin import firestore
 
 job_board_bp = Blueprint("job_board", __name__, url_prefix="/api/job-board")
 
@@ -2759,18 +2762,15 @@ Return ONLY valid JSON in this exact structure:
 
 {{
   "optimized_content": "Full optimized resume text with clear sections (Summary, Experience, Education, Skills). ALL original content must be preserved - only enhanced wording.",
-  "ats_score": {{
-    "overall": 0-100,
-    "keywords": 0-100,
-    "formatting": 0-100,
-    "relevance": 0-100
-  }},
+  "relevance_score": 0-100,
   "keywords_added": ["list of keywords you successfully integrated into existing content"],
   "important_keywords_missing": ["list of job keywords that didn't fit candidate's actual experience"],
   "sections_optimized": ["list of sections you improved"],
   "suggestions": ["specific, actionable suggestions for the candidate to genuinely improve their resume"],
   "warnings": ["any concerns, e.g., 'Candidate lacks X skill mentioned in job requirements'"]
 }}
+
+Note: "relevance_score" should reflect how well the candidate's actual experience aligns with the role requirements. Consider: relevant job titles, industry experience, years of experience match, responsibility level match. This is a nuanced judgment about how well their background fits the role (not just keyword matching - that's handled separately).
 
 ## FINAL CHECKLIST (Verify before responding)
 
@@ -2908,8 +2908,41 @@ Return ONLY valid JSON. Do not include explanations or markdown."""
         print("[JobBoard] JSON parsed successfully")
         
         print("[JobBoard] Building return dictionary...")
-        ats_score = result.get("ats_score", {})
-        print(f"[JobBoard] ATS score type: {type(ats_score)}")
+        
+        # Get AI relevance score (now the only score from AI)
+        ai_relevance_score = int(result.get("relevance_score", 75))
+        print(f"[JobBoard] AI relevance score: {ai_relevance_score}")
+        
+        # Get the optimized resume content as text
+        optimized_content = str(result.get("optimized_content", ""))
+        
+        # Calculate programmatic ATS scores
+        print("[JobBoard] Calculating programmatic ATS scores...")
+        try:
+            ats_result = calculate_ats_score(
+                resume_text=optimized_content,
+                job_description=job_desc_safe,
+                ai_relevance_score=ai_relevance_score
+            )
+            print(f"[JobBoard] ✅ ATS scores calculated: overall={ats_result['overall']}, keywords={ats_result['keywords']}, formatting={ats_result['formatting']}, relevance={ats_result['relevance']}")
+        except Exception as ats_error:
+            print(f"[JobBoard] ERROR calculating ATS scores: {ats_error}")
+            import traceback
+            traceback.print_exc()
+            # Fallback to defaults if calculation fails
+            ats_result = {
+                "overall": 75,
+                "keywords": 70,
+                "formatting": 85,
+                "relevance": ai_relevance_score,
+                "details": {
+                    "matched_keywords": [],
+                    "missing_keywords": [],
+                    "formatting_checks": {},
+                    "formatting_issues": [],
+                    "suggestions": ["Could not calculate detailed scores"]
+                }
+            }
         
         # Safely convert all list items to strings, filtering out any DocumentReferences
         def safe_string_list(items):
@@ -2982,18 +3015,33 @@ Return ONLY valid JSON. Do not include explanations or markdown."""
             if structured_resume["contact"] and not any(structured_resume["contact"].values()):
                 structured_resume["contact"] = {}
         
+        # Combine AI suggestions with ATS scorer suggestions
+        all_suggestions = suggestions.copy()
+        if ats_result.get("details", {}).get("suggestions"):
+            # Add ATS scorer suggestions, avoiding duplicates
+            for ats_suggestion in ats_result["details"]["suggestions"]:
+                if ats_suggestion not in all_suggestions:
+                    all_suggestions.append(ats_suggestion)
+        
+        # Use missing keywords from ATS scorer (more accurate)
+        missing_keywords_from_scorer = ats_result.get("details", {}).get("missing_keywords", [])
+        # Combine with AI's important_keywords_missing, avoiding duplicates
+        all_missing_keywords = list(set(important_keywords_missing + missing_keywords_from_scorer))
+        
         return_dict = {
-            "content": str(result.get("optimized_content", "")),
+            "content": optimized_content,
             "structured": structured_resume,  # Add structured data for PDF generation
             "atsScore": {
-                "overall": int(ats_score.get("overall", 75)) if ats_score else 75,
-                "keywords": int(ats_score.get("keywords", 70)) if ats_score else 70,
-                "formatting": int(ats_score.get("formatting", 85)) if ats_score else 85,
-                "relevance": int(ats_score.get("relevance", 75)) if ats_score else 75,
-                "suggestions": suggestions,
+                "overall": ats_result["overall"],
+                "keywords": ats_result["keywords"],
+                "formatting": ats_result["formatting"],
+                "relevance": ats_result["relevance"],
+                "suggestions": all_suggestions[:15],  # Limit to 15 suggestions total
+                "jdQualityWarning": ats_result["details"].get("jd_quality_warning"),  # JD quality warning
+                "technicalKeywordsInJd": ats_result["details"].get("technical_keywords_in_jd", 0),  # Count of technical keywords
             },
             "keywordsAdded": keywords_added,
-            "importantKeywordsMissing": important_keywords_missing,
+            "importantKeywordsMissing": all_missing_keywords[:15],  # Limit to 15 missing keywords
             "sectionsOptimized": sections_optimized,
             "warnings": warnings,
             "confidenceLevel": confidence_level,
@@ -3922,6 +3970,418 @@ def optimize_resume():
             "message": ERROR_MESSAGES.get("ai_error"),
             "credits_refunded": True
         }), get_status_code("ai_error")
+
+
+def extract_job_details_with_openai(job_description: str) -> Optional[Dict[str, str]]:
+    """
+    Use OpenAI to extract company name, job title, and location from job description.
+    This is the primary extraction method for job details.
+    """
+    try:
+        client = get_openai_client()
+        if not client:
+            print("[FindRecruiter] OpenAI client not available")
+            return None
+        
+        # Truncate description if too long (keep first 4000 chars for better context)
+        truncated_desc = job_description[:4000] if len(job_description) > 4000 else job_description
+        
+        prompt = f"""Extract the following information from this job posting. Be precise and accurate.
+
+Job Description:
+{truncated_desc}
+
+Extract these three pieces of information:
+1. company: The primary company name hiring for this position (e.g., "Amazon", "Google", "Microsoft", "Netflix"). 
+   - Look for the company name in the header, title, or first few lines
+   - Ignore generic words like "Employer", "Company", "Organization"
+   - If you see "Amazon.com Services LLC" or "Amazon", return "Amazon"
+   - Return null ONLY if absolutely no company name can be found
+
+2. job_title: The exact job title/position name (e.g., "Software Development Engineer Intern", "Data Scientist Intern", "Software Engineer")
+   - Return null if not found
+
+3. location: The job location in "City, State" format (e.g., "Seattle, WA", "San Francisco, CA", "Los Angeles, CA")
+   - Look for location in the header, job details section, or requirements
+   - If multiple locations are listed, use the primary one
+   - Return null if not found
+
+Return ONLY a valid JSON object in this exact format with no markdown, no code blocks, no explanation:
+{{"company": "Company Name or null", "job_title": "Job Title or null", "location": "City, State or null"}}"""
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a JSON extraction assistant. Extract job details from job postings. Return only valid JSON with no explanation or markdown."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=200,
+            temperature=0.1
+        )
+        
+        result_text = response.choices[0].message.content.strip()
+        
+        # Remove markdown code blocks if present
+        if '```' in result_text:
+            result_text = result_text.split('```')[1]
+            if result_text.startswith('json'):
+                result_text = result_text[4:]
+            result_text = result_text.strip()
+        
+        # Try to extract JSON from response
+        import json
+        json_match = re.search(r'\{[^{}]*\}', result_text)
+        if json_match:
+            result = json.loads(json_match.group())
+        else:
+            result = json.loads(result_text)
+        
+        # Validate and clean the result
+        extracted = {}
+        if result.get('company') and result['company'].lower() not in ['null', 'none', 'n/a', '']:
+            extracted['company'] = result['company'].strip()
+        if result.get('job_title') and result['job_title'].lower() not in ['null', 'none', 'n/a', '']:
+            extracted['job_title'] = result['job_title'].strip()
+        if result.get('location') and result['location'].lower() not in ['null', 'none', 'n/a', '']:
+            extracted['location'] = result['location'].strip()
+        
+        return extracted if extracted else None
+        
+    except json.JSONDecodeError as e:
+        print(f"[FindRecruiter] Failed to parse OpenAI JSON response: {e}")
+        print(f"[FindRecruiter] Response was: {result_text[:200]}")
+        return None
+    except Exception as e:
+        print(f"[FindRecruiter] OpenAI extraction error: {e}")
+        return None
+
+
+@job_board_bp.route("/find-recruiter", methods=["POST"])
+@require_firebase_auth
+def find_recruiter_endpoint():
+    """
+    Find recruiters at a company for a specific job.
+    
+    Request:
+        {
+            "company": "Google",
+            "jobTitle": "Software Engineer",
+            "jobDescription": "...",  # Optional
+            "jobType": "engineering",  # Optional, will be auto-detected
+            "location": "San Francisco, CA"  # Optional
+        }
+    
+    Response:
+        {
+            "recruiters": [...],
+            "jobTypeDetected": "engineering",
+            "companyCleaned": "Google LLC",
+            "totalFound": 12,
+            "creditsCharged": 75,
+            "creditsRemaining": 135
+        }
+    """
+    try:
+        user_id = request.firebase_user.get('uid')
+        data = request.get_json()
+        
+        # Get job information from various sources
+        company = data.get('company')
+        job_title = data.get('jobTitle', '')
+        job_description = data.get('jobDescription', '')
+        job_type = data.get('jobType')  # Optional
+        location = data.get('location')  # Optional
+        job_url = data.get('jobUrl')  # Optional - for external job links
+        
+        # Log initial values for debugging
+        print(f"[FindRecruiter] Initial values - company: '{company}', job_title: '{job_title}', location: '{location}', has_description: {bool(job_description)}, has_url: {bool(job_url)}")
+        
+        # Reject obviously invalid company names from request
+        invalid_company_names = {'job type', 'job details', 'job description', 'employer', 'company', 'organization', 'n/a', 'null', 'none', ''}
+        if company and company.lower().strip() in invalid_company_names:
+            print(f"[FindRecruiter] Rejecting invalid company name from request: '{company}'")
+            company = None
+        
+        # If no company provided but we have a job URL, try to parse it
+        if not company and job_url:
+            try:
+                parsed_job = parse_job_url(job_url)
+                if parsed_job:
+                    if parsed_job.get('company'):
+                        company = parsed_job.get('company')
+                    if parsed_job.get('title'):
+                        job_title = parsed_job.get('title')
+                    if parsed_job.get('location'):
+                        location = parsed_job.get('location')
+                    if parsed_job.get('description'):
+                        job_description = parsed_job.get('description')
+            except Exception as e:
+                print(f"[FindRecruiter] Error parsing job URL: {e}")
+        
+        # Use OpenAI to extract missing information from job description (primary extraction method)
+        # Always use OpenAI if we have a description - it's more reliable than URL parsing or user input
+        if job_description:
+            print(f"[FindRecruiter] Using OpenAI to extract job details from description (length: {len(job_description)})...")
+            try:
+                extracted = extract_job_details_with_openai(job_description)
+                if extracted:
+                    print(f"[FindRecruiter] OpenAI extraction result: {extracted}")
+                    # Always use OpenAI extracted values (they're more reliable than URL parsing or user input)
+                    # Override existing values even if they exist, because OpenAI is more accurate
+                    if extracted.get('company'):
+                        company = extracted['company']
+                        print(f"[FindRecruiter] ✅ OpenAI extracted company: '{company}'")
+                    if extracted.get('job_title'):
+                        job_title = extracted['job_title']
+                        print(f"[FindRecruiter] ✅ OpenAI extracted job_title: '{job_title}'")
+                    if extracted.get('location'):
+                        location = extracted['location']
+                        print(f"[FindRecruiter] ✅ OpenAI extracted location: '{location}'")
+                else:
+                    print(f"[FindRecruiter] ⚠️ OpenAI extraction returned None or empty result")
+            except Exception as e:
+                print(f"[FindRecruiter] ❌ OpenAI extraction failed: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print(f"[FindRecruiter] ⚠️ No job description provided, skipping OpenAI extraction")
+        
+        # Final validation - reject invalid company names (common false positives)
+        invalid_company_names = {
+            'job type', 'job details', 'job description', 'job title', 'job location',
+            'employer', 'company', 'organization', 'corporation', 
+            'n/a', 'null', 'none', '', 'full-time', 'part-time', 'contract',
+            'remote', 'hybrid', 'on-site', 'location', 'details', 'description'
+        }
+        if company:
+            company_lower = company.lower().strip()
+            if company_lower in invalid_company_names or len(company_lower) < 2:
+                print(f"[FindRecruiter] ❌ Final validation: Rejecting invalid company name: '{company}'")
+                company = None
+        
+        print(f"[FindRecruiter] Final values before validation - company: '{company}', job_title: '{job_title}', location: '{location}'")
+        
+        # Validate required fields
+        if not company:
+            return jsonify({
+                "error": "Company name is required",
+                "suggestion": "Please provide a company name, paste a job URL, or include the company name in the job description."
+            }), 400
+        
+        # Check user credits (minimum 15 for 1 contact)
+        db = get_db()
+        if not db:
+            return jsonify({"error": "Database not available"}), 500
+            
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            return jsonify({"error": "User not found"}), 404
+        
+        user_data = user_doc.to_dict()
+        user_data = sanitize_firestore_data(user_data, depth=0, max_depth=20)
+        current_credits = check_and_reset_credits(user_ref, user_data)
+        
+        if current_credits < 15:
+            return jsonify({
+                "error": "Insufficient credits",
+                "creditsRequired": 15,
+                "creditsAvailable": current_credits
+            }), 402
+        
+        # Calculate how many recruiters user can afford (15 credits per recruiter)
+        max_affordable = current_credits // 15
+        max_requested = 10  # Request up to 10, but only return what they can afford
+        
+        # Get user's resume and contact info for email generation
+        user_resume = user_data.get('resumeParsed', {})
+        user_contact = {
+            "name": user_resume.get('name', user_data.get('displayName', '')),
+            "email": user_data.get('email', ''),
+            "phone": user_resume.get('contact', {}).get('phone', '') if isinstance(user_resume.get('contact'), dict) else '',
+            "linkedin": user_resume.get('contact', {}).get('linkedin', '') if isinstance(user_resume.get('contact'), dict) else ''
+        }
+        
+        # Check if user wants to generate emails (default to True)
+        generate_emails = data.get('generateEmails', True)
+        create_drafts = data.get('createDrafts', True)
+        
+        # Find recruiters - fetch more than needed to rank, then limit by credits
+        result = find_recruiters(
+            company_name=company,
+            job_type=job_type,
+            job_title=job_title,
+            job_description=job_description,
+            location=location,
+            max_results=max_requested,  # Fetch more for ranking, then limit by credits
+            generate_emails=generate_emails,
+            user_resume=user_resume,
+            user_contact=user_contact
+        )
+        
+        # Check if we got results
+        if result.get("error"):
+            return jsonify({
+                "error": result["error"],
+                "recruiters": [],
+                "creditsCharged": 0
+            }), 500
+        
+        # Limit results based on available credits
+        all_recruiters = result.get("recruiters", [])
+        all_emails = result.get("emails", [])
+        total_found = result.get("total_found", 0)
+        affordable_recruiters = all_recruiters[:max_affordable]
+        
+        # Limit emails to match affordable recruiters
+        affordable_emails = []
+        if all_emails:
+            affordable_recruiter_emails = {r.get("Email") or r.get("WorkEmail") for r in affordable_recruiters}
+            affordable_emails = [e for e in all_emails if e.get("to_email") in affordable_recruiter_emails]
+        
+        # Check if there are more available but user ran out of credits
+        has_more = len(all_recruiters) > max_affordable or total_found > max_affordable
+        credits_needed_for_more = (len(all_recruiters) - max_affordable) * 15 if has_more else 0
+        
+        # Create Gmail drafts if requested
+        drafts_created = []
+        if create_drafts and affordable_emails:
+            from app.services.gmail_client import _load_user_gmail_creds, get_gmail_service_for_user
+            from app.services.gmail_client import download_resume_from_url
+            import base64
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+            from email.mime.base import MIMEBase
+            from email import encoders
+            
+            # Check Gmail connection - credentials are stored in integrations/gmail subcollection
+            gmail_creds = _load_user_gmail_creds(user_id)
+            resume_url = user_data.get('resumeURL') or user_data.get('resumeUrl')
+            
+            if gmail_creds:
+                # Download resume once for all drafts
+                resume_content = None
+                resume_filename = None
+                if resume_url:
+                    try:
+                        resume_content, resume_filename = download_resume_from_url(resume_url)
+                        if resume_content:
+                            print(f"[FindRecruiter] Downloaded resume ({len(resume_content)} bytes) for {len(affordable_emails)} drafts")
+                    except Exception as e:
+                        print(f"[FindRecruiter] Failed to download resume: {e}")
+                
+                # Get Gmail service
+                gmail_service = get_gmail_service_for_user(user_data.get('email'), user_id=user_id)
+                
+                if gmail_service:
+                    for email_data in affordable_emails:
+                        try:
+                            recruiter = email_data.get("recruiter", {})
+                            to_email = email_data.get("to_email")
+                            to_name = email_data.get("to_name", "")
+                            subject = email_data.get("subject", "")
+                            body_html = email_data.get("body", "")
+                            body_plain = email_data.get("plain_body", "")
+                            
+                            # Create MIME message
+                            message = MIMEMultipart('alternative')
+                            message['to'] = to_email
+                            message['subject'] = subject
+                            
+                            # Add plain text and HTML parts
+                            part1 = MIMEText(body_plain, 'plain')
+                            part2 = MIMEText(body_html, 'html')
+                            message.attach(part1)
+                            message.attach(part2)
+                            
+                            # Add resume attachment if available
+                            if resume_content and resume_filename:
+                                part = MIMEBase('application', 'octet-stream')
+                                part.set_payload(resume_content)
+                                encoders.encode_base64(part)
+                                part.add_header('Content-Disposition', f'attachment; filename= {resume_filename}')
+                                message.attach(part)
+                            
+                            # Encode message
+                            raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
+                            
+                            # Create draft
+                            draft_body = {
+                                'message': {
+                                    'raw': raw_message
+                                }
+                            }
+                            
+                            draft = gmail_service.users().drafts().create(userId='me', body=draft_body).execute()
+                            draft_id = draft['id']
+                            
+                            # Get Gmail account email for URL
+                            try:
+                                profile = gmail_service.users().getProfile(userId='me').execute()
+                                connected_email = profile.get('emailAddress', '')
+                            except:
+                                connected_email = user_data.get('email', '')
+                            
+                            draft_url = f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft_id}" if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
+                            
+                            drafts_created.append({
+                                "recruiter_email": to_email,
+                                "draft_id": draft_id,
+                                "draft_url": draft_url
+                            })
+                            
+                            print(f"[FindRecruiter] Created Gmail draft for {to_email}")
+                            
+                        except Exception as e:
+                            print(f"[FindRecruiter] Failed to create draft for {email_data.get('to_email')}: {e}")
+                else:
+                    print(f"[FindRecruiter] Gmail service not available")
+            else:
+                print(f"[FindRecruiter] Gmail not connected (no credentials found in integrations/gmail), skipping draft creation")
+                print(f"[FindRecruiter] User ID: {user_id}")
+        
+        # Deduct credits for what we're returning
+        credits_charged = 15 * len(affordable_recruiters)
+        if credits_charged > 0:
+            user_ref.update({
+                'credits': firestore.Increment(-credits_charged)
+            })
+        
+        new_balance = current_credits - credits_charged
+        
+        response = {
+            "recruiters": affordable_recruiters,
+            "emails": affordable_emails,
+            "draftsCreated": drafts_created,
+            "jobTypeDetected": result["job_type_detected"],
+            "companyCleaned": result["company_cleaned"],
+            "searchTitles": result["search_titles"],
+            "totalFound": total_found,
+            "creditsCharged": credits_charged,
+            "creditsRemaining": new_balance,
+            "message": result.get("message")
+        }
+        
+        # Add message if there are more available
+        if has_more and len(affordable_recruiters) > 0:
+            response["hasMore"] = True
+            response["moreAvailable"] = len(all_recruiters) - max_affordable
+            response["creditsNeededForMore"] = credits_needed_for_more
+            response["message"] = f"Found {len(affordable_recruiters)} recruiter(s). {len(all_recruiters) - max_affordable} more available but you need {credits_needed_for_more} more credits."
+        elif has_more and len(affordable_recruiters) == 0:
+            response["hasMore"] = True
+            response["moreAvailable"] = total_found
+            response["creditsNeededForMore"] = total_found * 15
+            response["message"] = f"Found {total_found} recruiter(s) but you need {total_found * 15} credits to view them. You currently have {current_credits} credits."
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        print(f"[FindRecruiter] Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 @job_board_bp.route("/generate-cover-letter", methods=["POST"])

@@ -10,6 +10,8 @@ import {
   ExternalLink,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Search,
   FileText,
   Wand2,
@@ -26,6 +28,10 @@ import {
   Zap,
   FileCheck,
   PenTool,
+  AlertTriangle,
+  Users,
+  Linkedin,
+  Mail,
 } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -58,7 +64,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
-import { apiService, type OptimizeResumeRequest, type GenerateCoverLetterRequest } from "@/services/api";
+import { apiService, type OptimizeResumeRequest, type GenerateCoverLetterRequest, type Recruiter, type FindRecruiterRequest } from "@/services/api";
 import { firebaseApi } from "../services/firebaseApi";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { CreditPill } from "@/components/credits";
@@ -106,6 +112,8 @@ interface ATSScore {
   formatting: number;
   relevance: number;
   suggestions: string[];
+  jdQualityWarning?: string;
+  technicalKeywordsInJd?: number;
 }
 
 interface OptimizedResume {
@@ -324,6 +332,18 @@ const ATSScoreDisplay: React.FC<{ score: ATSScore }> = ({ score }) => {
           </div>
         ))}
 
+        {/* Job Description Quality Warning */}
+        {score.jdQualityWarning && (
+          <div className="mt-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                {score.jdQualityWarning}
+              </p>
+            </div>
+          </div>
+        )}
+
         {score.suggestions.length > 0 && (
           <div className="mt-6 pt-4 border-t border-border/50">
             <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
@@ -395,8 +415,63 @@ const JobBoardPage: React.FC = () => {
   const [isGeneratingCoverLetter, setIsGeneratingCoverLetter] = useState(false);
   const [optimizedResume, setOptimizedResume] = useState<OptimizedResume | null>(null);
   const [coverLetter, setCoverLetter] = useState<CoverLetter | null>(null);
+  const [recruiters, setRecruiters] = useState<Recruiter[]>([]);
+  const [recruitersLoading, setRecruitersLoading] = useState(false);
+  const [recruitersError, setRecruitersError] = useState<string | null>(null);
+  const [recruitersCount, setRecruitersCount] = useState(0);
+  const [recruitersHasMore, setRecruitersHasMore] = useState(false);
+  const [recruitersMoreAvailable, setRecruitersMoreAvailable] = useState(0);
+  const [recruiterEmails, setRecruiterEmails] = useState<any[]>([]);
+  const [draftsCreated, setDraftsCreated] = useState<any[]>([]);
+  const [expandedEmail, setExpandedEmail] = useState<number | null>(null);
+  const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
+  const [checkingGmail, setCheckingGmail] = useState(false);
+  const [parsedJobData, setParsedJobData] = useState<{title?: string; company?: string; location?: string; description?: string} | null>(null);
   const [showJobDetails, setShowJobDetails] = useState(false);
   const resumeRef = useRef<HTMLDivElement>(null);
+
+  // Check Gmail connection status
+  useEffect(() => {
+    const checkGmailStatus = async () => {
+      if (!user?.uid) {
+        setGmailConnected(false);
+        return;
+      }
+      
+      try {
+        setCheckingGmail(true);
+        const { getAuth } = await import('firebase/auth');
+        const auth = getAuth();
+        const firebaseUser = auth.currentUser;
+        
+        if (!firebaseUser) {
+          setGmailConnected(false);
+          return;
+        }
+        
+        const token = await firebaseUser.getIdToken();
+        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
+        
+        const response = await fetch(`${API_BASE_URL}/api/google/gmail/status`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setGmailConnected(data.connected === true);
+        } else {
+          setGmailConnected(false);
+        }
+      } catch (error) {
+        console.error('Error checking Gmail status:', error);
+        setGmailConnected(false);
+      } finally {
+        setCheckingGmail(false);
+      }
+    };
+    
+    checkGmailStatus();
+  }, [user?.uid]);
 
   // Fetch user preferences
   useEffect(() => {
@@ -668,6 +743,132 @@ const JobBoardPage: React.FC = () => {
     }
   };
 
+  const handleFindRecruiter = async () => {
+    if ((user?.credits ?? 0) < 15) {
+      toast({
+        title: "Insufficient Credits",
+        description: "You need at least 15 credits to find recruiters.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Determine company, title, location, and description from various sources
+    let company: string | undefined;
+    let jobTitle: string = '';
+    let location: string = '';
+    let description: string = '';
+    
+    // Priority 1: Parse job URL if provided
+    if (jobUrl && jobUrl.trim()) {
+      try {
+        const parseResponse = await apiService.parseJobUrl({ url: jobUrl });
+        if (parseResponse.job && parseResponse.job.company) {
+          company = parseResponse.job.company;
+          jobTitle = parseResponse.job.title || '';
+          location = parseResponse.job.location || '';
+          description = parseResponse.job.description || jobDescription || '';
+        } else if (parseResponse.error) {
+          console.warn('Failed to parse job URL:', parseResponse.error);
+        }
+      } catch (error) {
+        console.error('Error parsing job URL:', error);
+      }
+    }
+    
+    // Priority 2: Use selectedJob from job board
+    if (!company && selectedJob?.company) {
+      company = selectedJob.company;
+      jobTitle = selectedJob.title || '';
+      location = selectedJob.location || '';
+      description = jobDescription || '';
+    }
+    
+    // Priority 3: Don't try to extract company from description on frontend
+    // Let the backend handle all extraction via OpenAI (more reliable)
+    // Just ensure we have a job description to send
+    if (!description && jobDescription) {
+      description = jobDescription;
+    }
+    
+    // If still no company, that's okay - backend will extract it from description via OpenAI
+    // But we should still show a warning if we don't have a description either
+    if (!company && !description) {
+      toast({
+        title: "Job Information Required",
+        description: "Please select a job from the list, paste a job URL, or paste the job description in the text area below.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    setRecruitersLoading(true);
+    setRecruitersError(null);
+    
+    try {
+      // Only send company if we're confident it's valid (from selectedJob or URL parsing)
+      // Otherwise, let backend extract it via OpenAI from description
+      // Reject obviously invalid company names
+      const invalidCompanyNames = ['job type', 'job details', 'job description', 'employer', 'company', 'organization'];
+      const isValidCompany = company && company.trim() && !invalidCompanyNames.includes(company.toLowerCase().trim());
+      
+      const response = await apiService.findRecruiters({
+        company: isValidCompany ? company : undefined,  // Only send if valid
+        jobTitle: jobTitle || undefined,
+        jobDescription: description || jobDescription || undefined,  // Always send description if available
+        location: location || undefined,
+        jobUrl: jobUrl || undefined  // Pass jobUrl as fallback for backend parsing
+      });
+      
+      if (response.error) {
+        setRecruitersError(response.error);
+        toast({
+          title: "Error Finding Recruiters",
+          description: response.error,
+          variant: "destructive"
+        });
+      } else if (response.recruiters.length === 0) {
+        setRecruitersError(response.message || "No recruiters found at this company.");
+        setRecruitersCount(0);
+        setRecruitersHasMore(false);
+        toast({
+          title: "No Recruiters Found",
+          description: response.message || "Try reaching out via LinkedIn.",
+        });
+      } else {
+        setRecruiters(response.recruiters);
+        setRecruitersCount(response.totalFound || response.recruiters.length);
+        setRecruitersHasMore(response.hasMore || false);
+        setRecruitersMoreAvailable(response.moreAvailable || 0);
+        setRecruiterEmails(response.emails || []);
+        setDraftsCreated(response.draftsCreated || []);
+        if (response.creditsRemaining !== undefined) {
+          await updateCredits(response.creditsRemaining);
+        }
+        
+        // Show success message
+        const draftMessage = response.draftsCreated && response.draftsCreated.length > 0
+          ? ` ${response.draftsCreated.length} email draft${response.draftsCreated.length > 1 ? 's' : ''} created in Gmail!`
+          : '';
+        toast({
+          title: "Recruiters Found!",
+          description: `Found ${response.recruiters.length} recruiter(s). ${response.creditsCharged} credits used.${draftMessage} ${response.hasMore ? `${response.moreAvailable} more available.` : ''}`,
+        });
+        // Switch to recruiters tab to show results
+        setActiveTab("recruiters");
+      }
+    } catch (error: any) {
+      setRecruitersError(error.message || "Failed to find recruiters");
+      toast({
+        title: "Error",
+        description: error.message || "Failed to find recruiters",
+        variant: "destructive"
+      });
+    } finally {
+      setRecruitersLoading(false);
+    }
+  };
+
   const handleGenerateCoverLetter = async () => {
     if (!user?.uid) return;
     if ((user?.credits ?? 0) < COVER_LETTER_CREDIT_COST) {
@@ -791,7 +992,7 @@ const JobBoardPage: React.FC = () => {
           <div className="flex-1 overflow-y-auto">
             <div className="w-full p-6">
               <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-                <TabsList className="grid w-full grid-cols-2 max-w-md">
+                <TabsList className="grid w-full grid-cols-3 max-w-md">
                   <TabsTrigger value="jobs" className="flex items-center gap-2">
                     <Briefcase className="w-4 h-4" />
                     {userPreferences?.jobTypes?.includes("Internship") ? "Internships" : "Jobs"}
@@ -799,6 +1000,15 @@ const JobBoardPage: React.FC = () => {
                   <TabsTrigger value="optimize" className="flex items-center gap-2">
                     <Sparkles className="w-4 h-4" />
                     Optimize
+                  </TabsTrigger>
+                  <TabsTrigger value="recruiters" className="flex items-center gap-2">
+                    <Users className="w-4 h-4" />
+                    Recruiters
+                    {recruiters.length > 0 && (
+                      <Badge variant="secondary" className="ml-1 text-xs px-1.5 py-0">
+                        {recruiters.length}
+                      </Badge>
+                    )}
                   </TabsTrigger>
                 </TabsList>
 
@@ -1010,64 +1220,162 @@ const JobBoardPage: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="mt-8 pt-6 border-t border-border/50 flex items-center justify-between">
-                          <span className="text-sm font-medium text-muted-foreground">Your Credits</span>
-                          <div className="flex items-center gap-2">
-                            <Zap className="w-4 h-4 text-primary" />
-                            <span className="text-sm font-semibold tabular-nums text-foreground">
-                              {user?.credits ?? 0} / {user?.maxCredits ?? 300}
-                            </span>
-                            <span className="text-xs text-muted-foreground">credits</span>
+                        <div className="mt-8 pt-6 border-t border-border/50 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-muted-foreground">Your Credits</span>
+                            <div className="flex items-center gap-2">
+                              <Zap className="w-4 h-4 text-primary" />
+                              <span className="text-sm font-semibold tabular-nums text-foreground">
+                                {user?.credits ?? 0} / {user?.maxCredits ?? 300}
+                              </span>
+                              <span className="text-xs text-muted-foreground">credits</span>
+                            </div>
+                          </div>
+                          
+                          {/* Gmail Connection Status */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-muted-foreground">Gmail</span>
+                            {checkingGmail ? (
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                                Checking...
+                              </div>
+                            ) : gmailConnected ? (
+                              <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400">
+                                <Mail className="w-3 h-3" />
+                                Connected
+                              </div>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={async () => {
+                                  try {
+                                    const { getAuth } = await import('firebase/auth');
+                                    const auth = getAuth();
+                                    const firebaseUser = auth.currentUser;
+                                    
+                                    if (!firebaseUser) {
+                                      toast({
+                                        title: "Authentication Required",
+                                        description: "Please sign in to connect Gmail.",
+                                        variant: "destructive"
+                                      });
+                                      return;
+                                    }
+                                    
+                                    const token = await firebaseUser.getIdToken();
+                                    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
+                                    
+                                    const response = await fetch(`${API_BASE_URL}/api/google/oauth/start?t=${Date.now()}`, {
+                                      headers: { 
+                                        'Authorization': `Bearer ${token}`,
+                                        'Cache-Control': 'no-cache'
+                                      },
+                                      credentials: 'include',
+                                      mode: 'cors'
+                                    });
+                                    
+                                    if (!response.ok) {
+                                      throw new Error('Failed to start OAuth');
+                                    }
+                                    
+                                    const data = await response.json();
+                                    if (data.authUrl) {
+                                      window.location.href = data.authUrl;
+                                    }
+                                  } catch (error: any) {
+                                    toast({
+                                      title: "Error",
+                                      description: error.message || "Failed to connect Gmail. Please try again.",
+                                      variant: "destructive"
+                                    });
+                                  }
+                                }}
+                                className="h-7 text-xs text-muted-foreground hover:text-foreground"
+                              >
+                                <Mail className="w-3 h-3 mr-1.5" />
+                                Connect
+                              </Button>
+                            )}
                           </div>
                         </div>
                       </div>
 
                       {/* Action Buttons - Segmented Control Style */}
-                      <div className="bg-muted/30 rounded-lg p-1 border border-border/50 inline-flex gap-1 w-full">
-                        <Button
-                          variant="gradient"
-                          size="lg"
-                          onClick={handleOptimizeResume}
-                          disabled={isOptimizing || (!jobUrl && !jobDescription)}
-                          className="flex-1 relative overflow-hidden group transition-all hover:scale-[1.02]"
-                        >
-                          {isOptimizing ? (
-                            <>
-                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                              Optimizing...
-                            </>
-                          ) : (
-                            <>
-                              <FileCheck className="w-4 h-4 mr-2" />
-                              <span className="font-semibold">Optimize Resume</span>
-                              <Badge variant="secondary" className="ml-2 bg-background/50 text-xs font-medium px-2 py-0.5">
-                                {OPTIMIZATION_CREDIT_COST}
-                              </Badge>
-                            </>
-                          )}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="lg"
-                          onClick={handleGenerateCoverLetter}
-                          disabled={isGeneratingCoverLetter || (!jobUrl && !jobDescription)}
-                          className="flex-1 relative overflow-hidden group transition-all hover:scale-[1.02] hover:bg-background/50"
-                        >
-                          {isGeneratingCoverLetter ? (
-                            <>
-                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                              Generating...
-                            </>
-                          ) : (
-                            <>
-                              <PenTool className="w-4 h-4 mr-2" />
-                              <span className="font-semibold">Cover Letter</span>
-                              <Badge variant="secondary" className="ml-2 bg-background/50 text-xs font-medium px-2 py-0.5">
-                                {COVER_LETTER_CREDIT_COST}
-                              </Badge>
-                            </>
-                          )}
-                        </Button>
+                      <div className="space-y-3">
+                        <div className="bg-muted/30 rounded-lg p-1 border border-border/50 inline-flex gap-1 w-full">
+                          <Button
+                            variant="gradient"
+                            size="lg"
+                            onClick={handleOptimizeResume}
+                            disabled={isOptimizing || (!jobUrl && !jobDescription)}
+                            className="flex-1 relative overflow-hidden group transition-all hover:scale-[1.02]"
+                          >
+                            {isOptimizing ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Optimizing...
+                              </>
+                            ) : (
+                              <>
+                                <FileCheck className="w-4 h-4 mr-2" />
+                                <span className="font-semibold">Optimize Resume</span>
+                                <Badge variant="secondary" className="ml-2 bg-background/50 text-xs font-medium px-2 py-0.5">
+                                  {OPTIMIZATION_CREDIT_COST}
+                                </Badge>
+                              </>
+                            )}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="lg"
+                            onClick={handleGenerateCoverLetter}
+                            disabled={isGeneratingCoverLetter || (!jobUrl && !jobDescription)}
+                            className="flex-1 relative overflow-hidden group transition-all hover:scale-[1.02] hover:bg-background/50"
+                          >
+                            {isGeneratingCoverLetter ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Generating...
+                              </>
+                            ) : (
+                              <>
+                                <PenTool className="w-4 h-4 mr-2" />
+                                <span className="font-semibold">Cover Letter</span>
+                                <Badge variant="secondary" className="ml-2 bg-background/50 text-xs font-medium px-2 py-0.5">
+                                  {COVER_LETTER_CREDIT_COST}
+                                </Badge>
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                        
+                        {/* Find Recruiters Button - visible when job URL, description, or selected job is available */}
+                        {(selectedJob || jobUrl || jobDescription) && (
+                          <Button
+                            variant="outline"
+                            size="lg"
+                            onClick={handleFindRecruiter}
+                            disabled={recruitersLoading || (user?.credits ?? 0) < 15}
+                            className="w-full relative overflow-hidden group transition-all hover:scale-[1.02] hover:bg-blue-50 dark:hover:bg-blue-900/20 border-blue-200 dark:border-blue-800"
+                          >
+                            {recruitersLoading ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Finding Recruiters...
+                              </>
+                            ) : (
+                              <>
+                                <Users className="w-4 h-4 mr-2 text-blue-600" />
+                                <span className="font-semibold text-blue-600 dark:text-blue-400">Find Recruiters</span>
+                                <Badge variant="secondary" className="ml-2 bg-background/50 text-xs font-medium px-2 py-0.5">
+                                  15+ credits
+                                </Badge>
+                              </>
+                            )}
+                          </Button>
+                        )}
                       </div>
                     </div>
 
@@ -1140,6 +1448,28 @@ const JobBoardPage: React.FC = () => {
                           </div>
                           </div>
                         )}
+
+                        {/* Recruiter Count Message - visible when recruiters are found */}
+                        {recruiters.length > 0 && (
+                          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mt-6">
+                            <div className="flex items-center gap-2">
+                              <Users className="h-5 w-5 text-blue-600" />
+                              <div>
+                                <p className="text-sm font-medium text-blue-900 dark:text-blue-200">
+                                  Found {recruiters.length} recruiter{recruiters.length !== 1 ? 's' : ''} at {selectedJob?.company || 'this company'}
+                                </p>
+                                {recruitersHasMore && (
+                                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                                    {recruitersMoreAvailable} more available. You need {recruitersMoreAvailable * 15} more credits to view them.
+                                  </p>
+                                )}
+                                <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                                  View all recruiters in the Recruiters tab →
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                         
                         {/* Tips Panel - show when no results */}
                         {!optimizedResume && !coverLetter && (
@@ -1188,6 +1518,215 @@ const JobBoardPage: React.FC = () => {
                         )}
                       </div>
                     </div>
+                  </div>
+                </TabsContent>
+
+                {/* RECRUITERS TAB */}
+                <TabsContent value="recruiters" className="w-full -mx-6">
+                  <div className="w-full h-full">
+                    <div className="bg-background border-b border-border/40 px-6 py-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h2 className="text-xl font-bold flex items-center gap-2 text-foreground">
+                            <Users className="w-6 h-6 text-primary" />
+                            Recruiters Library
+                          </h2>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {recruiters.length > 0 
+                              ? `${recruiters.length} recruiter${recruiters.length !== 1 ? 's' : ''} found`
+                              : 'No recruiters found yet. Use "Find Recruiters" in the Optimize tab to search.'}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {/* Show drafts created notification */}
+                      {draftsCreated.length > 0 && (
+                        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 mt-4">
+                          <div className="flex items-center gap-2">
+                            <Mail className="h-5 w-5 text-green-600" />
+                            <div className="flex-1">
+                              <p className="text-sm text-green-800 dark:text-green-200 font-medium">
+                                {draftsCreated.length} email draft{draftsCreated.length > 1 ? 's' : ''} created in your Gmail!
+                              </p>
+                              <a 
+                                href="https://mail.google.com/mail/u/0/#drafts"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm text-green-600 dark:text-green-400 hover:underline mt-1 inline-block"
+                              >
+                                Open Gmail Drafts →
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {recruitersHasMore && (
+                        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mt-4">
+                          <div className="flex items-start gap-2">
+                            <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                            <div>
+                              <p className="text-sm font-medium text-yellow-900 dark:text-yellow-200">
+                                More Recruiters Available
+                              </p>
+                              <p className="text-xs text-yellow-800 dark:text-yellow-300 mt-1">
+                                {recruitersMoreAvailable} more recruiter{recruitersMoreAvailable !== 1 ? 's' : ''} found, but you need {recruitersMoreAvailable * 15} more credits to view them. 
+                                You currently have {user?.credits ?? 0} credits.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {recruiters.length === 0 ? (
+                      <div className="flex items-center justify-center h-[calc(100vh-300px)]">
+                        <div className="text-center">
+                          <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                          <p className="text-muted-foreground text-lg">
+                            No recruiters in your library yet.
+                          </p>
+                          <p className="text-muted-foreground mt-2 text-sm">
+                            Select a job and click "Find Recruiters" in the Optimize tab to get started.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="w-full overflow-x-auto">
+                        <div className="rounded-md border border-border bg-background/60 backdrop-blur-sm min-w-full">
+                          <table className="w-full">
+                            <thead className="bg-muted/50 sticky top-0 z-10">
+                              <tr>
+                                <th className="px-4 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">First Name</th>
+                                <th className="px-4 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Last Name</th>
+                                <th className="px-4 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">LinkedIn</th>
+                                <th className="px-4 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Email</th>
+                                <th className="px-4 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Title</th>
+                                <th className="px-4 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Company</th>
+                                <th className="px-4 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Location</th>
+                                <th className="px-4 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="bg-background divide-y divide-border">
+                              {recruiters.map((recruiter, index) => {
+                                const emailData = recruiterEmails.find(e => e.to_email === recruiter.Email);
+                                const draftData = draftsCreated.find(d => d.recruiter_email === recruiter.Email);
+                                
+                                return (
+                                  <React.Fragment key={index}>
+                                    <tr className="hover:bg-secondary/50">
+                                      <td className="px-4 py-4 whitespace-nowrap text-sm text-foreground">{recruiter.FirstName}</td>
+                                      <td className="px-4 py-4 whitespace-nowrap text-sm text-foreground">{recruiter.LastName}</td>
+                                      <td className="px-4 py-4 whitespace-nowrap text-sm">
+                                        {recruiter.LinkedIn ? (
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => window.open(recruiter.LinkedIn, '_blank')}
+                                            className="p-1 h-auto text-primary hover:text-primary/80 cursor-pointer"
+                                            title="View LinkedIn"
+                                          >
+                                            <ExternalLink className="h-4 w-4 mr-1" />
+                                            LinkedIn
+                                          </Button>
+                                        ) : (
+                                          <span className="text-muted-foreground text-xs">No LinkedIn</span>
+                                        )}
+                                      </td>
+                                      <td className="px-4 py-4 whitespace-nowrap text-sm text-foreground">
+                                        {recruiter.Email && recruiter.Email !== "Not available" ? (
+                                          <a href={`mailto:${recruiter.Email}`} className="text-primary hover:underline">
+                                            {recruiter.Email}
+                                          </a>
+                                        ) : (
+                                          <span className="text-muted-foreground text-xs">Not available</span>
+                                        )}
+                                      </td>
+                                      <td className="px-4 py-4 whitespace-nowrap text-sm text-foreground">{recruiter.Title}</td>
+                                      <td className="px-4 py-4 whitespace-nowrap text-sm text-foreground">{recruiter.Company}</td>
+                                      <td className="px-4 py-4 whitespace-nowrap text-sm text-foreground">
+                                        {recruiter.City && recruiter.State ? `${recruiter.City}, ${recruiter.State}` : 'N/A'}
+                                      </td>
+                                      <td className="px-4 py-4 whitespace-nowrap text-sm">
+                                        <div className="flex gap-2">
+                                          {recruiter.LinkedIn && (
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              onClick={() => window.open(recruiter.LinkedIn, '_blank')}
+                                              className="h-8 w-8"
+                                              title="View LinkedIn"
+                                            >
+                                              <Linkedin className="h-4 w-4" />
+                                            </Button>
+                                          )}
+                                          {draftData?.draft_url ? (
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              onClick={() => window.open(draftData.draft_url, '_blank')}
+                                              className="h-8 w-8 text-green-600 hover:text-green-700"
+                                              title="Open Email Draft"
+                                            >
+                                              <Mail className="h-4 w-4" />
+                                            </Button>
+                                          ) : recruiter.Email && recruiter.Email !== "Not available" ? (
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              asChild
+                                              className="h-8 w-8"
+                                              title="Send Email"
+                                            >
+                                              <a href={`mailto:${recruiter.Email}`}>
+                                                <Mail className="h-4 w-4" />
+                                              </a>
+                                            </Button>
+                                          ) : null}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                    {emailData && (
+                                      <tr key={`email-${index}`} className="bg-muted/30">
+                                        <td colSpan={8} className="px-4 py-3">
+                                          <div className="space-y-2">
+                                            <button
+                                              onClick={() => setExpandedEmail(expandedEmail === index ? null : index)}
+                                              className="text-sm text-blue-600 hover:underline flex items-center gap-1"
+                                            >
+                                              {expandedEmail === index ? (
+                                                <>
+                                                  <ChevronUp className="h-4 w-4" />
+                                                  Hide email preview
+                                                </>
+                                              ) : (
+                                                <>
+                                                  <ChevronDown className="h-4 w-4" />
+                                                  Preview email
+                                                </>
+                                              )}
+                                            </button>
+                                            
+                                            {expandedEmail === index && (
+                                              <div className="mt-2 p-3 bg-background rounded-lg border border-border text-sm">
+                                                <p className="font-medium text-foreground mb-2">Subject: {emailData.subject}</p>
+                                                <div className="text-muted-foreground whitespace-pre-wrap">
+                                                  {emailData.plain_body}
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </React.Fragment>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </TabsContent>
               </Tabs>
