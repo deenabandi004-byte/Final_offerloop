@@ -407,11 +407,11 @@ const CoffeeChatPrepPage: React.FC = () => {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-transparent text-foreground">
+      <div className="flex min-h-screen w-full bg-white text-foreground">
         <AppSidebar />
 
         <div className="flex-1">
-          <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-transparent shadow-sm relative z-20">
+          <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-white shadow-sm relative z-20">
             <div className="flex items-center gap-4">
               <SidebarTrigger className="text-foreground hover:bg-secondary" />
               <h1 className="text-xl font-semibold">Coffee Chat Prep</h1>
@@ -419,7 +419,7 @@ const CoffeeChatPrepPage: React.FC = () => {
             <PageHeaderActions />
           </header>
 
-          <main className="p-8 bg-transparent">
+          <main className="p-8 bg-white">
             <div className="max-w-5xl mx-auto">
               <Tabs defaultValue="coffee-chat-prep" className="w-full">
                 <div className="flex justify-center mb-8">

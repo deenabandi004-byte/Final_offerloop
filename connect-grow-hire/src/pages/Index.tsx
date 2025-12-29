@@ -11,7 +11,7 @@ import { ProductTour } from '@/components/ProductTour';
 import DynamicBackground from '@/components/background/DynamicBackground';
 import { DynamicGradientBackground } from '@/components/background/DynamicGradientBackground';
 import { Logo } from '@/components/Logo';
-import OfferloopLogo from '@/assets/Offerloop_logo.png';
+import OfferloopLogo from '@/assets/offerloop_logo2.png';
 import RotatingImage from '@/components/RotatingImage';
 import AnimatedDots from '@/components/AnimatedDots';
 import TextType from '@/components/TextType';
@@ -177,7 +177,7 @@ const Index = () => {
             <img 
               src={OfferloopLogo} 
               alt="Offerloop" 
-              className="h-10 md:h-[60px] cursor-pointer"
+              className="h-12 md:h-[80px] cursor-pointer"
               onClick={() => navigate("/")}
             />
           </div>
@@ -383,7 +383,7 @@ const Index = () => {
             <div className="max-w-5xl mx-auto text-center">
               <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold mb-6" style={{ overflow: 'visible', lineHeight: '1.1', letterSpacing: '-0.02em' }}>
                 <span className="text-hero-primary tracking-tight">
-                  One recruiting workspace.
+                  Land Job Offers.
                   <br />
                   <span style={{ color: '#3B82F6' }}>No busywork.</span>
               </span>

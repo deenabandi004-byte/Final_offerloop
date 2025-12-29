@@ -838,12 +838,12 @@ const FirmSearchPage: React.FC = () => {
 
 
   return (
-    <SidebarProvider className="bg-transparent">
-      <div className="flex min-h-screen w-full bg-transparent text-foreground">
+    <SidebarProvider className="bg-white">
+      <div className="flex min-h-screen w-full bg-white text-foreground">
         <AppSidebar />
 
-        <div className="flex-1 bg-transparent">
-          <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-transparent shadow-sm relative z-20">
+        <div className="flex-1 bg-white">
+          <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-white shadow-sm relative z-20">
             <div className="flex items-center gap-4">
               <SidebarTrigger className="text-foreground hover:bg-secondary" />
               <h1 className="text-xl font-semibold">Firm Search</h1>
@@ -880,9 +880,9 @@ const FirmSearchPage: React.FC = () => {
             </div>
           </header>
 
-          <main className="p-8 bg-transparent">
-            <div className="max-w-7xl mx-auto bg-transparent">
-              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full bg-transparent">
+          <main className="p-8 bg-white">
+            <div className="max-w-7xl mx-auto bg-white">
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full bg-white">
                 <div className="flex justify-center mb-8">
                   <TabsList className="h-14 tabs-container-gradient border border-border grid grid-cols-2 max-w-lg w-full rounded-xl p-1 bg-white">
                     <TabsTrigger
@@ -903,7 +903,7 @@ const FirmSearchPage: React.FC = () => {
                 </div>
 
                 {/* TAB 1: Firm Search */}
-                <TabsContent value="firm-search" className="bg-transparent">
+                <TabsContent value="firm-search" className="bg-white">
                   <div className="mx-auto max-w-6xl">
                     <Card className="bg-white border-border shadow-sm rounded-2xl">
                       <CardContent className="p-8 space-y-6">

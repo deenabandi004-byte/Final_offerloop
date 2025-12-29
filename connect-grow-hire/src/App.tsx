@@ -238,32 +238,44 @@ const AppRoutes: React.FC = () => {
   );
 };
 
+/* ---------------- Conditional Background Wrapper ---------------- */
+const ConditionalBackground: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const location = useLocation();
+  const isLandingPage = location.pathname === '/';
+  
+  return (
+    <div className="relative min-h-screen">
+      {isLandingPage && <DynamicGradientBackground />}
+      <div className="relative z-10">
+        {children}
+      </div>
+    </div>
+  );
+};
+
 /* ---------------- App Root ---------------- */
 const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <FirebaseAuthProvider>
-          <div className="relative min-h-screen">
-            <DynamicGradientBackground />
-            <div className="relative z-10">
-              <Toaster />
-              <Sonner />
-              <ErrorBoundary>
-                <BrowserRouter
-                  future={{
-                    v7_startTransition: true,
-                    v7_relativeSplatPath: true,
-                  }}
-                >
-                  <ScoutProvider>
-                    <AppRoutes />
-                    <ScoutSidePanel />
-                  </ScoutProvider>
-                </BrowserRouter>
-              </ErrorBoundary>
-            </div>
-          </div>
+          <ErrorBoundary>
+            <BrowserRouter
+              future={{
+                v7_startTransition: true,
+                v7_relativeSplatPath: true,
+              }}
+            >
+              <ConditionalBackground>
+                <Toaster />
+                <Sonner />
+                <ScoutProvider>
+                  <AppRoutes />
+                  <ScoutSidePanel />
+                </ScoutProvider>
+              </ConditionalBackground>
+            </BrowserRouter>
+          </ErrorBoundary>
         </FirebaseAuthProvider>
       </TooltipProvider>
     </QueryClientProvider>

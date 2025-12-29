@@ -17,7 +17,8 @@ import {
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import LightningIcon from "../assets/Lightning.png";
-import OfferloopLogo from "../assets/Offerloop_logo.png";
+import OfferloopLogo from "../assets/offerloop_logo2.png";
+import OfferloopIconLogo from "../assets/offerloopiconlogo.png";
 import ScoutIconImage from "../assets/Scout_icon.png";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { trackNavClick, trackUpgradeClick } from "../lib/analytics";
@@ -137,24 +138,24 @@ export function AppSidebar() {
         }
       `}</style>
       <Sidebar className={state === "collapsed" ? "w-20" : "w-60"} collapsible="icon">
-        <SidebarContent className="bg-transparent border-r overflow-x-hidden">
+        <SidebarContent className="bg-white border-r overflow-x-hidden">
           {/* Brand */}
-          <div className="p-3 border-b border-border bg-transparent">
+          <div className="py-1 px-3 border-b border-border bg-white flex items-center justify-center" style={{ height: '64px' }}>
             {state !== "collapsed" ? (
-              <div className="flex items-center justify-center gap-2">
+              <div className="flex items-center justify-center">
                 <img 
                   src={OfferloopLogo} 
                   alt="Offerloop" 
-                  className="h-[72px] cursor-pointer"
+                  className="h-[90px] cursor-pointer"
                   onClick={() => navigate("/")}
                 />
               </div>
             ) : (
-              <div className="flex items-center justify-center p-1">
+              <div className="flex items-center justify-center">
                 <img 
-                  src={OfferloopLogo} 
+                  src={OfferloopIconLogo} 
                   alt="Offerloop" 
-                  className="h-[48px] w-auto cursor-pointer object-contain"
+                  className="h-[56px] w-auto cursor-pointer object-contain"
                   onClick={() => navigate("/")}
                 />
               </div>
@@ -259,7 +260,7 @@ export function AppSidebar() {
           </SidebarGroup>
         </SidebarContent>
 
-        <SidebarFooter className="border-t border-border bg-transparent">
+        <SidebarFooter className="border-t border-border bg-white">
           {/* Credits */}
           <div className="p-4 space-y-3">
             {state !== "collapsed" ? (

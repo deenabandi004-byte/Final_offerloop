@@ -1,7 +1,6 @@
 import React, { useState, useEffect, cloneElement, isValidElement } from 'react';
-import { Users, Building2, Coffee, Mail, Clock, TrendingUp, Target, ArrowRight, Plus, Briefcase, Flame } from 'lucide-react';
+import { Users, Building2, Coffee, Mail, Clock, TrendingUp, Target, ArrowRight, Plus, Briefcase, Flame, ChevronDown, ChevronUp } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { motion } from 'framer-motion';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 import { firebaseApi } from '@/services/firebaseApi';
 import { type Firm, apiService } from '@/services/api';
@@ -9,7 +8,6 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { calculateWeeklySummary, calculateStreak, calculateGoalProgress, getDefaultMonthlyGoals, type WeeklySummary, type StreakData, type Goal, type GoalProgress } from '@/utils/dashboardStats';
 import { Timestamp } from 'firebase/firestore';
 import { logActivity } from '@/utils/activityLogger';
-import { PersonalizedRecruitingTimeline } from './PersonalizedRecruitingTimeline';
 
 // ============================================================================
 // DATA - Now fetched from backend
@@ -70,17 +68,6 @@ const getActivityRoute = (type: string): string => {
 
 
 // Recommendations now fetched from backend
-
-const timelineData = [
-  { month: 'Jan', description: 'Research & Target Firms', isActive: false },
-  { month: 'Feb', description: 'Networking & Coffee Chats', isActive: false },
-  { month: 'Mar', description: 'Submit 30 Applications', isActive: true },
-  { month: 'Apr', description: 'Interview Prep & Practice', isActive: false },
-  { month: 'May', description: 'Final Round Interviews', isActive: false },
-  { month: 'Jun', description: 'Offer Evaluation', isActive: false },
-];
-
-// Firm locations now fetched from backend
 
 // ============================================================================
 // SUB-COMPONENTS
@@ -185,7 +172,7 @@ function KPICard({ icon, label, value, subtitle, progress, showProgress }: {
   );
 }
 
-function ActivityFeed() {
+function ActivityFeed({ isExpanded, onToggle }: { isExpanded: boolean; onToggle: () => void }) {
   const { user } = useFirebaseAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -226,223 +213,62 @@ function ActivityFeed() {
     navigate(route);
   };
 
+  const displayedActivities = isExpanded ? activities : activities.slice(0, 3);
+
   return (
-    <div className="bg-card border border-border rounded-xl p-6 h-full flex flex-col shadow-sm transform transition-all hover:scale-[1.02]">
-      <div className="flex items-center gap-2 mb-6">
-        <Clock size={18} className="text-blue-600" />
-        <h3 className="text-foreground">Recent Activity</h3>
+    <div className="glass-card border border-border rounded-xl p-5 h-full flex flex-col">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Clock size={16} className="text-blue-600" />
+          <h3 className="text-sm font-medium text-foreground">Recent Activity</h3>
+        </div>
+        {activities.length > 3 && (
+          <button
+            onClick={onToggle}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+          >
+            {isExpanded ? (
+              <>
+                <ChevronUp size={14} />
+                Show less
+              </>
+            ) : (
+              <>
+                <ChevronDown size={14} />
+                Show more
+              </>
+            )}
+          </button>
+        )}
       </div>
       
-      <div className="space-y-5 flex-1">
+      <div className="space-y-3 flex-1">
         {isLoading ? (
-          <div className="text-sm text-muted-foreground">Loading activities...</div>
+          <div className="text-xs text-muted-foreground">Loading activities...</div>
         ) : activities.length === 0 ? (
-          <div className="text-sm text-muted-foreground">No recent activity</div>
+          <div className="text-xs text-muted-foreground">No recent activity</div>
         ) : (
-          activities.map((activity) => (
+          displayedActivities.map((activity) => (
             <div
               key={activity.id}
-              className="flex gap-3 cursor-pointer hover:opacity-80 transition-opacity"
+              className="flex gap-2 cursor-pointer hover:opacity-80 transition-opacity"
               onClick={() => handleActivityClick(activity)}
             >
-              <div className="w-8 h-8 rounded-lg bg-purple-soft flex items-center justify-center text-purple flex-shrink-0">
+              <div className="w-6 h-6 rounded-lg bg-purple-soft flex items-center justify-center text-purple flex-shrink-0">
                 {getActivityIcon(activity.type)}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm text-foreground leading-relaxed break-words line-clamp-2">{activity.summary}</div>
-                <div className="text-xs text-muted-foreground mt-1">{formatTimeAgo(activity.timestamp)}</div>
+                <div className="text-xs text-foreground leading-relaxed break-words line-clamp-2">{activity.summary}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">{formatTimeAgo(activity.timestamp)}</div>
               </div>
             </div>
           ))
         )}
       </div>
-      
-      <button className="w-full mt-6 text-sm text-blue-600 hover:text-purple-700 transition-colors pt-4 border-t border-border">
-        View all activity
-      </button>
     </div>
   );
 }
 
-function RecruitingTimeline() {
-  const currentMonthIndex = 2;
-  const progressWithinMonth = 0.4;
-  const totalMonths = timelineData.length;
-  const youAreHerePosition = ((currentMonthIndex + progressWithinMonth) / totalMonths) * 100;
-
-  return (
-    <div className="w-full bg-card border border-border rounded-xl overflow-hidden shadow-sm">
-      <div className="px-8 py-8">
-        <div className="relative" style={{ height: '220px' }}>
-          <div className="absolute top-[70px] left-0 right-0 h-[2px]">
-            <div 
-              className="w-full h-full rounded-full" 
-              style={{ background: 'linear-gradient(to right, rgba(139, 92, 246, 0.3), rgba(217, 70, 239, 0.3))' }}
-            />
-          </div>
-
-          <div className="relative flex justify-between items-start h-full">
-            {timelineData.map((phase, index) => {
-              const position = (index / (totalMonths - 1)) * 100;
-              
-              return (
-                <div 
-                  key={phase.month}
-                  className="flex flex-col items-center"
-                  style={{ position: 'absolute', left: `${position}%`, transform: 'translateX(-50%)', width: '150px' }}
-                >
-                  <div className="font-medium text-foreground mb-3">{phase.month}</div>
-
-                  <div className="relative z-10 mb-3">
-                    {phase.isActive ? (
-                      <motion.div
-                        className="w-[10px] h-[10px] rounded-full gradient-bg"
-                        style={{ boxShadow: '0 0 12px rgba(139, 92, 246, 0.6), 0 0 24px rgba(217, 70, 239, 0.4)' }}
-                        initial={{ scale: 0.8 }}
-                        animate={{ scale: [0.8, 1.1, 0.8] }}
-                        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                      />
-                    ) : (
-                      <div className="w-[10px] h-[10px] rounded-full bg-card border-2 border-border" />
-                    )}
-                  </div>
-
-                  <div className="w-[1px] h-10 bg-border" />
-
-                  <motion.div
-                    className={`mt-2 px-4 py-3 rounded-xl border text-center text-sm transition-all ${
-                      phase.isActive
-                        ? 'bg-gradient-to-r from-purple/10 to-indigo-500/10 border-purple/30 shadow-sm'
-                        : 'bg-card border-border hover:border-primary/30 shadow-sm hover:shadow-md'
-                    }`}
-                    whileHover={{ y: -2, transition: { duration: 0.2 } }}
-                  >
-                    <div className={phase.isActive ? 'text-foreground font-medium' : 'text-muted-foreground'}>
-                      {phase.description}
-                    </div>
-                  </motion.div>
-                </div>
-              );
-            })}
-          </div>
-
-          <motion.div
-            className="absolute top-0 z-20"
-            style={{ left: `${youAreHerePosition}%` }}
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3, duration: 0.5 }}
-          >
-            <div className="flex flex-col items-center" style={{ transform: 'translateX(-50%)' }}>
-              <motion.div 
-                className="mb-2 px-3 py-1.5 rounded-full gradient-bg text-white text-xs font-medium shadow-lg"
-                animate={{ y: [0, -3, 0] }}
-                transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-              >
-                You Are Here
-              </motion.div>
-
-              <div 
-                className="w-[2px] h-[66px] rounded-full"
-                style={{ background: 'linear-gradient(to bottom, #8B5CF6, #D946EF)' }}
-              />
-
-              <motion.div
-                className="relative"
-                animate={{ 
-                  boxShadow: [
-                    '0 0 0 0 rgba(139, 92, 246, 0.6)',
-                    '0 0 0 10px rgba(139, 92, 246, 0)',
-                    '0 0 0 0 rgba(139, 92, 246, 0)'
-                  ]
-                }}
-                transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-              >
-                <div 
-                  className="w-4 h-4 rounded-full gradient-bg"
-                  style={{ boxShadow: '0 2px 8px rgba(139, 92, 246, 0.4)' }}
-                />
-              </motion.div>
-            </div>
-          </motion.div>
-        </div>
-      </div>
-
-      <div className="h-[1px] bg-border" />
-    </div>
-  );
-}
-
-function USMap({ locations }: { locations: Array<{ id: number; name: string; city: string; state: string; contacts: number; x: number; y: number }> }) {
-  // United States outline SVG path (simplified continental US)
-  // This is a simplified but recognizable outline of the mainland United States
-  const usOutlinePath = `M 5 25 
-    L 6 20 L 8 16 L 12 12 L 18 9 L 25 7 L 32 6 L 40 5.5 L 48 5 L 56 4.8 
-    L 64 4.5 L 72 4.2 L 80 4.5 L 85 6 L 88 8 L 90 11 L 91.5 15 L 92.5 20 
-    L 93 25 L 92.5 30 L 91.5 35 L 89.5 40 L 87 44 L 83.5 47 L 79 49 
-    L 74 50.5 L 69 51.5 L 64 52 L 59 52.5 L 54 53 L 49 53.5 L 44 54 
-    L 39 54.5 L 34 55 L 29 55.5 L 24 56 L 19 56.5 L 14 57 L 9 57.5 
-    L 6 58 L 4 56 L 3 52 L 2.5 48 L 2.5 44 L 3 40 L 3.5 36 L 4 32 
-    L 4.5 28 Z`;
-
-  return (
-    <div className="bg-card border border-border rounded-xl p-8 shadow-sm transform transition-all hover:scale-[1.02]">
-      <div className="relative bg-card rounded-lg p-10 border border-border shadow-sm">
-        <svg 
-          viewBox="0 0 100 65" 
-          className="w-full h-auto" 
-          style={{ filter: 'drop-shadow(0 0 8px rgba(139, 92, 246, 0.2))' }}
-          preserveAspectRatio="xMidYMid meet"
-        >
-          {/* United States outline */}
-          <path
-            d={usOutlinePath}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="0.7"
-            className="text-border"
-            vectorEffect="non-scaling-stroke"
-          />
-          
-          {/* Firm location markers */}
-          {locations.map((location) => (
-            <g key={location.id}>
-              <circle
-                cx={location.x}
-                cy={location.y}
-                r="1.5"
-                fill="url(#location-gradient)"
-                stroke="white"
-                strokeWidth="0.3"
-                style={{ filter: 'drop-shadow(0 0 4px rgba(139, 92, 246, 0.6))' }}
-              >
-                <title>{location.name} - {location.city}, {location.state} ({location.contacts} contacts)</title>
-              </circle>
-            </g>
-          ))}
-          
-          <defs>
-            <linearGradient id="location-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#06B6D4" />
-              <stop offset="100%" stopColor="#a855f7" />
-            </linearGradient>
-          </defs>
-        </svg>
-      </div>
-
-      <div className="flex items-center gap-6 mt-6 text-xs text-muted-foreground">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-purple"></div>
-          <span>Firms searched</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-pink"></div>
-          <span>Active locations ({locations.length})</span>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ============================================================================
 // MAIN DASHBOARD COMPONENT
@@ -465,7 +291,9 @@ export function Dashboard() {
   const [recommendations, setRecommendations] = useState<Array<{ icon: React.ReactNode; title: string; description: string; action: string; contactId?: string; contactIds?: string[] }>>([]);
   const [replyStats, setReplyStats] = useState<{ totalReplies: number; responseRate: number; totalSent: number } | null>(null);
   const [interviewPrepStats, setInterviewPrepStats] = useState<{ total: number; completedThisMonth: number } | null>(null);
-  const [firmLocations, setFirmLocations] = useState<Array<{ id: number; name: string; city: string; state: string; contacts: number; x: number; y: number }>>([]);
+  const [unreadReplyCount, setUnreadReplyCount] = useState<number>(0);
+  const [isActivityFeedExpanded, setIsActivityFeedExpanded] = useState<boolean>(false);
+  const [isChartExpanded, setIsChartExpanded] = useState<boolean>(false);
 
   // Calculate total time saved in hours
   // Each contact + email: 20 minutes
@@ -766,36 +594,6 @@ export function Dashboard() {
     fetchRecommendations();
   }, [user?.uid]);
 
-  // Fetch firm locations from backend
-  useEffect(() => {
-    const fetchFirmLocations = async () => {
-      if (!user?.uid) return;
-      
-      try {
-        const result = await apiService.getFirmLocations();
-        if ('error' in result) {
-          console.error('Failed to fetch firm locations:', result.error);
-          return;
-        }
-        
-        const mappedLocations = result.locations.map((loc, index) => ({
-          id: index + 1,
-          name: loc.name,
-          city: loc.city,
-          state: loc.state,
-          contacts: loc.contacts,
-          x: loc.coordinates.x,
-          y: loc.coordinates.y,
-        }));
-        
-        setFirmLocations(mappedLocations);
-      } catch (error) {
-        console.error('Failed to fetch firm locations:', error);
-      }
-    };
-    
-    fetchFirmLocations();
-  }, [user?.uid]);
 
   // Fetch interview prep stats
   useEffect(() => {
@@ -817,9 +615,40 @@ export function Dashboard() {
     
     fetchInterviewPrepStats();
   }, [user?.uid]);
+
+  // Fetch unread reply count
+  useEffect(() => {
+    const fetchUnreadReplies = async () => {
+      if (!user?.uid) return;
+      
+      try {
+        const result = await apiService.getOutboxThreads();
+        if ('error' in result) {
+          console.error('Failed to fetch outbox threads:', result.error);
+          return;
+        }
+        
+        const unreadCount = result.threads?.filter((t: any) => t.hasUnreadReply).length || 0;
+        setUnreadReplyCount(unreadCount);
+      } catch (error) {
+        console.error('Failed to fetch unread replies:', error);
+      }
+    };
+    
+    fetchUnreadReplies();
+  }, [user?.uid]);
   
+  // Calculate outreach sent (this week or month)
+  const outreachSent = weeklySummary?.contactsGenerated || replyStats?.totalSent || 0;
+  const repliesReceived = replyStats?.totalReplies || 0;
+  const coffeeChatsBooked = coffeeChatCount || weeklySummary?.coffeeChatsCreated || 0;
+  
+  // Hero Section logic
+  const hasReplies = unreadReplyCount > 0 || repliesReceived > 0;
+  const showMotivationCopy = replyStats && replyStats.totalSent > 0 && repliesReceived === 0;
+
   return (
-    <div className="space-y-16">
+    <div className="space-y-6">
       {/* SVG Gradient Definitions */}
       <svg className="absolute w-0 h-0">
         <defs>
@@ -829,74 +658,85 @@ export function Dashboard() {
           </linearGradient>
         </defs>
       </svg>
-      {/* Header Section */}
-      <div className="pt-6 text-center">
-        <h2 className="text-foreground text-4xl md:text-5xl lg:text-6xl font-bold">{firstName}'s Recruiting Snapshot</h2>
-        <p className="text-muted-foreground mt-1">Track your progress and stay on top of your recruiting pipeline</p>
-      </div>
 
-      {/* Weekly Summary & Streak Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Weekly Summary Card */}
-        <div className="lg:col-span-2 bg-card border border-border rounded-xl p-6 shadow-sm transform transition-all hover:scale-[1.02]">
-          <div className="flex items-center gap-2 mb-4">
-            <TrendingUp size={18} className="text-blue-600" />
-            <h3 className="text-lg font-semibold text-foreground">This Week</h3>
+      {/* Hero Section */}
+      <div className="glass-card p-8 rounded-xl border-2 border-primary/20 shadow-lg">
+        <div className="flex items-center justify-between">
+          <div className="flex-1">
+            {hasReplies ? (
+              <>
+                <h2 className="text-2xl font-bold text-foreground mb-2">
+                  You have {unreadReplyCount > 0 ? unreadReplyCount : repliesReceived} message{(unreadReplyCount > 0 ? unreadReplyCount : repliesReceived) !== 1 ? 's' : ''} to respond to
+                </h2>
+                <button
+                  onClick={() => navigate('/home?tab=outbox')}
+                  className="mt-4 px-6 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors"
+                >
+                  View Outbox
+                </button>
+              </>
+            ) : (
+              <>
+                <h2 className="text-2xl font-bold text-foreground mb-2">
+                  No replies yet — follow up with your last 3 contacts
+                </h2>
+                <button
+                  onClick={() => navigate('/home?tab=outbox')}
+                  className="mt-4 px-6 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors"
+                >
+                  Send Follow-ups
+                </button>
+              </>
+            )}
+            {showMotivationCopy && (
+              <p className="text-sm text-muted-foreground mt-3">
+                {replyStats.totalSent >= 10 ? (
+                  <>Replies typically come 7–14 days after outreach. Keep going!</>
+                ) : (
+                  <>Most users see replies after {Math.max(10, replyStats.totalSent + 5)} outreaches. You're on your way!</>
+                )}
+              </p>
+            )}
           </div>
-          {weeklySummary ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div>
-                <div className="text-2xl font-bold text-foreground">{weeklySummary.contactsGenerated}</div>
-                <div className="text-sm text-muted-foreground">Contacts</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-foreground">{weeklySummary.firmsSearched}</div>
-                <div className="text-sm text-muted-foreground">Firms</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-foreground">{weeklySummary.coffeeChatsCreated}</div>
-                <div className="text-sm text-muted-foreground">Coffee Chats</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-foreground">{weeklySummary.totalActivities}</div>
-                <div className="text-sm text-muted-foreground">Total Activities</div>
-              </div>
-            </div>
-          ) : (
-            <div className="text-sm text-muted-foreground">Loading weekly summary...</div>
-          )}
-        </div>
-
-        {/* Streak Card */}
-        <div className="bg-card border border-border rounded-xl p-6 shadow-sm transform transition-all hover:scale-[1.02]">
-          <div className="flex items-center gap-2 mb-4">
-            <Flame size={18} className="text-orange-500" />
-            <h3 className="text-lg font-semibold text-foreground">Streak</h3>
-          </div>
-          {streakData ? (
-            <div>
-              <div className="text-3xl font-bold mb-1 text-foreground">{streakData.currentStreak}</div>
-              <div className="text-sm text-muted-foreground mb-4">days in a row!</div>
-              {streakData.longestStreak > streakData.currentStreak && (
-                <div className="text-xs text-muted-foreground">
-                  Best: {streakData.longestStreak} days
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-sm text-muted-foreground">Loading streak...</div>
-          )}
         </div>
       </div>
 
-      {/* Goal Progress Section */}
+      {/* Progress Strip */}
+      <div className="glass-card p-5 rounded-xl border border-border">
+        <div className="flex items-center justify-between gap-6 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl font-bold text-foreground">{outreachSent}</span>
+            <span className="text-sm text-muted-foreground">Outreach sent</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-2xl font-bold text-foreground">{repliesReceived}</span>
+            <span className="text-sm text-muted-foreground">Replies received</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-2xl font-bold text-foreground">{coffeeChatsBooked}</span>
+            <span className="text-sm text-muted-foreground">Coffee chats</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-2xl font-bold text-foreground">{timeSavedHours}h</span>
+            <span className="text-sm text-muted-foreground">Time saved</span>
+          </div>
+          {streakData && (
+            <div className="flex items-center gap-2">
+              <Flame size={18} className="text-orange-500" />
+              <span className="text-xl font-bold text-foreground">{streakData.currentStreak}</span>
+              <span className="text-sm text-muted-foreground">day streak</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Monthly Goals Section */}
       {goalProgress.length > 0 && (
-        <div className="pt-6">
-          <div className="mb-6">
+        <div className="pt-4">
+          <div className="mb-4">
             <h3 className="text-lg text-foreground">Monthly Goals</h3>
-            <p className="text-muted-foreground text-sm mt-1">Track your progress toward this month's targets</p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {goalProgress.map((progress) => {
               const goalLabel = {
                 contacts: 'Contacts',
@@ -906,17 +746,17 @@ export function Dashboard() {
               }[progress.goal.type];
               
               return (
-                <div key={progress.goal.id} className="bg-card border border-border rounded-xl p-6 shadow-sm transform transition-all hover:scale-[1.02]">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Target size={16} className="text-blue-600" />
-                    <h4 className="font-medium text-foreground">{goalLabel}</h4>
+                <div key={progress.goal.id} className="glass-card p-4 rounded-xl border border-border">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Target size={14} className="text-blue-600" />
+                    <h4 className="text-sm font-medium text-foreground">{goalLabel}</h4>
                   </div>
                   <div className="mb-2">
-                    <div className="flex items-baseline gap-2 mb-1">
-                      <span className="text-2xl font-bold text-foreground">{progress.current}</span>
+                    <div className="flex items-baseline gap-2 mb-1.5">
+                      <span className="text-xl font-bold text-foreground">{progress.current}</span>
                       <span className="text-sm text-muted-foreground">/ {progress.target}</span>
                     </div>
-                    <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                    <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
                       <div
                         className="h-full transition-all duration-500"
                         style={{ 
@@ -926,9 +766,6 @@ export function Dashboard() {
                       />
                     </div>
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    {Math.round(progress.percentage)}% complete
-                  </div>
                 </div>
               );
             })}
@@ -936,63 +773,80 @@ export function Dashboard() {
         </div>
       )}
 
-      {/* Statistics Section */}
-      <div className="pt-6">
-        <div className="mb-6">
-          <h3 className="text-lg text-foreground">Statistics</h3>
-          <p className="text-muted-foreground text-sm mt-1">Total activity on site</p>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        <KPICard 
-          icon={
-            <div className="flex items-center gap-1">
-              <Users size={20} />
-              <Plus size={20} />
-              <Mail size={20} />
+      {/* Recommended Next Actions */}
+      {recommendations.length > 0 && (
+        <div className="pt-4">
+          <div className="mb-4">
+            <h3 className="text-lg text-foreground">Recommended Next Actions</h3>
+          </div>
+          <div className="glass-card p-5 rounded-xl border border-border">
+            <div className="space-y-3">
+              {recommendations.map((rec, index) => (
+                <div 
+                  key={index}
+                  className="p-3 rounded-lg bg-background/50 border border-border transition-all cursor-pointer hover:bg-background/80 hover:border-primary/30"
+                  onClick={() => {
+                    if (rec.contactId) {
+                      navigate('/home?tab=outbox');
+                    } else if (rec.contactIds) {
+                      navigate('/home?tab=outbox');
+                    } else if (rec.action.includes('firms')) {
+                      navigate('/firm-search');
+                    }
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-purple-soft flex items-center justify-center text-purple flex-shrink-0">
+                      {rec.icon}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm text-foreground leading-snug">{rec.title}</div>
+                    </div>
+                    <ArrowRight size={14} className="text-muted-foreground flex-shrink-0" />
+                  </div>
+                </div>
+              ))}
             </div>
-          } 
-          label="Contacts Found + Emails" 
-          value={contactCount} 
-        />
-        <KPICard icon={<Building2 size={20} />} label="Firms Searched" value={firmCount} />
-        <KPICard icon={<Coffee size={20} />} label="Coffee Chats" value={coffeeChatCount} />
-        <KPICard 
-          icon={<Mail size={20} />} 
-          label="Replies Received" 
-          value={replyStats?.totalReplies ?? 0} 
-          subtitle={replyStats ? `${Math.round(replyStats.responseRate)}% response rate` : undefined} 
-        />
-        <KPICard icon={<Clock size={20} />} label="Total Time Saved" value={`${timeSavedHours}h`} subtitle="vs manual research" />
-        <KPICard 
-          icon={<Briefcase size={20} />} 
-          label="Interview Preps" 
-          value={interviewPrepStats?.total ?? 0} 
-          subtitle={interviewPrepStats ? `${interviewPrepStats.completedThisMonth} completed this month` : undefined} 
-        />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Activity & Analytics Section */}
-      <div className="pt-6">
-        <div className="mb-6">
-          <h3 className="text-lg text-foreground">Activity & Analytics</h3>
-          <p className="text-muted-foreground text-sm mt-1">Your recent activity and performance trends</p>
-        </div>
-        
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="pt-4">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
           <div className="lg:col-span-4">
-            <ActivityFeed />
+            <ActivityFeed isExpanded={isActivityFeedExpanded} onToggle={() => setIsActivityFeedExpanded(!isActivityFeedExpanded)} />
           </div>
 
-          <div className="lg:col-span-8 space-y-8">
-            <div className="bg-card border border-border rounded-xl p-8 shadow-sm">
-              <div className="flex items-center gap-2 mb-6">
-                <TrendingUp size={18} className="text-blue-600" />
-                <h3 className="text-foreground">Outreach vs Replies</h3>
+          <div className="lg:col-span-8">
+            <div className="glass-card border border-border rounded-xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <TrendingUp size={16} className="text-blue-600" />
+                  <h3 className="text-sm font-medium text-foreground">Outreach vs Replies</h3>
+                </div>
+                {timeSeriesData.length > 0 && (
+                  <button
+                    onClick={() => setIsChartExpanded(!isChartExpanded)}
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                  >
+                    {isChartExpanded ? (
+                      <>
+                        <ChevronUp size={14} />
+                        Collapse
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown size={14} />
+                        Expand
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
               {timeSeriesData.length > 0 ? (
-                <div className="w-full overflow-x-auto overflow-y-visible -mx-2 px-2" style={{ paddingBottom: '20px' }}>
-                  <div style={{ minWidth: `${Math.max(100, timeSeriesData.length * 80)}px`, height: '280px' }}>
+                <div className="w-full overflow-x-auto overflow-y-visible" style={{ paddingBottom: '10px' }}>
+                  <div style={{ minWidth: `${Math.max(100, timeSeriesData.length * 80)}px`, height: isChartExpanded ? '280px' : '180px' }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={timeSeriesData} margin={{ top: 5, right: 10, left: 0, bottom: 20 }}>
                         <CartesianGrid 
@@ -1002,12 +856,12 @@ export function Dashboard() {
                         <XAxis 
                           dataKey="month" 
                           stroke="hsl(215.4, 16.3%, 46.9%)" 
-                          style={{ fontSize: '12px' }}
+                          style={{ fontSize: '11px' }}
                           tick={{ fill: 'hsl(215.4, 16.3%, 46.9%)' }}
                         />
                         <YAxis 
                           stroke="hsl(215.4, 16.3%, 46.9%)" 
-                          style={{ fontSize: '12px' }}
+                          style={{ fontSize: '11px' }}
                           tick={{ fill: 'hsl(215.4, 16.3%, 46.9%)' }}
                         />
                         <Tooltip 
@@ -1015,78 +869,24 @@ export function Dashboard() {
                             backgroundColor: 'hsl(var(--card))', 
                             border: `1px solid hsl(var(--border))`,
                             borderRadius: '8px',
-                            fontSize: '12px',
+                            fontSize: '11px',
                             color: 'hsl(var(--card-foreground))'
                           }}
                         />
-                        <Line type="monotone" dataKey="outreach" stroke="#8B5CF6" strokeWidth={2} dot={{ fill: '#8B5CF6' }} />
-                        <Line type="monotone" dataKey="replies" stroke="#D946EF" strokeWidth={2} dot={{ fill: '#D946EF' }} />
+                        <Line type="monotone" dataKey="outreach" stroke="#8B5CF6" strokeWidth={2} dot={{ fill: '#8B5CF6', r: 3 }} />
+                        <Line type="monotone" dataKey="replies" stroke="#D946EF" strokeWidth={2} dot={{ fill: '#D946EF', r: 3 }} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
               ) : (
-                <div className="h-[280px] flex items-center justify-center text-sm text-muted-foreground">
+                <div className="h-[180px] flex items-center justify-center text-xs text-muted-foreground">
                   Loading chart data...
                 </div>
               )}
             </div>
-
-            {/* AI Recommendations */}
-            <div className="bg-card border border-border rounded-xl p-8 shadow-sm">
-              <div className="mb-6">
-                <h3 className="text-lg mb-1 text-foreground">AI Recommendations</h3>
-                <p className="text-muted-foreground text-sm">Personalized insights to accelerate your search</p>
-              </div>
-              <div className="space-y-4">
-                {recommendations.length === 0 ? (
-                  <div className="text-sm text-muted-foreground text-center py-4">
-                    No recommendations at this time
-                  </div>
-                ) : (
-                  recommendations.map((rec, index) => (
-                    <div 
-                      key={index}
-                      className="p-4 rounded-xl bg-card border border-border transition-all cursor-pointer group shadow-sm transform hover:scale-[1.02]"
-                      onClick={() => {
-                        if (rec.contactId) {
-                          navigate('/outbox');
-                        } else if (rec.contactIds) {
-                          navigate('/outbox');
-                        } else if (rec.action.includes('firms')) {
-                          navigate('/firm-search');
-                        }
-                      }}
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-purple-soft flex items-center justify-center text-purple flex-shrink-0">
-                          {rec.icon}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-sm mb-1 leading-snug text-foreground">{rec.title}</div>
-                          <div className="text-xs text-muted-foreground mb-3 leading-relaxed">{rec.description}</div>
-                          <button className="text-xs text-blue-600 hover:text-purple-700 transition-colors flex items-center gap-1 group-hover:gap-2">
-                            {rec.action}
-                            <ArrowRight size={12} className="transition-all" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
           </div>
         </div>
-      </div>
-
-      {/* Recruiting Timeline Section */}
-      <div className="py-16">
-        <div className="mb-6">
-          <h3 className="text-lg text-foreground">Recruiting Timeline</h3>
-          <p className="text-muted-foreground text-sm mt-1">Track your progress through recruiting season</p>
-        </div>
-        <PersonalizedRecruitingTimeline />
       </div>
 
     </div>

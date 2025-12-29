@@ -39,11 +39,11 @@ export default function DashboardPage() {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-transparent">
+      <div className="min-h-screen flex w-full bg-white">
         <AppSidebar />
         <div className="flex-1 flex flex-col">
           {/* Header with Sidebar Toggle */}
-          <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-transparent shadow-sm flex-shrink-0 relative z-20">
+          <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-white shadow-sm flex-shrink-0 relative z-20">
             <div className="flex items-center gap-4">
               <SidebarTrigger className="text-foreground hover:bg-secondary" />
               <h1 className="text-xl font-semibold">Home</h1>
@@ -51,7 +51,7 @@ export default function DashboardPage() {
             <PageHeaderActions />
           </header>
 
-          <main className="flex-1 overflow-y-auto p-6 bg-transparent">
+          <main className="flex-1 overflow-y-auto p-6 bg-white">
         <div style={{ width: '100%', minWidth: 'fit-content' }}>
           <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%' }}>
           {/* Tabs */}

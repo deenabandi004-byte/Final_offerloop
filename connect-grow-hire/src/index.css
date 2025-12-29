@@ -408,6 +408,22 @@
   50% { background-position: 100% 50%; }
 }
 
+@keyframes swipe-hint-pulse {
+  0%, 100% {
+    transform: translateX(0);
+    opacity: 0.8;
+  }
+  50% {
+    transform: translateX(8px);
+    opacity: 1;
+  }
+}
+
+/* Swipe hint animation */
+.swipe-hint-arrow {
+  animation: swipe-hint-pulse 2.5s ease-in-out infinite;
+}
+
 @keyframes autopilot-wave {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }

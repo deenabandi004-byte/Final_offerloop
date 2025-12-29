@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -10,7 +10,8 @@ import {
   ExternalLink,
   ArrowLeft,
   Download,
-  User
+  User,
+  ChevronRight
 } from "lucide-react";
 import { LoadingSkeleton } from "./LoadingSkeleton";
 import { useNavigate } from "react-router-dom";
@@ -62,6 +63,11 @@ const SpreadsheetContactDirectory: React.FC = () => {
   // 🔔 Reply check state
   const [replyStatuses, setReplyStatuses] = useState<Record<string, any>>({});
   const [isCheckingReplies, setIsCheckingReplies] = useState(false);
+
+  // Swipe hint state
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const [hasHorizontalOverflow, setHasHorizontalOverflow] = useState(false);
+  const [hasScrolled, setHasScrolled] = useState(false);
 
   const getStorageKey = () => {
     return currentUser ? `contacts_${currentUser.uid}` : 'contacts_anonymous';
@@ -238,6 +244,45 @@ const SpreadsheetContactDirectory: React.FC = () => {
       return () => clearInterval(interval);
     }
   }, [currentUser, contacts.length, checkRepliesForAllContacts]);
+
+  // Check for horizontal overflow and handle scroll
+  useEffect(() => {
+    const checkOverflow = () => {
+      if (tableContainerRef.current) {
+        const hasOverflow = tableContainerRef.current.scrollWidth > tableContainerRef.current.clientWidth;
+        setHasHorizontalOverflow(hasOverflow);
+      }
+    };
+
+    checkOverflow();
+    window.addEventListener('resize', checkOverflow);
+    
+    // Check overflow when contacts change
+    const timeoutId = setTimeout(checkOverflow, 100);
+
+    return () => {
+      window.removeEventListener('resize', checkOverflow);
+      clearTimeout(timeoutId);
+    };
+  }, [filteredContacts]);
+
+  // Track horizontal scroll
+  useEffect(() => {
+    const handleScroll = () => {
+      if (tableContainerRef.current) {
+        const scrollLeft = tableContainerRef.current.scrollLeft;
+        if (scrollLeft > 0) {
+          setHasScrolled(true);
+        }
+      }
+    };
+
+    const container = tableContainerRef.current;
+    if (container) {
+      container.addEventListener('scroll', handleScroll, { passive: true });
+      return () => container.removeEventListener('scroll', handleScroll);
+    }
+  }, [filteredContacts]);
 
   useEffect(() => {
     (window as any).addContactsToDirectory = addContactsToDirectory;
@@ -540,9 +585,14 @@ const SpreadsheetContactDirectory: React.FC = () => {
                   {searchQuery && ` (filtered from ${contacts.length})`}
                 </span>
               </div>
-              <p className="text-sm text-muted-foreground">
-                Click on cells to edit contact information
-              </p>
+              <div className="flex items-center gap-3">
+                {hasHorizontalOverflow && !hasScrolled && (
+                  <div className="swipe-hint flex items-center gap-1.5 text-sm font-bold text-black">
+                    <span>Scroll</span>
+                    <ChevronRight className="h-4 w-4 swipe-hint-arrow" />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -575,7 +625,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
 
           {/* Table */}
           {filteredContacts.length > 0 && (
-            <div className="overflow-x-auto">
+            <div ref={tableContainerRef} className="overflow-x-auto">
               <table className="min-w-full divide-y divide-border">
                 <thead className="bg-muted">
                   <tr>

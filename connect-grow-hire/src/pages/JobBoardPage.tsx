@@ -966,23 +966,17 @@ const JobBoardPage: React.FC = () => {
 
   return (
     <SidebarProvider>
-      <div className="flex h-screen bg-background">
+      <div className="flex h-screen bg-white">
         <AppSidebar />
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Header */}
-          <div className="border-b border-border/50 bg-background/80 backdrop-blur-sm">
+          <div className="border-b border-border/50 bg-white">
             <div className="flex items-center justify-between p-4">
               <div className="flex items-center gap-4">
                 <SidebarTrigger />
-                <div>
-                  <h1 className="text-xl font-semibold text-foreground flex items-center gap-2">
-                    <Briefcase className="w-5 h-5 text-primary" />
-                    Job Board
-                  </h1>
-                  <p className="text-sm text-muted-foreground">
-                    Discover opportunities and optimize your applications
-                  </p>
-                </div>
+                <h1 className="text-xl font-semibold text-foreground">
+                  Job Board
+                </h1>
               </div>
               <PageHeaderActions />
             </div>
