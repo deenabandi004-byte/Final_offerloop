@@ -25,6 +25,7 @@ from .pdl_client import (
     determine_location_strategy
 )
 from .recruiter_email_generator import generate_recruiter_emails
+from .hunter import enrich_contacts_with_hunter
 from ..config import PDL_BASE_URL, PEOPLE_DATA_LABS_API_KEY
 import requests
 
@@ -152,10 +153,15 @@ def build_recruiter_search_query(
     """
     Build PDL Elasticsearch query for recruiter search.
     
+    Note: We intentionally do NOT filter by state/city because:
+    1. Recruiters may be at HQ, regional offices, or remote
+    2. The person applying doesn't care where the recruiter is located
+    3. State filtering causes too many false negatives (0 results when recruiters exist)
+    
     Args:
         company_name: Cleaned company name
         recruiter_titles: List of recruiter job titles to search for
-        location: Optional location to filter by (from job posting)
+        location: Optional location (NOT used for filtering, only for logging)
     
     Returns:
         PDL query dictionary
@@ -172,53 +178,18 @@ def build_recruiter_search_query(
         {"match": {"job_company_name": company_name}}
     ]
     
-    # Base query structure
+    # Base query structure - NO location filter
     must_clauses = [
         {"bool": {"should": title_should}},
         {"bool": {"should": company_should}},
-        {"term": {"location_country": "united states"}}  # US only for now
+        {"term": {"location_country": "united states"}}  # US only
     ]
     
-    # Add location filtering if provided
+    # Log location for informational purposes (not used for filtering)
     if location:
-        cleaned_location = clean_location_name(location)
-        location_strategy = determine_location_strategy(cleaned_location)
-        
-        strategy = location_strategy.get("strategy", "locality_primary")
-        
-        if strategy == 'country_only':
-            # Already have country filter, no additional location needed
-            pass
-        elif strategy == 'no_location':
-            # Invalid location, skip location filter
-            pass
-        else:
-            # Add location filters
-            city = (location_strategy.get("city") or "").lower()
-            state = (location_strategy.get("state") or "").lower()
-            metro_location = (location_strategy.get("metro_location") or "").lower()
-            
-            location_must = []
-            
-            # Use metro if available, otherwise use city/state
-            if metro_location and strategy == 'metro_primary':
-                location_must.append({"match": {"location_metro": metro_location}})
-            elif city:
-                location_must.append({"match": {"location_locality": city}})
-            
-            # Add state if available
-            if state:
-                location_must.append({
-                    "bool": {
-                        "should": [
-                            {"match": {"location_region": state}},
-                            {"match": {"location_locality": state}}  # Sometimes state is in city field
-                        ]
-                    }
-                })
-            
-            if location_must:
-                must_clauses.append({"bool": {"must": location_must}})
+        print(f"[RecruiterSearch] Location provided: '{location}' (NOT used for filtering - recruiters can be anywhere)")
+    else:
+        print(f"[RecruiterSearch] No location provided - searching all US recruiters at company")
     
     query_obj = {
         "bool": {
@@ -226,7 +197,81 @@ def build_recruiter_search_query(
         }
     }
     
+    print(f"[RecruiterSearch] Query: company={company_name}, country=US, NO state/city filter")
+    
     return query_obj
+
+
+def parse_location_for_ranking(location_string: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """
+    Parse location string and return (city, state) for ranking purposes.
+    
+    Handles edge cases:
+    - "Los Angeles, CA, United States" -> ("los angeles", "california")
+    - "Los Gatos, CA, United States (+1 other)" -> ("los gatos", "california")
+    - "New York, NY" -> ("new york", "new york")
+    - "California, United States" -> (None, "california")
+    
+    Returns: (city, state) both lowercase, state as full name
+    """
+    if not location_string:
+        return None, None
+    
+    # State abbreviation to full name mapping (lowercase for PDL)
+    STATE_ABBREV_TO_FULL = {
+        "al": "alabama", "ak": "alaska", "az": "arizona", "ar": "arkansas",
+        "ca": "california", "co": "colorado", "ct": "connecticut", "de": "delaware",
+        "fl": "florida", "ga": "georgia", "hi": "hawaii", "id": "idaho",
+        "il": "illinois", "in": "indiana", "ia": "iowa", "ks": "kansas",
+        "ky": "kentucky", "la": "louisiana", "me": "maine", "md": "maryland",
+        "ma": "massachusetts", "mi": "michigan", "mn": "minnesota", "ms": "mississippi",
+        "mo": "missouri", "mt": "montana", "ne": "nebraska", "nv": "nevada",
+        "nh": "new hampshire", "nj": "new jersey", "nm": "new mexico", "ny": "new york",
+        "nc": "north carolina", "nd": "north dakota", "oh": "ohio", "ok": "oklahoma",
+        "or": "oregon", "pa": "pennsylvania", "ri": "rhode island", "sc": "south carolina",
+        "sd": "south dakota", "tn": "tennessee", "tx": "texas", "ut": "utah",
+        "vt": "vermont", "va": "virginia", "wa": "washington", "wv": "west virginia",
+        "wi": "wisconsin", "wy": "wyoming", "dc": "district of columbia"
+    }
+    
+    # Clean up common suffixes like "(+1 other)"
+    location = location_string.lower().strip()
+    location = re.sub(r'\s*\(\+\d+\s*other\).*', '', location)
+    
+    parts = [p.strip() for p in location.split(',')]
+    
+    city = None
+    state = None
+    
+    if len(parts) >= 3:
+        # "Los Angeles, CA, United States"
+        city = parts[0]
+        state_abbrev = parts[1].strip()
+        # Convert abbreviation to full name
+        state = STATE_ABBREV_TO_FULL.get(state_abbrev, state_abbrev)
+    elif len(parts) == 2:
+        # Could be "Los Angeles, CA" or "California, United States"
+        second_part = parts[1].strip()
+        if second_part in STATE_ABBREV_TO_FULL:
+            # "Los Angeles, CA"
+            city = parts[0]
+            state = STATE_ABBREV_TO_FULL[second_part]
+        elif "united states" in second_part or "usa" in second_part:
+            # "California, United States"
+            state = parts[0]
+        else:
+            # Assume "City, State" where state is full name
+            city = parts[0]
+            state = second_part
+    elif len(parts) == 1:
+        # Just a state or city
+        if parts[0] in STATE_ABBREV_TO_FULL:
+            state = STATE_ABBREV_TO_FULL[parts[0]]
+        else:
+            # Could be a full state name or city - assume state
+            state = parts[0]
+    
+    return city, state
 
 
 def rank_recruiters(
@@ -241,24 +286,15 @@ def rank_recruiters(
     Ranking factors:
     1. Title match specificity (technical recruiter > recruiter for eng jobs)
     2. Currently at target company (vs past employment)
-    3. Location match (same city/state as job posting)
+    3. Location match (same city/state as job posting) - for ranking only, not filtering
     4. Title seniority (senior recruiter, recruiting manager)
     
     Returns sorted list with best matches first.
     """
     primary_titles = RECRUITER_TITLES_BY_JOB_TYPE.get(job_type, [])
     
-    # Parse job location for matching
-    job_city = None
-    job_state = None
-    if job_location:
-        location_lower = job_location.lower().strip()
-        if ',' in location_lower:
-            parts = [part.strip() for part in location_lower.split(',')]
-            job_city = parts[0] if parts else None
-            job_state = parts[1] if len(parts) > 1 else None
-        else:
-            job_city = location_lower
+    # Parse job location for ranking (not filtering)
+    job_city, job_state = parse_location_for_ranking(job_location)
     
     def score_recruiter(recruiter: Dict) -> int:
         score = 0
@@ -384,26 +420,55 @@ def find_recruiters(
             desired_limit=20,  # Fetch more, then rank and filter
             search_type="recruiter_search",
             page_size=20,
-            verbose=False
+            verbose=False,
+            target_company=cleaned_company  # Pass target company for correct domain extraction
         )
         
         if not raw_recruiters:
-            # No results found
-            return {
-                "recruiters": [],
-                "job_type_detected": job_type,
-                "company_cleaned": cleaned_company,
-                "search_titles": recruiter_titles[:5],
-                "total_found": 0,
-                "credits_charged": 0,
-                "message": f"No recruiters found at {cleaned_company}. Try reaching out via LinkedIn."
-            }
+            # No recruiters found - try fallback search
+            print(f"[RecruiterSearch] No recruiters found for {cleaned_company}, trying fallback search...")
+            return search_recruiters_with_fallback(
+                company_name=cleaned_company,
+                job_type=job_type,
+                job_title=job_title,
+                job_description=job_description,
+                location=location,
+                max_results=max_results,
+                generate_emails=generate_emails,
+                user_resume=user_resume,
+                user_contact=user_contact
+            )
         
         # Rank recruiters (include location for ranking)
         ranked_recruiters = rank_recruiters(raw_recruiters, job_type, cleaned_company, location)
         
         # Limit results
         final_recruiters = ranked_recruiters[:max_results]
+        
+        # ✅ HUNTER.IO ENRICHMENT - VERIFY ALL RECRUITER EMAILS (including PDL emails)
+        if generate_emails and final_recruiters:
+            # Ensure Company field is set for Hunter.io (uses cleaned_company)
+            for recruiter in final_recruiters:
+                if not recruiter.get('Company'):
+                    recruiter['Company'] = cleaned_company
+            
+            # ✅ VERIFY ALL RECRUITER EMAILS (not just those without emails)
+            # This ensures PDL emails are verified before use
+            print(f"[RecruiterFinder] 🔍 Verifying emails for {len(final_recruiters)} recruiters using Hunter.io...")
+            try:
+                # enrich_contacts_with_hunter now verifies ALL emails (including PDL emails)
+                # Uses Email Finder API (1 API call per person instead of 10+)
+                # skip_personal_emails=True ensures we only accept emails from target company
+                final_recruiters = enrich_contacts_with_hunter(
+                    contacts=final_recruiters,
+                    max_enrichments=len(final_recruiters),  # Verify/enrich all recruiters
+                    target_company=cleaned_company,  # Pass for batch summary logging and target domain
+                    skip_personal_emails=True  # Skip personal emails - only accept target company emails
+                )
+                print(f"[RecruiterFinder] ✅ Email verification/enrichment complete")
+            except Exception as hunter_error:
+                print(f"[RecruiterFinder] ⚠️ Hunter.io verification/enrichment failed: {hunter_error}")
+                # Continue with original recruiters (some may still have emails from PDL)
         
         # Generate emails if requested
         emails = []
@@ -462,6 +527,202 @@ def find_recruiters(
             "credits_charged": 0,
             "error": str(e)
         }
+
+
+def search_by_titles(
+    company_name: str,
+    titles: List[str],
+    location: Optional[str] = None,
+    max_results: int = 10
+) -> List[Dict]:
+    """
+    Search PDL for people at a company with specific job titles.
+    """
+    # Build title clauses
+    title_should = []
+    for title in titles:
+        title_should.append({"match_phrase": {"job_title": title}})
+        title_should.append({"match": {"job_title": title}})
+    
+    # Build company should clause
+    company_should = [
+        {"match_phrase": {"job_company_name": company_name}},
+        {"match": {"job_company_name": company_name}}
+    ]
+    
+    query_obj = {
+        "bool": {
+            "must": [
+                {"bool": {"should": title_should}},
+                {"bool": {"should": company_should}},
+                {"term": {"location_country": "united states"}}
+            ]
+        }
+    }
+    
+    # Execute PDL search
+    PDL_URL = f"{PDL_BASE_URL}/person/search"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
+    }
+    
+    try:
+        contacts = execute_pdl_search(
+            headers=headers,
+            url=PDL_URL,
+            query_obj=query_obj,
+            desired_limit=max_results,
+            search_type="title_search",
+            page_size=max_results,
+            verbose=False,
+            target_company=company_name
+        )
+        return contacts or []
+    except Exception as e:
+        print(f"[RecruiterSearch] Error in fallback search: {e}")
+        return []
+
+
+def search_recruiters_with_fallback(
+    company_name: str,
+    job_type: Optional[str] = None,
+    job_title: str = "",
+    job_description: str = "",
+    location: Optional[str] = None,
+    max_results: int = 5,
+    generate_emails: bool = False,
+    user_resume: Dict = None,
+    user_contact: Dict = None
+) -> Dict:
+    """
+    Search for recruiters with fallback to HR/founders for small companies.
+    """
+    cleaned_company = clean_company_name(company_name) or company_name
+    
+    # Fallback 1: Try HR titles
+    print(f"[RecruiterSearch] Fallback 1: Searching for HR contacts at {cleaned_company}...")
+    hr_titles = [
+        "HR Manager",
+        "HR Director",
+        "Human Resources",
+        "People Operations",
+        "Head of People",
+        "HR Business Partner",
+        "HR Generalist",
+        "Talent Acquisition Manager",
+        "People Manager"
+    ]
+    
+    hr_contacts = search_by_titles(cleaned_company, hr_titles, location, max_results)
+    
+    if hr_contacts and len(hr_contacts) > 0:
+        print(f"[RecruiterSearch] ✅ Found {len(hr_contacts)} HR contacts")
+        
+        # Rank by location if provided
+        if location:
+            hr_contacts = rank_recruiters(hr_contacts, "general", cleaned_company, location)
+        
+        final_contacts = hr_contacts[:max_results]
+        
+        # Generate emails if requested
+        emails = []
+        if generate_emails and user_resume and user_contact and final_contacts:
+            try:
+                emails = generate_recruiter_emails(
+                    recruiters=final_contacts,
+                    job_title=job_title,
+                    company=cleaned_company,
+                    job_description=job_description,
+                    user_resume=user_resume,
+                    user_contact=user_contact
+                )
+            except Exception as e:
+                print(f"[RecruiterSearch] Error generating emails: {e}")
+                emails = []
+        
+        return {
+            "recruiters": final_contacts,
+            "emails": emails,
+            "job_type_detected": job_type or "general",
+            "company_cleaned": cleaned_company,
+            "search_titles": hr_titles[:5],
+            "total_found": len(hr_contacts),
+            "credits_charged": 15 * len(final_contacts),
+            "search_type": "hr",
+            "message": f"No dedicated recruiters found. Found {len(final_contacts)} HR contacts at {cleaned_company} who may help with hiring."
+        }
+    
+    # Fallback 2: Try founders/executives for small companies
+    print(f"[RecruiterSearch] Fallback 2: Searching for executives at {cleaned_company}...")
+    executive_titles = [
+        "CEO",
+        "CTO",
+        "COO",
+        "Founder",
+        "Co-Founder",
+        "President",
+        "VP Engineering",
+        "VP of Engineering",
+        "Engineering Manager",
+        "Hiring Manager",
+        "Head of Engineering",
+        "Director of Engineering"
+    ]
+    
+    exec_contacts = search_by_titles(cleaned_company, executive_titles, location, max_results // 2)
+    
+    if exec_contacts and len(exec_contacts) > 0:
+        print(f"[RecruiterSearch] ✅ Found {len(exec_contacts)} executives")
+        
+        # Rank by location if provided
+        if location:
+            exec_contacts = rank_recruiters(exec_contacts, "general", cleaned_company, location)
+        
+        final_contacts = exec_contacts[:max_results // 2]  # Limit executives
+        
+        # Generate emails if requested
+        emails = []
+        if generate_emails and user_resume and user_contact and final_contacts:
+            try:
+                emails = generate_recruiter_emails(
+                    recruiters=final_contacts,
+                    job_title=job_title,
+                    company=cleaned_company,
+                    job_description=job_description,
+                    user_resume=user_resume,
+                    user_contact=user_contact
+                )
+            except Exception as e:
+                print(f"[RecruiterSearch] Error generating emails: {e}")
+                emails = []
+        
+        return {
+            "recruiters": final_contacts,
+            "emails": emails,
+            "job_type_detected": job_type or "general",
+            "company_cleaned": cleaned_company,
+            "search_titles": executive_titles[:5],
+            "total_found": len(exec_contacts),
+            "credits_charged": 15 * len(final_contacts),
+            "search_type": "executives",
+            "message": f"Small company - no recruiters or HR found. Found {len(final_contacts)} executives who may handle hiring at {cleaned_company}."
+        }
+    
+    # No contacts found at all
+    print(f"[RecruiterSearch] ❌ No contacts found after all fallback searches")
+    return {
+        "recruiters": [],
+        "emails": [],
+        "job_type_detected": job_type or "general",
+        "company_cleaned": cleaned_company,
+        "search_titles": [],
+        "total_found": 0,
+        "credits_charged": 0,
+        "search_type": "none",
+        "message": f"No recruiters, HR, or executives found at {cleaned_company}. This company may be too small or not in our database."
+    }
 
 
 def find_hiring_manager(

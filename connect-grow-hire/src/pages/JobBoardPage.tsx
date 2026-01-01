@@ -64,7 +64,9 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
-import { apiService, type OptimizeResumeRequest, type GenerateCoverLetterRequest, type Recruiter, type FindRecruiterRequest } from "@/services/api";
+import { apiService, type OptimizeResumeRequest, type GenerateCoverLetterRequest, type Recruiter, type FindRecruiterRequest, type SuggestionsResult, type TemplateRebuildResult } from "@/services/api";
+import { ResumeOptimizationModal } from '@/components/ResumeOptimizationModal';
+import { SuggestionsView } from '@/components/SuggestionsView';
 import { firebaseApi } from "../services/firebaseApi";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { CreditPill } from "@/components/credits";
@@ -271,8 +273,8 @@ const JobCard: React.FC<{
         className="flex-1"
         onClick={(e) => { e.stopPropagation(); onSelect(); }}
       >
-        <Sparkles className="w-4 h-4 mr-2" />
-        Optimize
+        <Users className="w-4 h-4 mr-2" />
+        Find Recruiters
       </Button>
       <Button
         variant="gradient"
@@ -301,29 +303,26 @@ const ATSScoreDisplay: React.FC<{ score: ATSScore }> = ({ score }) => {
   };
 
   return (
-    <div className="bg-background/80 backdrop-blur-sm rounded-lg border border-border/60 p-6 shadow-sm">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold flex items-center gap-2">
-          <Target className="w-5 h-5 text-primary" />
-          ATS Score Analysis
-        </h3>
-        <div className={cn("text-3xl font-bold", getScoreColor(score.overall))}>
+    <div className="border border-gray-200 rounded-md p-4 bg-white">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-gray-900">ATS Score</h3>
+        <div className={cn("text-2xl font-bold", getScoreColor(score.overall))}>
           {score.overall}%
         </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-3">
         {[
-          { label: "Keywords Match", value: score.keywords },
+          { label: "Keywords", value: score.keywords },
           { label: "Formatting", value: score.formatting },
-          { label: "Job Relevance", value: score.relevance },
+          { label: "Relevance", value: score.relevance },
         ].map(({ label, value }) => (
           <div key={label}>
-            <div className="flex justify-between text-sm mb-1">
-              <span className="text-muted-foreground">{label}</span>
-              <span className={getScoreColor(value)}>{value}%</span>
+            <div className="flex justify-between text-xs mb-1">
+              <span className="text-gray-600">{label}</span>
+              <span className={cn("font-medium", getScoreColor(value))}>{value}%</span>
             </div>
-            <div className="h-2 bg-muted rounded-full overflow-hidden">
+            <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
               <div
                 className={cn("h-full rounded-full transition-all", getProgressColor(value))}
                 style={{ width: `${value}%` }}
@@ -332,12 +331,11 @@ const ATSScoreDisplay: React.FC<{ score: ATSScore }> = ({ score }) => {
           </div>
         ))}
 
-        {/* Job Description Quality Warning */}
         {score.jdQualityWarning && (
-          <div className="mt-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
+          <div className="mt-3 pt-3 border-t border-gray-200">
             <div className="flex items-start gap-2">
-              <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-yellow-800 dark:text-yellow-200">
+              <AlertTriangle className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-gray-600 leading-relaxed">
                 {score.jdQualityWarning}
               </p>
             </div>
@@ -345,16 +343,13 @@ const ATSScoreDisplay: React.FC<{ score: ATSScore }> = ({ score }) => {
         )}
 
         {score.suggestions.length > 0 && (
-          <div className="mt-6 pt-4 border-t border-border/50">
-            <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
-              <Zap className="w-4 h-4 text-yellow-500" />
-              Improvement Suggestions
-            </h4>
-            <ul className="space-y-2">
+          <div className="mt-4 pt-3 border-t border-gray-200">
+            <h4 className="text-xs font-medium text-gray-700 mb-2">Suggestions</h4>
+            <ul className="space-y-1.5">
               {score.suggestions.map((suggestion, idx) => (
-                <li key={idx} className="text-sm text-muted-foreground flex items-start gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
-                  {suggestion}
+                <li key={idx} className="text-xs text-gray-600 flex items-start gap-2">
+                  <span className="text-gray-400 mt-0.5">•</span>
+                  <span>{suggestion}</span>
                 </li>
               ))}
             </ul>
@@ -429,6 +424,17 @@ const JobBoardPage: React.FC = () => {
   const [parsedJobData, setParsedJobData] = useState<{title?: string; company?: string; location?: string; description?: string} | null>(null);
   const [showJobDetails, setShowJobDetails] = useState(false);
   const resumeRef = useRef<HTMLDivElement>(null);
+
+  // Resume optimization V2 state
+  const [showOptimizationModal, setShowOptimizationModal] = useState(false);
+  const [suggestionsResult, setSuggestionsResult] = useState<SuggestionsResult | null>(null);
+  const [showSuggestionsView, setShowSuggestionsView] = useState(false);
+  const [templateRebuildResult, setTemplateRebuildResult] = useState<TemplateRebuildResult | null>(null);
+
+  // Calculate hasJobInfo reactively
+  const hasJobInfo = useMemo(() => {
+    return !!(jobUrl?.trim() || jobDescription?.trim());
+  }, [jobUrl, jobDescription]);
 
   // Check Gmail connection status
   useEffect(() => {
@@ -648,6 +654,10 @@ const JobBoardPage: React.FC = () => {
     setActiveTab("optimize");
     setOptimizedResume(null);
     setCoverLetter(null);
+    // Scroll to top of optimize tab to show the Find Recruiters section
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 100);
   }, []);
 
   const handleApplyToJob = useCallback((job: Job) => {
@@ -702,21 +712,44 @@ const JobBoardPage: React.FC = () => {
         requestPayload.company = selectedJob.company;
       }
       
-      const response = await apiService.optimizeResume(requestPayload);
-      if (response.optimizedResume) {
-        setOptimizedResume(response.optimizedResume);
-        // Backend already deducted credits, just update with the remaining balance
-        if (response.creditsRemaining !== undefined) {
-          await updateCredits(response.creditsRemaining);
-        }
-        toast({ title: "Resume Optimized!", description: `ATS Score: ${response.optimizedResume.atsScore.overall}%` });
-      }
+      // Use v2 endpoint (format-preserving)
+      const pdfBlob = await apiService.optimizeResumeV2(requestPayload);
+      
+      // Download the PDF
+      const url = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'optimized_resume.pdf';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      // Update credits (deduct 20)
+      const currentCredits = user?.credits ?? 0;
+      await updateCredits(Math.max(0, currentCredits - OPTIMIZATION_CREDIT_COST));
+      
+      toast({ 
+        title: "Resume Optimized!", 
+        description: "Your optimized resume has been downloaded. Original formatting preserved!",
+        duration: 5000,
+      });
+      
+      // Clear any old optimized resume state since we're not showing it inline anymore
+      setOptimizedResume(null);
+      
     } catch (error: any) {
-      // Handle improved error responses
-      const errorResponse = error.response?.data || error;
-      const errorCode = errorResponse.error_code || errorResponse.error?.error_code;
-      const errorMessage = errorResponse.message || errorResponse.error?.message || error.message || "Optimization failed";
-      const creditsRefunded = errorResponse.credits_refunded || errorResponse.error?.credits_refunded || false;
+      // Handle error responses
+      let errorMessage = "Optimization failed";
+      let creditsRefunded = false;
+      
+      if (error.message) {
+        errorMessage = error.message;
+      } else if (error.response?.data) {
+        const errorData = error.response.data;
+        errorMessage = errorData.message || errorData.error || errorMessage;
+        creditsRefunded = errorData.credits_refunded || false;
+      }
       
       // Show appropriate error message
       if (creditsRefunded) {
@@ -759,15 +792,34 @@ const JobBoardPage: React.FC = () => {
     let location: string = '';
     let description: string = '';
     
-    // Priority 1: Parse job URL if provided
+    // Priority 1: Use selectedJob from job board (most reliable source)
+    if (selectedJob) {
+      company = selectedJob.company;
+      jobTitle = selectedJob.title || '';
+      location = selectedJob.location || '';
+      description = jobDescription || selectedJob.description || '';
+    }
+    
+    // Priority 2: Parse job URL if provided (may have additional/updated info)
     if (jobUrl && jobUrl.trim()) {
       try {
         const parseResponse = await apiService.parseJobUrl({ url: jobUrl });
-        if (parseResponse.job && parseResponse.job.company) {
+        if (parseResponse.job) {
+          // Use parsed data to fill in missing fields or override if more complete
+          if (parseResponse.job.company && !company) {
           company = parseResponse.job.company;
-          jobTitle = parseResponse.job.title || '';
-          location = parseResponse.job.location || '';
-          description = parseResponse.job.description || jobDescription || '';
+          }
+          if (parseResponse.job.title && !jobTitle) {
+            jobTitle = parseResponse.job.title;
+          }
+          // Location: prefer parsed location if available, otherwise keep selectedJob location
+          if (parseResponse.job.location) {
+            location = parseResponse.job.location;
+          }
+          // Description: prefer parsed description if available, otherwise keep existing
+          if (parseResponse.job.description && !description) {
+            description = parseResponse.job.description;
+          }
         } else if (parseResponse.error) {
           console.warn('Failed to parse job URL:', parseResponse.error);
         }
@@ -776,19 +828,14 @@ const JobBoardPage: React.FC = () => {
       }
     }
     
-    // Priority 2: Use selectedJob from job board
-    if (!company && selectedJob?.company) {
-      company = selectedJob.company;
-      jobTitle = selectedJob.title || '';
-      location = selectedJob.location || '';
-      description = jobDescription || '';
-    }
-    
-    // Priority 3: Don't try to extract company from description on frontend
-    // Let the backend handle all extraction via OpenAI (more reliable)
-    // Just ensure we have a job description to send
+    // Priority 3: Fallback to jobDescription if still no description
     if (!description && jobDescription) {
       description = jobDescription;
+    }
+    
+    // Ensure location is populated from selectedJob if we still don't have it
+    if (!location && selectedJob?.location) {
+      location = selectedJob.location;
     }
     
     // If still no company, that's okay - backend will extract it from description via OpenAI
@@ -952,6 +999,40 @@ const JobBoardPage: React.FC = () => {
     };
   };
 
+  // Helper to normalize LinkedIn URLs
+  const normalizeLinkedInUrl = (url: string): string => {
+    if (!url || url.trim() === '') return '';
+    
+    const trimmedUrl = url.trim();
+    
+    // If it already starts with http, return as is
+    if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) {
+      return trimmedUrl;
+    }
+    
+    // If it starts with linkedin.com or www.linkedin.com, add https://
+    if (trimmedUrl.startsWith('linkedin.com') || trimmedUrl.startsWith('www.linkedin.com')) {
+      return `https://${trimmedUrl}`;
+    }
+    
+    // If it's just a path like /in/username, add the full domain
+    if (trimmedUrl.startsWith('/in/')) {
+      return `https://www.linkedin.com${trimmedUrl}`;
+    }
+    
+    // If it contains linkedin but is malformed, try to fix it
+    if (trimmedUrl.includes('linkedin') && trimmedUrl.includes('/in/')) {
+      // Extract the /in/username part and rebuild
+      const match = trimmedUrl.match(/\/in\/[^\/\s]+/);
+      if (match) {
+        return `https://www.linkedin.com${match[0]}`;
+      }
+    }
+    
+    // Otherwise, assume it's just a username and add the full path
+    return `https://www.linkedin.com/in/${trimmedUrl}`;
+  };
+
   // Update URL when tab changes
   useEffect(() => {
     setSearchParams({ tab: activeTab });
@@ -966,17 +1047,23 @@ const JobBoardPage: React.FC = () => {
 
   return (
     <SidebarProvider>
-      <div className="flex h-screen bg-white">
+      <div className="flex h-screen bg-background">
         <AppSidebar />
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Header */}
-          <div className="border-b border-border/50 bg-white">
+          <div className="border-b border-border/50 bg-background/80 backdrop-blur-sm">
             <div className="flex items-center justify-between p-4">
               <div className="flex items-center gap-4">
                 <SidebarTrigger />
-                <h1 className="text-xl font-semibold text-foreground">
-                  Job Board
-                </h1>
+                <div>
+                  <h1 className="text-xl font-semibold text-foreground flex items-center gap-2">
+                    <Briefcase className="w-5 h-5 text-primary" />
+                    Job Board
+                  </h1>
+                  <p className="text-sm text-muted-foreground">
+                    Discover opportunities and optimize your applications
+                  </p>
+                </div>
               </div>
               <PageHeaderActions />
             </div>
@@ -999,9 +1086,9 @@ const JobBoardPage: React.FC = () => {
                     <Users className="w-4 h-4" />
                     Recruiters
                     {recruiters.length > 0 && (
-                      <Badge variant="secondary" className="ml-1 text-xs px-1.5 py-0">
+                      <span className="bg-blue-100 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full">
                         {recruiters.length}
-                      </Badge>
+                      </span>
                     )}
                   </TabsTrigger>
                 </TabsList>
@@ -1132,260 +1219,252 @@ const JobBoardPage: React.FC = () => {
 
                 {/* OPTIMIZE TAB */}
                 <TabsContent value="optimize" className="w-full">
-                  {/* Unified workspace container with neutral background */}
-                  <div className="bg-gradient-to-br from-slate-50/50 via-background to-slate-50/30 rounded-xl border border-border/50 shadow-sm p-6 lg:p-8">
-                    {/* Two-column layout - always visible */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
-                      {/* Left: Input Section */}
-                      <div className="space-y-6 min-w-0">
-                      {/* Job Information Section */}
-                      <div className="bg-background/80 backdrop-blur-sm rounded-lg border border-border/40 p-8 shadow-lg shadow-black/5">
-                        <h2 className="text-xl font-bold mb-6 flex items-center gap-2.5 text-foreground">
-                          <FileText className="w-6 h-6 text-primary" />
-                          Job Information
-                        </h2>
-
+                  <div className="max-w-3xl mx-auto p-6 space-y-6">
+                    {/* Job Header - Inline, not boxed */}
                         {selectedJob && (
-                          <div className="mb-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
-                            <div className="flex items-start justify-between">
+                      <div className="flex items-start justify-between pb-4 border-b border-gray-200">
                               <div>
-                                <h3 className="font-semibold text-foreground">{selectedJob.title}</h3>
-                                <p className="text-sm text-muted-foreground mt-1">
+                          <h2 className="text-lg font-semibold text-gray-900 leading-tight">
+                            {selectedJob.title}
+                          </h2>
+                          <p className="text-sm text-gray-500 mt-0.5">
                                   {selectedJob.company} • {selectedJob.location}
                                 </p>
                               </div>
-                              <Button variant="ghost" size="sm" onClick={() => { setSelectedJob(null); setJobUrl(""); setJobDescription(""); }}>
+                        <button
+                          onClick={() => { setSelectedJob(null); setJobUrl(""); setJobDescription(""); }}
+                          className="text-gray-400 hover:text-gray-600 transition-colors"
+                        >
                                 <X className="w-4 h-4" />
-                              </Button>
-                            </div>
+                        </button>
                           </div>
                         )}
 
-                        <div className="space-y-6">
+                    {/* Job Information - Compact */}
+                    <div className="space-y-4">
                           <div>
-                            <label className="text-sm font-semibold mb-2.5 block text-foreground">Job Posting URL</label>
-                            <div className="relative">
-                              <Link className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
+                        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
+                          Job URL
+                        </label>
                               <Input
-                                placeholder="https://linkedin.com/jobs/..."
+                          type="url"
+                          placeholder="https://..."
                                 value={jobUrl}
                                 onChange={(e) => {
                                   const newUrl = e.target.value;
                                   setJobUrl(newUrl);
-                                  // When URL changes, clear old job data to prevent stale data from being sent
-                                  // This ensures only the new URL is sent to the backend for parsing
                                   if (newUrl && newUrl.trim() !== "") {
                                     setSelectedJob(null);
                                     setJobDescription("");
                                   }
                                 }}
-                                className="pl-10 border-border/60 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg hover:border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors outline-none"
                               />
-                            </div>
                           </div>
 
-                          <div className="relative my-6">
+                      <div className="relative">
                             <div className="absolute inset-0 flex items-center">
-                              <span className="w-full border-t border-border/40" />
+                          <span className="w-full border-t border-gray-200" />
                             </div>
                             <div className="relative flex justify-center text-xs">
-                              <span className="bg-background/80 backdrop-blur-sm px-3 text-muted-foreground font-medium">or paste job description</span>
+                          <span className="bg-white px-2 text-gray-400">or</span>
                             </div>
                           </div>
 
                           <div>
-                            <label className="text-sm font-semibold mb-2.5 block text-foreground">Job Description</label>
+                        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
+                          Description
+                        </label>
                             <Textarea
-                              placeholder="Paste the job description here..."
+                          placeholder="Paste job description..."
                               value={jobDescription}
                               onChange={(e) => {
                                 const newDescription = e.target.value;
                                 setJobDescription(newDescription);
-                                // When description is manually changed, clear selectedJob and URL
-                                // This ensures manual description takes precedence
                                 if (newDescription && newDescription.trim() !== "") {
                                   setSelectedJob(null);
                                   setJobUrl("");
                                 }
                               }}
-                              rows={10}
-                              className="border-border/60 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all resize-y"
+                          rows={6}
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg hover:border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors outline-none resize-none"
                             />
                           </div>
                         </div>
 
-                        <div className="mt-8 pt-6 border-t border-border/50 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium text-muted-foreground">Your Credits</span>
-                            <div className="flex items-center gap-2">
-                              <Zap className="w-4 h-4 text-primary" />
-                              <span className="text-sm font-semibold tabular-nums text-foreground">
-                                {user?.credits ?? 0} / {user?.maxCredits ?? 300}
-                              </span>
-                              <span className="text-xs text-muted-foreground">credits</span>
-                            </div>
-                          </div>
-                          
-                          {/* Gmail Connection Status */}
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium text-muted-foreground">Gmail</span>
-                            {checkingGmail ? (
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                                Checking...
-                              </div>
-                            ) : gmailConnected ? (
-                              <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400">
-                                <Mail className="w-3 h-3" />
-                                Connected
-                              </div>
-                            ) : (
+                    {/* Find Recruiters - Subtle, inline */}
+                    <div className="flex items-center justify-between py-4 border-t border-gray-100">
+                      <span className="text-sm text-gray-600">
+                        {selectedJob?.company 
+                          ? `Find recruiters at ${selectedJob.company}`
+                          : 'Find recruiters'
+                        }
+                      </span>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span>
                               <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={async () => {
-                                  try {
-                                    const { getAuth } = await import('firebase/auth');
-                                    const auth = getAuth();
-                                    const firebaseUser = auth.currentUser;
-                                    
-                                    if (!firebaseUser) {
-                                      toast({
-                                        title: "Authentication Required",
-                                        description: "Please sign in to connect Gmail.",
-                                        variant: "destructive"
-                                      });
-                                      return;
-                                    }
-                                    
-                                    const token = await firebaseUser.getIdToken();
-                                    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
-                                    
-                                    const response = await fetch(`${API_BASE_URL}/api/google/oauth/start?t=${Date.now()}`, {
-                                      headers: { 
-                                        'Authorization': `Bearer ${token}`,
-                                        'Cache-Control': 'no-cache'
-                                      },
-                                      credentials: 'include',
-                                      mode: 'cors'
-                                    });
-                                    
-                                    if (!response.ok) {
-                                      throw new Error('Failed to start OAuth');
-                                    }
-                                    
-                                    const data = await response.json();
-                                    if (data.authUrl) {
-                                      window.location.href = data.authUrl;
-                                    }
-                                  } catch (error: any) {
-                                    toast({
-                                      title: "Error",
-                                      description: error.message || "Failed to connect Gmail. Please try again.",
-                                      variant: "destructive"
-                                    });
+                                disabled={!hasJobInfo || recruitersLoading || (user?.credits ?? 0) < 15}
+                                onClick={handleFindRecruiter}
+                                className={`
+                                  text-sm px-4 py-2 rounded-lg font-medium transition-colors
+                                  ${hasJobInfo && !recruitersLoading && (user?.credits ?? 0) >= 15
+                                    ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                                   }
-                                }}
-                                className="h-7 text-xs text-muted-foreground hover:text-foreground"
+                                `}
                               >
-                                <Mail className="w-3 h-3 mr-1.5" />
-                                Connect
+                                {recruitersLoading ? (
+                                  <>
+                                    <Loader2 className="w-3 h-3 mr-1.5 inline animate-spin" />
+                                    Finding...
+                                  </>
+                                ) : (
+                                  'Find Recruiters'
+                                )}
                               </Button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Action Buttons - Segmented Control Style */}
-                      <div className="space-y-3">
-                        <div className="bg-muted/30 rounded-lg p-1 border border-border/50 inline-flex gap-1 w-full">
-                          <Button
-                            variant="gradient"
-                            size="lg"
-                            onClick={handleOptimizeResume}
-                            disabled={isOptimizing || (!jobUrl && !jobDescription)}
-                            className="flex-1 relative overflow-hidden group transition-all hover:scale-[1.02]"
-                          >
-                            {isOptimizing ? (
-                              <>
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                Optimizing...
-                              </>
-                            ) : (
-                              <>
-                                <FileCheck className="w-4 h-4 mr-2" />
-                                <span className="font-semibold">Optimize Resume</span>
-                                <Badge variant="secondary" className="ml-2 bg-background/50 text-xs font-medium px-2 py-0.5">
-                                  {OPTIMIZATION_CREDIT_COST}
-                                </Badge>
-                              </>
-                            )}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="lg"
-                            onClick={handleGenerateCoverLetter}
-                            disabled={isGeneratingCoverLetter || (!jobUrl && !jobDescription)}
-                            className="flex-1 relative overflow-hidden group transition-all hover:scale-[1.02] hover:bg-background/50"
-                          >
-                            {isGeneratingCoverLetter ? (
-                              <>
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                Generating...
-                              </>
-                            ) : (
-                              <>
-                                <PenTool className="w-4 h-4 mr-2" />
-                                <span className="font-semibold">Cover Letter</span>
-                                <Badge variant="secondary" className="ml-2 bg-background/50 text-xs font-medium px-2 py-0.5">
-                                  {COVER_LETTER_CREDIT_COST}
-                                </Badge>
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                        
-                        {/* Find Recruiters Button - visible when job URL, description, or selected job is available */}
-                        {(selectedJob || jobUrl || jobDescription) && (
-                          <Button
-                            variant="outline"
-                            size="lg"
-                            onClick={handleFindRecruiter}
-                            disabled={recruitersLoading || (user?.credits ?? 0) < 15}
-                            className="w-full relative overflow-hidden group transition-all hover:scale-[1.02] hover:bg-blue-50 dark:hover:bg-blue-900/20 border-blue-200 dark:border-blue-800"
-                          >
-                            {recruitersLoading ? (
-                              <>
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                Finding Recruiters...
-                              </>
-                            ) : (
-                              <>
-                                <Users className="w-4 h-4 mr-2 text-blue-600" />
-                                <span className="font-semibold text-blue-600 dark:text-blue-400">Find Recruiters</span>
-                                <Badge variant="secondary" className="ml-2 bg-background/50 text-xs font-medium px-2 py-0.5">
-                                  15+ credits
-                                </Badge>
-                              </>
-                            )}
-                          </Button>
-                        )}
-                      </div>
+                            </span>
+                          </TooltipTrigger>
+                          {!hasJobInfo ? (
+                            <TooltipContent>
+                              <p>Enter a job URL or description to find recruiters</p>
+                            </TooltipContent>
+                          ) : (user?.credits ?? 0) < 15 ? (
+                            <TooltipContent>
+                              <p>You need at least 15 credits. You have {user?.credits ?? 0}.</p>
+                            </TooltipContent>
+                          ) : null}
+                        </Tooltip>
+                      </TooltipProvider>
                     </div>
 
-                      {/* Right: Results or Tips Panel */}
-                      <div className="space-y-6 min-w-0">
-                        {/* Show results if available */}
+                    {/* Recruiter Preview - Inline when available */}
+                    {recruiters.length > 0 && (
+                      <div className="border-t border-gray-100 pt-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-sm font-medium text-gray-900">
+                            {recruiters.length} recruiter{recruiters.length !== 1 ? 's' : ''} found
+                          </span>
+                          <button
+                            onClick={() => setActiveTab("recruiters")}
+                            className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1 transition-colors"
+                          >
+                            View all
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                        </div>
+                        <div className="space-y-1">
+                          {recruiters.slice(0, 3).map((recruiter, index) => {
+                            const initials = `${recruiter.FirstName?.[0] || ''}${recruiter.LastName?.[0] || ''}`.toUpperCase();
+                            const hasEmail = recruiter.Email && recruiter.Email !== "Not available";
+                            return (
+                              <div
+                                key={index}
+                                className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer group"
+                                onClick={() => setActiveTab("recruiters")}
+                              >
+                                <div className="w-9 h-9 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0">
+                                  {initials || '—'}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium text-gray-900 truncate">
+                                    {recruiter.FirstName} {recruiter.LastName}
+                                  </p>
+                                  <p className="text-xs text-gray-500 truncate">{recruiter.Title}</p>
+                                </div>
+                                {hasEmail ? (
+                                  <div className="flex items-center gap-1 text-green-600 flex-shrink-0">
+                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                    </svg>
+                                    <span className="text-xs">Email ready</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-gray-400 flex-shrink-0">No email</span>
+                                )}
+                                <svg className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {recruitersHasMore && (
+                          <p className="text-xs text-gray-500 mt-2">
+                            {recruitersMoreAvailable} more available ({recruitersMoreAvailable * 15} credits)
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Tab Selection - Segmented Control Style */}
+                    <div className="border-t border-gray-100 pt-4">
+                      <div className="flex border border-gray-200 rounded-lg overflow-hidden bg-white">
+                      <button
+                        onClick={() => setShowOptimizationModal(true)}
+                        disabled={(!jobUrl && !jobDescription)}
+                        className={cn(
+                          "flex-1 px-4 py-2.5 text-sm font-medium transition-colors relative",
+                          (!jobUrl && !jobDescription)
+                            ? 'bg-white text-gray-400 cursor-not-allowed'
+                            : optimizedResume
+                            ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600'
+                            : 'bg-white text-gray-600 hover:bg-gray-50'
+                        )}
+                      >
+                        <>
+                          <Sparkles className="w-3 h-3 mr-1.5 inline" />
+                          Resume
+                          <span className={`ml-1.5 ${optimizedResume ? 'text-blue-500' : 'text-gray-400'}`}>
+                            ({OPTIMIZATION_CREDIT_COST})
+                          </span>
+                        </>
+                      </button>
+                      <button
+                        onClick={handleGenerateCoverLetter}
+                        disabled={isGeneratingCoverLetter || (!jobUrl && !jobDescription)}
+                        className={`
+                          flex-1 px-4 py-2.5 text-sm font-medium transition-colors relative
+                          ${isGeneratingCoverLetter
+                            ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600 cursor-wait'
+                            : (!jobUrl && !jobDescription)
+                            ? 'bg-white text-gray-400 cursor-not-allowed'
+                            : coverLetter
+                            ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600'
+                            : 'bg-white text-gray-600 hover:bg-gray-50'
+                          }
+                        `}
+                      >
+                        {isGeneratingCoverLetter ? (
+                          <>
+                            <Loader2 className="w-3 h-3 mr-1.5 inline animate-spin" />
+                            Generating...
+                          </>
+                        ) : (
+                          <>
+                            Cover Letter
+                            <span className={`ml-1.5 ${coverLetter ? 'text-blue-500' : 'text-gray-400'}`}>
+                              ({COVER_LETTER_CREDIT_COST})
+                            </span>
+                          </>
+                        )}
+                      </button>
+                      </div>
+                    </div>
+                        
+                    {/* Results Section */}
                         {isOptimizing && <ResumeRendererSkeleton />}
-                        {optimizedResume && <ATSScoreDisplay score={optimizedResume.atsScore} />}
 
                         {optimizedResume && (
-                          <div className="bg-background/80 backdrop-blur-sm rounded-lg border border-border/60 p-6 shadow-sm">
-                            <div className="flex items-center justify-between mb-4">
-                              <h3 className="text-lg font-semibold flex items-center gap-2">
-                                <FileCheck className="w-5 h-5 text-green-500" />
-                                Optimized Resume
-                              </h3>
+                      <div className="space-y-4 border-t border-gray-200 pt-6">
+                        <ATSScoreDisplay score={optimizedResume.atsScore} />
+                        
+                        <div>
+                          <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-sm font-semibold text-gray-900">Optimized Resume</h3>
                               <ResumeActions 
                                 resumeData={optimizedResume}
                                 resumeRef={resumeRef}
@@ -1393,122 +1472,135 @@ const JobBoardPage: React.FC = () => {
                               />
                             </div>
                             {optimizedResume.keywordsAdded.length > 0 && (
-                              <div className="mb-4">
-                                <p className="text-sm text-muted-foreground mb-2">Keywords added:</p>
-                                <div className="flex flex-wrap gap-2">
+                            <div className="mb-3">
+                              <p className="text-xs text-gray-500 mb-1.5">Keywords added</p>
+                              <div className="flex flex-wrap gap-1.5">
                                   {optimizedResume.keywordsAdded.map((kw, i) => (
-                                    <Badge key={i} variant="outline">+ {kw}</Badge>
+                                  <span key={i} className="text-xs px-2 py-0.5 bg-gray-100 text-gray-700 rounded">
+                                    + {kw}
+                                  </span>
                                   ))}
                                 </div>
                               </div>
                             )}
-                            <div ref={resumeRef} className="border rounded-lg shadow-sm overflow-hidden bg-white">
+                          <div ref={resumeRef} className="border border-gray-200 rounded-md overflow-hidden bg-white">
                               <ResumeRenderer 
                                 resume={normalizeResumeData(optimizedResume)}
                                 className="theme-classic"
                               />
+                          </div>
                             </div>
                           </div>
                         )}
 
                         {coverLetter && (
-                          <div className="bg-background/80 backdrop-blur-sm rounded-lg border border-border/60 p-6 shadow-sm">
-                          <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-semibold flex items-center gap-2">
-                              <PenTool className="w-5 h-5 text-primary" />
-                              Cover Letter
-                            </h3>
+                      <div className="border-t border-gray-200 pt-6">
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="text-sm font-semibold text-gray-900">Cover Letter</h3>
                             <div className="flex gap-2">
-                              <Button variant="ghost" size="sm" onClick={() => handleCopyToClipboard(coverLetter.content, "Cover letter")}>
-                                <Copy className="w-4 h-4" />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleCopyToClipboard(coverLetter.content, "Cover letter")}
+                              className="h-7 px-2 text-gray-600 hover:text-gray-900"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
                               </Button>
-                              <Button variant="ghost" size="sm" onClick={() => handleDownload(coverLetter.content, "cover-letter.txt")}>
-                                <Download className="w-4 h-4" />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDownload(coverLetter.content, "cover-letter.txt")}
+                              className="h-7 px-2 text-gray-600 hover:text-gray-900"
+                            >
+                              <Download className="w-3.5 h-3.5" />
                               </Button>
                             </div>
                           </div>
                           {coverLetter.highlights.length > 0 && (
-                            <div className="mb-4">
-                              <p className="text-sm text-muted-foreground mb-2">Key highlights:</p>
-                              <div className="flex flex-wrap gap-2">
+                          <div className="mb-3">
+                            <p className="text-xs text-gray-500 mb-1.5">Highlights</p>
+                            <div className="flex flex-wrap gap-1.5">
                                 {coverLetter.highlights.map((h, i) => (
-                                  <Badge key={i} variant="secondary">{h}</Badge>
+                                <span key={i} className="text-xs px-2 py-0.5 bg-gray-100 text-gray-700 rounded">
+                                  {h}
+                                </span>
                                 ))}
                               </div>
                             </div>
                           )}
-                          <div className="bg-muted/50 rounded-lg p-4 max-h-64 overflow-y-auto">
-                            <p className="text-sm whitespace-pre-wrap">{coverLetter.content}</p>
+                        <div className="bg-gray-50 rounded-md p-4 max-h-96 overflow-y-auto border border-gray-200">
+                          <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{coverLetter.content}</p>
                           </div>
                           </div>
                         )}
 
-                        {/* Recruiter Count Message - visible when recruiters are found */}
-                        {recruiters.length > 0 && (
-                          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mt-6">
-                            <div className="flex items-center gap-2">
-                              <Users className="h-5 w-5 text-blue-600" />
-                              <div>
-                                <p className="text-sm font-medium text-blue-900 dark:text-blue-200">
-                                  Found {recruiters.length} recruiter{recruiters.length !== 1 ? 's' : ''} at {selectedJob?.company || 'this company'}
-                                </p>
-                                {recruitersHasMore && (
-                                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
-                                    {recruitersMoreAvailable} more available. You need {recruitersMoreAvailable * 15} more credits to view them.
-                                  </p>
-                                )}
-                                <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                                  View all recruiters in the Recruiters tab →
-                                </p>
-                              </div>
-                            </div>
-                          </div>
+                    {/* Status Footer - Subtle */}
+                    <div className="flex items-center justify-between text-xs text-gray-500 pt-4 border-t border-gray-100">
+                      <div className="flex items-center gap-4">
+                        <span>{user?.credits ?? 0} / {user?.maxCredits ?? 300} credits</span>
+                        {gmailConnected && (
+                          <span className="flex items-center gap-1">
+                            <svg className="w-3.5 h-3.5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                            </svg>
+                            Gmail connected
+                          </span>
                         )}
-                        
-                        {/* Tips Panel - show when no results */}
-                        {!optimizedResume && !coverLetter && (
-                          <div className="bg-gradient-to-br from-primary/5 via-background/80 to-accent/5 backdrop-blur-sm rounded-lg border border-border/60 p-6 lg:p-8 shadow-lg shadow-black/5 h-full flex flex-col relative overflow-hidden">
-                            {/* Subtle gradient overlay */}
-                            <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent pointer-events-none"></div>
-                            <div className="flex-1 flex items-center justify-center relative z-10">
-                              <div className="w-full max-w-md">
-                                <EmptyState
-                                  icon={<Wand2 className="w-12 h-12 text-primary" />}
-                                  title="Ready to optimize"
-                                  description="Select a job from the list above or paste a job description to get your ATS-optimized resume and personalized cover letter."
-                                  action={
-                                    <div className="space-y-4 mt-8">
-                                      <div className="bg-primary/8 rounded-lg p-5 border border-primary/15 shadow-sm">
-                                        <h4 className="text-sm font-bold mb-3 flex items-center gap-2 text-foreground">
-                                          <Zap className="w-4 h-4 text-primary" />
-                                          What you'll get:
-                                        </h4>
-                                        <div className="space-y-3">
-                                          <div className="flex items-start gap-2.5 text-sm">
-                                            <CheckCircle2 className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
-                                            <span className="text-muted-foreground font-normal">ATS keyword optimization to pass screening systems</span>
-                                          </div>
-                                          <div className="flex items-start gap-2.5 text-sm">
-                                            <CheckCircle2 className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
-                                            <span className="text-muted-foreground font-normal">Resume formatting improvements for better readability</span>
-                                          </div>
-                                          <div className="flex items-start gap-2.5 text-sm">
-                                            <CheckCircle2 className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
-                                            <span className="text-muted-foreground font-normal">Personalized cover letter tailored to the job</span>
-                                          </div>
-                                        </div>
-                                      </div>
-                                      <div className="bg-muted/40 rounded-lg p-4 border border-border/50 backdrop-blur-sm">
-                                        <p className="text-xs text-muted-foreground leading-relaxed font-normal">
-                                          <strong className="text-foreground font-semibold">Tip:</strong> The more detailed the job description, the better we can optimize your resume to match the role's requirements.
-                                        </p>
-                                      </div>
-                                    </div>
-                                  }
-                                />
-                              </div>
-                            </div>
-                          </div>
+                        {!gmailConnected && !checkingGmail && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                const { getAuth } = await import('firebase/auth');
+                                const auth = getAuth();
+                                const firebaseUser = auth.currentUser;
+                                
+                                if (!firebaseUser) {
+                                  toast({
+                                    title: "Authentication Required",
+                                    description: "Please sign in to connect Gmail.",
+                                    variant: "destructive"
+                                  });
+                                  return;
+                                }
+                                
+                                const token = await firebaseUser.getIdToken();
+                                const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
+                                
+                                const response = await fetch(`${API_BASE_URL}/api/google/oauth/start?t=${Date.now()}`, {
+                                  headers: { 
+                                    'Authorization': `Bearer ${token}`,
+                                    'Cache-Control': 'no-cache'
+                                  },
+                                  credentials: 'include',
+                                  mode: 'cors'
+                                });
+                                
+                                if (!response.ok) {
+                                  throw new Error('Failed to start OAuth');
+                                }
+                                
+                                const data = await response.json();
+                                if (data.authUrl) {
+                                  window.location.href = data.authUrl;
+                                }
+                              } catch (error: any) {
+                                toast({
+                                  title: "Error",
+                                  description: error.message || "Failed to connect Gmail. Please try again.",
+                                  variant: "destructive"
+                                });
+                              }
+                            }}
+                            className="hover:text-gray-700 transition-colors"
+                          >
+                            Connect Gmail
+                          </button>
+                        )}
+                        {checkingGmail && (
+                          <span className="flex items-center gap-1">
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            Checking...
+                          </span>
                         )}
                       </div>
                     </div>
@@ -1616,7 +1708,7 @@ const JobBoardPage: React.FC = () => {
                                           <Button
                                             variant="ghost"
                                             size="sm"
-                                            onClick={() => window.open(recruiter.LinkedIn, '_blank')}
+                                            onClick={() => window.open(normalizeLinkedInUrl(recruiter.LinkedIn), '_blank', 'noopener,noreferrer')}
                                             className="p-1 h-auto text-primary hover:text-primary/80 cursor-pointer"
                                             title="View LinkedIn"
                                           >
@@ -1647,7 +1739,7 @@ const JobBoardPage: React.FC = () => {
                                             <Button
                                               variant="ghost"
                                               size="icon"
-                                              onClick={() => window.open(recruiter.LinkedIn, '_blank')}
+                                              onClick={() => window.open(normalizeLinkedInUrl(recruiter.LinkedIn), '_blank', 'noopener,noreferrer')}
                                               className="h-8 w-8"
                                               title="View LinkedIn"
                                             >
@@ -1748,6 +1840,64 @@ const JobBoardPage: React.FC = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Resume Optimization V2 Modal */}
+      <ResumeOptimizationModal
+        isOpen={showOptimizationModal}
+        onClose={() => setShowOptimizationModal(false)}
+        jobDescription={selectedJob?.description || jobDescription || ''}
+        jobTitle={selectedJob?.title || parsedJobData?.title || ''}
+        company={selectedJob?.company || parsedJobData?.company || ''}
+        jobUrl={selectedJob?.url || jobUrl || ''}
+        onSuggestionsReceived={(result) => {
+          setSuggestionsResult(result);
+          setShowSuggestionsView(true);
+          // Refresh credits display
+          if (result.creditsRemaining !== undefined && user) {
+            updateCredits(result.creditsRemaining);
+          }
+        }}
+        onTemplateRebuildReceived={(result) => {
+          setTemplateRebuildResult(result);
+          // Handle template rebuild - convert to OptimizedResume format for existing display
+          if (result.structured_content) {
+            const convertedResume: OptimizedResume = {
+              name: result.structured_content.contact?.name,
+              contact: result.structured_content.contact,
+              Summary: result.structured_content.summary,
+              Experience: result.structured_content.experience,
+              Education: result.structured_content.education,
+              Skills: result.structured_content.skills,
+              Projects: result.structured_content.projects,
+              atsScore: {
+                overall: result.ats_score_estimate || 0,
+                keywords: 0,
+                formatting: 0,
+                relevance: 0,
+                suggestions: [],
+              },
+              keywordsAdded: result.keywords_added || [],
+              sectionsOptimized: [],
+            };
+            setOptimizedResume(convertedResume);
+          }
+          // Refresh credits display
+          if (result.creditsRemaining !== undefined && user) {
+            updateCredits(result.creditsRemaining);
+          }
+        }}
+      />
+
+      {/* Suggestions View Modal */}
+      {suggestionsResult && (
+        <SuggestionsView
+          result={suggestionsResult}
+          isOpen={showSuggestionsView}
+          onClose={() => {
+            setShowSuggestionsView(false);
+          }}
+        />
+      )}
     </SidebarProvider>
   );
 };

@@ -62,10 +62,12 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
         try {
           const file = onboardingData.profile.resume;
           
-          // Validate file type (backend only supports PDF)
-          if (!file.name.toLowerCase().endsWith('.pdf')) {
-            console.warn('⚠️ Resume must be a PDF file, skipping resume upload');
-            toast.warning('Resume must be a PDF file. You can upload it later in Account Settings.');
+          // Validate file type
+          const extension = file.name.split('.').pop()?.toLowerCase();
+          const validExtensions = ['pdf', 'docx', 'doc'];
+          if (!extension || !validExtensions.includes(extension)) {
+            console.warn('⚠️ Resume must be a PDF, DOCX, or DOC file, skipping resume upload');
+            toast.warning('Resume must be a PDF, DOCX, or DOC file. You can upload it later in Account Settings.');
           } else {
             // Parse and upload resume via backend API (backend handles Storage upload and Firestore save)
             const formData = new FormData();

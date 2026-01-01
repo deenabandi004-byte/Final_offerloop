@@ -573,6 +573,128 @@ export interface GenerateCoverLetterResponse {
 }
 
 // ================================
+// Resume Optimization V2 Types
+// ================================
+
+export interface ResumeCapabilities {
+  canOptimizeWithFormatting: boolean;
+  canEditDirectly: boolean;
+  requiresConversion: boolean;
+  supportsTemplateRebuild: boolean;
+  recommendedMode: 'direct_edit' | 'suggestions' | 'template_rebuild';
+  availableModes?: OptimizationMode[];
+}
+
+export interface OptimizationMode {
+  id: 'direct_edit' | 'suggestions' | 'template_rebuild';
+  name: string;
+  description: string;
+  recommended: boolean;
+  preservesFormatting: boolean;
+}
+
+export interface ResumeInfo {
+  hasResume: boolean;
+  resumeFileName?: string;
+  resumeFileType?: 'pdf' | 'docx' | 'doc';
+  resumeCapabilities?: ResumeCapabilities;
+  resumeUploadedAt?: string;
+}
+
+export interface OptimizationSuggestion {
+  section: string;
+  priority: 'high' | 'medium' | 'low';
+  current_text: string;
+  suggested_text: string;
+  reason: string;
+}
+
+export interface KeywordToAdd {
+  keyword: string;
+  where: string;
+  reason: string;
+}
+
+export interface ScoreBreakdown {
+  keyword_match: number;
+  formatting: number;
+  relevance: number;
+}
+
+export interface SuggestionsResult {
+  mode: 'suggestions';
+  success: boolean;
+  formatting_preserved: boolean;
+  suggestions: OptimizationSuggestion[];
+  keywords_to_add: KeywordToAdd[];
+  keywords_found: string[];
+  overall_tips: string[];
+  ats_score_estimate: number;
+  score_breakdown?: ScoreBreakdown;
+  message: string;
+  creditsUsed: number;
+  creditsRemaining: number;
+}
+
+export interface TemplateRebuildResult {
+  mode: 'template_rebuild';
+  success: boolean;
+  formatting_preserved: boolean;
+  structured_content: {
+    contact: {
+      name: string;
+      email: string;
+      phone: string;
+      location: string;
+      linkedin?: string;
+    };
+    summary: string;
+    experience: Array<{
+      title: string;
+      company: string;
+      location: string;
+      startDate: string;
+      endDate: string;
+      bullets: string[];
+    }>;
+    education: Array<{
+      degree: string;
+      school: string;
+      location: string;
+      graduationDate: string;
+      gpa?: string;
+      coursework?: string[];
+    }>;
+    skills: {
+      technical?: string[];
+      frameworks?: string[];
+      tools?: string[];
+    };
+    projects?: Array<{
+      name: string;
+      description: string;
+      technologies: string[];
+      bullets: string[];
+    }>;
+  };
+  keywords_added: string[];
+  ats_score_estimate: number;
+  message: string;
+  creditsUsed: number;
+  creditsRemaining: number;
+}
+
+export interface DirectEditResult {
+  mode: 'direct_edit';
+  success: boolean;
+  formatting_preserved: boolean;
+  replacements_made: number;
+  message: string;
+}
+
+export type OptimizationResult = SuggestionsResult | TemplateRebuildResult;
+
+// ================================
 // ApiService
 // ================================
 class ApiService {
@@ -1445,6 +1567,99 @@ async regenerateOutboxReply(
     return response;
   }
 
+  /**
+   * Get the current user's resume capabilities.
+   * Use this to determine what optimization modes are available.
+   */
+  async getResumeCapabilities(): Promise<ResumeInfo> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<ResumeInfo>('/job-board/resume-capabilities', {
+      method: 'GET',
+      headers,
+    });
+  }
+
+  /**
+   * Optimize resume with explicit mode selection.
+   * 
+   * @param jobDescription - The job description to optimize for (min 50 chars)
+   * @param mode - The optimization mode: 'direct_edit', 'suggestions', or 'template_rebuild'
+   * @param jobTitle - Optional job title
+   * @param company - Optional company name
+   * @param jobUrl - Optional job URL to parse
+   * 
+   * @returns For direct_edit: Blob (PDF file)
+   * @returns For suggestions: SuggestionsResult
+   * @returns For template_rebuild: TemplateRebuildResult
+   */
+  async optimizeResumeV2(
+    jobDescription: string,
+    mode: 'direct_edit' | 'suggestions' | 'template_rebuild',
+    jobTitle?: string,
+    company?: string,
+    jobUrl?: string
+  ): Promise<Blob | SuggestionsResult | TemplateRebuildResult> {
+    const headers = await this.getAuthHeaders();
+    
+    const response = await fetch(`${API_BASE_URL}/job-board/optimize-resume-v2`, {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        jobDescription,
+        mode,
+        jobTitle,
+        company,
+        jobUrl,
+      }),
+    });
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Optimization failed' }));
+      throw new Error(error.error || 'Optimization failed');
+    }
+    
+    const contentType = response.headers.get('content-type');
+    
+    if (contentType?.includes('application/pdf')) {
+      // Direct edit mode - returns PDF blob
+      return response.blob();
+    } else {
+      // Suggestions or template rebuild - returns JSON
+      return response.json();
+    }
+  }
+
+  /**
+   * Helper function to download a PDF blob.
+   */
+  downloadPdfBlob(blob: Blob, filename: string = 'optimized_resume.pdf'): void {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Type guard to check if result is SuggestionsResult
+   */
+  isSuggestionsResult(result: OptimizationResult): result is SuggestionsResult {
+    return result.mode === 'suggestions';
+  }
+
+  /**
+   * Type guard to check if result is TemplateRebuildResult
+   */
+  isTemplateRebuildResult(result: OptimizationResult): result is TemplateRebuildResult {
+    return result.mode === 'template_rebuild';
+  }
+
   async parseJobUrl(params: { url: string }): Promise<{ job?: { title?: string; company?: string; location?: string; description?: string }; error?: string }> {
     const headers = await this.getAuthHeaders();
     return this.makeRequest<{ job?: { title?: string; company?: string; location?: string; description?: string }; error?: string }>(
@@ -1487,3 +1702,35 @@ async regenerateOutboxReply(
 
 export const apiService = new ApiService();
 export default apiService;
+
+// ================================
+// Standalone Helper Functions
+// ================================
+
+/**
+ * Helper function to download a PDF blob.
+ */
+export function downloadPdfBlob(blob: Blob, filename: string = 'optimized_resume.pdf'): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Type guard to check if result is SuggestionsResult
+ */
+export function isSuggestionsResult(result: OptimizationResult): result is SuggestionsResult {
+  return result.mode === 'suggestions';
+}
+
+/**
+ * Type guard to check if result is TemplateRebuildResult
+ */
+export function isTemplateRebuildResult(result: OptimizationResult): result is TemplateRebuildResult {
+  return result.mode === 'template_rebuild';
+}

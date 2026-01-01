@@ -20,6 +20,7 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Check, ChevronsUpDown } from "lucide-react";
+import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileTypes";
 
 // Constants for dropdowns
 const months = [
@@ -212,8 +213,8 @@ export default function AccountSettings() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-      setUploadError("Please upload a PDF file");
+    if (!isValidResumeFile(file)) {
+      setUploadError("Please upload a PDF, DOCX, or DOC file");
       return;
     }
 
@@ -911,7 +912,7 @@ export default function AccountSettings() {
                                   <input
                                     id="resume-replace"
                                     type="file"
-                                    accept=".pdf"
+                                    accept={ACCEPTED_RESUME_TYPES.accept}
                                     onChange={handleResumeUpload}
                                     className="hidden"
                                     disabled={isUploading}
@@ -950,7 +951,7 @@ export default function AccountSettings() {
                             <input
                               id="resume-upload"
                               type="file"
-                              accept=".pdf"
+                              accept={ACCEPTED_RESUME_TYPES.accept}
                               onChange={handleResumeUpload}
                               className="hidden"
                               disabled={isUploading}

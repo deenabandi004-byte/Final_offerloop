@@ -28,6 +28,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { PromptSearchFlow } from "@/components/search/PromptSearchFlow";
 import { trackFeatureActionCompleted, trackError } from "../lib/analytics";
 import ContactImport from "@/components/ContactImport";
+import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileTypes";
 
 // Session storage key for Scout auto-populate
 const SCOUT_AUTO_POPULATE_KEY = 'scout_auto_populate';
@@ -504,10 +505,10 @@ const ContactSearchPage: React.FC = () => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (file.type !== "application/pdf") {
+    if (!isValidResumeFile(file)) {
       toast({
         title: "Invalid file type",
-        description: "Please upload a PDF file.",
+        description: "Please upload a PDF, DOCX, or DOC file.",
         variant: "destructive",
       });
       return;
@@ -516,7 +517,7 @@ const ContactSearchPage: React.FC = () => {
     if (file.size > 10 * 1024 * 1024) {
       toast({
         title: "File Too Large",
-        description: "Please upload a PDF smaller than 10MB.",
+        description: "Please upload a file smaller than 10MB.",
         variant: "destructive",
       });
       return;
@@ -555,10 +556,10 @@ const ContactSearchPage: React.FC = () => {
     const file = e.dataTransfer.files?.[0];
     if (!file) return;
 
-    if (file.type !== "application/pdf") {
+    if (!isValidResumeFile(file)) {
       toast({
         title: "Invalid file type",
-        description: "Please upload a PDF file.",
+        description: "Please upload a PDF, DOCX, or DOC file.",
         variant: "destructive",
       });
       return;
@@ -567,7 +568,7 @@ const ContactSearchPage: React.FC = () => {
     if (file.size > 10 * 1024 * 1024) {
       toast({
         title: "File Too Large",
-        description: "Please upload a PDF smaller than 10MB.",
+        description: "Please upload a file smaller than 10MB.",
         variant: "destructive",
       });
       return;
@@ -1453,7 +1454,7 @@ const ContactSearchPage: React.FC = () => {
                             >
                               <input
                                 type="file"
-                                accept=".pdf"
+                                accept={ACCEPTED_RESUME_TYPES.accept}
                                 onChange={handleFileUpload}
                                 className="hidden"
                                 id="resume-upload"
@@ -1466,7 +1467,10 @@ const ContactSearchPage: React.FC = () => {
                                     ? "Uploading resume..." 
                                     : "Drag and drop your resume here, or click to upload"}
                                 </p>
-                                <p className="text-xs text-muted-foreground mt-1">PDF only, max 10MB</p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Accepted: PDF, DOCX, DOC (max 10MB)
+                                  <span className="text-blue-600 ml-1">(DOCX recommended)</span>
+                                </p>
                               </div>
                             </div>
                           )}

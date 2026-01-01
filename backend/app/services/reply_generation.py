@@ -220,6 +220,15 @@ WRITING GUIDELINES:
 {"8. Ask a specific question related to the target role" if is_targeted_outreach else "8. Ask about their experience or journey"}
 9. NEVER write incomplete sentences - if information is missing, write around it naturally
 {"10. Include relevant keywords naturally from the target role context" if is_targeted_outreach else ""}
+11. CRITICAL: Use proper grammar and punctuation - always use apostrophes in contractions:
+    - "I'm" not "Im"
+    - "I'd" not "Id" 
+    - "couldn't" not "couldnt"
+    - "I've" not "Ive"
+    - "you're" not "youre"
+    - "it's" not "its" (when meaning "it is")
+    - "that's" not "thats"
+    Always use proper English grammar with correct apostrophes in contractions.
 
 {"SUBJECT LINE GUIDANCE FOR TARGETED OUTREACH:" if is_targeted_outreach else ""}
 {"- Include the role or company naturally: 'Quick question about BA roles at McKinsey' or 'Fellow Trojan exploring consulting'" if is_targeted_outreach else ""}
@@ -238,7 +247,7 @@ Return ONLY valid JSON:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You write authentic, personalized networking emails that feel genuine and human. Each email should be unique, tailored to the recipient, and reference specific details from the sender's background. Write naturally - like a real person reaching out, not a template. Use only standard ASCII characters."},
+                {"role": "system", "content": "You write authentic, personalized networking emails that feel genuine and human. Each email should be unique, tailored to the recipient, and reference specific details from the sender's background. Write naturally - like a real person reaching out, not a template. Use only standard ASCII characters. CRITICAL: Always use proper grammar with correct apostrophes in contractions (I'm, I'd, couldn't, I've, you're, it's, that's, etc.). Never write 'Im', 'Id', 'couldnt', 'Ive', 'youre', 'thats' - always include the apostrophe."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=2500,  # Increased for more detailed emails

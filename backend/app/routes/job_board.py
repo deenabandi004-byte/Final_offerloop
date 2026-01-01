@@ -24,6 +24,8 @@ from app.services.auth import deduct_credits_atomic, refund_credits_atomic, chec
 from app.services.openai_client import get_async_openai_client, get_openai_client
 from app.services.ats_scorer import calculate_ats_score
 from app.services.recruiter_finder import find_recruiters, determine_job_type
+from app.services.resume_optimizer_v2 import optimize_resume_v2 as run_resume_optimization
+from app.services.resume_capabilities import get_capabilities
 from firebase_admin import firestore
 
 job_board_bp = Blueprint("job_board", __name__, url_prefix="/api/job-board")
@@ -2411,6 +2413,43 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
                         job_data["location"] = location_part
                         print(f"[JobBoard] Found beBee location: {job_data['location']}")
             
+        # Apple jobs parsing
+        elif "jobs.apple.com" in url:
+            print(f"[JobBoard] Parsing Apple jobs URL: {url}")
+            # Apple typically has the title in h1 or title tag
+            title_elem = soup.find("h1") or soup.find("title")
+            if title_elem:
+                title_text = title_elem.get_text(strip=True)
+                # Clean up title (remove " - Jobs - Careers at Apple" suffix)
+                if " - " in title_text:
+                    title_text = title_text.split(" - ")[0]
+                job_data["title"] = title_text[:200]
+                print(f"[JobBoard] Found Apple title: {job_data['title']}")
+            
+            # Company is always Apple for jobs.apple.com
+            job_data["company"] = "Apple"
+            print(f"[JobBoard] Set company to Apple")
+            
+            # Try to find description
+            desc_selectors = [
+                "[class*='description']",
+                "[class*='job-description']",
+                "[class*='content']",
+                "article",
+                "[id*='description']",
+                "section[class*='description']",
+                "div[class*='details']"
+            ]
+            for selector in desc_selectors:
+                elem = soup.select_one(selector)
+                if elem:
+                    desc_text = elem.get_text(strip=True)
+                    if desc_text and len(desc_text) > 50:
+                        if "lorem ipsum" not in desc_text.lower()[:200]:
+                            job_data["description"] = desc_text[:5000]
+                            print(f"[JobBoard] Found Apple description: {len(job_data['description'])} chars")
+                            break
+        
         # Generic fallback
         else:
             print(f"[JobBoard] Using generic fallback parsing for URL: {url}")
@@ -2450,6 +2489,73 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
                         job_data["company"] = company_text[:100]
                         print(f"[JobBoard] Found company: {job_data['company']}")
                         break
+            
+            # If company not found via selectors, try extracting from title
+            if not job_data["company"] and job_data["title"]:
+                title = job_data["title"]
+                # Pattern 1: "Careers at [Company]" or "Jobs at [Company]"
+                match = re.search(r'(?:Careers|Jobs)\s+at\s+([A-Za-z0-9\s&\.]+?)(?:\s*[-–—]|\s*\||\s*$)', title, re.IGNORECASE)
+                if match:
+                    company = match.group(1).strip()
+                    # Clean up common suffixes
+                    company = re.sub(r'\s*(Jobs|Careers|Internships).*$', '', company, flags=re.IGNORECASE)
+                    if len(company) > 1 and len(company) < 100:
+                        job_data["company"] = company
+                        print(f"[JobBoard] Extracted company from title (pattern 1): {job_data['company']}")
+                
+                # Pattern 2: "[Company] Careers" or "[Company] Jobs"
+                if not job_data["company"]:
+                    match = re.search(r'^([A-Za-z0-9\s&\.]+?)\s+(?:Careers|Jobs|Internships)', title, re.IGNORECASE)
+                    if match:
+                        company = match.group(1).strip()
+                        if len(company) > 1 and len(company) < 100:
+                            job_data["company"] = company
+                            print(f"[JobBoard] Extracted company from title (pattern 2): {job_data['company']}")
+                
+                # Pattern 3: "Title - Company" (if title ends with company name)
+                if not job_data["company"] and " - " in title:
+                    parts = title.split(" - ")
+                    if len(parts) >= 2:
+                        # Check if last part looks like a company name (not a location)
+                        last_part = parts[-1].strip()
+                        # If it doesn't look like a location (no commas, not too long), treat as company
+                        if "," not in last_part and len(last_part) < 50 and not any(word in last_part.lower() for word in ["jobs", "careers", "internships", "view", "apply"]):
+                            job_data["company"] = last_part
+                            print(f"[JobBoard] Extracted company from title suffix: {job_data['company']}")
+            
+            # If still no company, try extracting from URL domain
+            # Only do this for direct company career pages, not job boards
+            if not job_data["company"]:
+                try:
+                    parsed_url = urlparse(url)
+                    domain = parsed_url.netloc.lower()
+                    
+                    # Skip job board sites - they're not company career pages
+                    job_board_domains = [
+                        "linkedin.com", "indeed.com", "glassdoor.com", "monster.com",
+                        "ziprecruiter.com", "simplyhired.com", "careerbuilder.com",
+                        "bebee.com", "dice.com", "stackoverflow.com", "github.com"
+                    ]
+                    is_job_board = any(jb in domain for jb in job_board_domains)
+                    
+                    if not is_job_board and domain:
+                        # Remove common prefixes
+                        domain = domain.replace("www.", "").replace("jobs.", "").replace("careers.", "")
+                        # Get the main domain part (before first dot)
+                        domain_parts = domain.split(".")
+                        if domain_parts:
+                            main_domain = domain_parts[0]
+                            # Capitalize first letter
+                            if main_domain and len(main_domain) > 2:
+                                company = main_domain.capitalize()
+                                # Handle multi-word domains (e.g., "apple-com" -> "Apple Com" -> "Apple Com")
+                                company = company.replace("-", " ").title()
+                                # Handle common patterns
+                                company = company.replace(" Com", "").replace(" Inc", "").replace(" Corp", "")
+                                job_data["company"] = company
+                                print(f"[JobBoard] Extracted company from URL domain: {job_data['company']}")
+                except Exception as e:
+                    print(f"[JobBoard] Error extracting company from URL: {e}")
                     
             # Try multiple description selectors
             desc_selectors = [
@@ -3972,6 +4078,348 @@ def optimize_resume():
         }), get_status_code("ai_error")
 
 
+@job_board_bp.route("/resume-capabilities", methods=["GET"])
+@require_firebase_auth
+def get_resume_capabilities_endpoint():
+    """
+    Get the current user's resume capabilities for frontend UX decisions.
+    
+    Returns:
+        - hasResume: bool
+        - resumeFileName: str
+        - resumeFileType: str (pdf, docx, doc)
+        - resumeCapabilities: dict with available modes
+    """
+    try:
+        uid = request.firebase_user.get('uid')
+        
+        db = get_db()
+        user_doc = db.collection('users').document(uid).get()
+        
+        if not user_doc.exists:
+            return jsonify({"error": "User not found"}), 404
+        
+        user_data = user_doc.to_dict()
+        
+        # Get file type, defaulting to pdf for old uploads
+        file_type = user_data.get('resumeFileType', 'pdf')
+        
+        # Get capabilities - either stored or computed
+        capabilities = user_data.get('resumeCapabilities')
+        if not capabilities:
+            # Compute capabilities for old uploads that don't have them stored
+            capabilities = get_capabilities(file_type)
+            # Add available modes (inline logic to avoid importing private function)
+            modes = []
+            if file_type == 'docx':
+                modes.append({
+                    'id': 'direct_edit',
+                    'name': 'Format-Preserving Optimization',
+                    'description': 'Optimize content while keeping your exact formatting, fonts, and layout.',
+                    'recommended': True,
+                    'preservesFormatting': True,
+                })
+            if file_type in ['pdf', 'doc']:
+                modes.append({
+                    'id': 'suggestions',
+                    'name': 'Suggestions Mode',
+                    'description': 'Get specific ATS improvements to apply yourself. Your original formatting stays intact.',
+                    'recommended': file_type == 'pdf',
+                    'preservesFormatting': True,
+                })
+            modes.append({
+                'id': 'template_rebuild',
+                'name': 'Template Rebuild',
+                'description': 'Rebuild your resume in a clean, ATS-optimized template with fully optimized content.',
+                'recommended': False,
+                'preservesFormatting': False,
+            })
+            capabilities['availableModes'] = modes
+        
+        return jsonify({
+            "hasResume": bool(user_data.get('resumeUrl')),
+            "resumeFileName": user_data.get('resumeFileName', 'resume.pdf'),
+            "resumeFileType": file_type,
+            "resumeCapabilities": capabilities,
+            "resumeUploadedAt": user_data.get('resumeUploadedAt')
+        })
+        
+    except Exception as e:
+        print(f"[ResumeCapabilities] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@job_board_bp.route("/optimize-resume-v2", methods=["POST"])
+@require_firebase_auth
+def optimize_resume_v2():
+    """
+    Optimize resume with explicit mode selection.
+    
+    Request body:
+        - jobDescription: str (required, min 50 chars)
+        - mode: str (required) - 'direct_edit', 'suggestions', or 'template_rebuild'
+        - jobTitle: str (optional)
+        - company: str (optional)
+        - jobUrl: str (optional) - will be parsed if provided
+    
+    Returns:
+        - For direct_edit: PDF file download
+        - For suggestions: JSON with suggestions
+        - For template_rebuild: JSON with structured content
+    """
+    import tempfile
+    from flask import Response
+    
+    user_id = None
+    file_path = None
+    
+    try:
+        # Get request data
+        data = request.get_json(force=True, silent=True) or {}
+        user_id = request.firebase_user.get('uid')
+        
+        job_url = data.get("jobUrl")
+        job_description = data.get("jobDescription", "")
+        job_title = data.get("jobTitle", "")
+        company = data.get("company", "")
+        mode = data.get("mode")
+        
+        print(f"\n[JobBoardV2] ========================================")
+        print(f"[JobBoardV2] Resume Optimization V2 Request")
+        print(f"[JobBoardV2] User: {user_id}")
+        print(f"[JobBoardV2] Mode: {mode}")
+        print(f"[JobBoardV2] Job: {job_title} at {company}")
+        print(f"[JobBoardV2] ========================================\n")
+        
+        # Parse job URL if provided
+        if job_url:
+            try:
+                parsed_job = parse_job_url(job_url)
+                if parsed_job:
+                    if parsed_job.get("title"):
+                        job_title = parsed_job.get("title")
+                    if parsed_job.get("company"):
+                        company = parsed_job.get("company")
+                    if parsed_job.get("description") and len(parsed_job.get("description", "").strip()) >= 50:
+                        job_description = parsed_job.get("description")
+            except Exception as url_error:
+                print(f"[JobBoardV2] Error parsing URL (non-fatal): {url_error}")
+        
+        # Validate inputs
+        if not job_description or len(job_description.strip()) < 50:
+            return jsonify({
+                "error": "Job description is required (minimum 50 characters)"
+            }), 400
+        
+        if not mode:
+            return jsonify({
+                "error": "Optimization mode is required. Choose: direct_edit, suggestions, or template_rebuild"
+            }), 400
+        
+        if mode not in ['direct_edit', 'suggestions', 'template_rebuild']:
+            return jsonify({
+                "error": f"Invalid mode: {mode}. Choose: direct_edit, suggestions, or template_rebuild"
+            }), 400
+        
+        # Get user data
+        db = get_db()
+        if not db:
+            return jsonify({"error": "Database not available"}), 500
+        
+        user_ref = db.collection("users").document(user_id)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            return jsonify({"error": "User not found"}), 404
+        
+        user_data = user_doc.to_dict()
+        
+        # Check credits
+        current_credits = check_and_reset_credits(user_ref, user_data)
+        
+        if current_credits < OPTIMIZATION_CREDIT_COST:
+            return jsonify({
+                "error": "Insufficient credits",
+                "required": OPTIMIZATION_CREDIT_COST,
+                "available": current_credits
+            }), 402
+        
+        # Get resume info
+        resume_url = user_data.get("resumeUrl")
+        resume_file_type = user_data.get("resumeFileType", "pdf")
+        
+        if not resume_url:
+            return jsonify({
+                "error": "No resume found. Please upload a resume first."
+            }), 400
+        
+        # Validate mode for file type
+        if mode == "direct_edit" and resume_file_type != "docx":
+            return jsonify({
+                "error": f"Direct edit mode requires a DOCX file. Your current resume is a {resume_file_type.upper()}. Please upload a DOCX resume or choose 'suggestions' mode.",
+                "currentFileType": resume_file_type,
+                "recommendedMode": "suggestions"
+            }), 400
+        
+        # Deduct credits BEFORE optimization
+        print(f"[JobBoardV2] Deducting {OPTIMIZATION_CREDIT_COST} credits...")
+        success, new_credits = deduct_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_v2")
+        
+        if not success:
+            return jsonify({
+                "error": "Insufficient credits",
+                "required": OPTIMIZATION_CREDIT_COST,
+                "available": new_credits
+            }), 402
+        
+        print(f"[JobBoardV2] Credits: {current_credits} → {new_credits}")
+        
+        # Download resume to temp file
+        print(f"[JobBoardV2] Downloading resume from {resume_url[:80]}...")
+        
+        resume_response = requests.get(resume_url, timeout=30, headers={"User-Agent": "Offerloop/1.0"})
+        resume_response.raise_for_status()
+        
+        # Save to temp file with correct extension
+        suffix = f".{resume_file_type}"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
+            f.write(resume_response.content)
+            file_path = f.name
+        
+        print(f"[JobBoardV2] Resume saved to {file_path}")
+        
+        try:
+            # Get OpenAI client
+            openai_client = get_openai_client()
+            if not openai_client:
+                raise Exception("OpenAI client not available")
+            
+            # Run optimization
+            print(f"[JobBoardV2] Running optimization (mode: {mode})...")
+            
+            pdf_bytes, metadata = run_resume_optimization(
+                file_path=file_path,
+                file_type=resume_file_type,
+                job_description=job_description,
+                openai_client=openai_client,
+                mode=mode,
+                job_title=job_title,
+                company=company
+            )
+            
+            print(f"[JobBoardV2] ✅ Optimization complete!")
+            
+            # Clean up temp file
+            try:
+                if file_path and os.path.exists(file_path):
+                    os.unlink(file_path)
+            except Exception as e:
+                print(f"[JobBoardV2] Warning: Could not delete temp file: {e}")
+            
+            # Return based on mode
+            if pdf_bytes:
+                # Direct edit mode - return PDF file
+                print(f"[JobBoardV2] Returning PDF ({len(pdf_bytes)} bytes)")
+                
+                return Response(
+                    pdf_bytes,
+                    mimetype="application/pdf",
+                    headers={
+                        "Content-Disposition": f'attachment; filename=optimized_resume_{company or "ats"}.pdf',
+                        "X-Optimization-Mode": mode,
+                        "X-Credits-Used": str(OPTIMIZATION_CREDIT_COST),
+                        "X-Credits-Remaining": str(new_credits),
+                        "X-Replacements-Made": str(metadata.get("replacements_made", 0))
+                    }
+                )
+            else:
+                # Suggestions or template rebuild - return JSON
+                print(f"[JobBoardV2] Returning JSON response")
+                
+                return jsonify({
+                    **metadata,
+                    "creditsUsed": OPTIMIZATION_CREDIT_COST,
+                    "creditsRemaining": new_credits
+                })
+                
+        except Exception as e:
+            # Refund credits on failure
+            print(f"[JobBoardV2] ❌ Optimization error: {e}")
+            print(f"[JobBoardV2] Refunding {OPTIMIZATION_CREDIT_COST} credits...")
+            refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_v2_refund")
+            print(f"[JobBoardV2] Refunded: {refund_success}")
+            
+            import traceback
+            traceback.print_exc()
+            
+            return jsonify({
+                "error": f"Optimization failed: {str(e)}",
+                "creditsRefunded": True
+            }), 500
+            
+    except Exception as e:
+        print(f"[JobBoardV2] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Try to refund credits
+        if user_id:
+            try:
+                refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_v2_refund")
+                print(f"[JobBoardV2] Refunded credits: {refund_success}")
+            except Exception as refund_error:
+                print(f"[JobBoardV2] Failed to refund: {refund_error}")
+        
+        return jsonify({"error": str(e)}), 500
+        
+    finally:
+        # Cleanup temp file
+        if file_path and os.path.exists(file_path):
+            try:
+                os.unlink(file_path)
+            except Exception as cleanup_error:
+                print(f"[JobBoardV2] Cleanup error: {cleanup_error}")
+
+
+def normalize_company_name(company: str) -> str:
+    """
+    Normalize company names to prefer recognizable brand names over parent company names.
+    Maps parent companies to their well-known brand names.
+    """
+    if not company:
+        return company
+    
+    company_lower = company.lower().strip()
+    
+    # Map parent companies to their recognizable brand names
+    company_mappings = {
+        'sie': 'Playstation',  # Sony Interactive Entertainment -> Playstation
+        'sony interactive entertainment': 'Playstation',
+        'meta': 'Meta',  # Keep as is
+        'facebook': 'Meta',
+        'alphabet': 'Google',
+        'google llc': 'Google',
+        'amazon.com services llc': 'Amazon',
+        'amazon web services': 'AWS',
+        'microsoft corporation': 'Microsoft',
+        'apple inc': 'Apple',
+        'apple computer': 'Apple',
+    }
+    
+    # Check for exact matches first
+    if company_lower in company_mappings:
+        return company_mappings[company_lower]
+    
+    # Check for partial matches (e.g., "SIE" in "SIE America")
+    for parent, brand in company_mappings.items():
+        if parent in company_lower:
+            return brand
+    
+    return company
+
+
 def extract_job_details_with_openai(job_description: str) -> Optional[Dict[str, str]]:
     """
     Use OpenAI to extract company name, job title, and location from job description.
@@ -3992,10 +4440,14 @@ Job Description:
 {truncated_desc}
 
 Extract these three pieces of information:
-1. company: The primary company name hiring for this position (e.g., "Amazon", "Google", "Microsoft", "Netflix"). 
+1. company: The primary company name hiring for this position (e.g., "Amazon", "Google", "Microsoft", "Netflix", "Playstation"). 
    - Look for the company name in the header, title, or first few lines
+   - PREFER recognizable brand names over parent company names:
+     * If you see "Sony Interactive Entertainment" or "SIE", return "Playstation"
+     * If you see "Alphabet", return "Google"
+     * If you see "Amazon.com Services LLC" or "Amazon", return "Amazon"
+     * If you see "Facebook", return "Meta"
    - Ignore generic words like "Employer", "Company", "Organization"
-   - If you see "Amazon.com Services LLC" or "Amazon", return "Amazon"
    - Return null ONLY if absolutely no company name can be found
 
 2. job_title: The exact job title/position name (e.g., "Software Development Engineer Intern", "Data Scientist Intern", "Software Engineer")
@@ -4039,7 +4491,9 @@ Return ONLY a valid JSON object in this exact format with no markdown, no code b
         # Validate and clean the result
         extracted = {}
         if result.get('company') and result['company'].lower() not in ['null', 'none', 'n/a', '']:
-            extracted['company'] = result['company'].strip()
+            company_name = result['company'].strip()
+            # Normalize company name to prefer brand names over parent companies
+            extracted['company'] = normalize_company_name(company_name)
         if result.get('job_title') and result['job_title'].lower() not in ['null', 'none', 'n/a', '']:
             extracted['job_title'] = result['job_title'].strip()
         if result.get('location') and result['location'].lower() not in ['null', 'none', 'n/a', '']:
@@ -4101,6 +4555,9 @@ def find_recruiter_endpoint():
         if company and company.lower().strip() in invalid_company_names:
             print(f"[FindRecruiter] Rejecting invalid company name from request: '{company}'")
             company = None
+        elif company:
+            # Normalize company name from user input
+            company = normalize_company_name(company)
         
         # If no company provided but we have a job URL, try to parse it
         if not company and job_url:
@@ -4108,7 +4565,7 @@ def find_recruiter_endpoint():
                 parsed_job = parse_job_url(job_url)
                 if parsed_job:
                     if parsed_job.get('company'):
-                        company = parsed_job.get('company')
+                        company = normalize_company_name(parsed_job.get('company'))
                     if parsed_job.get('title'):
                         job_title = parsed_job.get('title')
                     if parsed_job.get('location'):
@@ -4129,7 +4586,7 @@ def find_recruiter_endpoint():
                     # Always use OpenAI extracted values (they're more reliable than URL parsing or user input)
                     # Override existing values even if they exist, because OpenAI is more accurate
                     if extracted.get('company'):
-                        company = extracted['company']
+                        company = extracted['company']  # Already normalized in extract_job_details_with_openai
                         print(f"[FindRecruiter] ✅ OpenAI extracted company: '{company}'")
                     if extracted.get('job_title'):
                         job_title = extracted['job_title']
@@ -4235,9 +4692,18 @@ def find_recruiter_endpoint():
         affordable_recruiters = all_recruiters[:max_affordable]
         
         # Limit emails to match affordable recruiters
+        # Match by email address (could be Email or WorkEmail field)
         affordable_emails = []
         if all_emails:
-            affordable_recruiter_emails = {r.get("Email") or r.get("WorkEmail") for r in affordable_recruiters}
+            # Build set of all possible emails for affordable recruiters
+            affordable_recruiter_emails = set()
+            for r in affordable_recruiters:
+                if r.get("Email") and r.get("Email") != "Not available":
+                    affordable_recruiter_emails.add(r.get("Email"))
+                if r.get("WorkEmail") and r.get("WorkEmail") != "Not available":
+                    affordable_recruiter_emails.add(r.get("WorkEmail"))
+            
+            # Filter emails to only those matching affordable recruiters
             affordable_emails = [e for e in all_emails if e.get("to_email") in affordable_recruiter_emails]
         
         # Check if there are more available but user ran out of credits

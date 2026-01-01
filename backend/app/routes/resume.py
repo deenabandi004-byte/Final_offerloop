@@ -6,7 +6,12 @@ from firebase_admin import auth as fb_auth
 from firebase_admin import firestore
 import urllib.parse
 
-from app.services.resume_parser import extract_text_from_pdf
+from app.services.resume_parser import extract_text_from_file
+from app.services.resume_capabilities import (
+    is_valid_resume_file,
+    get_file_extension,
+    build_resume_metadata
+)
 from ..extensions import require_firebase_auth
 from app.utils.users import parse_resume_info, validate_parsed_resume
 from ..extensions import get_db
@@ -98,8 +103,8 @@ def delete_file_from_storage(storage_url):
         return False
 
 
-def save_resume_to_firebase(user_id, resume_text, resume_url, parsed_info=None):
-    """Save resume text, URL, and parsed info to Firestore with full structure"""
+def save_resume_to_firebase(user_id, resume_text, resume_url, parsed_info=None, resume_metadata=None):
+    """Save resume text, URL, parsed info, and capabilities to Firestore with full structure"""
     try:
         from datetime import datetime
         import json
@@ -127,13 +132,23 @@ def save_resume_to_firebase(user_id, resume_text, resume_url, parsed_info=None):
             if parsed_info.get('projects'):
                 print(f"[Resume DEBUG] First project: {json.dumps(parsed_info['projects'][0], indent=2)}")
         
+        # Start with base update data
         update_data = {
             'resumeText': resume_text,
             'originalResumeText': resume_text,  # Backup of original text
             'resumeUrl': resume_url,
-            'resumeFileName': 'resume.pdf',
             'resumeUpdatedAt': datetime.now().isoformat()
         }
+        
+        # Add resume metadata with capabilities if provided
+        if resume_metadata:
+            update_data.update({
+                'resumeFileName': resume_metadata.get('resumeFileName'),
+                'resumeFileType': resume_metadata.get('resumeFileType'),
+                'resumeUploadedAt': resume_metadata.get('resumeUploadedAt'),
+                'resumeCapabilities': resume_metadata.get('resumeCapabilities', {})
+            })
+            print(f"[Resume] Saving capabilities: {resume_metadata.get('resumeCapabilities', {}).get('recommendedMode', 'unknown')}")
         
         # Save parsed resume data with full structure (v2 format)
         if parsed_info:
@@ -177,7 +192,7 @@ def save_resume_to_firebase(user_id, resume_text, resume_url, parsed_info=None):
 
 @resume_bp.route('/parse-resume', methods=['POST'])
 def parse_resume():
-    """Parse uploaded resume, upload to storage, and extract user information"""
+    """Parse uploaded resume (PDF, DOCX, or DOC), upload to storage, and extract user information"""
     try:
         from datetime import datetime
         
@@ -193,21 +208,30 @@ def parse_resume():
         file = request.files['resume']
         print(f"📄 File: {file.filename}")
         
-        if file.filename == '':
+        if not file.filename:
             print("❌ Empty filename")
             return jsonify({'error': 'No file selected'}), 400
         
-        if not file.filename.lower().endswith('.pdf'):
+        # Validate file type using capabilities service
+        if not is_valid_resume_file(file.filename, file.mimetype):
             print(f"❌ Invalid file type: {file.filename}")
-            return jsonify({'error': 'Only PDF files are supported'}), 400
+            return jsonify({
+                'error': 'Invalid file type. Please upload a PDF, DOCX, or DOC file.'
+            }), 400
         
-        # Extract text from PDF
-        print("📖 Extracting text from PDF...")
-        resume_text = extract_text_from_pdf(file)
+        # Get file extension
+        extension = get_file_extension(file.filename, file.mimetype)
+        print(f"📄 File type: {extension.upper()}")
+        
+        # Extract text from file
+        print(f"📖 Extracting text from {extension.upper()}...")
+        resume_text = extract_text_from_file(file, extension)
         
         if not resume_text:
-            print("❌ Could not extract text from PDF")
-            return jsonify({'error': 'Could not extract text from PDF'}), 400
+            print(f"❌ Could not extract text from {extension.upper()}")
+            return jsonify({
+                'error': f'Could not extract text from {extension.upper()} file'
+            }), 400
         
         print(f"✅ Extracted {len(resume_text)} characters")
         
@@ -232,6 +256,7 @@ def parse_resume():
         # Get user ID from auth token
         user_id = None
         resume_url = None
+        resume_metadata = None
         
         try:
             db = get_db()
@@ -254,18 +279,28 @@ def parse_resume():
                         if not resume_url:
                             print("⚠️  File upload failed, continuing without URL")
                         
-                        # STEP 4B: Save both text, URL, and parsed data to Firebase
+                        # STEP 4B: Build resume metadata with capabilities
+                        print("\n💾 Building resume metadata...")
+                        resume_metadata = build_resume_metadata(
+                            url=resume_url or '',
+                            filename=file.filename,
+                            extension=extension
+                        )
+                        
+                        # STEP 4C: Save both text, URL, parsed data, and capabilities to Firebase
                         print("\n💾 Saving to Firestore...")
                         file.seek(0)  # Reset again for text extraction
                         save_result = save_resume_to_firebase(
                             user_id, 
                             resume_text,
                             resume_url,
-                            parsed_info  # Include parsed data
+                            parsed_info,  # Include parsed data
+                            resume_metadata  # Include capabilities metadata
                         )
                         
                         if save_result:
                             print("✅ All data saved successfully")
+                            print(f"✅ Capabilities: {resume_metadata['resumeCapabilities']['recommendedMode']}")
                         else:
                             print("⚠️  Save returned False")
                     
@@ -283,18 +318,37 @@ def parse_resume():
         print("✅ RESUME PROCESSING COMPLETE")
         print("=" * 60)
         
-        return jsonify({
+        # Build response with capabilities
+        response_data = {
             'success': True,
             'data': parsed_info,
             'savedToFirebase': bool(user_id),
-            'resumeUrl': resume_url  # Return URL to frontend
-        })
+            'resumeUrl': resume_url,
+            'resumeFileName': file.filename,
+            'resumeFileType': extension,
+            'message': _get_upload_message(extension)
+        }
+        
+        if resume_metadata:
+            response_data['resumeCapabilities'] = resume_metadata['resumeCapabilities']
+        
+        return jsonify(response_data)
         
     except Exception as e:
         print(f"💥 FATAL ERROR: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': 'Failed to parse resume'}), 500
+
+
+def _get_upload_message(extension: str) -> str:
+    """Get user-friendly message based on file type."""
+    if extension == 'docx':
+        return "Resume uploaded successfully! Your formatting will be perfectly preserved during optimization."
+    elif extension == 'doc':
+        return "Resume uploaded successfully! For best results, consider saving as DOCX format."
+    else:  # pdf
+        return "Resume uploaded successfully! For best formatting preservation during optimization, consider uploading a DOCX file."
 
 
 @resume_bp.route('/resume', methods=['DELETE'])

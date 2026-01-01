@@ -179,6 +179,15 @@ REQUIREMENTS:
 10. DO NOT include "Dear" - start with "Hi {recruiter_first_name},"
 11. DO NOT include attachments mentions - I'll handle that
 12. Vary sentence structure and length for natural flow
+13. CRITICAL: Always use proper grammar with correct apostrophes in contractions:
+    - "I'm" not "Im"
+    - "I'd" not "Id"
+    - "couldn't" not "couldnt"
+    - "I've" not "Ive"
+    - "you're" not "youre"
+    - "it's" not "its" (when meaning "it is")
+    - "that's" not "thats"
+    Always use proper English grammar with correct apostrophes in contractions.
 
 OUTPUT FORMAT:
 Return ONLY the email body text. No subject line, no signature block.
@@ -201,7 +210,7 @@ Start directly with "Hi {recruiter_first_name},"
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert at writing compelling, personalized job application outreach emails. Your emails feel human, genuine, and eager without being desperate. You never use clichés or generic phrases. Every email you write feels like it was written by a real person who genuinely wants the job."
+                        "content": "You are an expert at writing compelling, personalized job application outreach emails. Your emails feel human, genuine, and eager without being desperate. You never use clichés or generic phrases. Every email you write feels like it was written by a real person who genuinely wants the job. CRITICAL: Always use proper grammar with correct apostrophes in contractions (I'm, I'd, couldn't, I've, you're, it's, that's, etc.). Never write 'Im', 'Id', 'couldnt', 'Ive', 'youre', 'thats' - always include the apostrophe."
                     },
                     {
                         "role": "user", 

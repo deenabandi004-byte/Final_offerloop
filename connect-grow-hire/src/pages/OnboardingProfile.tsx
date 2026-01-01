@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ArrowRight, ArrowLeft, User, Upload, FileText } from "lucide-react";
 import profileIllustration from "@/assets/profile-setup-illustration.png";
+import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileTypes";
 
 interface ProfileData {
   firstName: string;
@@ -48,6 +49,10 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
   const handleResumeUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (!isValidResumeFile(file)) {
+        // File type validation - user can still proceed but will see error later
+        console.warn('Invalid resume file type:', file.name);
+      }
       setProfile(prev => ({ ...prev, resume: file }));
     }
   };
@@ -97,12 +102,13 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
             <input
               ref={resumeInputRef}
               type="file"
-              accept=".pdf"
+              accept={ACCEPTED_RESUME_TYPES.accept}
               onChange={handleResumeUpload}
               className="hidden"
             />
             <p className="text-xs text-muted-foreground">
-              Accepted format: PDF (Max 10MB)
+              Accepted formats: PDF, DOCX, DOC (Max 10MB)
+              <span className="text-blue-600 ml-1">(DOCX recommended for best optimization)</span>
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               Your resume allows us to create more personalized and effective outreach emails.

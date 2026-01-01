@@ -125,59 +125,21 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         tier_max = TIER_CONFIGS[user_tier]['max_contacts']
         max_contacts = batch_size if batch_size and 1 <= batch_size <= tier_max else tier_max
         
-        # Search contacts
-        contacts = search_contacts_with_smart_location_strategy(
-            job_title, company, location, max_contacts=max_contacts, college_alumni=college_alumni, exclude_keys=seen_contact_set 
+        # ✅ OPTIMIZED CONTACT SEARCH - Process one-by-one and stop early
+        from app.services.contact_search_optimized import contact_search_optimized
+        
+        contacts = contact_search_optimized(
+            job_title=job_title,
+            location=location,
+            max_contacts=max_contacts,
+            user_data=user_data,
+            company=company,
+            college_alumni=college_alumni,
+            exclude_keys=seen_contact_set
         )
         
         if not contacts:
             return {'contacts': [], 'successful_drafts': 0}
-        # ✅ REMOVED: No longer tracking seenContactKeys
-        # Only Contact Library is used for exclusion
-        # This allows contacts to reappear if library is cleared
-        
-        # ✅ HUNTER.IO ENRICHMENT - Enrich contacts without emails
-        contacts_with_email: list[dict] = []
-        contacts_without_email: list[dict] = []
-
-        for c in contacts:
-            if has_pdl_email(c):
-                contacts_with_email.append(c)
-            else:
-                contacts_without_email.append(c)
-        # 🔍 DEBUG: show a sample of contacts that we're about to send to Hunter
-        if contacts_without_email:
-            print("\nDEBUG: contacts WITHOUT any PDL emails (up to 5):")
-            for c in contacts_without_email[:5]:
-                print(
-                    f"   - {c.get('FirstName','')} {c.get('LastName','')} | "
-                    f"Email={c.get('Email')} | "
-                    f"WorkEmail={c.get('WorkEmail')} | "
-                    f"PersonalEmail={c.get('PersonalEmail')}"
-                )
-
-
-        print(f"\n📧 Email Status: {len(contacts_with_email)}/{len(contacts)} have emails from PDL")
-
-        # Only use Hunter.io if we have contacts without emails
-        if contacts_without_email:
-            needed = max_contacts - len(contacts_with_email)
-            print(f"🔍 Need {needed} more emails, enriching {len(contacts_without_email)} contacts with Hunter.io...")
-            
-            try:
-                contacts = enrich_contacts_with_hunter(
-                    contacts,
-                    max_enrichments=needed  # Only enrich what we need to save Hunter credits
-                )
-            except Exception as hunter_error:
-                ...
-
-                print(f"⚠️ Hunter.io enrichment failed: {hunter_error}")
-                import traceback
-                traceback.print_exc()
-                # Continue without Hunter enrichment
-        else:
-            print(f"✅ All {len(contacts_with_email)} contacts have emails from PDL, skipping Hunter.io enrichment")
         
         # Generate emails
         print(f"📧 Generating emails for {len(contacts)} contacts...")

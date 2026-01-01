@@ -4,6 +4,7 @@ PDL (People Data Labs) client service - search, enrichment, and caching
 import requests
 import json
 import hashlib
+import re
 from functools import lru_cache
 from datetime import datetime
 import requests.exceptions
@@ -881,10 +882,143 @@ def clean_company_name(company):
     return company
 
 
-def clean_location_name(location):
+# US State abbreviations mapping
+US_STATE_ABBREVIATIONS = {
+    'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas',
+    'CA': 'California', 'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware',
+    'FL': 'Florida', 'GA': 'Georgia', 'HI': 'Hawaii', 'ID': 'Idaho',
+    'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa', 'KS': 'Kansas',
+    'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
+    'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi',
+    'MO': 'Missouri', 'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada',
+    'NH': 'New Hampshire', 'NJ': 'New Jersey', 'NM': 'New Mexico', 'NY': 'New York',
+    'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio', 'OK': 'Oklahoma',
+    'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
+    'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah',
+    'VT': 'Vermont', 'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia',
+    'WI': 'Wisconsin', 'WY': 'Wyoming', 'DC': 'District of Columbia'
+}
+
+def _expand_us_state_abbreviation(location: str) -> str:
+    """
+    Expand US state abbreviations in location strings to avoid confusion with country codes.
+    Example: "Research Park, CA" -> "Research Park, California"
+    Handles formats like:
+    - "City, ST" -> "City, State"
+    - "City, ST 12345" -> "City, State"
+    - "City ST" -> "City, State"
+    """
+    if not location:
+        return location
+    
+    # Most common pattern: "City, ST" or "City, ST ZIP"
+    # Match ", ST" or ", ST ZIP" at the end
+    comma_pattern = r',\s*([A-Z]{2})(?:\s+\d{5})?$'
+    
+    def replace_comma_state(match):
+        state_abbr = match.group(1).upper()
+        if state_abbr in US_STATE_ABBREVIATIONS:
+            return f', {US_STATE_ABBREVIATIONS[state_abbr]}'
+        return match.group(0)
+    
+    expanded = re.sub(comma_pattern, replace_comma_state, location, flags=re.IGNORECASE)
+    
+    # If no comma pattern matched, try "City ST" (without comma)
+    if expanded == location:
+        # Match "City ST" or "City ST ZIP" at the end
+        no_comma_pattern = r'^(.+?)\s+([A-Z]{2})(?:\s+\d{5})?$'
+        
+        def replace_no_comma_state(match):
+            city = match.group(1).strip()
+            state_abbr = match.group(2).upper()
+            if state_abbr in US_STATE_ABBREVIATIONS:
+                return f'{city}, {US_STATE_ABBREVIATIONS[state_abbr]}'
+            return match.group(0)
+        
+        expanded = re.sub(no_comma_pattern, replace_no_comma_state, location, flags=re.IGNORECASE)
+    
+    return expanded if expanded != location else location
+
+
+def _fix_canada_misinterpretation(original_location: str, cleaned_location: str) -> str:
+    """
+    Fix cases where PDL incorrectly interprets US state "CA" (California) as Canada.
+    If the original location contains a US state abbreviation and the cleaned result is "canada",
+    try to correct it by expanding the state abbreviation.
+    """
+    if not original_location or not cleaned_location:
+        return cleaned_location
+    
+    cleaned_lower = cleaned_location.lower()
+    
+    # If PDL returned "canada" but the original had a US state abbreviation, fix it
+    if cleaned_lower in ['canada', 'canadian']:
+        # Check if original location has a US state abbreviation
+        # Look for US state abbreviations in the original location
+        state_pattern = r',\s*([A-Z]{2})(?:\s+\d{5})?$|\s+([A-Z]{2})(?:\s+\d{5})?$'
+        match = re.search(state_pattern, original_location, re.IGNORECASE)
+        
+        if match:
+            state_abbr = (match.group(1) or match.group(2)).upper()
+            if state_abbr in US_STATE_ABBREVIATIONS:
+                # This was likely a US location, not Canada
+                # Expand the state abbreviation and return a more appropriate location
+                state_full = US_STATE_ABBREVIATIONS[state_abbr]
+                # Try to extract city name if present
+                city_match = re.match(r'^([^,]+)', original_location)
+                if city_match:
+                    city = city_match.group(1).strip()
+                    return f"{city}, {state_full}"
+                else:
+                    return state_full
+    
+    return cleaned_location
+
+
+def expand_location_state_only(location: str) -> str:
+    """
+    Expand US state abbreviations in location strings WITHOUT calling PDL API.
+    This preserves the original city name and only expands state abbreviations.
+    
+    Use this for cases where you want to preserve city names and avoid PDL's
+    autocorrection/fuzzy matching of city names.
+    
+    Example: "Research Park, CA" -> "Research Park, California"
+    """
+    if not location:
+        return location
+    
+    expanded = _expand_us_state_abbreviation(location)
+    if expanded != location:
+        print(f"Expanded US state abbreviation: '{location}' -> '{expanded}'")
+    
+    return expanded
+
+
+def clean_location_name(location, use_pdl_api=True):
     """Clean location name using PDL Cleaner API for better matching
     OPTIMIZED: Uses connection pooling for better performance
+    
+    FIXED: Properly handles US state abbreviations (e.g., "CA" = California, not Canada)
+    
+    Args:
+        location: Location string to clean
+        use_pdl_api: If False, only expands state abbreviations without calling PDL API.
+                     This preserves city names and avoids autocorrection.
     """
+    if not location:
+        return location
+    
+    # Pre-process: Expand US state abbreviations to avoid confusion with country codes
+    # Example: "Research Park, CA" -> "Research Park, California"
+    expanded_location = _expand_us_state_abbreviation(location)
+    if expanded_location != location:
+        print(f"Expanded US state abbreviation: '{location}' -> '{expanded_location}'")
+    
+    # If PDL API is disabled, just return the expanded location
+    if not use_pdl_api:
+        return expanded_location
+    
     try:
         print(f"Cleaning location: {location}")
         
@@ -894,7 +1028,7 @@ def clean_location_name(location):
                 f"{PDL_BASE_URL}/location/clean",
                 params={
                     'api_key': PEOPLE_DATA_LABS_API_KEY,
-                    'location': location
+                    'location': expanded_location
                 },
                 timeout=10
             )
@@ -903,13 +1037,20 @@ def clean_location_name(location):
             clean_data = response.json()
             if clean_data.get('status') == 200 and clean_data.get('name'):
                 cleaned_location = clean_data['name']
-                print(f"Cleaned location: '{location}' -> '{cleaned_location}'")
-                return cleaned_location
+                
+                # Post-process: Fix cases where PDL incorrectly returns "canada" for US locations
+                fixed_location = _fix_canada_misinterpretation(location, cleaned_location)
+                
+                if fixed_location != cleaned_location:
+                    print(f"Fixed Canada misinterpretation: '{cleaned_location}' -> '{fixed_location}'")
+                
+                print(f"Cleaned location: '{location}' -> '{fixed_location}'")
+                return fixed_location
     
     except Exception as e:
         print(f"Location cleaning failed: {e}")
     
-    return location
+    return expanded_location
 
 
 def enrich_job_title_with_pdl(job_title):
@@ -1198,8 +1339,14 @@ def _choose_best_email(emails: list[dict], recommended: str | None = None) -> st
     return items[0][1] if items else None
 
 
-def extract_contact_from_pdl_person_enhanced(person):
-    """Enhanced contact extraction with relaxed, sensible email acceptance"""
+def extract_contact_from_pdl_person_enhanced(person, target_company=None):
+    """
+    Enhanced contact extraction with relaxed, sensible email acceptance.
+    
+    Args:
+        person: PDL person data dictionary
+        target_company: Target company name for email lookup (required for correct domain extraction)
+    """
     try:
         print(f"DEBUG: Starting contact extraction")
         
@@ -1258,7 +1405,7 @@ def extract_contact_from_pdl_person_enhanced(person):
         city = location_info.get('locality', '') if isinstance(location_info, dict) else ''
         state = location_info.get('region', '') if isinstance(location_info, dict) else ''
 
-        # Email selection - FIXED VERSION
+        # Email extraction - NO VERIFICATION (will be done later in optimized flow)
         emails = person.get('emails') or []
         if not isinstance(emails, list):
             emails = []
@@ -1267,12 +1414,12 @@ def extract_contact_from_pdl_person_enhanced(person):
         if not isinstance(recommended, str):
             recommended = ''
             
-        best_email = _choose_best_email(emails, recommended)
-
-        # ✅ INCLUDE contacts even without emails (Hunter.io will enrich them)
-        if not best_email or best_email == "Not available":
-            
-            best_email = "Not available"  # Mark as unavailable but include the contact
+        pdl_email = _choose_best_email(emails, recommended)
+        
+        # Store raw email data for later verification (no Hunter calls here)
+        best_email = pdl_email if pdl_email and pdl_email != "Not available" else "Not available"
+        email_source = None  # Will be set during verification phase
+        email_verified = False  # Will be set during verification phase
 
         # Phone
         phone_numbers = person.get('phone_numbers') or []
@@ -1348,12 +1495,21 @@ def extract_contact_from_pdl_person_enhanced(person):
                             break
         volunteer_history = '; '.join(volunteer_work[:5]) if volunteer_work else 'Not available'
 
-        # Safe email extraction for WorkEmail
+        # Safe email extraction for WorkEmail (raw PDL data, no verification)
         work_email = 'Not available'
+        personal_emails_list = []
         for e in emails:
-            if isinstance(e, dict) and (e.get('type') or '').lower() in ('work', 'professional'):
-                work_email = e.get('address', '') or 'Not available'
-                break
+            if isinstance(e, dict):
+                email_addr = e.get('address', '')
+                email_type = (e.get('type') or '').lower()
+                if email_type in ('work', 'professional') and email_addr:
+                    work_email = email_addr
+                elif email_addr and "@" in email_addr:
+                    personal_emails_list.append(email_addr)
+        
+        # Add recommended personal email if available
+        if recommended and recommended not in personal_emails_list:
+            personal_emails_list.append(recommended)
 
         contact = {
             'FirstName': first_name,
@@ -1374,7 +1530,13 @@ def extract_contact_from_pdl_person_enhanced(person):
             'WorkSummary': '; '.join(work_experience_details[:3]) if work_experience_details else f"Professional at {company_name}",
             'Group': f"{company_name} {job_title.split()[0] if job_title else 'Professional'} Team",
             'LinkedInConnections': person.get('linkedin_connections', 0),
-            'DataVersion': person.get('dataset_version', 'Unknown')
+            'DataVersion': person.get('dataset_version', 'Unknown'),
+            # Store raw PDL email data for later verification (no verification here)
+            'EmailSource': None,  # Will be set during verification phase
+            'EmailVerified': False,  # Will be set during verification phase
+            # Store raw email data for optimized contact search
+            '_pdl_work_email': work_email if work_email != 'Not available' else None,
+            '_pdl_personal_emails': personal_emails_list
         }
 
         print(f"DEBUG: Contact extraction successful")
@@ -1450,12 +1612,20 @@ def add_pdl_enrichment_fields_optimized(contact, person_data):
         requests.exceptions.ConnectionError,
     ),
 )
-def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page_size=50, verbose=False, skip_count=0):
+def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page_size=50, verbose=False, skip_count=0, target_company=None):
     """
     Execute PDL search with pagination
     
     Args:
+        headers: HTTP headers for PDL API
+        url: PDL API endpoint URL
+        query_obj: PDL query object
+        desired_limit: Maximum number of contacts to return
+        search_type: Type of search (for logging)
+        page_size: Number of results per page
+        verbose: Enable verbose logging
         skip_count: Number of results to skip from the beginning (for getting different people)
+        target_company: Target company name for email domain extraction (required for correct domain)
     """
     import random
     
@@ -1526,7 +1696,7 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
         # TRANSFORM THE DATA BEFORE RETURNING
         extracted_contacts = []
         for person in data[:desired_limit]:
-            contact = extract_contact_from_pdl_person_enhanced(person)
+            contact = extract_contact_from_pdl_person_enhanced(person, target_company=target_company)
             if contact:  # Only add if extraction was successful
                 extracted_contacts.append(contact)
         return extracted_contacts
@@ -1566,7 +1736,7 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
     # TRANSFORM ALL THE DATA BEFORE RETURNING
     extracted_contacts = []
     for person in data[:desired_limit]:
-        contact = extract_contact_from_pdl_person_enhanced(person)
+        contact = extract_contact_from_pdl_person_enhanced(person, target_company=target_company)
         if contact:  # Only add if extraction was successful
             extracted_contacts.append(contact)
     
@@ -1719,6 +1889,7 @@ def try_metro_search_optimized(clean_title, similar_titles, company, location_st
             search_type=f"metro_{location_strategy.get('matched_metro','unknown')}",
             page_size=page_size,
             verbose=False,
+            target_company=company  # Pass target company for correct domain extraction
         )
         
         # ✅ FILTER OUT EXCLUDED CONTACTS
@@ -1842,7 +2013,7 @@ def try_locality_search_optimized(clean_title, similar_titles, company, location
         search_type=f"locality_{location_strategy.get('city','unknown')}",
         page_size=page_size,
         verbose=False,
-     
+        target_company=company  # Pass target company for correct domain extraction
     )
     
     # ✅ FILTER OUT EXCLUDED CONTACTS
@@ -1961,7 +2132,7 @@ def try_job_title_levels_search_enhanced(job_title_enrichment, company, city, st
         search_type="job_levels_enhanced",
         page_size=page_size,
         verbose=False,
-        
+        target_company=company  # Pass target company for correct domain extraction
     )
     
     # ✅ FILTER OUT EXCLUDED CONTACTS

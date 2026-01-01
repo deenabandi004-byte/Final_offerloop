@@ -1,11 +1,12 @@
 """
-Resume parser service - extract text from PDF and parse resume information
+Resume parser service - extract text from PDF, DOCX, and DOC files and parse resume information
 """
 import os
 import tempfile
 import PyPDF2
 import re
 from app.services.openai_client import get_openai_client
+from app.services.docx_service import extract_text_from_docx
 
 
 def extract_text_from_pdf(pdf_file):
@@ -40,6 +41,52 @@ def extract_text_from_pdf(pdf_file):
             
     except Exception as e:
         print(f"PDF text extraction failed: {e}")
+        return None
+
+
+def extract_text_from_file(file, file_type: str):
+    """
+    Extract text from resume file (PDF, DOCX, or DOC).
+    
+    Args:
+        file: File object from Flask request
+        file_type: File extension ('pdf', 'docx', or 'doc')
+    
+    Returns:
+        Extracted text or None if extraction failed
+    """
+    try:
+        if file_type == 'pdf':
+            return extract_text_from_pdf(file)
+        
+        elif file_type == 'docx':
+            print("Extracting text from DOCX...")
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as temp_file:
+                file.save(temp_file.name)
+                text = extract_text_from_docx(temp_file.name)
+                os.unlink(temp_file.name)
+                
+                if text:
+                    # Final cleanup - remove extra whitespace and normalize
+                    text = ' '.join(text.split())
+                    print(f"Extracted {len(text)} characters from DOCX")
+                    return text.strip() if text.strip() else None
+                return None
+        
+        elif file_type == 'doc':
+            # DOC files (old Word format) need conversion to DOCX first
+            # For now, return an error message - conversion can be added later
+            print("⚠️  DOC files require conversion. Please convert to DOCX first.")
+            return None
+        
+        else:
+            print(f"Unsupported file type: {file_type}")
+            return None
+            
+    except Exception as e:
+        print(f"Text extraction failed for {file_type}: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
