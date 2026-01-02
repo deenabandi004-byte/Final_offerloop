@@ -1126,15 +1126,12 @@ const JobBoardPage: React.FC = () => {
               <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
                 <TabsList className="grid w-full grid-cols-3 max-w-md">
                   <TabsTrigger value="jobs" className="flex items-center gap-2">
-                    <Briefcase className="w-4 h-4" />
                     {userPreferences?.jobTypes?.includes("Internship") ? "Internships" : "Jobs"}
                   </TabsTrigger>
                   <TabsTrigger value="optimize" className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4" />
                     Optimize
                   </TabsTrigger>
                   <TabsTrigger value="recruiters" className="flex items-center gap-2">
-                    <Users className="w-4 h-4" />
                     Recruiters
                     {recruiters.length > 0 && (
                       <span className="bg-blue-100 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full">
