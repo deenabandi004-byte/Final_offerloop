@@ -104,6 +104,7 @@ export interface FindRecruiterRequest {
   jobUrl?: string;  // Optional - for external job links
   generateEmails?: boolean;  // Default true - generate personalized emails
   createDrafts?: boolean;  // Default true - create Gmail drafts
+  maxResults?: number;  // Number of recruiters to find (1-10, default: 5)
 }
 
 export interface RecruiterEmail {
@@ -130,6 +131,8 @@ export interface FindRecruiterResponse {
   companyCleaned: string;
   searchTitles: string[];
   totalFound: number;
+  requestedCount?: number;  // Number of recruiters user requested
+  foundCount?: number;  // Number of recruiters actually found/returned
   creditsCharged: number;
   creditsRemaining: number;
   hasMore?: boolean;

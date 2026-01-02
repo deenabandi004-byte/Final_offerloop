@@ -10,7 +10,7 @@ from flask import Blueprint, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 
 from app.extensions import require_firebase_auth, get_db, require_tier
-from app.services.resume_parser import extract_text_from_pdf
+from app.services.resume_parser import extract_text_from_pdf, extract_text_from_file
 from app.services.reply_generation import batch_generate_emails
 from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user, download_resume_from_url
 from app.services.auth import check_and_reset_credits
@@ -833,13 +833,21 @@ def pro_run():
             
             # Handle resume file
             if 'resume' not in request.files:
-                return jsonify({'error': 'Resume PDF file is required for Pro tier'}), 400
+                return jsonify({'error': 'Resume file is required for Pro/Elite tier'}), 400
             resume_file = request.files['resume']
-            if resume_file.filename == '' or not resume_file.filename.lower().endswith('.pdf'):
-                return jsonify({'error': 'Valid PDF resume file is required'}), 400
-            resume_text = extract_text_from_pdf(resume_file)
+            if resume_file.filename == '':
+                return jsonify({'error': 'Valid resume file is required'}), 400
+            
+            # Check file extension
+            filename_lower = resume_file.filename.lower()
+            if not (filename_lower.endswith('.pdf') or filename_lower.endswith('.docx') or filename_lower.endswith('.doc')):
+                return jsonify({'error': 'Resume must be a PDF, DOCX, or DOC file'}), 400
+            
+            # Extract file extension and get text
+            file_ext = filename_lower.split('.')[-1] if '.' in filename_lower else 'pdf'
+            resume_text = extract_text_from_file(resume_file, file_ext)
             if not resume_text:
-                return jsonify({'error': 'Could not extract text from PDF'}), 400
+                return jsonify({'error': f'Could not extract text from {file_ext.upper()} file'}), 400
             data['resumeText'] = resume_text
         
         # Validate input (same as free tier)
@@ -960,13 +968,21 @@ def pro_run_csv():
             company = (request.form.get('company') or '').strip()
             location = (request.form.get('location') or '').strip()
             if 'resume' not in request.files:
-                return jsonify({'error': 'Resume PDF file is required'}), 400
+                return jsonify({'error': 'Resume file is required'}), 400
             resume_file = request.files['resume']
-            if resume_file.filename == '' or not resume_file.filename.lower().endswith('.pdf'):
-                return jsonify({'error': 'Valid PDF resume file is required'}), 400
-            resume_text = extract_text_from_pdf(resume_file)
+            if resume_file.filename == '':
+                return jsonify({'error': 'Valid resume file is required'}), 400
+            
+            # Check file extension
+            filename_lower = resume_file.filename.lower()
+            if not (filename_lower.endswith('.pdf') or filename_lower.endswith('.docx') or filename_lower.endswith('.doc')):
+                return jsonify({'error': 'Resume must be a PDF, DOCX, or DOC file'}), 400
+            
+            # Extract file extension and get text
+            file_ext = filename_lower.split('.')[-1] if '.' in filename_lower else 'pdf'
+            resume_text = extract_text_from_file(resume_file, file_ext)
             if not resume_text:
-                return jsonify({'error': 'Could not extract text from PDF'}), 400
+                return jsonify({'error': f'Could not extract text from {file_ext.upper()} file'}), 400
         
         result = run_pro_tier_enhanced_final_with_text(
             job_title, company, location, resume_text, user_email=user_email

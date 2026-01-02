@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Upload, Download, Mail, Users } from "lucide-react";
 import { apiService, type ContactSearchRequest, type ProContactSearchRequest } from "@/services/api";
 import { useToast } from "@/hooks/use-toast";
+import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileTypes";
 
 const searchSchema = z.object({
   jobTitle: z.string().min(1, "Job title is required"),
@@ -102,10 +103,10 @@ export const ContactSearchForm = () => {
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      if (!file.name.toLowerCase().endsWith('.pdf')) {
+      if (!isValidResumeFile(file)) {
         toast({
           title: "Invalid File Type",
-          description: "Please upload a PDF file",
+          description: "Please upload a PDF, DOCX, or DOC file",
           variant: "destructive",
         });
         return;
@@ -232,7 +233,7 @@ export const ContactSearchForm = () => {
             {/* Resume Upload for Pro Tier */}
             {selectedTier === "pro" && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Resume (PDF)</label>
+                <label className="text-sm font-medium">Resume (PDF, DOCX, or DOC)</label>
                 <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6">
                   <div className="text-center">
                     <Upload className="mx-auto h-12 w-12 text-muted-foreground/50" />
@@ -244,12 +245,12 @@ export const ContactSearchForm = () => {
                         <input
                           id="resume-upload"
                           type="file"
-                          accept=".pdf"
+                          accept={ACCEPTED_RESUME_TYPES.accept}
                           onChange={handleFileChange}
                           className="hidden"
                         />
                       </label>
-                      <p className="text-xs text-muted-foreground mt-1">PDF files only</p>
+                      <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, or DOC files (DOCX recommended)</p>
                     </div>
                     {selectedFile && (
                       <div className="mt-2 text-sm text-green-600">

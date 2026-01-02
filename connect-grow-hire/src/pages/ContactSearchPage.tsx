@@ -645,14 +645,14 @@ const ContactSearchPage: React.FC = () => {
         return;
       }
 
-      // For pro tier, check if we have a resume (either uploaded in this session or saved)
-      if (userTier === "pro" && !uploadedFile && !savedResumeUrl) {
+      // For pro and elite tiers, check if we have a resume (either uploaded in this session or saved)
+      if ((userTier === "pro" || userTier === "elite") && !uploadedFile && !savedResumeUrl) {
         if (progressInterval) clearInterval(progressInterval);
         setIsSearching(false);
         setProgressValue(0);
         toast({
           title: "Resume Required",
-          description: "Pro tier requires a resume upload for similarity matching.",
+          description: `${userTier === "elite" ? "Elite" : "Pro"} tier requires a resume upload for similarity matching.`,
           variant: "destructive",
         });
         return;
@@ -677,7 +677,7 @@ const ContactSearchPage: React.FC = () => {
       // Update progress before starting search
       setProgressValue(30);
 
-      if (userTier === "free" || userTier === "elite") {
+      if (userTier === "free") {
         const searchRequest = {
           jobTitle: jobTitle.trim(),
           company: company.trim() || "",
@@ -775,7 +775,7 @@ const ContactSearchPage: React.FC = () => {
             duration: 5000,
           });
         }
-      } else if (userTier === "pro") {
+      } else if (userTier === "pro" || userTier === "elite") {
         // Get resume file (either uploaded or from saved resume)
         const resumeFile = await getResumeFile();
         
@@ -1408,9 +1408,9 @@ const ContactSearchPage: React.FC = () => {
                       {(userTier === "free" || userTier === "pro" || userTier === "elite") && (
                         <div className="mb-6">
                           <label className="block text-sm font-medium mb-2 text-foreground">
-                            Resume {userTier === "pro" && <span className="text-destructive">*</span>}
-                            {userTier === "pro" && " (Required for Pro tier AI similarity matching)"}
-                            {userTier !== "pro" && " (Optional - helps with personalized matching)"}
+                            Resume {(userTier === "pro" || userTier === "elite") && <span className="text-destructive">*</span>}
+                            {(userTier === "pro" || userTier === "elite") && ` (Required for ${userTier === "elite" ? "Elite" : "Pro"} tier AI similarity matching)`}
+                            {userTier === "free" && " (Optional - helps with personalized matching)"}
                           </label>
                           {savedResumeUrl && savedResumeFileName ? (
                             <div className="border-2 border-dashed border-green-500/50 rounded-lg p-4 bg-green-500/10">
@@ -1484,7 +1484,7 @@ const ContactSearchPage: React.FC = () => {
                             !jobTitle.trim() ||
                             !location.trim() ||
                             isSearching ||
-                            (userTier === "pro" && !uploadedFile && !savedResumeUrl) ||
+                            ((userTier === "pro" || userTier === "elite") && !uploadedFile && !savedResumeUrl) ||
                             (effectiveUser.credits ?? 0) < 15
                           }
                           size="lg"

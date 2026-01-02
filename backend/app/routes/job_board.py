@@ -4647,9 +4647,18 @@ def find_recruiter_endpoint():
                 "creditsAvailable": current_credits
             }), 402
         
+        # Get user's requested max_results (default: 5, max: 10)
+        max_results_requested = data.get('maxResults', 5)
+        if max_results_requested is not None:
+            max_results_requested = int(max_results_requested)
+            max_results_requested = min(max(max_results_requested, 1), 10)  # Clamp between 1 and 10
+        else:
+            max_results_requested = 5
+        
         # Calculate how many recruiters user can afford (15 credits per recruiter)
         max_affordable = current_credits // 15
-        max_requested = 10  # Request up to 10, but only return what they can afford
+        # Use the minimum of what user requested and what they can afford
+        max_results_to_fetch = min(max_results_requested, max_affordable)
         
         # Get user's resume and contact info for email generation
         user_resume = user_data.get('resumeParsed', {})
@@ -4664,14 +4673,14 @@ def find_recruiter_endpoint():
         generate_emails = data.get('generateEmails', True)
         create_drafts = data.get('createDrafts', True)
         
-        # Find recruiters - fetch more than needed to rank, then limit by credits
+        # Find recruiters - use the requested amount (limited by affordability)
         result = find_recruiters(
             company_name=company,
             job_type=job_type,
             job_title=job_title,
             job_description=job_description,
             location=location,
-            max_results=max_requested,  # Fetch more for ranking, then limit by credits
+            max_results=max_results_to_fetch,  # Use requested amount (limited by credits)
             generate_emails=generate_emails,
             user_resume=user_resume,
             user_contact=user_contact
@@ -4682,13 +4691,16 @@ def find_recruiter_endpoint():
             return jsonify({
                 "error": result["error"],
                 "recruiters": [],
+                "requestedCount": max_results_requested,
+                "foundCount": 0,
                 "creditsCharged": 0
             }), 500
         
-        # Limit results based on available credits
+        # Get results (already limited by max_results_to_fetch)
         all_recruiters = result.get("recruiters", [])
         all_emails = result.get("emails", [])
         total_found = result.get("total_found", 0)
+        # Results are already limited to max_results_to_fetch, but we still need to respect credits
         affordable_recruiters = all_recruiters[:max_affordable]
         
         # Limit emails to match affordable recruiters
@@ -4824,6 +4836,8 @@ def find_recruiter_endpoint():
             "companyCleaned": result["company_cleaned"],
             "searchTitles": result["search_titles"],
             "totalFound": total_found,
+            "requestedCount": max_results_requested,
+            "foundCount": len(affordable_recruiters),
             "creditsCharged": credits_charged,
             "creditsRemaining": new_balance,
             "message": result.get("message")

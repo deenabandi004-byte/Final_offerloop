@@ -418,6 +418,8 @@ const JobBoardPage: React.FC = () => {
   const [recruitersMoreAvailable, setRecruitersMoreAvailable] = useState(0);
   const [recruiterEmails, setRecruiterEmails] = useState<any[]>([]);
   const [draftsCreated, setDraftsCreated] = useState<any[]>([]);
+  const [maxRecruitersRequested, setMaxRecruitersRequested] = useState<number>(2);
+  const [lastSearchResult, setLastSearchResult] = useState<{requestedCount: number; foundCount: number; creditsCharged: number; error?: string} | null>(null);
   const [expandedEmail, setExpandedEmail] = useState<number | null>(null);
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
   const [checkingGmail, setCheckingGmail] = useState(false);
@@ -864,25 +866,43 @@ const JobBoardPage: React.FC = () => {
         jobTitle: jobTitle || undefined,
         jobDescription: description || jobDescription || undefined,  // Always send description if available
         location: location || undefined,
-        jobUrl: jobUrl || undefined  // Pass jobUrl as fallback for backend parsing
+        jobUrl: jobUrl || undefined,  // Pass jobUrl as fallback for backend parsing
+        maxResults: maxRecruitersRequested  // Pass user's requested number
+      });
+      
+      const requestedCount = response.requestedCount ?? maxRecruitersRequested;
+      const foundCount = response.foundCount ?? response.recruiters.length;
+      
+      // Store last search result for inline alert
+      setLastSearchResult({
+        requestedCount,
+        foundCount,
+        creditsCharged: response.creditsCharged,
+        error: response.error
       });
       
       if (response.error) {
         setRecruitersError(response.error);
+        setRecruiters([]);
+        setRecruitersCount(0);
+        setRecruitersHasMore(false);
         toast({
-          title: "Error Finding Recruiters",
-          description: response.error,
+          title: "Error",
+          description: "Something went wrong. No credits were charged.",
           variant: "destructive"
         });
-      } else if (response.recruiters.length === 0) {
+      } else if (foundCount === 0) {
         setRecruitersError(response.message || "No recruiters found at this company.");
+        setRecruiters([]);
         setRecruitersCount(0);
         setRecruitersHasMore(false);
         toast({
           title: "No Recruiters Found",
-          description: response.message || "Try reaching out via LinkedIn.",
+          description: "No recruiters found matching this job. Try a different job title or company. No credits were charged.",
+          variant: "default"
         });
-      } else {
+      } else if (foundCount < requestedCount) {
+        // Found fewer than requested
         setRecruiters(response.recruiters);
         setRecruitersCount(response.totalFound || response.recruiters.length);
         setRecruitersHasMore(response.hasMore || false);
@@ -893,22 +913,53 @@ const JobBoardPage: React.FC = () => {
           await updateCredits(response.creditsRemaining);
         }
         
-        // Show success message
+        const draftMessage = response.draftsCreated && response.draftsCreated.length > 0
+          ? ` ${response.draftsCreated.length} email draft${response.draftsCreated.length > 1 ? 's' : ''} created in Gmail!`
+          : '';
+        toast({
+          title: "Found Fewer Than Requested",
+          description: `Found ${foundCount} of ${requestedCount} requested recruiters (${response.creditsCharged} credits used). We couldn't find more matches for this job — try broadening the job title or company criteria.${draftMessage}`,
+          variant: "default"
+        });
+        // Switch to recruiters tab to show results
+        setActiveTab("recruiters");
+      } else {
+        // Found exactly what was requested (or more)
+        setRecruiters(response.recruiters);
+        setRecruitersCount(response.totalFound || response.recruiters.length);
+        setRecruitersHasMore(response.hasMore || false);
+        setRecruitersMoreAvailable(response.moreAvailable || 0);
+        setRecruiterEmails(response.emails || []);
+        setDraftsCreated(response.draftsCreated || []);
+        if (response.creditsRemaining !== undefined) {
+          await updateCredits(response.creditsRemaining);
+        }
+        
         const draftMessage = response.draftsCreated && response.draftsCreated.length > 0
           ? ` ${response.draftsCreated.length} email draft${response.draftsCreated.length > 1 ? 's' : ''} created in Gmail!`
           : '';
         toast({
           title: "Recruiters Found!",
-          description: `Found ${response.recruiters.length} recruiter(s). ${response.creditsCharged} credits used.${draftMessage} ${response.hasMore ? `${response.moreAvailable} more available.` : ''}`,
+          description: `Found ${foundCount} recruiter${foundCount !== 1 ? 's' : ''} (${response.creditsCharged} credits used).${draftMessage}`,
+          variant: "default"
         });
         // Switch to recruiters tab to show results
         setActiveTab("recruiters");
       }
     } catch (error: any) {
       setRecruitersError(error.message || "Failed to find recruiters");
+      setRecruiters([]);
+      setRecruitersCount(0);
+      setRecruitersHasMore(false);
+      setLastSearchResult({
+        requestedCount: maxRecruitersRequested,
+        foundCount: 0,
+        creditsCharged: 0,
+        error: error.message || "Failed to find recruiters"
+      });
       toast({
         title: "Error",
-        description: error.message || "Failed to find recruiters",
+        description: "Something went wrong. No credits were charged.",
         variant: "destructive"
       });
     } finally {
@@ -1293,50 +1344,70 @@ const JobBoardPage: React.FC = () => {
                         </div>
 
                     {/* Find Recruiters - Subtle, inline */}
-                    <div className="flex items-center justify-between py-4 border-t border-gray-100">
-                      <span className="text-sm text-gray-600">
-                        {selectedJob?.company 
-                          ? `Find recruiters at ${selectedJob.company}`
-                          : 'Find recruiters'
-                        }
-                      </span>
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span>
-                              <Button
-                                disabled={!hasJobInfo || recruitersLoading || (user?.credits ?? 0) < 15}
-                                onClick={handleFindRecruiter}
-                                className={`
-                                  text-sm px-4 py-2 rounded-lg font-medium transition-colors
-                                  ${hasJobInfo && !recruitersLoading && (user?.credits ?? 0) >= 15
-                                    ? 'bg-blue-600 text-white hover:bg-blue-700' 
-                                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                  }
-                                `}
-                              >
-                                {recruitersLoading ? (
-                                  <>
-                                    <Loader2 className="w-3 h-3 mr-1.5 inline animate-spin" />
-                                    Finding...
-                                  </>
-                                ) : (
-                                  'Find Recruiters'
-                                )}
-                              </Button>
-                            </span>
-                          </TooltipTrigger>
-                          {!hasJobInfo ? (
-                            <TooltipContent>
-                              <p>Enter a job URL or description to find recruiters</p>
-                            </TooltipContent>
-                          ) : (user?.credits ?? 0) < 15 ? (
-                            <TooltipContent>
-                              <p>You need at least 15 credits. You have {user?.credits ?? 0}.</p>
-                            </TooltipContent>
-                          ) : null}
-                        </Tooltip>
-                      </TooltipProvider>
+                    <div className="py-4 border-t border-gray-100">
+                      <div className="flex items-center justify-end gap-3">
+                        <label className="text-sm text-gray-600 flex items-center gap-2">
+                          Number of recruiters to find:
+                          <Select
+                            value={maxRecruitersRequested.toString()}
+                            onValueChange={(value) => setMaxRecruitersRequested(parseInt(value))}
+                            disabled={recruitersLoading}
+                          >
+                            <SelectTrigger className="w-20 h-8 text-sm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {[1, 2, 3, 4, 5].map((num) => (
+                                <SelectItem key={num} value={num.toString()}>
+                                  {num}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </label>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span>
+                                <Button
+                                  disabled={!hasJobInfo || recruitersLoading || (user?.credits ?? 0) < 15}
+                                  onClick={handleFindRecruiter}
+                                  variant={undefined}
+                                  className={`
+                                    text-sm px-4 py-2 rounded-lg font-medium transition-colors
+                                    ${hasJobInfo && !recruitersLoading && (user?.credits ?? 0) >= 15
+                                      ? '!bg-blue-600 !text-white hover:!bg-blue-700 active:!bg-blue-800 focus-visible:!ring-blue-600' 
+                                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                    }
+                                  `}
+                                  style={hasJobInfo && !recruitersLoading && (user?.credits ?? 0) >= 15 ? { 
+                                    backgroundColor: '#2563eb',
+                                    color: '#ffffff'
+                                  } : undefined}
+                                >
+                                  {recruitersLoading ? (
+                                    <>
+                                      <Loader2 className="w-3 h-3 mr-1.5 inline animate-spin" />
+                                      Finding...
+                                    </>
+                                  ) : (
+                                    'Find Recruiters'
+                                  )}
+                                </Button>
+                              </span>
+                            </TooltipTrigger>
+                            {!hasJobInfo ? (
+                              <TooltipContent>
+                                <p>Enter a job URL or description to find recruiters</p>
+                              </TooltipContent>
+                            ) : (user?.credits ?? 0) < 15 ? (
+                              <TooltipContent>
+                                <p>You need at least 15 credits. You have {user?.credits ?? 0}.</p>
+                              </TooltipContent>
+                            ) : null}
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
                     </div>
 
                     {/* Recruiter Preview - Inline when available */}
@@ -1811,6 +1882,69 @@ const JobBoardPage: React.FC = () => {
                             </tbody>
                           </table>
                         </div>
+                        
+                        {/* Inline Alert for Search Results */}
+                        {lastSearchResult && (
+                          <div className="mt-4 px-6">
+                            {lastSearchResult.error ? (
+                              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                                <div className="flex items-start gap-2">
+                                  <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5" />
+                                  <div>
+                                    <p className="text-sm font-medium text-red-900 dark:text-red-200">
+                                      Error
+                                    </p>
+                                    <p className="text-sm text-red-800 dark:text-red-300 mt-1">
+                                      Something went wrong. No credits were charged.
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : lastSearchResult.foundCount === 0 ? (
+                              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                                <div className="flex items-start gap-2">
+                                  <AlertTriangle className="h-5 w-5 text-blue-600 mt-0.5" />
+                                  <div>
+                                    <p className="text-sm font-medium text-blue-900 dark:text-blue-200">
+                                      No Recruiters Found
+                                    </p>
+                                    <p className="text-sm text-blue-800 dark:text-blue-300 mt-1">
+                                      No recruiters found matching this job. Try a different job title or company. No credits were charged.
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : lastSearchResult.foundCount < lastSearchResult.requestedCount ? (
+                              <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+                                <div className="flex items-start gap-2">
+                                  <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                                  <div>
+                                    <p className="text-sm font-medium text-yellow-900 dark:text-yellow-200">
+                                      Found Fewer Than Requested
+                                    </p>
+                                    <p className="text-sm text-yellow-800 dark:text-yellow-300 mt-1">
+                                      Found {lastSearchResult.foundCount} of {lastSearchResult.requestedCount} requested recruiters ({lastSearchResult.creditsCharged} credits used). We couldn't find more matches for this job — try broadening the job title or company criteria.
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                                <div className="flex items-start gap-2">
+                                  <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5" />
+                                  <div>
+                                    <p className="text-sm font-medium text-green-900 dark:text-green-200">
+                                      Success
+                                    </p>
+                                    <p className="text-sm text-green-800 dark:text-green-300 mt-1">
+                                      Found {lastSearchResult.foundCount} recruiter{lastSearchResult.foundCount !== 1 ? 's' : ''} ({lastSearchResult.creditsCharged} credits used).
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
