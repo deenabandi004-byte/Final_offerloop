@@ -16,7 +16,6 @@ import {
   Sparkles,
   Upload,
   AlertCircle,
-  Loader2,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -28,6 +27,7 @@ import {
   downloadPdfBlob,
   isSuggestionsResult,
 } from '@/services/api';
+import { LoadingContainer, InlineLoadingBar } from '@/components/ui/LoadingBar';
 
 interface ResumeOptimizationModalProps {
   isOpen: boolean;
@@ -161,10 +161,10 @@ export function ResumeOptimizationModal({
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
         <DialogContent className="sm:max-w-lg">
-          <div className="flex flex-col items-center justify-center py-8 gap-3">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-            <p className="text-sm text-gray-500">Loading resume information...</p>
-          </div>
+          <LoadingContainer 
+            label="Loading resume information..." 
+            sublabel="Please wait" 
+          />
         </DialogContent>
       </Dialog>
     );
@@ -316,18 +316,17 @@ export function ResumeOptimizationModal({
           <Button
             onClick={handleOptimize}
             disabled={!selectedMode || optimizing}
+            className="relative overflow-hidden"
           >
             {optimizing ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Optimizing...
-              </>
+              'Optimizing...'
             ) : (
               <>
                 <Sparkles className="w-4 h-4 mr-2" />
                 Optimize (20 credits)
               </>
             )}
+            <InlineLoadingBar isLoading={optimizing} />
           </Button>
         </div>
       </DialogContent>

@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Loader2,
   Mail,
   Search,
   RefreshCw,
@@ -15,6 +14,7 @@ import {
 } from "lucide-react";
 import { LoadingSkeleton } from "./LoadingSkeleton";
 import { useNavigate } from "react-router-dom";
+import { InlineLoadingBar } from "@/components/ui/LoadingBar";
 import { useFirebaseAuth } from '../contexts/FirebaseAuthContext';
 import {
   AlertDialog,
@@ -543,9 +543,10 @@ const SpreadsheetContactDirectory: React.FC = () => {
               size="sm"
               onClick={loadContacts}
               disabled={isLoading}
-              className="border-border text-foreground hover:bg-secondary"
+              className="relative overflow-hidden border-border text-foreground hover:bg-secondary"
             >
-              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw className="h-4 w-4" />
+              <InlineLoadingBar isLoading={isLoading} />
             </Button>
             <Button
               variant="outline"

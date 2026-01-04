@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
-import { Loader2, Mail, ExternalLink } from "lucide-react";
+import { Mail, ExternalLink } from "lucide-react";
 import { useFirebaseAuth } from '../contexts/FirebaseAuthContext';
+import { LoadingContainer } from '@/components/ui/LoadingBar';
 import { firebaseApi } from '../services/firebaseApi';
 import { useFirebaseMigration } from '../hooks/useFirebaseMigration';
 
@@ -241,9 +242,11 @@ ${userName || ''}`;
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin" />
-        <span className="ml-2">Loading contacts...</span>
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+        <LoadingContainer 
+          label="Loading contacts..." 
+          sublabel="Please wait" 
+        />
       </div>
     );
   }

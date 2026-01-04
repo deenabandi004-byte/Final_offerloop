@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, ExternalLink, Sparkles } from 'lucide-react';
+import { Send, ExternalLink, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { LoadingBar, InlineLoadingBar } from '@/components/ui/LoadingBar';
 
 const BACKEND_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:5001'
@@ -667,7 +668,12 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userR
                                     } ${isAnalyzing ? 'opacity-50 cursor-not-allowed' : ''}`}
                                   >
                                     {isAnalyzing ? (
-                                      <Loader2 className="h-3 w-3 animate-spin inline" />
+                                      <div className="inline-flex items-center gap-1.5">
+                                        <div className="w-8 h-0.5 bg-blue-100 rounded-full overflow-hidden">
+                                          <div className="h-full w-full bg-gradient-to-r from-blue-600 via-blue-400 to-blue-600 bg-[length:200%_100%] animate-loading-shimmer" />
+                                        </div>
+                                        <span className="text-xs">Analyzing...</span>
+                                      </div>
                                     ) : analysis ? (
                                       `${analysis.score}% Match`
                                     ) : (
@@ -869,10 +875,12 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userR
           {/* Loading indicator */}
           {isLoading && (
           <div className="flex justify-start">
-              <div className="bg-slate-100 border border-slate-200 rounded-lg p-3">
-                <div className="flex items-center gap-2 text-slate-600">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-sm">Scout is thinking...</span>
+              <div className="bg-slate-100 border border-slate-200 rounded-lg p-3 w-full max-w-md">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-slate-600">
+                    <span className="text-sm font-medium">Scout is thinking...</span>
+                  </div>
+                  <LoadingBar variant="indeterminate" size="sm" />
                 </div>
             </div>
             </div>
@@ -895,14 +903,11 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userR
           <Button
             onClick={sendMessage}
             disabled={!input.trim() || isLoading}
-            className="hover:opacity-90 rounded-md"
+            className="relative overflow-hidden hover:opacity-90 rounded-md"
             style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
           >
-            {isLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
+            <Send className="h-4 w-4" />
+            <InlineLoadingBar isLoading={isLoading} />
           </Button>
         </div>
       </div>

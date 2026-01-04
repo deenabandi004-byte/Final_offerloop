@@ -12,7 +12,6 @@ import {
   Coffee,
   Download,
   Trash2,
-  Loader2,
   BadgeCheck,
   MapPin,
   Calendar,
@@ -28,6 +27,7 @@ import { BetaBadge } from "@/components/BetaBadges";
 import { apiService } from "@/services/api";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import type { CoffeeChatPrep, CoffeeChatPrepStatus } from "@/services/api";
+import { InlineLoadingBar, SteppedLoadingBar } from "@/components/ui/LoadingBar";
 import { toast } from "@/hooks/use-toast";
 import { COFFEE_CHAT_CREDITS } from "@/lib/constants";
 import { flushSync } from "react-dom";
@@ -80,6 +80,18 @@ const CoffeeChatPrepPage: React.FC = () => {
   const [coffeeChatPrepId, setCoffeeChatPrepId] = useState<string | null>(null);
   const [coffeeChatResult, setCoffeeChatResult] = useState<CoffeeChatPrepStatus | null>(null);
   const [coffeeChatStatus, setCoffeeChatStatus] = useState<'idle' | 'processing' | 'completed' | 'failed'>('idle');
+  const [currentPrepStatus, setCurrentPrepStatus] = useState<string>('pending');
+  
+  // Coffee Chat Prep steps for SteppedLoadingBar
+  const coffeeChatSteps = [
+    { id: 'pending', label: 'Initializing...' },
+    { id: 'processing', label: 'Processing request...' },
+    { id: 'enriching_profile', label: 'Enriching profile data...' },
+    { id: 'fetching_news', label: 'Fetching recent news...' },
+    { id: 'extracting_hometown', label: 'Extracting location...' },
+    { id: 'generating_content', label: 'Generating content...' },
+    { id: 'completed', label: 'Complete!' },
+  ];
   const [renderKey, setRenderKey] = useState(0);
   const coffeeChatPollTimeoutRef = useRef<number | null>(null);
 
@@ -169,6 +181,7 @@ const CoffeeChatPrepPage: React.FC = () => {
 
     setCoffeeChatLoading(true);
     setCoffeeChatStatus('processing');
+    setCurrentPrepStatus('pending');
     setCoffeeChatProgress('Starting Coffee Chat Prep...');
     setCoffeeChatResult(null);
     setRenderKey((prev: number) => prev + 1);
@@ -254,7 +267,21 @@ const CoffeeChatPrepPage: React.FC = () => {
             }
             
             if ('status' in statusResult) {
-              setCoffeeChatProgress('Processing your request...');
+              const status = statusResult.status;
+              setCurrentPrepStatus(status);
+              
+              // Update progress message based on status
+              const statusMessages: Record<string, string> = {
+                'pending': 'Initializing...',
+                'processing': 'Processing request...',
+                'enriching_profile': 'Enriching profile data...',
+                'fetching_news': 'Fetching recent news...',
+                'extracting_hometown': 'Extracting location...',
+                'generating_content': 'Generating content...',
+                'generating_pdf': 'Generating PDF...',
+                'completed': 'Coffee Chat Prep ready!',
+              };
+              setCoffeeChatProgress(statusMessages[status] || 'Processing...');
             }
             
             if (pollCount >= maxPolls) {
@@ -489,19 +516,17 @@ const CoffeeChatPrepPage: React.FC = () => {
                             <Button
                               onClick={handleCoffeeChatSubmit}
                               disabled={coffeeChatLoading || !linkedinUrl.trim() || (effectiveUser.credits ?? 0) < COFFEE_CHAT_CREDITS || !hasAccess}
-                              className=""
+                              className="relative overflow-hidden"
                             >
                               {coffeeChatLoading ? (
-                                <>
-                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                  Generating...
-                                </>
+                                'Generating...'
                               ) : (
                                 <>
                                   <Coffee className="h-4 w-4 mr-2" />
                                   Generate Prep
                                 </>
                               )}
+                              <InlineLoadingBar isLoading={coffeeChatLoading} />
                             </Button>
 
                             {coffeeChatStatus === 'completed' && (coffeeChatPrepId || coffeeChatResult) && (
@@ -518,18 +543,28 @@ const CoffeeChatPrepPage: React.FC = () => {
 
                           {coffeeChatStatus !== 'idle' && (
                             <div className="rounded-lg border border-border bg-muted/50 p-4 shadow-inner text-sm text-foreground">
-                              <div className="flex items-center gap-2">
-                                {coffeeChatLoading ? (
-                                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                                ) : coffeeChatStatus === 'completed' ? (
+                              {coffeeChatStatus === 'completed' ? (
+                                <div className="flex items-center gap-2">
                                   <CheckCircle className="h-4 w-4 text-blue-600" />
-                                ) : coffeeChatStatus === 'failed' ? (
+                                  <span>{coffeeChatProgress}</span>
+                                </div>
+                              ) : coffeeChatStatus === 'failed' ? (
+                                <div className="flex items-center gap-2">
                                   <XCircle className="h-4 w-4 text-destructive" />
-                                ) : (
-                                  <Clock className="h-4 w-4 text-primary" />
-                                )}
-                                <span>{coffeeChatProgress}</span>
-                              </div>
+                                  <span>{coffeeChatProgress || 'Generation failed'}</span>
+                                </div>
+                              ) : (
+                                <div className="space-y-3">
+                                  <div className="flex items-center gap-2">
+                                    <Clock className="h-4 w-4 text-primary" />
+                                    <span className="font-medium">{coffeeChatProgress}</span>
+                                  </div>
+                                  <SteppedLoadingBar 
+                                    steps={coffeeChatSteps} 
+                                    currentStepId={currentPrepStatus} 
+                                  />
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -702,15 +737,12 @@ const CoffeeChatPrepPage: React.FC = () => {
                                     <Button
                                       size="sm"
                                       variant="ghost"
-                                      className="text-destructive hover:text-destructive/80"
+                                      className="relative overflow-hidden text-destructive hover:text-destructive/80"
                                       disabled={deletingId === prep.id}
                                       onClick={() => handleLibraryDelete(prep.id)}
                                     >
-                                      {deletingId === prep.id ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                      ) : (
-                                        <Trash2 className="h-4 w-4" />
-                                      )}
+                                      <Trash2 className="h-4 w-4" />
+                                      <InlineLoadingBar isLoading={deletingId === prep.id} />
                                     </Button>
                                   </div>
                                 </div>

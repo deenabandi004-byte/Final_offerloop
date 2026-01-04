@@ -1,4 +1,4 @@
-import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText, Save, Loader2 } from "lucide-react";
+import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText, Save } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -673,20 +673,18 @@ export default function AccountSettings() {
               <Button
                 onClick={handleSaveOnboardingData}
                 disabled={isSaving}
-                className="gap-2"
+                className="relative overflow-hidden gap-2"
                 style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
               >
                 {isSaving ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Saving...
-                  </>
+                  'Saving...'
                 ) : (
                   <>
                     <Save className="h-4 w-4" />
                     Save changes
                   </>
                 )}
+                <InlineLoadingBar isLoading={isSaving} />
               </Button>
             </div>
             {saveSuccess && (
@@ -935,17 +933,23 @@ export default function AccountSettings() {
                       return (
                         <div className="h-48 bg-muted/30 rounded-lg border-2 border-dashed border-muted-foreground/25 flex flex-col items-center justify-center p-6">
                           <FileText className="h-12 w-12 text-muted-foreground mb-4" />
-                          <p className="text-sm text-muted-foreground text-center mb-3">
-                            {isUploading ? "Processing resume..." : "No resume uploaded"}
-                          </p>
+                          <div className="w-full max-w-xs space-y-2">
+                            <p className="text-sm text-muted-foreground text-center">
+                              {isUploading ? "Processing resume..." : "No resume uploaded"}
+                            </p>
+                            {isUploading && (
+                              <LoadingBar variant="indeterminate" size="sm" />
+                            )}
+                          </div>
                           {uploadError && (
                             <p className="text-xs text-destructive mb-3">{uploadError}</p>
                           )}
                           <label htmlFor="resume-upload" className="cursor-pointer">
-                            <Button variant="outline" size="sm" disabled={isUploading} asChild>
+                            <Button variant="outline" size="sm" disabled={isUploading} className="relative overflow-hidden" asChild>
                               <span>
                                 <Upload className="h-4 w-4 mr-2" />
                                 {isUploading ? "Uploading..." : "Upload Resume"}
+                                <InlineLoadingBar isLoading={isUploading} />
                               </span>
                             </Button>
                             <input

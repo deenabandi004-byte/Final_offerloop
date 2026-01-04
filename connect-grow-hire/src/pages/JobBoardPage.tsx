@@ -19,7 +19,6 @@ import {
   Download,
   Copy,
   Link,
-  Loader2,
   Target,
   Bookmark,
   BookmarkCheck,
@@ -71,6 +70,7 @@ import { firebaseApi } from "../services/firebaseApi";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { CreditPill } from "@/components/credits";
 import { cn } from "@/lib/utils";
+import { InlineLoadingBar } from "@/components/ui/LoadingBar";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import ResumeRenderer from "@/components/ResumeRenderer";
@@ -1371,7 +1371,7 @@ const JobBoardPage: React.FC = () => {
                                   onClick={handleFindRecruiter}
                                   variant={undefined}
                                   className={`
-                                    text-sm px-4 py-2 rounded-lg font-medium transition-colors
+                                    relative overflow-hidden text-sm px-4 py-2 rounded-lg font-medium transition-colors
                                     ${hasJobInfo && !recruitersLoading && (user?.credits ?? 0) >= 15
                                       ? '!bg-blue-600 !text-white hover:!bg-blue-700 active:!bg-blue-800 focus-visible:!ring-blue-600' 
                                       : 'bg-gray-100 text-gray-400 cursor-not-allowed'
@@ -1382,14 +1382,8 @@ const JobBoardPage: React.FC = () => {
                                     color: '#ffffff'
                                   } : undefined}
                                 >
-                                  {recruitersLoading ? (
-                                    <>
-                                      <Loader2 className="w-3 h-3 mr-1.5 inline animate-spin" />
-                                      Finding...
-                                    </>
-                                  ) : (
-                                    'Find Recruiters'
-                                  )}
+                                  {recruitersLoading ? 'Finding...' : 'Find Recruiters'}
+                                  <InlineLoadingBar isLoading={recruitersLoading} />
                                 </Button>
                               </span>
                             </TooltipTrigger>
@@ -1495,7 +1489,7 @@ const JobBoardPage: React.FC = () => {
                         onClick={handleGenerateCoverLetter}
                         disabled={isGeneratingCoverLetter || (!jobUrl && !jobDescription)}
                         className={`
-                          flex-1 px-4 py-2.5 text-sm font-medium transition-colors relative
+                          relative overflow-hidden flex-1 px-4 py-2.5 text-sm font-medium transition-colors
                           ${isGeneratingCoverLetter
                             ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600 cursor-wait'
                             : (!jobUrl && !jobDescription)
@@ -1507,10 +1501,7 @@ const JobBoardPage: React.FC = () => {
                         `}
                       >
                         {isGeneratingCoverLetter ? (
-                          <>
-                            <Loader2 className="w-3 h-3 mr-1.5 inline animate-spin" />
-                            Generating...
-                          </>
+                          'Generating...'
                         ) : (
                           <>
                             Cover Letter
@@ -1519,6 +1510,7 @@ const JobBoardPage: React.FC = () => {
                             </span>
                           </>
                         )}
+                        <InlineLoadingBar isLoading={isGeneratingCoverLetter} />
                       </button>
                       </div>
                     </div>
@@ -1665,9 +1657,11 @@ const JobBoardPage: React.FC = () => {
                           </button>
                         )}
                         {checkingGmail && (
-                          <span className="flex items-center gap-1">
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                            Checking...
+                          <span className="flex items-center gap-2">
+                            <div className="w-12 h-0.5 bg-blue-100 rounded-full overflow-hidden">
+                              <div className="h-full w-full bg-gradient-to-r from-blue-600 via-blue-400 to-blue-600 bg-[length:200%_100%] animate-loading-shimmer" />
+                            </div>
+                            <span className="text-xs">Checking...</span>
                           </span>
                         )}
                       </div>

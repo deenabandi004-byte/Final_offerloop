@@ -1,0 +1,271 @@
+import React from 'react';
+
+interface LoadingBarProps {
+  /** Loading bar type - indeterminate for unknown duration, determinate for known progress */
+  variant?: 'indeterminate' | 'determinate';
+  /** Progress value 0-100 (only used when variant is 'determinate') */
+  progress?: number;
+  /** Bar thickness */
+  size?: 'sm' | 'md' | 'lg';
+  /** Optional label text shown above the bar */
+  label?: string;
+  /** Show percentage text (only for determinate) */
+  showPercentage?: boolean;
+  /** Additional CSS classes */
+  className?: string;
+}
+
+const sizeMap = {
+  sm: 'h-0.5',   // 2px
+  md: 'h-1',     // 4px  
+  lg: 'h-1.5',   // 6px
+};
+
+export function LoadingBar({
+  variant = 'indeterminate',
+  progress = 0,
+  size = 'md',
+  label,
+  showPercentage = false,
+  className = '',
+}: LoadingBarProps) {
+  const clampedProgress = Math.min(100, Math.max(0, progress));
+  const heightClass = sizeMap[size];
+
+  return (
+    <div className={`w-full ${className}`}>
+      {/* Label and percentage row */}
+      {(label || (showPercentage && variant === 'determinate')) && (
+        <div className="flex items-center justify-between mb-1.5">
+          {label && (
+            <span className="text-sm font-medium text-gray-600">
+              {label}
+            </span>
+          )}
+          {showPercentage && variant === 'determinate' && (
+            <span className="text-sm font-medium text-blue-600">
+              {Math.round(clampedProgress)}%
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Track */}
+      <div
+        className={`
+          relative w-full overflow-hidden rounded-full
+          bg-blue-100/50 backdrop-blur-sm
+          ${heightClass}
+        `}
+        role="progressbar"
+        aria-valuenow={variant === 'determinate' ? clampedProgress : undefined}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={label || 'Loading'}
+      >
+        {/* Progress bar */}
+        {variant === 'indeterminate' ? (
+          <div
+            className={`
+              absolute inset-0 rounded-full
+              bg-gradient-to-r from-blue-600 via-blue-400 to-blue-600
+              bg-[length:200%_100%]
+              animate-loading-shimmer
+            `}
+          />
+        ) : (
+          <div
+            className={`
+              ${heightClass} rounded-full
+              bg-gradient-to-r from-blue-600 to-blue-400
+              transition-all duration-300 ease-out
+              shadow-[0_0_8px_rgba(59,130,246,0.4)]
+            `}
+            style={{ width: `${clampedProgress}%` }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Inline loading bar for buttons - sits at the bottom of the button
+ */
+interface InlineLoadingBarProps {
+  isLoading: boolean;
+  className?: string;
+}
+
+export function InlineLoadingBar({ isLoading, className = '' }: InlineLoadingBarProps) {
+  if (!isLoading) return null;
+
+  return (
+    <div
+      className={`
+        absolute bottom-0 left-0 right-0 h-0.5 overflow-hidden
+        rounded-b-lg
+        ${className}
+      `}
+    >
+      <div
+        className="
+          h-full w-full rounded-full
+          bg-gradient-to-r from-blue-600 via-blue-400 to-blue-600
+          bg-[length:200%_100%]
+          animate-loading-shimmer
+        "
+      />
+    </div>
+  );
+}
+
+/**
+ * Page-level loading bar - fixed at top of viewport
+ */
+interface PageLoadingBarProps {
+  isLoading: boolean;
+}
+
+export function PageLoadingBar({ isLoading }: PageLoadingBarProps) {
+  if (!isLoading) return null;
+
+  return (
+    <div className="fixed top-0 left-0 right-0 z-50 h-1 overflow-hidden">
+      <div
+        className="
+          h-full w-full
+          bg-gradient-to-r from-blue-600 via-blue-400 to-blue-600
+          bg-[length:200%_100%]
+          animate-loading-shimmer
+        "
+      />
+    </div>
+  );
+}
+
+/**
+ * Stepped progress bar for multi-stage operations like Coffee Chat Prep
+ */
+interface Step {
+  id: string;
+  label: string;
+}
+
+interface SteppedLoadingBarProps {
+  steps: Step[];
+  currentStepId: string;
+  className?: string;
+}
+
+export function SteppedLoadingBar({ steps, currentStepId, className = '' }: SteppedLoadingBarProps) {
+  const currentIndex = steps.findIndex((s) => s.id === currentStepId);
+  const progress = currentIndex >= 0 ? ((currentIndex + 1) / steps.length) * 100 : 0;
+  const currentStep = steps[currentIndex];
+
+  return (
+    <div className={`w-full ${className}`}>
+      {/* Step indicator */}
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm font-medium text-gray-700">
+          {currentStep?.label || 'Processing...'}
+        </span>
+        <span className="text-xs text-gray-500">
+          Step {currentIndex + 1} of {steps.length}
+        </span>
+      </div>
+
+      {/* Progress track */}
+      <div className="relative w-full h-1.5 overflow-hidden rounded-full bg-blue-100/50 backdrop-blur-sm">
+        {/* Completed portion */}
+        <div
+          className="
+            h-full rounded-full
+            bg-gradient-to-r from-blue-600 to-blue-400
+            transition-all duration-500 ease-out
+            shadow-[0_0_8px_rgba(59,130,246,0.4)]
+          "
+          style={{ width: `${progress}%` }}
+        />
+        {/* Shimmer overlay on active portion */}
+        <div
+          className="
+            absolute top-0 left-0 h-full rounded-full
+            bg-gradient-to-r from-transparent via-white/30 to-transparent
+            bg-[length:200%_100%]
+            animate-loading-shimmer
+          "
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+
+      {/* Step dots */}
+      <div className="flex justify-between mt-2">
+        {steps.map((step, index) => (
+          <div
+            key={step.id}
+            className={`
+              w-2 h-2 rounded-full transition-all duration-300
+              ${index <= currentIndex
+                ? 'bg-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.5)]'
+                : 'bg-blue-200'
+              }
+            `}
+            title={step.label}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Glass-style loading container that replaces full-page spinners
+ */
+interface LoadingContainerProps {
+  label?: string;
+  sublabel?: string;
+  className?: string;
+}
+
+export function LoadingContainer({
+  label = 'Loading...',
+  sublabel,
+  className = '',
+}: LoadingContainerProps) {
+  return (
+    <div
+      className={`
+        flex flex-col items-center justify-center p-8
+        ${className}
+      `}
+    >
+      {/* Glass card */}
+      <div
+        className="
+          flex flex-col items-center gap-4 px-8 py-6
+          bg-white/80 backdrop-blur-xl
+          border border-blue-200/30
+          rounded-2xl
+          shadow-[0_4px_24px_rgba(59,130,246,0.12),0_2px_8px_rgba(96,165,250,0.08)]
+        "
+      >
+        {/* Loading bar */}
+        <div className="w-48">
+          <LoadingBar variant="indeterminate" size="md" />
+        </div>
+
+        {/* Labels */}
+        <div className="text-center">
+          <p className="text-sm font-medium text-gray-700">{label}</p>
+          {sublabel && (
+            <p className="text-xs text-gray-500 mt-1">{sublabel}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default LoadingBar;
+

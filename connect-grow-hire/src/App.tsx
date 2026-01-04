@@ -11,6 +11,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DynamicGradientBackground } from "./components/background/DynamicGradientBackground";
 import { LoadingSkeleton } from "./components/LoadingSkeleton";
 import { ScoutSidePanel } from "./components/ScoutSidePanel";
+import { LoadingContainer } from "./components/ui/LoadingBar";
 
 // Keep critical pages non-lazy for faster initial load
 import Index from "./pages/Index";
@@ -90,10 +91,13 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   });
 
   if (isLoading) {
-    devLog("🔒 [PROTECTED ROUTE] Still loading auth state, showing spinner");
+    devLog("🔒 [PROTECTED ROUTE] Still loading auth state, showing loading bar");
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+        <LoadingContainer 
+          label="Loading Offerloop..." 
+          sublabel="Please wait" 
+        />
       </div>
     );
   }

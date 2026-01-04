@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { LoadingContainer } from '@/components/ui/LoadingBar';
 
 const AuthCallback = () => {
   useEffect(() => {
@@ -23,11 +24,11 @@ const AuthCallback = () => {
   }, []);
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-        <p>Completing authentication...</p>
-      </div>
+    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+      <LoadingContainer 
+        label="Completing authentication..." 
+        sublabel="Please wait" 
+      />
     </div>
   );
 };

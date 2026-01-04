@@ -10,7 +10,6 @@ import { Badge } from "@/components/ui/badge";
 import { apiService, OutboxThread, OutboxStatus } from "@/services/api";
 import {
   Mail,
-  Loader2,
   Search,
   ExternalLink,
   RefreshCw,
@@ -315,9 +314,10 @@ export default function Outbox() {
                     size="icon"
                     variant="outline"
                     onClick={loadThreads}
-                    className="border-0 shadow-sm hover:shadow-md bg-white"
+                    className="relative overflow-hidden border-0 shadow-sm hover:shadow-md bg-white"
                   >
-                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                    <RefreshCw className="h-4 w-4" />
+                    <InlineLoadingBar isLoading={loading} />
                   </Button>
                 </div>
 
@@ -335,9 +335,11 @@ export default function Outbox() {
                 {/* Thread list */}
                 <div className="space-y-2 max-h-[520px] overflow-y-auto pr-1">
                   {loading && (
-                    <div className="py-10 text-center text-muted-foreground text-sm">
-                      <Loader2 className="h-4 w-4 animate-spin mb-2" />
-                      Loading conversations…
+                    <div className="py-10 text-center text-muted-foreground text-sm space-y-3">
+                      <p>Loading conversations…</p>
+                      <div className="w-48 mx-auto">
+                        <LoadingBar variant="indeterminate" size="sm" />
+                      </div>
                     </div>
                   )}
 
@@ -519,14 +521,11 @@ export default function Outbox() {
                           variant="ghost"
                           onClick={handleRegenerate}
                           disabled={generating}
-                          className="flex items-center gap-1 text-foreground"
+                          className="relative overflow-hidden flex items-center gap-1 text-foreground"
                         >
-                          {generating ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <RefreshCw className="h-4 w-4" />
-                          )}
+                          <RefreshCw className="h-4 w-4" />
                           Regenerate
+                          <InlineLoadingBar isLoading={generating} />
                         </Button>
                       </div>
 

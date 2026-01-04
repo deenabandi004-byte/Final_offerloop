@@ -21,6 +21,7 @@ import { INTERVIEW_PREP_CREDITS } from "@/lib/constants";
 import { flushSync } from "react-dom";
 import { logActivity, generateInterviewPrepSummary } from "@/utils/activityLogger";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
+import { InlineLoadingBar, LoadingBar } from "@/components/ui/LoadingBar";
 import { PageHeaderActions } from "@/components/PageHeaderActions";
 import { useSubscription } from "@/hooks/useSubscription";
 import { canUseFeature, getRemainingUses, getFeatureLimit } from "@/utils/featureAccess";
@@ -729,20 +730,18 @@ const InterviewPrepPage: React.FC = () => {
                               (!jobPostingUrl.trim() && (!manualCompanyName.trim() || !manualJobTitle.trim())) ||
                               !hasAccess
                             }
-                            className="w-full text-white font-semibold py-6 text-base shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="relative overflow-hidden w-full text-white font-semibold py-6 text-base shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                             style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
                           >
                             {interviewPrepLoading ? (
-                              <>
-                                <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                                Generating Interview Prep...
-                              </>
+                              'Generating Interview Prep...'
                             ) : (
                               <>
                                 <Sparkles className="h-5 w-5 mr-2" />
                                 Generate Interview Prep
                               </>
                             )}
+                            <InlineLoadingBar isLoading={interviewPrepLoading} />
                           </Button>
 
                           {interviewPrepStatus !== 'idle' && (
