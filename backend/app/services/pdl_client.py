@@ -1405,7 +1405,7 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None):
         city = location_info.get('locality', '') if isinstance(location_info, dict) else ''
         state = location_info.get('region', '') if isinstance(location_info, dict) else ''
 
-        # Email extraction - NO VERIFICATION (will be done later in optimized flow)
+        # Email selection - VERIFY PDL EMAILS WITH HUNTER USING TARGET COMPANY DOMAIN
         emails = person.get('emails') or []
         if not isinstance(emails, list):
             emails = []
@@ -1416,10 +1416,53 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None):
             
         pdl_email = _choose_best_email(emails, recommended)
         
-        # Store raw email data for later verification (no Hunter calls here)
-        best_email = pdl_email if pdl_email and pdl_email != "Not available" else "Not available"
-        email_source = None  # Will be set during verification phase
-        email_verified = False  # Will be set during verification phase
+        # ✅ USE TARGET COMPANY DOMAIN INSTEAD OF PDL EMAIL DOMAIN
+        # Always use target company domain for email lookup (not PDL email domain which may be from old job)
+        from app.services.hunter import get_verified_email, get_company_domain
+        
+        # Get target company domain
+        if target_company:
+            target_domain = get_company_domain(target_company)
+            print(f"[ContactExtraction] Target company: {target_company}")
+            print(f"[ContactExtraction] Target company domain: {target_domain}")
+        else:
+            target_domain = None
+            print(f"[ContactExtraction] ⚠️ No target company provided, using PDL company as fallback")
+        
+        # Get PDL email domain for comparison
+        pdl_domain = None
+        if pdl_email and "@" in pdl_email:
+            pdl_domain = pdl_email.split("@")[1].lower().strip()
+            print(f"[ContactExtraction] PDL email domain: {pdl_domain}")
+        
+        # Log domain comparison
+        if target_domain and pdl_domain:
+            if pdl_domain != target_domain.lower():
+                print(f"[ContactExtraction] ⚠️ PDL email is from old job ({pdl_domain}), using target domain ({target_domain})")
+            else:
+                print(f"[ContactExtraction] ✅ PDL email matches target domain")
+        
+        # Use target company for email verification (not PDL person's current company)
+        company_for_email_lookup = target_company if target_company else company_name
+        
+        # ✅ VERIFY PDL EMAIL WITH HUNTER BEFORE USING IT
+        # This ensures we don't use outdated/invalid PDL emails
+        # Uses target company domain for correct email lookup
+        verified_email_result = get_verified_email(
+            pdl_email=pdl_email if pdl_email and pdl_email != "Not available" else None,
+            first_name=first_name,
+            last_name=last_name,
+            company=company_for_email_lookup,  # Use target company, not PDL person's company
+            person_data=person  # Pass full person data for context
+        )
+        
+        best_email = verified_email_result.get('email')
+        email_source = verified_email_result.get('email_source', 'pdl')
+        email_verified = verified_email_result.get('email_verified', False)
+        
+        # ✅ INCLUDE contacts even without emails (Hunter.io will enrich them)
+        if not best_email or best_email == "Not available":
+            best_email = "Not available"  # Mark as unavailable but include the contact
 
         # Phone
         phone_numbers = person.get('phone_numbers') or []
@@ -1495,16 +1538,39 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None):
                             break
         volunteer_history = '; '.join(volunteer_work[:5]) if volunteer_work else 'Not available'
 
-        # Safe email extraction for WorkEmail (raw PDL data, no verification)
+        # Safe email extraction for WorkEmail (use verified email if it's a work email)
+        # Use verified email if it's from target company (work email), otherwise use PDL work email
         work_email = 'Not available'
+        if best_email and best_email != "Not available":
+            # Check if verified email is a work email (from target company domain)
+            if target_domain and "@" in best_email:
+                email_domain = best_email.split("@")[1].lower().strip()
+                if target_domain.lower() in email_domain:
+                    work_email = best_email  # Verified work email from target company
+                elif email_source == 'hunter.io':
+                    work_email = best_email  # Hunter found email (likely work email)
+                else:
+                    # Personal email - don't use as work email
+                    work_email = 'Not available'
+            elif email_source == 'hunter.io':
+                work_email = best_email  # Hunter found email
+            else:
+                # Check if it's a work email from PDL
+                for e in emails:
+                    if isinstance(e, dict):
+                        email_addr = e.get('address', '')
+                        email_type = (e.get('type') or '').lower()
+                        if email_type in ('work', 'professional') and email_addr == best_email:
+                            work_email = best_email
+                            break
+        
+        # Extract personal emails for fallback
         personal_emails_list = []
         for e in emails:
             if isinstance(e, dict):
                 email_addr = e.get('address', '')
                 email_type = (e.get('type') or '').lower()
-                if email_type in ('work', 'professional') and email_addr:
-                    work_email = email_addr
-                elif email_addr and "@" in email_addr:
+                if email_type not in ('work', 'professional') and email_addr and "@" in email_addr:
                     personal_emails_list.append(email_addr)
         
         # Add recommended personal email if available
@@ -1531,12 +1597,8 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None):
             'Group': f"{company_name} {job_title.split()[0] if job_title else 'Professional'} Team",
             'LinkedInConnections': person.get('linkedin_connections', 0),
             'DataVersion': person.get('dataset_version', 'Unknown'),
-            # Store raw PDL email data for later verification (no verification here)
-            'EmailSource': None,  # Will be set during verification phase
-            'EmailVerified': False,  # Will be set during verification phase
-            # Store raw email data for optimized contact search
-            '_pdl_work_email': work_email if work_email != 'Not available' else None,
-            '_pdl_personal_emails': personal_emails_list
+            'EmailSource': email_source,  # Track email source (pdl or hunter.io)
+            'EmailVerified': email_verified  # Track if email was verified
         }
 
         print(f"DEBUG: Contact extraction successful")

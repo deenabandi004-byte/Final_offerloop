@@ -40,6 +40,11 @@ export const UpgradeBanner: React.FC<UpgradeBannerProps> = ({
 }) => {
   const navigate = useNavigate();
 
+  // Don't show banner for elite members (they have unlimited access)
+  if (tier === 'elite') {
+    return null;
+  }
+
   // Only show banner if user doesn't have access
   // User doesn't have access if they've exhausted their limit OR don't have enough credits
   if (!hasExhaustedLimit && hasEnoughCredits) {

@@ -559,7 +559,7 @@ const InterviewPrepPage: React.FC = () => {
                           showUpgradeButton={!hasMonthlyAccess || !hasEnoughCredits}
                         />
                       )}
-                      {hasAccess && (
+                      {hasAccess && tier !== 'elite' && (
                         <div className="mb-6 rounded-md border-l-4 border-blue-400 bg-blue-50/70 p-4">
                           <p className="text-sm text-slate-600">
                             {limit === 'unlimited' 
