@@ -6,7 +6,7 @@ import { CreditPill } from "@/components/credits";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { useScout } from "@/contexts/ScoutContext";
-import { Search, FileText, Upload as UploadIcon, Download } from "lucide-react";
+import { Search, FileText, Upload as UploadIcon, Download, Linkedin, Send, Loader2 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 // ScoutBubble removed - now using ScoutHeaderButton in PageHeaderActions
 import { Button } from "@/components/ui/button";
@@ -103,6 +103,12 @@ const ContactSearchPage: React.FC = () => {
   
   // Search mode state (traditional vs prompt)
   const [searchMode, setSearchMode] = useState<'traditional' | 'prompt'>('traditional');
+
+  // LinkedIn Import state
+  const [linkedInUrl, setLinkedInUrl] = useState('');
+  const [linkedInLoading, setLinkedInLoading] = useState(false);
+  const [linkedInError, setLinkedInError] = useState<string | null>(null);
+  const [linkedInSuccess, setLinkedInSuccess] = useState<string | null>(null);
 
   // Fallback to 'free' config if tier not found (safety for new tiers)
   const currentTierConfig = TIER_CONFIGS[userTier] || TIER_CONFIGS.free;
@@ -578,6 +584,138 @@ const ContactSearchPage: React.FC = () => {
       await saveResumeToAccountSettings(file);
     } catch (error) {
       // Error already handled in saveResumeToAccountSettings
+    }
+  };
+
+  // LinkedIn Import handler
+  const handleLinkedInImport = async () => {
+    if (!linkedInUrl.trim()) return;
+    
+    // Normalize LinkedIn URL (accepts URLs with or without protocol)
+    let normalizedUrl = linkedInUrl.trim();
+    
+    // If it doesn't start with http, try to normalize it
+    if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
+      // If it starts with linkedin.com or www.linkedin.com, add https://
+      if (normalizedUrl.startsWith('linkedin.com') || normalizedUrl.startsWith('www.linkedin.com')) {
+        normalizedUrl = `https://${normalizedUrl}`;
+      } else if (normalizedUrl.startsWith('/in/')) {
+        // If it's just a path like /in/username, add the full domain
+        normalizedUrl = `https://linkedin.com${normalizedUrl}`;
+      } else if (normalizedUrl.includes('linkedin') && normalizedUrl.includes('/in/')) {
+        // Extract the /in/username part and rebuild
+        const match = normalizedUrl.match(/\/in\/[^\/\s]+/);
+        if (match) {
+          normalizedUrl = `https://linkedin.com${match[0]}`;
+        }
+      } else {
+        // Otherwise, assume it's just a username and add the full path
+        normalizedUrl = `https://linkedin.com/in/${normalizedUrl}`;
+      }
+    }
+    
+    // Validate the normalized URL format
+    const linkedInRegex = /^https?:\/\/(www\.)?linkedin\.com\/in\/[\w-]+\/?$/;
+    if (!linkedInRegex.test(normalizedUrl)) {
+      setLinkedInError('Please enter a valid LinkedIn profile URL (e.g., https://linkedin.com/in/username)');
+      return;
+    }
+    
+    if (!user?.uid) {
+      setLinkedInError('Please sign in to import contacts');
+      return;
+    }
+    
+    setLinkedInLoading(true);
+    setLinkedInError(null);
+    setLinkedInSuccess(null);
+    
+    try {
+      // Get user resume text from Firestore
+      let userResumeText = '';
+      try {
+        const userRef = doc(db, 'users', user.uid);
+        const snap = await getDoc(userRef);
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data.resumeText) {
+            userResumeText = data.resumeText;
+          } else if (data.resumeParsed) {
+            userResumeText = JSON.stringify(data.resumeParsed);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load resume:', error);
+      }
+      
+      // Get Firebase auth token
+      const firebaseUser = auth.currentUser;
+      if (!firebaseUser) {
+        throw new Error('User not authenticated');
+      }
+      const idToken = await firebaseUser.getIdToken();
+      
+      // Get API base URL
+      const API_BASE = window.location.hostname === 'localhost'
+        ? 'http://localhost:5001'
+        : 'https://www.offerloop.ai';
+      
+      const response = await fetch(`${API_BASE}/api/contacts/import-linkedin`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          linkedin_url: normalizedUrl, // Use normalized URL
+          user_id: user.uid,
+          user_resume: userResumeText,
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.message || data.error || 'Failed to import contact');
+      }
+      
+      if (data.status === 'ok') {
+        // Use the message from backend, or construct one based on the response
+        const successMessage = data.message || `Successfully imported ${data.contact.full_name}!`;
+        setLinkedInSuccess(successMessage);
+        setLinkedInUrl(''); // Clear the input field
+        
+        // Update credits if provided
+        if (data.credits_remaining !== undefined && updateCredits) {
+          await updateCredits(data.credits_remaining);
+        }
+        
+        // Show appropriate toast based on what was accomplished
+        const emailFound = data.email_found !== false; // Default to true if not specified
+        const draftCreated = data.draft_created === true;
+        
+        let toastDescription = `${data.contact.full_name} added to your contacts`;
+        if (draftCreated) {
+          toastDescription += ' with a draft email.';
+        } else if (!emailFound) {
+          toastDescription += '. No email address was found - you can add one manually later.';
+        } else {
+          toastDescription += ', but the email draft could not be created.';
+        }
+        
+        toast({
+          title: "Contact Imported!",
+          description: toastDescription,
+          variant: emailFound && draftCreated ? "default" : "default",
+        });
+      } else {
+        setLinkedInError(data.message || 'Failed to import contact');
+      }
+    } catch (error: any) {
+      console.error('LinkedIn import error:', error);
+      setLinkedInError(error.message || 'An error occurred while importing. Please try again.');
+    } finally {
+      setLinkedInLoading(false);
     }
   };
 
@@ -1064,7 +1202,7 @@ const ContactSearchPage: React.FC = () => {
             <div className="max-w-5xl mx-auto">
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <div className="flex justify-center mb-8">
-                  <TabsList className="h-14 tabs-container-gradient border border-border grid grid-cols-3 max-w-2xl w-full rounded-xl p-1 bg-white">
+                  <TabsList className="h-14 tabs-container-gradient border border-border grid grid-cols-4 max-w-3xl w-full rounded-xl p-1 bg-white">
                     <TabsTrigger
                       value="contact-search"
                       className="h-12 font-medium text-base data-[state=active] data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
@@ -1085,6 +1223,13 @@ const ContactSearchPage: React.FC = () => {
                     >
                       <UploadIcon className="h-5 w-5 mr-2" />
                       Import
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="linkedin-email"
+                      className="h-12 font-medium text-base data-[state=active] data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
+                    >
+                      <Linkedin className="h-5 w-5 mr-2" />
+                      LinkedIn to Email
                     </TabsTrigger>
                   </TabsList>
                 </div>
@@ -1612,6 +1757,61 @@ const ContactSearchPage: React.FC = () => {
                         setActiveTab('contact-library');
                       }} 
                     />
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="linkedin-email" className="mt-6">
+                  <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-gray-100 shadow-sm p-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Linkedin className="w-5 h-5 text-blue-600" />
+                      <h2 className="text-xl font-semibold text-gray-900">Import from LinkedIn</h2>
+                    </div>
+                    <p className="text-sm text-gray-500 mb-4">
+                      Paste a LinkedIn profile URL to automatically find their email, generate a personalized message, and create a Gmail draft.
+                    </p>
+                    
+                    <div className="flex gap-3">
+                      <input
+                        type="url"
+                        value={linkedInUrl}
+                        onChange={(e) => setLinkedInUrl(e.target.value)}
+                        placeholder="https://www.linkedin.com/in/username"
+                        className="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <button
+                        onClick={handleLinkedInImport}
+                        disabled={!linkedInUrl.trim() || linkedInLoading}
+                        className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      >
+                        {linkedInLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Processing...
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-4 h-4" />
+                            Import & Draft
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    
+                    {linkedInError && (
+                      <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                        {linkedInError}
+                      </div>
+                    )}
+                    
+                    {linkedInSuccess && (
+                      <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
+                        {linkedInSuccess}
+                      </div>
+                    )}
+                    
+                    <p className="text-xs text-gray-400 mt-3">
+                      Uses 1 credit per import • Email draft will be saved to your Gmail Drafts
+                    </p>
                   </div>
                 </TabsContent>
               </Tabs>

@@ -8,6 +8,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { calculateWeeklySummary, calculateStreak, calculateGoalProgress, getDefaultMonthlyGoals, type WeeklySummary, type StreakData, type Goal, type GoalProgress } from '@/utils/dashboardStats';
 import { Timestamp } from 'firebase/firestore';
 import { logActivity } from '@/utils/activityLogger';
+import { RecommendedJobs } from './RecommendedJobs';
 
 // ============================================================================
 // DATA - Now fetched from backend
@@ -729,6 +730,9 @@ export function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* Recommended Jobs Section */}
+      <RecommendedJobs />
 
       {/* Monthly Goals Section */}
       {goalProgress.length > 0 && (
