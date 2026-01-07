@@ -27,6 +27,7 @@ from .app.routes.parse_prompt import parse_prompt_bp
 from .app.routes.contact_import import contact_import_bp
 from .app.routes.job_board import job_board_bp
 from .app.routes.scout_assistant import scout_assistant_bp
+from .app.routes.linkedin_import import linkedin_import_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -91,6 +92,7 @@ def create_app() -> Flask:
         return gmail_status()
     
     app.register_blueprint(emails_bp)
+    app.register_blueprint(linkedin_import_bp)  # Register before contacts_bp to avoid route conflicts
     app.register_blueprint(contacts_bp)
     app.register_blueprint(directory_bp)
     app.register_blueprint(runs_bp)

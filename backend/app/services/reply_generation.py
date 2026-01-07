@@ -93,7 +93,19 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
             
             # Get resume details for personalization
             key_experiences = user_info.get('key_experiences', [])[:2]  # Top 2 experiences
-            skills = user_info.get('skills', [])[:3]  # Top 3 skills
+            # Handle skills - can be a list or dict (from resume parser)
+            skills_raw = user_info.get('skills', [])
+            if isinstance(skills_raw, dict):
+                # Flatten dict structure into a list
+                skills = []
+                for category, skill_list in skills_raw.items():
+                    if isinstance(skill_list, list):
+                        skills.extend(skill_list)
+                skills = skills[:3]  # Top 3 skills
+            elif isinstance(skills_raw, list):
+                skills = skills_raw[:3]  # Top 3 skills
+            else:
+                skills = []
             achievements = user_info.get('achievements', [])[:1]  # Top achievement
             
             # Build personalization context
@@ -121,7 +133,19 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
         if user_info.get('key_experiences'):
             resume_context += f"\n- Key Experiences: {', '.join(user_info['key_experiences'][:2])}"
         if user_info.get('skills'):
-            resume_context += f"\n- Skills: {', '.join(user_info['skills'][:3])}"
+            # Handle skills - can be a list or dict (from resume parser)
+            skills_raw = user_info.get('skills', [])
+            if isinstance(skills_raw, dict):
+                # Flatten dict structure into a list
+                skills_list = []
+                for category, skill_list in skills_raw.items():
+                    if isinstance(skill_list, list):
+                        skills_list.extend(skill_list)
+                skills_list = skills_list[:3]  # Top 3 skills
+                if skills_list:
+                    resume_context += f"\n- Skills: {', '.join(skills_list)}"
+            elif isinstance(skills_raw, list) and skills_raw:
+                resume_context += f"\n- Skills: {', '.join(skills_raw[:3])}"
         if user_info.get('achievements'):
             resume_context += f"\n- Notable Achievement: {user_info['achievements'][0]}"
         
