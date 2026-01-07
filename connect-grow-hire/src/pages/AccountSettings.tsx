@@ -21,6 +21,7 @@ import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileTypes";
+import { InlineLoadingBar } from "@/components/ui/LoadingBar";
 
 // Constants for dropdowns
 const months = [

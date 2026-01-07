@@ -414,9 +414,48 @@ def import_from_linkedin():
         
         print(f"[LinkedInImport]   - PDL Response Status: {response.status_code}")
         
-        if response.status_code != 200:
+        # Handle different error status codes appropriately
+        if response.status_code == 402:
+            # Payment Required - API quota exceeded or payment issue
+            error_detail = ""
+            try:
+                error_data = response.json()
+                error_detail = error_data.get("error", {}).get("message", "") if isinstance(error_data.get("error"), dict) else str(error_data.get("error", ""))
+            except:
+                error_detail = response.text[:200] if response.text else ""
+            
+            print(f"[LinkedInImport] ❌ ERROR: PDL API returned 402 (Payment Required): {error_detail}")
+            
+            # Check if it's a quota/credits issue
+            if "maximum" in error_detail.lower() or "matches used" in error_detail.lower() or "quota" in error_detail.lower() or "limit" in error_detail.lower():
+                error_message = "The contact lookup service has reached its monthly limit. Please try again later or contact support for assistance."
+            else:
+                error_message = "The contact lookup service is temporarily unavailable due to a payment issue. Please try again in a few minutes or contact support."
+            
+            return jsonify({
+                'status': 'error', 
+                'message': error_message,
+                'error_code': 'PDL_QUOTA_EXCEEDED'
+            }), 503  # Service Unavailable
+        
+        elif response.status_code != 200:
             print(f"[LinkedInImport] ❌ ERROR: PDL API returned {response.status_code}")
-            return jsonify({'status': 'error', 'message': 'Could not find contact information for this LinkedIn profile'}), 404
+            # For other non-200 status codes, try to extract error message
+            error_message = 'Could not find contact information for this LinkedIn profile'
+            try:
+                error_data = response.json()
+                if isinstance(error_data.get("error"), dict):
+                    error_message = error_data.get("error", {}).get("message", error_message)
+                elif isinstance(error_data.get("error"), str):
+                    error_message = error_data.get("error", error_message)
+            except:
+                pass
+            
+            return jsonify({
+                'status': 'error', 
+                'message': error_message,
+                'error_code': 'PDL_API_ERROR'
+            }), 404
         
         person_data = response.json()
         print(f"[LinkedInImport]   - PDL Response Status (JSON): {person_data.get('status')}")
@@ -424,7 +463,11 @@ def import_from_linkedin():
         
         if person_data.get('status') != 200 or not person_data.get('data'):
             print(f"[LinkedInImport] ❌ ERROR: PDL returned no data")
-            return jsonify({'status': 'error', 'message': 'Could not find contact information for this LinkedIn profile'}), 404
+            return jsonify({
+                'status': 'error', 
+                'message': 'Could not find contact information for this LinkedIn profile',
+                'error_code': 'CONTACT_NOT_FOUND'
+            }), 404
         
         # Log raw PDL data structure for debugging
         raw_data = person_data['data']
