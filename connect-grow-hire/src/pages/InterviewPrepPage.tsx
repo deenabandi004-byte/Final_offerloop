@@ -21,7 +21,7 @@ import { INTERVIEW_PREP_CREDITS } from "@/lib/constants";
 import { flushSync } from "react-dom";
 import { logActivity, generateInterviewPrepSummary } from "@/utils/activityLogger";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
-import { InlineLoadingBar, LoadingBar } from "@/components/ui/LoadingBar";
+import { InlineLoadingBar, LoadingBar, SteppedLoadingBar } from "@/components/ui/LoadingBar";
 import { PageHeaderActions } from "@/components/PageHeaderActions";
 import { useSubscription } from "@/hooks/useSubscription";
 import { canUseFeature, getRemainingUses, getFeatureLimit } from "@/utils/featureAccess";
@@ -68,11 +68,23 @@ const InterviewPrepPage: React.FC = () => {
   const [interviewPrepId, setInterviewPrepId] = useState<string | null>(null);
   const [interviewPrepResult, setInterviewPrepResult] = useState<InterviewPrepStatus | null>(null);
   const [interviewPrepStatus, setInterviewPrepStatus] = useState<'idle' | 'processing' | 'completed' | 'failed'>('idle');
+  const [currentPrepStatus, setCurrentPrepStatus] = useState<string>('processing');
   const [jobPostingUrl, setJobPostingUrl] = useState("");
   const [parsedJobDetails, setParsedJobDetails] = useState<any | null>(null);
   const [showManualInput, setShowManualInput] = useState(false);
   const [manualCompanyName, setManualCompanyName] = useState("");
   const [manualJobTitle, setManualJobTitle] = useState("");
+
+  // Interview Prep steps for SteppedLoadingBar - must match backend status updates exactly
+  const interviewPrepSteps = [
+    { id: 'processing', label: 'Initializing...' },
+    { id: 'parsing_job_posting', label: 'Parsing job posting...' },
+    { id: 'extracting_requirements', label: 'Extracting requirements...' },
+    { id: 'scraping_reddit', label: 'Scraping Reddit...' },
+    { id: 'processing_content', label: 'Processing insights...' },
+    { id: 'generating_pdf', label: 'Generating PDF...' },
+    { id: 'completed', label: 'Complete!' },
+  ];
 
   // Interview Library State
   const [preps, setPreps] = useState<InterviewPrep[]>([]);
@@ -160,7 +172,8 @@ const InterviewPrepPage: React.FC = () => {
 
     setInterviewPrepLoading(true);
     setInterviewPrepStatus('processing');
-    setInterviewPrepProgress('Analyzing job posting...');
+    setCurrentPrepStatus('processing'); // Start with 'processing' status to match backend initial status
+    setInterviewPrepProgress('Initializing...');
     setInterviewPrepResult(null);
 
     try {
@@ -183,17 +196,111 @@ const InterviewPrepPage: React.FC = () => {
       setInterviewPrepId(prepId);
       
       // Poll for status - allow more time for comprehensive generation
+      // Poll immediately first, then continue with interval
       let pollCount = 0;
-      const maxPolls = 120; // 6 minutes max (120 * 3s)
+      const maxPolls = 120; // 6 minutes max (120 * 2s)
+      
+      // Helper to handle status updates
+      const handleStatusUpdate = (statusResult: any) => {
+        if ('status' in statusResult) {
+          const status = statusResult.status;
+          console.log(`[InterviewPrep] Status update: ${status}`);
+          setCurrentPrepStatus(status);
+          
+          const statusMessages: Record<string, string> = {
+            'processing': 'Initializing...',
+            'parsing_job_posting': 'Parsing job posting...',
+            'extracting_requirements': 'Extracting requirements...',
+            'scraping_reddit': 'Scraping Reddit...',
+            'processing_content': 'Processing insights...',
+            'generating_pdf': 'Generating PDF...',
+            'completed': 'Interview Prep ready!',
+            'failed': 'Generation failed',
+          };
+          const progressMessage = statusMessages[status] || statusResult.progress || 'Processing...';
+          console.log(`[InterviewPrep] Setting progress: ${progressMessage}`);
+          setInterviewPrepProgress(progressMessage);
+          
+          if (statusResult.jobDetails) {
+            setParsedJobDetails(statusResult.jobDetails);
+          }
+        }
+      };
+      
+      // Helper to handle completion
+      const handleCompletion = (statusResult: any) => {
+        if (user?.uid && statusResult.jobDetails) {
+          try {
+            const jobDetails = statusResult.jobDetails;
+            const roleTitle = jobDetails.job_title || manualJobTitle.trim() || '';
+            const company = jobDetails.company_name || manualCompanyName.trim() || '';
+            const summary = generateInterviewPrepSummary({
+              roleTitle: roleTitle || undefined,
+              company: company || undefined,
+            });
+            logActivity(user.uid, 'interviewPrep', summary, {
+              prepId: prepId,
+              roleTitle: roleTitle || '',
+              company: company || '',
+              jobPostingUrl: jobPostingUrl.trim() || '',
+            }).catch(err => console.error('Failed to log activity:', err));
+          } catch (error) {
+            console.error('Failed to log interview prep activity:', error);
+          }
+        }
+        
+        trackFeatureActionCompleted('interview_prep', 'generate', true, {
+          credits_spent: INTERVIEW_PREP_CREDITS,
+        });
+        
+        flushSync(() => {
+          setInterviewPrepLoading(false);
+          setInterviewPrepStatus('completed');
+          setInterviewPrepProgress('Interview Prep ready!');
+          setInterviewPrepResult(statusResult as InterviewPrepStatus);
+          setInterviewPrepId((statusResult as any).id || prepId);
+        });
+        
+        toast({
+          title: "Interview Prep Ready!",
+          description: "Your interview prep PDF has been generated successfully.",
+          duration: 5000,
+        });
+        
+        if (checkCredits) {
+          checkCredits().then(() => {
+            console.log('✅ Interview Prep complete!');
+          });
+        }
+      };
       
       const pollPromise = new Promise((resolve, reject) => {
+        // Poll immediately first
+        (async () => {
+          try {
+            const statusResult = await apiService.getInterviewPrepStatus(prepId);
+            console.log(`[InterviewPrep] Initial poll result:`, statusResult);
+            
+            if (statusResult.pdfUrl) {
+              handleCompletion(statusResult);
+              resolve(statusResult);
+              return;
+            }
+            
+            handleStatusUpdate(statusResult);
+          } catch (error) {
+            console.error(`[InterviewPrep] Initial poll error:`, error);
+          }
+        })();
+        
+        // Then continue polling with interval
         const intervalId = setInterval(async () => {
           pollCount++;
-          console.log(`🔄 Interview Prep Poll ${pollCount} starting...`);
+          console.log(`[InterviewPrep] Polling status (attempt ${pollCount}/${maxPolls})...`);
           
           try {
             const statusResult = await apiService.getInterviewPrepStatus(prepId);
-            console.log(`Poll ${pollCount}:`, statusResult);
+            console.log(`[InterviewPrep] Status result:`, statusResult);
             
             if ('error' in statusResult && !('status' in statusResult)) {
               clearInterval(intervalId);
@@ -204,19 +311,25 @@ const InterviewPrepPage: React.FC = () => {
             // Update progress based on status
             if ('status' in statusResult) {
               const status = statusResult.status;
-              if (status === 'parsing_job_posting') {
-                setInterviewPrepProgress(statusResult.progress || 'Analyzing job posting...');
-              } else if (status === 'extracting_requirements') {
-                setInterviewPrepProgress(statusResult.progress || 'Extracting role requirements...');
-              } else if (status === 'scraping_reddit') {
-                setInterviewPrepProgress(statusResult.progress || 'Searching Reddit for interview experiences...');
-              } else if (status === 'processing_content') {
-                setInterviewPrepProgress(statusResult.progress || 'Processing insights...');
-              } else if (status === 'generating_pdf') {
-                setInterviewPrepProgress(statusResult.progress || 'Generating your prep guide...');
-              } else {
-                setInterviewPrepProgress(statusResult.progress || 'Processing your request...');
-              }
+              console.log(`[InterviewPrep] Status update: ${status}`);
+              
+              // Update current prep status to trigger step progress update
+              setCurrentPrepStatus(status);
+              
+              // Update progress message based on status (must match interviewPrepSteps labels)
+              const statusMessages: Record<string, string> = {
+                'processing': 'Initializing...',
+                'parsing_job_posting': 'Parsing job posting...',
+                'extracting_requirements': 'Extracting requirements...',
+                'scraping_reddit': 'Scraping Reddit...',
+                'processing_content': 'Processing insights...',
+                'generating_pdf': 'Generating PDF...',
+                'completed': 'Interview Prep ready!',
+                'failed': 'Generation failed',
+              };
+              const progressMessage = statusMessages[status] || statusResult.progress || 'Processing...';
+              console.log(`[InterviewPrep] Setting progress: ${progressMessage}`);
+              setInterviewPrepProgress(progressMessage);
               
               // Update parsed job details if available
               if (statusResult.jobDetails) {
@@ -228,56 +341,12 @@ const InterviewPrepPage: React.FC = () => {
             if (statusResult.pdfUrl) {
               clearInterval(intervalId);
               console.log('✅ Interview Prep completed! pdfUrl:', statusResult.pdfUrl);
-              
-              // Log activity for interview prep creation
-              if (user?.uid && statusResult.jobDetails) {
-                try {
-                  const jobDetails = statusResult.jobDetails;
-                  const roleTitle = jobDetails.job_title || manualJobTitle.trim() || '';
-                  const company = jobDetails.company_name || manualCompanyName.trim() || '';
-                  const summary = generateInterviewPrepSummary({
-                    roleTitle: roleTitle || undefined,
-                    company: company || undefined,
-                  });
-                  await logActivity(user.uid, 'interviewPrep', summary, {
-                    prepId: prepId,
-                    roleTitle: roleTitle || '',
-                    company: company || '',
-                    jobPostingUrl: jobPostingUrl.trim() || '',
-                  });
-                } catch (error) {
-                  console.error('Failed to log interview prep activity:', error);
-                }
-              }
-              
-              // Track PostHog event
-              trackFeatureActionCompleted('interview_prep', 'generate', true, {
-                credits_spent: INTERVIEW_PREP_CREDITS,
-              });
-              
-              flushSync(() => {
-                setInterviewPrepLoading(false);
-                setInterviewPrepStatus('completed');
-                setInterviewPrepProgress('Interview Prep ready!');
-                setInterviewPrepResult(statusResult as InterviewPrepStatus);
-                setInterviewPrepId((statusResult as any).id || prepId);
-              });
-              
-              toast({
-                title: "Interview Prep Ready!",
-                description: "Your interview prep PDF has been generated successfully.",
-                duration: 5000,
-              });
-              
-              if (checkCredits) {
-                checkCredits().then(() => {
-                  console.log('✅ Interview Prep complete!');
-                });
-              }
-              
+              handleCompletion(statusResult);
               resolve(statusResult);
               return;
             }
+            
+            handleStatusUpdate(statusResult);
             
             // Check if failed or needs manual input
             if (statusResult.status === 'failed' || statusResult.status === 'parsing_failed') {
@@ -331,7 +400,7 @@ const InterviewPrepPage: React.FC = () => {
             clearInterval(intervalId);
             reject(error);
           }
-        }, 3000); // Poll every 3 seconds
+        }, 2000); // QUICK WIN: Poll every 2 seconds to catch status updates faster
       });
       
       await pollPromise;
@@ -746,23 +815,28 @@ const InterviewPrepPage: React.FC = () => {
 
                           {interviewPrepStatus !== 'idle' && (
                             <div className="rounded-lg border border-border bg-muted/50 p-4 shadow-inner text-sm text-foreground">
-                              <div className="flex items-center gap-2 mb-2">
-                                {interviewPrepLoading ? (
-                                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                                ) : interviewPrepStatus === 'completed' ? (
+                              {interviewPrepStatus === 'completed' ? (
+                                <div className="flex items-center gap-2">
                                   <CheckCircle className="h-4 w-4 text-blue-600" />
-                                ) : interviewPrepStatus === 'failed' ? (
+                                  <span>{interviewPrepProgress}</span>
+                                </div>
+                              ) : interviewPrepStatus === 'failed' ? (
+                                <div className="flex items-center gap-2">
                                   <XCircle className="h-4 w-4 text-destructive" />
-                                ) : null}
-                                <span className="font-medium">
-                                  {interviewPrepStatus === 'completed' ? 'Ready!' : 
-                                   interviewPrepStatus === 'failed' ? 'Failed' : 
-                                   'Processing...'}
-                                </span>
-                              </div>
-                              <span className="text-muted-foreground">
-                                {interviewPrepProgress || 'Processing your request...'}
-                              </span>
+                                  <span>{interviewPrepProgress || 'Generation failed'}</span>
+                                </div>
+                              ) : (
+                                <div className="space-y-3">
+                                  <div className="flex items-center gap-2">
+                                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                                    <span className="font-medium">{interviewPrepProgress}</span>
+                                  </div>
+                                  <SteppedLoadingBar 
+                                    steps={interviewPrepSteps} 
+                                    currentStepId={currentPrepStatus} 
+                                  />
+                                </div>
+                              )}
                             </div>
                           )}
 

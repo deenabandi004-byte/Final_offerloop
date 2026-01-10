@@ -322,6 +322,9 @@ def get_smart_company_domain(company_name: str, company_website: str = None) -> 
     Returns:
         Domain string or None
     """
+    import time
+    domain_start = time.time()
+    
     if not company_name:
         return None
     
@@ -329,13 +332,15 @@ def get_smart_company_domain(company_name: str, company_website: str = None) -> 
     
     # Check cache first
     if company_lower in _domain_cache:
-        print(f"[DomainLookup] Cache hit: {company_lower} → {_domain_cache[company_lower]}")
+        domain_time = time.time() - domain_start
+        print(f"[DomainLookup] ⏱️  Cache hit ({domain_time*1000:.0f}ms): {company_lower} → {_domain_cache[company_lower]}")
         return _domain_cache[company_lower]
     
     # Check hardcoded mapping
     domain = COMPANY_DOMAIN_MAP.get(company_lower) or COMPANY_DOMAINS.get(company_lower)
     if domain:
-        print(f"[DomainLookup] Mapping hit: {company_lower} → {domain}")
+        domain_time = time.time() - domain_start
+        print(f"[DomainLookup] ⏱️  Mapping hit ({domain_time*1000:.0f}ms): {company_lower} → {domain}")
         _domain_cache[company_lower] = domain
         return domain
     
@@ -343,7 +348,8 @@ def get_smart_company_domain(company_name: str, company_website: str = None) -> 
     if company_website:
         domain = extract_domain_from_url(company_website)
         if domain and not is_personal_email_domain(domain):
-            print(f"[DomainLookup] Extracted from website: {company_website} → {domain}")
+            domain_time = time.time() - domain_start
+            print(f"[DomainLookup] ⏱️  Extracted from website ({domain_time*1000:.0f}ms): {company_website} → {domain}")
             _domain_cache[company_lower] = domain
             return domain
     
@@ -363,8 +369,12 @@ def get_smart_company_domain(company_name: str, company_website: str = None) -> 
     )
     
     if needs_openai:
-        print(f"[DomainLookup] Complex company name, using OpenAI: {company_name}")
+        print(f"[DomainLookup] ⏱️  Complex company name, using OpenAI: {company_name}")
+        openai_start = time.time()
         domain = get_domain_from_openai(company_name)
+        openai_time = time.time() - openai_start
+        # Note: We can't access _timing_stats from here, but we can log it
+        print(f"[DomainLookup] ⏱️  OpenAI domain lookup: {openai_time:.2f}s")
         if domain:
             _domain_cache[company_lower] = domain
             return domain
@@ -376,7 +386,8 @@ def get_smart_company_domain(company_name: str, company_website: str = None) -> 
     # Simple company name - generate domain
     domain = generate_simple_domain(company_name)
     if domain:
-        print(f"[DomainLookup] Generated domain: {company_name} → {domain}")
+        domain_time = time.time() - domain_start
+        print(f"[DomainLookup] ⏱️  Generated domain ({domain_time*1000:.0f}ms): {company_name} → {domain}")
         _domain_cache[company_lower] = domain
         return domain
     
@@ -387,14 +398,17 @@ def get_domain_from_openai(company_name: str) -> str:
     """
     Use OpenAI to find the actual email domain for a company.
     """
+    import time
+    openai_start = time.time()
     try:
-        print(f"[OpenAI] Looking up domain for: {company_name}")
+        print(f"[OpenAI] ⏱️  Looking up domain for: {company_name}")
         
         client = get_openai_client()
         if not client:
             print(f"[OpenAI] ❌ OpenAI client not available")
             return None
         
+        api_start = time.time()
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{
@@ -407,9 +421,11 @@ def get_domain_from_openai(company_name: str) -> str:
             max_tokens=50,
             temperature=0
         )
+        api_time = time.time() - api_start
         
         domain = response.choices[0].message.content.strip().lower()
-        print(f"[OpenAI] Response: {domain}")
+        total_time = time.time() - openai_start
+        print(f"[OpenAI] ⏱️  Response ({total_time:.2f}s, API: {api_time:.2f}s): {domain}")
         
         # Validate response
         if domain and domain != "unknown" and "." in domain and " " not in domain:
@@ -422,7 +438,8 @@ def get_domain_from_openai(company_name: str) -> str:
             return None
             
     except Exception as e:
-        print(f"[OpenAI] ❌ Error: {str(e)}")
+        total_time = time.time() - openai_start
+        print(f"[OpenAI] ❌ Error ({total_time:.2f}s): {str(e)}")
         return None
 
 
@@ -490,7 +507,9 @@ def find_email_with_hunter(first_name: str, last_name: str, domain: str, api_key
         email: Found email address or None
         score: Confidence score (0-100) or 0
     """
-    print(f"[Hunter Email Finder] 🔍 Searching for {first_name} {last_name} @ {domain}")
+    import time
+    finder_start = time.time()
+    print(f"[Hunter Email Finder] ⏱️  Searching for {first_name} {last_name} @ {domain}")
     
     if not api_key:
         api_key = HUNTER_API_KEY
@@ -505,6 +524,7 @@ def find_email_with_hunter(first_name: str, last_name: str, domain: str, api_key
     
     try:
         print(f"[Hunter Email Finder] Making API request...")
+        api_start = time.time()
         response = requests.get(
             "https://api.hunter.io/v2/email-finder",
             params={
@@ -515,8 +535,10 @@ def find_email_with_hunter(first_name: str, last_name: str, domain: str, api_key
             },
             timeout=10
         )
+        api_time = time.time() - api_start
+        total_time = time.time() - finder_start
         
-        print(f"[Hunter Email Finder] Response status: {response.status_code}")
+        print(f"[Hunter Email Finder] ⏱️  Response status: {response.status_code} (total: {total_time:.2f}s, API: {api_time:.2f}s)")
         
         if response.status_code == 429:
             print(f"[Hunter Email Finder] ⚠️ Rate limited (429)")
@@ -621,6 +643,9 @@ def get_domain_pattern(domain: str, api_key: str = None) -> str:
     Returns:
         Pattern string like '{first}.{last}' or None if not found
     """
+    import time
+    pattern_start = time.time()
+    
     if not api_key:
         api_key = HUNTER_API_KEY
     
@@ -634,7 +659,8 @@ def get_domain_pattern(domain: str, api_key: str = None) -> str:
     with _cache_lock:
         if domain in _domain_pattern_cache:
             pattern = _domain_pattern_cache[domain]
-            print(f"📦 Using cached email pattern for {domain}: {pattern}")
+            cache_time = time.time() - pattern_start
+            print(f"📦 ⏱️  Using cached email pattern ({cache_time*1000:.0f}ms) for {domain}: {pattern}")
             return pattern
     
     # Fetch pattern from Hunter with rate limiting and retry logic
@@ -650,7 +676,9 @@ def get_domain_pattern(domain: str, api_key: str = None) -> str:
     max_retries = 3
     for attempt in range(max_retries):
         try:
+            api_start = time.time()
             response = requests.get(url, params=params, timeout=10)
+            api_time = time.time() - api_start
             
             # Handle rate limit (429) with exponential backoff
             if response.status_code == 429:
@@ -664,17 +692,19 @@ def get_domain_pattern(domain: str, api_key: str = None) -> str:
                 domain_data = data.get('data', {})
                 pattern = domain_data.get('pattern')
                 
+                total_time = time.time() - pattern_start
                 if pattern:
                     # Cache the pattern
                     with _cache_lock:
                         _domain_pattern_cache[domain] = pattern
-                    print(f"✅ Retrieved email pattern for {domain}: {pattern}")
+                    print(f"✅ ⏱️  Retrieved email pattern ({total_time:.2f}s, API: {api_time:.2f}s) for {domain}: {pattern}")
                     return pattern
                 else:
-                    print(f"⚠️ No email pattern found for domain: {domain}")
+                    print(f"⚠️ ⏱️  No email pattern found ({total_time:.2f}s, API: {api_time:.2f}s) for domain: {domain}")
                     return None
             else:
-                print(f"⚠️ Hunter.io Domain Search API error {response.status_code} for {domain}")
+                total_time = time.time() - pattern_start
+                print(f"⚠️ ⏱️  Hunter.io Domain Search API error {response.status_code} ({total_time:.2f}s) for {domain}")
                 if attempt < max_retries - 1:
                     wait_time = (2 ** attempt) * 1
                     time.sleep(wait_time)
@@ -1014,6 +1044,9 @@ def verify_email_hunter(email: str, api_key: str = None, use_cache: bool = True)
         }
         or None if verification fails completely
     """
+    import time
+    verify_start = time.time()
+    
     if not api_key:
         api_key = HUNTER_API_KEY
     
@@ -1025,7 +1058,8 @@ def verify_email_hunter(email: str, api_key: str = None, use_cache: bool = True)
         with _verification_cache_lock:
             if email in _email_verification_cache:
                 cached_result = _email_verification_cache[email]
-                print(f"📦 Using cached verification for {email}: score={cached_result.get('score', 'N/A')}")
+                cache_time = time.time() - verify_start
+                print(f"📦 ⏱️  Using cached verification ({cache_time*1000:.0f}ms) for {email}: score={cached_result.get('score', 'N/A')}")
                 return cached_result
     
     # Rate limiting: Add delay before API call
@@ -1042,7 +1076,9 @@ def verify_email_hunter(email: str, api_key: str = None, use_cache: bool = True)
     
     for attempt in range(max_retries):
         try:
+            api_start = time.time()
             response = requests.get(url, params=params, timeout=10)
+            api_time = time.time() - api_start
         
             # Handle rate limit (429) - actual rate limit, wait and retry
             if response.status_code == 429:

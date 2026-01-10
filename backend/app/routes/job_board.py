@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urlparse, parse_qs
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 import requests
 from bs4 import BeautifulSoup
 
@@ -70,6 +70,42 @@ MIN_QUALITY_SCORE = int(os.getenv('MIN_QUALITY_SCORE', 15))  # Minimum quality s
 
 # SerpAPI Configuration
 SERPAPI_KEY = os.getenv("SERPAPI_KEY") or os.getenv("SERP_API_KEY")
+
+
+# =============================================================================
+# USER PROFILE CACHING (5-minute TTL)
+# =============================================================================
+
+_user_profile_cache: Dict[str, Tuple[dict, float]] = {}
+_USER_PROFILE_CACHE_TTL = 300  # 5 minutes in seconds
+
+def _get_cached_user_profile(uid: str) -> Optional[dict]:
+    """Get cached user profile if not expired."""
+    if uid in _user_profile_cache:
+        profile, timestamp = _user_profile_cache[uid]
+        if time.time() - timestamp < _USER_PROFILE_CACHE_TTL:
+            print(f"[JobBoard] ✅ Using cached user profile for {uid[:8]}... (age: {time.time() - timestamp:.1f}s)")
+            return profile
+        else:
+            # Cache expired, remove it
+            del _user_profile_cache[uid]
+            print(f"[JobBoard] ⏰ User profile cache expired for {uid[:8]}...")
+    return None
+
+def _set_cached_user_profile(uid: str, profile: dict):
+    """Cache user profile with current timestamp."""
+    _user_profile_cache[uid] = (profile, time.time())
+    print(f"[JobBoard] 💾 Cached user profile for {uid[:8]}... (TTL: {_USER_PROFILE_CACHE_TTL}s)")
+
+def _clear_user_profile_cache(uid: Optional[str] = None):
+    """Clear user profile cache. If uid is None, clear all."""
+    if uid:
+        if uid in _user_profile_cache:
+            del _user_profile_cache[uid]
+            print(f"[JobBoard] 🗑️ Cleared cache for {uid[:8]}...")
+    else:
+        _user_profile_cache.clear()
+        print(f"[JobBoard] 🗑️ Cleared all user profile cache")
 
 
 # =============================================================================
@@ -707,6 +743,7 @@ def extract_user_profile_from_resume(user_data: dict) -> dict:
 def get_user_career_profile(uid: str) -> dict:
     """
     Extract comprehensive career profile from user's Firestore data.
+    Uses 5-minute cache to avoid repeated Firestore lookups.
     
     Returns:
         {
@@ -722,6 +759,11 @@ def get_user_career_profile(uid: str) -> dict:
             "job_types": List[str]
         }
     """
+    # Check cache first
+    cached_profile = _get_cached_user_profile(uid)
+    if cached_profile is not None:
+        return cached_profile
+    
     db = get_db()
     if not db:
         return {}
@@ -794,7 +836,7 @@ def get_user_career_profile(uid: str) -> dict:
                     "keywords": exp.get("keywords", [])
                 })
         
-        return {
+        result = {
             "major": profile.get("major", ""),
             "minor": minor,
             "skills": profile.get("all_skills", [])[:20],  # Limit to top 20 skills
@@ -806,6 +848,11 @@ def get_user_career_profile(uid: str) -> dict:
             "target_industries": target_industries,
             "job_types": job_types
         }
+        
+        # Cache the result
+        _set_cached_user_profile(uid, result)
+        
+        return result
         
     except Exception as e:
         print(f"[JobBoard] Error extracting user career profile: {e}")
@@ -3349,9 +3396,9 @@ def _fetch_jobs_for_query(
     current_token = None
     
     try:
-        # Fetch jobs for this query (up to 50 per query)
-        # We'll fetch 5 pages (50 jobs) per query
-        for page_num in range(5):  # 5 pages = 50 jobs max
+        # QUICK WIN: Fetch jobs for this query (up to 20 per query, reduced from 50)
+        # We'll fetch 2 pages (20 jobs) per query (reduced from 5 pages)
+        for page_num in range(2):  # 2 pages = 20 jobs max (reduced from 5 pages)
             jobs_batch, next_token = fetch_jobs_from_serpapi(
                 query=query,
                 location=location,
@@ -3423,7 +3470,7 @@ def fetch_personalized_jobs(
     user_profile: dict,
     job_types: List[str],
     locations: List[str],
-    max_jobs: int = 150,
+    max_jobs: int = 50,  # QUICK WIN: Reduced default from 150 to 50 for faster loading
     refresh: bool = False
 ) -> tuple[List[dict], dict]:
     """
@@ -3434,7 +3481,7 @@ def fetch_personalized_jobs(
         user_profile: User's career profile
         job_types: List of job types
         locations: List of preferred locations
-        max_jobs: Maximum jobs to return
+        max_jobs: Maximum jobs to return (default 50, QUICK WIN: reduced from 150)
         refresh: Whether to bypass cache
         
     Returns:
@@ -3448,17 +3495,18 @@ def fetch_personalized_jobs(
     query_weights = {}  # Track which query each job came from
     queries_used = []
     
-    # Limit API calls - fetch from top 6 queries
-    max_queries = min(6, len(queries))
-    jobs_per_query = max(50, max_jobs // max_queries)
+    # QUICK WIN: Limit API calls - fetch from top 4 queries (reduced from 6)
+    # This reduces API calls by ~33% while keeping the most relevant queries
+    max_queries = min(4, len(queries))
+    jobs_per_query = 20  # QUICK WIN: Reduced from 50 to 20 (2 pages × 10 jobs/page) per query
     
     primary_job_type = job_types[0] if job_types else None
     
     # Execute queries in parallel
-    print(f"[JobBoard] Executing {max_queries} queries in parallel...")
+    print(f"[JobBoard] Executing {max_queries} queries in parallel (QUICK WIN: reduced from 6)...")
     start_time = datetime.now()
     
-    with ThreadPoolExecutor(max_workers=6) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:  # Reduced from 6 to match max_queries
         # Submit all queries
         future_to_query = {
             executor.submit(
@@ -3570,13 +3618,14 @@ def get_job_listings():
         user_profile["target_industries"] = industries or user_profile.get("target_industries", [])
         user_profile["job_types"] = job_types
         
-        # Fetch personalized jobs using multi-query approach
+        # QUICK WIN: Fetch personalized jobs using multi-query approach
+        # Reduced from 150 to 50 jobs for faster initial load (enough for 2-3 pages)
         if page == 1:
             jobs, metadata = fetch_personalized_jobs(
                 user_profile=user_profile,
                 job_types=job_types,
                 locations=locations,
-                max_jobs=150,  # Fetch 150 jobs on first page
+                max_jobs=50,  # QUICK WIN: Reduced from 150 to 50 jobs for faster loading
                 refresh=refresh
             )
         else:
@@ -5039,9 +5088,9 @@ def parse_job_url_endpoint():
         
         if not job_data:
             return jsonify({
-                "error": "Could not parse job details from URL",
-                "suggestion": "Please paste the job description manually"
-            }), 400
+                "error": "Could not parse job details from URL. Please paste the job description instead.",
+                "job": None
+            }), 200
         
         return jsonify({"job": job_data}), 200
         

@@ -13,13 +13,11 @@ import {
   Briefcase,
   Building2,
   Newspaper,
-  Sparkles,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import LightningIcon from "../assets/Lightning.png";
 import OfferloopLogo from "../assets/offerloop_logo2.png";
 import OfferloopIconLogo from "../assets/offerloopiconlogo.png";
-import ScoutIconImage from "../assets/Scout_icon.png";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { trackNavClick, trackUpgradeClick } from "../lib/analytics";
 
@@ -42,20 +40,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-// Scout icon component using the new icon image
-const ScoutIcon = ({ className }: { className?: string }) => (
-  <div className={`flex items-center justify-center ${className}`} style={{ marginLeft: '-5px' }}>
-    <img 
-      src={ScoutIconImage} 
-      alt="Scout" 
-      className="w-5 h-5 object-contain"
-    />
-  </div>
-);
-
 const navigationItems = [
   { title: "Home", url: "/home", icon: Home },
-  { title: "Scout", url: "/scout", icon: Sparkles, isScout: true },
   { title: "Job Board", url: "/job-board", icon: Newspaper },
   { title: "Contact Search", url: "/contact-search", icon: Search },
   { title: "Firm Search", url: "/firm-search", icon: Building2 },
@@ -182,7 +168,6 @@ export function AppSidebar() {
                         onClick={() => {
                           const featureMap: Record<string, string> = {
                             'Home': 'dashboard',
-                            'Scout': 'scout',
                             'Contact Search': 'contact_search',
                             'Firm Search': 'firm_search',
                             'Coffee Chat Prep': 'coffee_chat_prep',
@@ -192,11 +177,7 @@ export function AppSidebar() {
                           trackNavClick(item.title, 'sidebar', featureMap[item.title]);
                         }}
                       >
-                        {'isScout' in item && item.isScout ? (
-                          <ScoutIcon className="h-6 w-6" />
-                        ) : (
-                          <item.icon className="h-6 w-6" />
-                        )}
+                        <item.icon className="h-6 w-6" />
                         {state !== "collapsed" && <span className="text-lg">{item.title}</span>}
                       </NavLink>
                     </SidebarMenuButton>

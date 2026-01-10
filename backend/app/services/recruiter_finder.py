@@ -67,13 +67,20 @@ RECRUITER_TITLES_BY_JOB_TYPE = {
         "emerging talent",
     ],
     "general": [
+        # Prioritize actual recruiting managers first
+        "recruiting manager",
+        "talent acquisition manager",
+        "recruiting director",
+        "talent acquisition director",
+        # Then recruiting-focused titles
         "talent acquisition",
         "recruiter",
         "talent partner",
-        "recruiting manager",
         "talent sourcer",
         "sourcer",
+        # HR titles with recruiting focus (lower priority)
         "HR recruiter",
+        # General HR/people ops (lowest priority, only as fallback)
         "people operations",
     ]
 }
@@ -283,11 +290,15 @@ def rank_recruiters(
     """
     Rank recruiters by relevance to the job type and location.
     
-    Ranking factors:
-    1. Title match specificity (technical recruiter > recruiter for eng jobs)
-    2. Currently at target company (vs past employment)
-    3. Location match (same city/state as job posting) - for ranking only, not filtering
-    4. Title seniority (senior recruiter, recruiting manager)
+    Ranking factors (in priority order):
+    1. Currently at target company (vs past employment) - +50 points
+    2. Recruiting managers/leaders (recruiting manager, talent acquisition manager, etc.) - +40 points
+       (Prioritized over general HR people)
+    3. Location match (same city/state as job posting) - +20/+10 points
+    4. Title match specificity (technical recruiter > recruiter for eng jobs) - +30 points
+    5. Recruiting-focused titles (recruiter, talent acquisition, etc.) - +25 points
+    6. Title seniority (senior, lead, manager, director, head) - +10 points
+    7. HR-only titles (without recruiting focus) - -20 points penalty
     
     Returns sorted list with best matches first.
     """
@@ -304,9 +315,12 @@ def rank_recruiters(
         recruiter_city = (recruiter.get("City", "") or "").lower()
         recruiter_state = (recruiter.get("State", "") or "").lower()
         
-        # +50 points if currently at target company
-        if target in company:
+        # +50 points if currently at target company (verified by IsCurrentlyAtTarget flag)
+        if recruiter.get('IsCurrentlyAtTarget', False):
             score += 50
+        elif target in company:
+            # Historical employment still gets some points, but less
+            score += 10
         
         # +20 points for location match (same city)
         if job_city and recruiter_city and job_city in recruiter_city:
@@ -315,15 +329,34 @@ def rank_recruiters(
         elif job_state and recruiter_state and job_state in recruiter_state:
             score += 10
         
+        # PRIORITIZE RECRUITING MANAGERS OVER HR PEOPLE
+        # +40 points for recruiting manager/leadership titles (highest priority for actual recruiting managers)
+        recruiting_manager_keywords = ["recruiting manager", "talent acquisition manager", "recruiting director", 
+                                       "talent acquisition director", "head of recruiting", "head of talent acquisition",
+                                       "vp of recruiting", "vp of talent acquisition", "director of recruiting"]
+        if any(keyword in title for keyword in recruiting_manager_keywords):
+            score += 40
+        
         # +30 points for specific recruiter title match
         for i, primary_title in enumerate(primary_titles):
             if primary_title in title:
                 score += 30 - i  # Earlier titles in list = higher priority
                 break
         
-        # +10 points for seniority indicators
+        # +25 points for other recruiting-focused titles (but lower than recruiting managers)
+        recruiting_titles = ["recruiter", "talent acquisition", "talent partner", "talent sourcer", "sourcer"]
+        if any(rt in title for rt in recruiting_titles) and "hr" not in title:
+            score += 25
+        
+        # +10 points for seniority indicators (but only if not already counted above)
         if any(word in title for word in ["senior", "lead", "manager", "director", "head"]):
             score += 10
+        
+        # PENALIZE HR-ONLY TITLES (prioritize recruiting managers over general HR)
+        # -20 points for HR titles that aren't recruiting-focused
+        hr_only_keywords = ["hr manager", "hr director", "human resources", "people operations"]
+        if any(keyword in title for keyword in hr_only_keywords) and "recruit" not in title:
+            score -= 20
         
         # +15 points for "technical" or "engineering" in title (for eng jobs)
         if job_type == "engineering" and any(word in title for word in ["technical", "engineering", "tech"]):
@@ -439,8 +472,26 @@ def find_recruiters(
                 user_contact=user_contact
             )
         
+        # Filter for current employees only (prioritize accuracy)
+        current_recruiters = [r for r in raw_recruiters if r.get('IsCurrentlyAtTarget', False)]
+        historical_recruiters = [r for r in raw_recruiters if not r.get('IsCurrentlyAtTarget', True)]
+        
+        print(f"[RecruiterFinder] Found {len(current_recruiters)} current employees and {len(historical_recruiters)} historical employees")
+        
+        # If we have enough current employees, only use those. Otherwise, fall back to historical.
+        if len(current_recruiters) >= max_results:
+            print(f"[RecruiterFinder] Using only current employees ({len(current_recruiters)} found)")
+            recruiters_to_rank = current_recruiters
+        elif len(current_recruiters) > 0:
+            print(f"[RecruiterFinder] Using {len(current_recruiters)} current employees + {max_results - len(current_recruiters)} historical employees")
+            # Mix: current first, then historical up to max_results
+            recruiters_to_rank = current_recruiters + historical_recruiters[:max_results - len(current_recruiters)]
+        else:
+            print(f"[RecruiterFinder] ⚠️ No current employees found, falling back to historical employees")
+            recruiters_to_rank = historical_recruiters
+        
         # Rank recruiters (include location for ranking)
-        ranked_recruiters = rank_recruiters(raw_recruiters, job_type, cleaned_company, location)
+        ranked_recruiters = rank_recruiters(recruiters_to_rank, job_type, cleaned_company, location)
         
         # Limit results
         final_recruiters = ranked_recruiters[:max_results]

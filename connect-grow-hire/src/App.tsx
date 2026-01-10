@@ -1,12 +1,12 @@
 // src/App.tsx
-import React, { Suspense } from "react";
+import React, { Suspense, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { FirebaseAuthProvider, useFirebaseAuth } from "./contexts/FirebaseAuthContext";
-import { ScoutProvider } from "./contexts/ScoutContext";
+import { ScoutProvider, useScout } from "./contexts/ScoutContext";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DynamicGradientBackground } from "./components/background/DynamicGradientBackground";
 import { LoadingSkeleton } from "./components/LoadingSkeleton";
@@ -34,6 +34,7 @@ const Pricing = React.lazy(() => import("./pages/Pricing"));
 const Dashboard = React.lazy(() => import("./pages/Dashboard"));
 const DashboardPage = React.lazy(() => import("./pages/DashboardPage"));
 const JobBoardPage = React.lazy(() => import("./pages/JobBoardPage"));
+const RecruiterSpreadsheetPage = React.lazy(() => import("./pages/RecruiterSpreadsheetPage"));
 const NotFound = React.lazy(() => import("./pages/NotFound"));
 const PaymentSuccess = React.lazy(() => import("./pages/PaymentSuccess"));
 // Feature Pages - These are the largest, most important to lazy load
@@ -41,7 +42,6 @@ const CoffeeChatPrepPage = React.lazy(() => import("./pages/CoffeeChatPrepPage")
 const ContactSearchPage = React.lazy(() => import("./pages/ContactSearchPage"));
 const InterviewPrepPage = React.lazy(() => import("./pages/InterviewPrepPage"));
 const FirmSearchPage = React.lazy(() => import("./pages/FirmSearchPage"));
-const ScoutPage = React.lazy(() => import("./pages/ScoutPage"));
 const ApplicationLabPage = React.lazy(() => import("./pages/ApplicationLabPage"));
 // New Lovable Onboarding Flow
 const OnboardingFlow = React.lazy(() => import("./pages/OnboardingFlow").then(m => ({ default: m.OnboardingFlow })));
@@ -219,7 +219,8 @@ const AppRoutes: React.FC = () => {
       <Route path="/interview-prep" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><InterviewPrepPage /></Suspense></ProtectedRoute>} />
       <Route path="/firm-search" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><FirmSearchPage /></Suspense></ProtectedRoute>} />
       <Route path="/job-board" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><JobBoardPage /></Suspense></ProtectedRoute>} />
-      <Route path="/scout" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ScoutPage /></Suspense></ProtectedRoute>} />
+      <Route path="/recruiter-spreadsheet" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><RecruiterSpreadsheetPage /></Suspense></ProtectedRoute>} />
+      <Route path="/scout" element={<ProtectedRoute><ScoutRedirect /></ProtectedRoute>} />
       <Route path="/application-lab" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ApplicationLabPage /></Suspense></ProtectedRoute>} />
 
       {/* Public informational pages */}
@@ -242,6 +243,19 @@ const AppRoutes: React.FC = () => {
   );
 };
 
+/* ---------------- Scout Redirect Component ---------------- */
+const ScoutRedirect: React.FC = () => {
+  const { openPanel } = useScout();
+  
+  useEffect(() => {
+    // Open panel when navigating to /scout
+    openPanel();
+  }, [openPanel]);
+  
+  // Redirect to home
+  return <Navigate to="/home" replace />;
+};
+
 /* ---------------- Conditional Background Wrapper ---------------- */
 const ConditionalBackground: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
@@ -255,6 +269,32 @@ const ConditionalBackground: React.FC<{ children: React.ReactNode }> = ({ childr
       </div>
     </div>
   );
+};
+
+/* ---------------- Keyboard Shortcut Handler ---------------- */
+const KeyboardShortcutHandler: React.FC = () => {
+  const { openPanel, isPanelOpen, togglePanel } = useScout();
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Cmd+K or Ctrl+K to open/toggle Scout panel
+      if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
+        // Don't trigger if user is typing in an input/textarea
+        const target = event.target as HTMLElement;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+          return;
+        }
+        
+        event.preventDefault();
+        togglePanel();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [togglePanel]);
+
+  return null;
 };
 
 /* ---------------- App Root ---------------- */
@@ -274,6 +314,7 @@ const App: React.FC = () => {
                 <Toaster />
                 <Sonner />
                 <ScoutProvider>
+                  <KeyboardShortcutHandler />
                   <AppRoutes />
                   <ScoutSidePanel />
                 </ScoutProvider>

@@ -83,13 +83,15 @@ const CoffeeChatPrepPage: React.FC = () => {
   const [currentPrepStatus, setCurrentPrepStatus] = useState<string>('pending');
   
   // Coffee Chat Prep steps for SteppedLoadingBar
+  // Must match backend status updates exactly
   const coffeeChatSteps = [
-    { id: 'pending', label: 'Initializing...' },
-    { id: 'processing', label: 'Processing request...' },
+    { id: 'processing', label: 'Initializing...' },
     { id: 'enriching_profile', label: 'Enriching profile data...' },
     { id: 'fetching_news', label: 'Fetching recent news...' },
+    { id: 'building_context', label: 'Building user context...' },
     { id: 'extracting_hometown', label: 'Extracting location...' },
     { id: 'generating_content', label: 'Generating content...' },
+    { id: 'generating_pdf', label: 'Generating PDF...' },
     { id: 'completed', label: 'Complete!' },
   ];
   const [renderKey, setRenderKey] = useState(0);
@@ -181,7 +183,7 @@ const CoffeeChatPrepPage: React.FC = () => {
 
     setCoffeeChatLoading(true);
     setCoffeeChatStatus('processing');
-    setCurrentPrepStatus('pending');
+    setCurrentPrepStatus('processing'); // Start with 'processing' status to match backend initial status
     setCoffeeChatProgress('Starting Coffee Chat Prep...');
     setCoffeeChatResult(null);
     setRenderKey((prev: number) => prev + 1);
@@ -199,12 +201,104 @@ const CoffeeChatPrepPage: React.FC = () => {
       let pollCount = 0;
       const maxPolls = 200;
       
+      // Helper to handle status updates
+      const handleStatusUpdate = (statusResult: any) => {
+        if ('status' in statusResult) {
+          const status = statusResult.status;
+          console.log(`[CoffeeChatPrep] Status update: ${status}`);
+          setCurrentPrepStatus(status);
+          
+          const statusMessages: Record<string, string> = {
+            'processing': 'Initializing...',
+            'enriching_profile': 'Enriching profile data...',
+            'fetching_news': 'Fetching recent news...',
+            'building_context': 'Building user context...',
+            'extracting_hometown': 'Extracting location...',
+            'generating_content': 'Generating content...',
+            'generating_pdf': 'Generating PDF...',
+            'completed': 'Coffee Chat Prep ready!',
+            'failed': 'Generation failed',
+          };
+          const progressMessage = statusMessages[status] || 'Processing...';
+          console.log(`[CoffeeChatPrep] Setting progress: ${progressMessage}`);
+          setCoffeeChatProgress(progressMessage);
+        }
+      };
+      
+      // Helper to handle completion
+      const handleCompletion = (statusResult: any) => {
+        const contactData = statusResult.contactData || {};
+        if (firebaseUser?.uid && statusResult.contactData) {
+          try {
+            const contactName = statusResult.contactData.name ||
+                               `${statusResult.contactData.firstName || ''} ${statusResult.contactData.lastName || ''}`.trim() ||
+                               '';
+            const company = statusResult.contactData.company || statusResult.contactData.companyName || '';
+            const summary = generateCoffeeChatPrepSummary({
+              contactName: contactName || undefined,
+              company: company || undefined,
+            });
+            logActivity(firebaseUser.uid, 'coffeePrep', summary, {
+              prepId: prepId,
+              linkedinUrl: linkedinUrl,
+              contactName: contactName || '',
+              company: company || '',
+            }).catch(err => console.error('Failed to log activity:', err));
+          } catch (error) {
+            console.error('Failed to log coffee chat prep activity:', error);
+          }
+        }
+        
+        flushSync(() => {
+          setCoffeeChatLoading(false);
+          setCoffeeChatStatus('completed');
+          setCoffeeChatProgress('Coffee Chat Prep ready!');
+          setCoffeeChatResult(statusResult as CoffeeChatPrepStatus);
+          setCoffeeChatPrepId((statusResult as any).id || prepId);
+          setRenderKey((prev: number) => prev + 1);
+        });
+        
+        trackFeatureActionCompleted('coffee_chat_prep', 'generate', true, {
+          company: contactData.company || contactData.companyName || '',
+          role: contactData.jobTitle || contactData.title || undefined,
+        });
+        
+        toast({
+          title: "Coffee Chat Prep Ready!",
+          description: "Your one-pager has been generated successfully.",
+          duration: 5000,
+        });
+        
+        checkCredits?.();
+      };
+      
       const pollPromise = new Promise((resolve, reject) => {
+        // Poll immediately first
+        (async () => {
+          try {
+            const statusResult = await apiService.getCoffeeChatPrepStatus(prepId);
+            console.log(`[CoffeeChatPrep] Initial poll result:`, statusResult);
+            
+            if (statusResult.pdfUrl) {
+              handleCompletion(statusResult);
+              resolve(statusResult);
+              return;
+            }
+            
+            handleStatusUpdate(statusResult);
+          } catch (error) {
+            console.error(`[CoffeeChatPrep] Initial poll error:`, error);
+          }
+        })();
+        
+        // Then continue polling with interval
         const intervalId = setInterval(async () => {
           pollCount++;
+          console.log(`[CoffeeChatPrep] Polling status (attempt ${pollCount}/${maxPolls})...`);
           
           try {
             const statusResult = await apiService.getCoffeeChatPrepStatus(prepId);
+            console.log(`[CoffeeChatPrep] Status result:`, statusResult);
             
             if ('error' in statusResult && !('status' in statusResult)) {
               clearInterval(intervalId);
@@ -214,75 +308,12 @@ const CoffeeChatPrepPage: React.FC = () => {
             
             if (statusResult.pdfUrl) {
               clearInterval(intervalId);
-              
-              // Log activity for coffee chat prep creation
-              if (firebaseUser?.uid && statusResult.contactData) {
-                try {
-                  const contactData = statusResult.contactData;
-                  const contactName = contactData.name ||
-                                     `${contactData.firstName || ''} ${contactData.lastName || ''}`.trim() ||
-                                     '';
-                  const company = contactData.company || contactData.companyName || '';
-                  const summary = generateCoffeeChatPrepSummary({
-                    contactName: contactName || undefined,
-                    company: company || undefined,
-                  });
-                  await logActivity(firebaseUser.uid, 'coffeePrep', summary, {
-                    prepId: prepId,
-                    linkedinUrl: linkedinUrl,
-                    contactName: contactName || '',
-                    company: company || '',
-                  });
-                } catch (error) {
-                  console.error('Failed to log coffee chat prep activity:', error);
-                }
-              }
-              
-              flushSync(() => {
-                setCoffeeChatLoading(false);
-                setCoffeeChatStatus('completed');
-                setCoffeeChatProgress('Coffee Chat Prep ready!');
-                setCoffeeChatResult(statusResult as CoffeeChatPrepStatus);
-                setCoffeeChatPrepId((statusResult as any).id || prepId);
-                setRenderKey((prev: number) => prev + 1);
-              });
-              
-              // Track PostHog event
-              // Note: company and role come from enriched LinkedIn profile data, not user input
-              const contactData = statusResult.contactData || {};
-              trackFeatureActionCompleted('coffee_chat_prep', 'generate', true, {
-                company: contactData.company || contactData.companyName || '',
-                role: contactData.jobTitle || contactData.title || undefined,
-              });
-              
-              toast({
-                title: "Coffee Chat Prep Ready!",
-                description: "Your one-pager has been generated successfully.",
-                duration: 5000,
-              });
-              
-              checkCredits?.();
+              handleCompletion(statusResult);
               resolve(statusResult);
               return;
             }
             
-            if ('status' in statusResult) {
-              const status = statusResult.status;
-              setCurrentPrepStatus(status);
-              
-              // Update progress message based on status
-              const statusMessages: Record<string, string> = {
-                'pending': 'Initializing...',
-                'processing': 'Processing request...',
-                'enriching_profile': 'Enriching profile data...',
-                'fetching_news': 'Fetching recent news...',
-                'extracting_hometown': 'Extracting location...',
-                'generating_content': 'Generating content...',
-                'generating_pdf': 'Generating PDF...',
-                'completed': 'Coffee Chat Prep ready!',
-              };
-              setCoffeeChatProgress(statusMessages[status] || 'Processing...');
-            }
+            handleStatusUpdate(statusResult);
             
             if (pollCount >= maxPolls) {
               clearInterval(intervalId);
@@ -292,7 +323,7 @@ const CoffeeChatPrepPage: React.FC = () => {
             clearInterval(intervalId);
             reject(error);
           }
-        }, 3000);
+        }, 2000); // QUICK WIN: Reduced polling interval from 3s to 2s to catch status updates faster
       });
       
       await pollPromise;

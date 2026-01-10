@@ -160,8 +160,10 @@ interface SteppedLoadingBarProps {
 
 export function SteppedLoadingBar({ steps, currentStepId, className = '' }: SteppedLoadingBarProps) {
   const currentIndex = steps.findIndex((s) => s.id === currentStepId);
-  const progress = currentIndex >= 0 ? ((currentIndex + 1) / steps.length) * 100 : 0;
-  const currentStep = steps[currentIndex];
+  // If step not found, default to first step (index 0) to avoid showing "Step 0"
+  const validIndex = currentIndex >= 0 ? currentIndex : 0;
+  const progress = ((validIndex + 1) / steps.length) * 100;
+  const currentStep = steps[validIndex];
 
   return (
     <div className={`w-full ${className}`}>
@@ -171,7 +173,7 @@ export function SteppedLoadingBar({ steps, currentStepId, className = '' }: Step
           {currentStep?.label || 'Processing...'}
         </span>
         <span className="text-xs text-gray-500">
-          Step {currentIndex + 1} of {steps.length}
+          Step {validIndex + 1} of {steps.length}
         </span>
       </div>
 
@@ -206,7 +208,7 @@ export function SteppedLoadingBar({ steps, currentStepId, className = '' }: Step
             key={step.id}
             className={`
               w-2 h-2 rounded-full transition-all duration-300
-              ${index <= currentIndex
+              ${index <= validIndex
                 ? 'bg-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.5)]'
                 : 'bg-blue-200'
               }

@@ -339,8 +339,8 @@ def require_tier(allowed_tiers):
 def get_rate_limit_key():
     """
     Custom key function for rate limiting that excludes static assets.
-    Returns None for static assets (which exempts them from rate limiting),
-    otherwise returns the remote address.
+    Uses user ID for authenticated requests, IP address for unauthenticated.
+    Returns None for static assets (which exempts them from rate limiting).
     """
     from flask import request
     # Exclude static assets and root route from rate limiting
@@ -355,6 +355,14 @@ def get_rate_limit_key():
         request.path.endswith('.woff') or
         request.path.endswith('.woff2')):
         return None  # None exempts from rate limiting
+    
+    # For authenticated requests, use user ID instead of IP address
+    if hasattr(request, 'firebase_user') and request.firebase_user:
+        user_id = request.firebase_user.get('uid')
+        if user_id:
+            return f"user:{user_id}"
+    
+    # Fallback to IP address for unauthenticated requests
     return get_remote_address()
 
 def init_app_extensions(app: Flask):
@@ -364,7 +372,7 @@ def init_app_extensions(app: Flask):
     limiter = Limiter(
         app=app,
         key_func=get_rate_limit_key,
-        default_limits=["200 per day", "50 per hour"],
+        default_limits=["500 per day", "200 per hour"],
         storage_uri="memory://",  # Use in-memory storage (can upgrade to Redis later)
         strategy="fixed-window",
         headers_enabled=True  # Include rate limit headers in response

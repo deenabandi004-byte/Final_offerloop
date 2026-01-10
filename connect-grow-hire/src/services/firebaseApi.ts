@@ -105,6 +105,30 @@ export interface FollowUpReminder {
 }
 
 // ================================
+// RECRUITER TYPES
+// ================================
+export interface Recruiter {
+  id?: string;
+  firstName: string;
+  lastName: string;
+  linkedinUrl: string;
+  email: string;
+  company: string;
+  jobTitle: string;
+  location: string;
+  phone?: string;
+  workEmail?: string;
+  personalEmail?: string;
+  associatedJobId?: string;
+  associatedJobTitle?: string;
+  associatedJobUrl?: string;
+  dateAdded: string;
+  status: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// ================================
 // API
 // ================================
 export const firebaseApi = {
@@ -687,6 +711,81 @@ export const firebaseApi = {
     } catch (error) {
       console.error('❌ Error getting timeline:', error);
       return null;
+    }
+  },
+
+  // ================================
+  // RECRUITER MANAGEMENT
+  // ================================
+  async getRecruiters(uid: string): Promise<Recruiter[]> {
+    try {
+      const recruitersRef = collection(db, 'users', uid, 'recruiters');
+      const snapshot = await getDocs(recruitersRef);
+      return snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as Recruiter[];
+    } catch (error) {
+      console.error('Error fetching recruiters:', error);
+      return [];
+    }
+  },
+
+  async getRecruiter(uid: string, recruiterId: string): Promise<Recruiter | null> {
+    try {
+      const recruiterRef = doc(db, 'users', uid, 'recruiters', recruiterId);
+      const recruiterSnap = await getDoc(recruiterRef);
+      if (!recruiterSnap.exists()) return null;
+      return { id: recruiterSnap.id, ...recruiterSnap.data() } as Recruiter;
+    } catch (error) {
+      console.error('Error fetching recruiter:', error);
+      return null;
+    }
+  },
+
+  async updateRecruiter(uid: string, recruiterId: string, updates: Partial<Recruiter>): Promise<void> {
+    try {
+      const recruiterRef = doc(db, 'users', uid, 'recruiters', recruiterId);
+      await updateDoc(recruiterRef, {
+        ...updates,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error('Error updating recruiter:', error);
+      throw error;
+    }
+  },
+
+  async bulkCreateRecruiters(uid: string, recruiters: Omit<Recruiter, 'id'>[]): Promise<void> {
+    try {
+      const batch = writeBatch(db);
+      const recruitersRef = collection(db, 'users', uid, 'recruiters');
+
+      for (const recruiter of recruiters) {
+        const newRecruiterRef = doc(recruitersRef);
+        const recruiterData = {
+          ...recruiter,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        batch.set(newRecruiterRef, recruiterData);
+      }
+
+      await batch.commit();
+    } catch (error) {
+      console.error('Error bulk creating recruiters:', error);
+      throw error;
+    }
+  },
+
+  async clearAllRecruiters(uid: string): Promise<void> {
+    try {
+      const recruitersRef = collection(db, 'users', uid, 'recruiters');
+      const snapshot = await getDocs(recruitersRef);
+      const batch = writeBatch(db);
+
+      snapshot.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    } catch (error) {
+      console.error('Error clearing recruiters:', error);
+      throw error;
     }
   },
 };

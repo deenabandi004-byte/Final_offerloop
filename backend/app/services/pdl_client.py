@@ -1347,8 +1347,10 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None):
         person: PDL person data dictionary
         target_company: Target company name for email lookup (required for correct domain extraction)
     """
+    import time
+    extract_start = time.time()
     try:
-        print(f"DEBUG: Starting contact extraction")
+        print(f"DEBUG: ⏱️  Starting contact extraction")
         
         # Basic identity
         first_name = person.get('first_name', '')
@@ -1448,6 +1450,7 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None):
         # ✅ VERIFY PDL EMAIL WITH HUNTER BEFORE USING IT
         # This ensures we don't use outdated/invalid PDL emails
         # Uses target company domain for correct email lookup
+        email_verify_start = time.time()
         verified_email_result = get_verified_email(
             pdl_email=pdl_email if pdl_email and pdl_email != "Not available" else None,
             first_name=first_name,
@@ -1455,6 +1458,8 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None):
             company=company_for_email_lookup,  # Use target company, not PDL person's company
             person_data=person  # Pass full person data for context
         )
+        email_verify_time = time.time() - email_verify_start
+        print(f"DEBUG: ⏱️  Email verification: {email_verify_time:.2f}s for {first_name} {last_name}")
         
         best_email = verified_email_result.get('email')
         email_source = verified_email_result.get('email_source', 'pdl')
@@ -1577,6 +1582,34 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None):
         if recommended and recommended not in personal_emails_list:
             personal_emails_list.append(recommended)
 
+        # Check if currently employed at target company
+        is_currently_at_target = False
+        if target_company and experience:
+            # Check if first job (current job) is at target company and has no end_date
+            first_job = experience[0] if isinstance(experience, list) and len(experience) > 0 else None
+            if first_job and isinstance(first_job, dict):
+                first_job_company = first_job.get('company', {})
+                if isinstance(first_job_company, dict):
+                    first_job_company_name = first_job_company.get('name', '')
+                    # Clean both company names for accurate comparison
+                    cleaned_target = clean_company_name(target_company).lower().strip()
+                    cleaned_first_job = clean_company_name(first_job_company_name).lower().strip() if first_job_company_name else ''
+                    
+                    # Check if company matches (exact match after cleaning) AND job has no end_date (indicating current employment)
+                    first_job_end_date = first_job.get('end_date')
+                    if cleaned_first_job and cleaned_target:
+                        # Use exact match or check if cleaned names are very similar (to handle variations like "ASML" vs "ASML Holding")
+                        # But be strict - require the core company name to match
+                        if cleaned_first_job == cleaned_target or (cleaned_target in cleaned_first_job and len(cleaned_target) >= 3):
+                            # If no end_date or end_date is empty, assume current employment
+                            if not first_job_end_date or (isinstance(first_job_end_date, dict) and not first_job_end_date.get('year')):
+                                is_currently_at_target = True
+                                print(f"[ContactExtraction] ✅ Currently at target company ({target_company}) - first job: {first_job_company_name}")
+                            else:
+                                print(f"[ContactExtraction] ⚠️ Previously at target company ({target_company}), but left (end_date: {first_job_end_date})")
+                        else:
+                            print(f"[ContactExtraction] ⚠️ Not at target company - first job: {first_job_company_name} (cleaned: {cleaned_first_job}), target: {target_company} (cleaned: {cleaned_target})")
+
         contact = {
             'FirstName': first_name,
             'LastName': last_name,
@@ -1598,14 +1631,17 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None):
             'LinkedInConnections': person.get('linkedin_connections', 0),
             'DataVersion': person.get('dataset_version', 'Unknown'),
             'EmailSource': email_source,  # Track email source (pdl or hunter.io)
-            'EmailVerified': email_verified  # Track if email was verified
+            'EmailVerified': email_verified,  # Track if email was verified
+            'IsCurrentlyAtTarget': is_currently_at_target  # Track if currently at target company
         }
 
-        print(f"DEBUG: Contact extraction successful")
+        extract_time = time.time() - extract_start
+        print(f"DEBUG: ⏱️  Contact extraction successful: {extract_time:.2f}s total for {first_name} {last_name}")
         return contact
         
     except Exception as e:
-        print(f"Failed to extract enhanced contact: {e}")
+        extract_time = time.time() - extract_start
+        print(f"DEBUG: ⏱️  Failed to extract enhanced contact ({extract_time:.2f}s): {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -1689,7 +1725,12 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
         skip_count: Number of results to skip from the beginning (for getting different people)
         target_company: Target company name for email domain extraction (required for correct domain)
     """
+    import time
     import random
+    
+    search_total_start = time.time()
+    pdl_api_time = 0.0
+    extract_time = 0.0
     
     # Add small random skip to get different results each time
     # Skip between 0-5 results randomly to introduce variation
@@ -1714,8 +1755,10 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
         print(json.dumps(body, ensure_ascii=False))
 
     # Use session for connection pooling
+    pdl_api_start = time.time()
     with _session_lock:
         r = _session.post(url, headers=headers, json=body, timeout=30)
+    pdl_api_time += time.time() - pdl_api_start
     
     # ✅ HANDLE 404 GRACEFULLY - Don't crash, just return empty
     if r.status_code == 404:
@@ -1755,12 +1798,107 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
 
     # Stop early if we already have enough
     if len(data) >= desired_limit or not scroll:
-        # TRANSFORM THE DATA BEFORE RETURNING
+        # OPTIMIZATION: Batch pre-fetch domains for unique companies (when no target_company specified)
+        # This reduces duplicate OpenAI calls during extraction
+        if not target_company and len(data) > 0:
+            batch_domain_start = time.time()
+            print(f"[PDL Extract] 🔍 Pre-fetching domains for unique companies...")
+            unique_companies = set()
+            for person in data[:desired_limit]:
+                experience = person.get('experience', []) or []
+                if experience and isinstance(experience, list) and len(experience) > 0:
+                    company_info = experience[0].get('company') or {}
+                    if isinstance(company_info, dict):
+                        company_name = company_info.get('name', '').strip()
+                        if company_name and company_name.lower() not in ['', 'n/a', 'none', 'unknown']:
+                            unique_companies.add(company_name)
+            
+            if unique_companies:
+                from app.services.hunter import get_smart_company_domain
+                # Batch lookup domains in parallel (pre-populate cache)
+                with ThreadPoolExecutor(max_workers=min(5, len(unique_companies))) as domain_executor:
+                    domain_futures = {
+                        domain_executor.submit(get_smart_company_domain, company): company 
+                        for company in unique_companies
+                    }
+                    # Wait for all domain lookups to complete (populates cache)
+                    for future in as_completed(domain_futures):
+                        company = domain_futures[future]
+                        try:
+                            domain = future.result()
+                            if domain:
+                                print(f"[PDL Extract] ✅ Pre-fetched domain: {company} → {domain}")
+                        except Exception as e:
+                            print(f"[PDL Extract] ⚠️ Failed to pre-fetch domain for {company}: {e}")
+                batch_domain_time = time.time() - batch_domain_start
+                print(f"[PDL Extract] ⏱️  Domain pre-fetch: {batch_domain_time:.2f}s for {len(unique_companies)} companies")
+        
+        # TRANSFORM THE DATA BEFORE RETURNING - PARALLEL EXTRACTION
+        extract_start = time.time()
         extracted_contacts = []
-        for person in data[:desired_limit]:
-            contact = extract_contact_from_pdl_person_enhanced(person, target_company=target_company)
-            if contact:  # Only add if extraction was successful
-                extracted_contacts.append(contact)
+        
+        # Use parallel extraction to speed up email verification
+        # Limit to 5 workers to avoid rate limiting while still getting speedup
+        max_workers = min(5, len(data[:desired_limit]))
+        persons_to_extract = data[:desired_limit]
+        
+        if max_workers > 1 and len(persons_to_extract) > 1:
+            print(f"[PDL Extract] ⚡ Parallel extraction with {max_workers} workers for {len(persons_to_extract)} contacts...")
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all extraction tasks
+                future_to_person = {
+                    executor.submit(extract_contact_from_pdl_person_enhanced, person, target_company): (i, person)
+                    for i, person in enumerate(persons_to_extract)
+                }
+                
+                # Collect results as they complete, with early stopping for contacts with emails
+                contacts_with_emails = 0
+                max_contacts_with_emails = desired_limit * 2  # Get up to 2x to have verified options
+                for future in as_completed(future_to_person):
+                    i, person = future_to_person[future]
+                    try:
+                        contact = future.result()
+                        if contact:  # Only add if extraction was successful
+                            extracted_contacts.append(contact)
+                            # Check if contact has any email (verified or not)
+                            if contact.get('Email') or contact.get('WorkEmail') or contact.get('PersonalEmail'):
+                                contacts_with_emails += 1
+                            
+                            # Early stop if we have enough contacts with emails (verified filtering happens later)
+                            if contacts_with_emails >= max_contacts_with_emails:
+                                # Cancel remaining futures to save processing time
+                                remaining = len(future_to_person) - len(extracted_contacts)
+                                if remaining > 0:
+                                    print(f"[PDL Extract] ⚡ Early stopping: Have {contacts_with_emails} contacts with emails, cancelling {remaining} remaining extractions...")
+                                    for remaining_future in future_to_person:
+                                        if remaining_future != future and not remaining_future.done():
+                                            remaining_future.cancel()
+                                break
+                    except Exception as e:
+                        name = f"{person.get('first_name', '')} {person.get('last_name', '')}".strip()
+                        print(f"[PDL Extract] ❌ Error extracting {name}: {e}")
+        else:
+            # Fallback to sequential for small batches
+            for i, person in enumerate(persons_to_extract):
+                try:
+                    contact = extract_contact_from_pdl_person_enhanced(person, target_company=target_company)
+                    if contact:  # Only add if extraction was successful
+                        extracted_contacts.append(contact)
+                except Exception as e:
+                    name = f"{person.get('first_name', '')} {person.get('last_name', '')}".strip() or f"person {i+1}"
+                    print(f"[PDL Extract] ❌ Error extracting {name}: {e}")
+        
+        extract_time = time.time() - extract_start
+        total_time = time.time() - search_total_start
+        
+        print(f"\n[PDL {search_type}] ⏱️  TIMING BREAKDOWN:")
+        print(f"[PDL {search_type}]   ├── PDL API calls: {pdl_api_time:.2f}s ({pdl_api_time/total_time*100:.1f}%)")
+        print(f"[PDL {search_type}]   └── Contact extraction: {extract_time:.2f}s ({extract_time/total_time*100:.1f}%)")
+        print(f"[PDL {search_type}] ⏱️  Total: {total_time:.2f}s for {len(extracted_contacts)}/{len(data[:desired_limit])} contacts")
+        if len(data[:desired_limit]) > 0:
+            avg_extract = extract_time / len(data[:desired_limit])
+            print(f"[PDL {search_type}] ⏱️  Avg extraction per contact: {avg_extract:.2f}s")
+        
         return extracted_contacts
 
     # ---- Page 2+
@@ -1771,16 +1909,20 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
             print(json.dumps(body2, ensure_ascii=False))
 
         # Use session for connection pooling
+        pdl_api_start = time.time()
         with _session_lock:
             r2 = _session.post(url, headers=headers, json=body2, timeout=30)
+        pdl_api_time += time.time() - pdl_api_start
 
         # Be robust to cluster quirk: require query/sql
         if r2.status_code == 400 and "Either `query` or `sql` must be provided" in (r2.text or ""):
             if verbose:
                 print(f"{search_type} retrying with query+scroll_token due to 400…")
             body2_fallback = {"query": query_obj, "scroll_token": scroll, "size": page_size}
+            pdl_api_start = time.time()
             with _session_lock:
                 r2 = _session.post(url, headers=headers, json=body2_fallback, timeout=30)
+            pdl_api_time += time.time() - pdl_api_start
 
         if r2.status_code != 200:
             if verbose:
@@ -1795,14 +1937,107 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
         if verbose:
             print(f"{search_type} next page: got {len(batch)}, total so far={len(data)}, next scroll={scroll}")
 
-    # TRANSFORM ALL THE DATA BEFORE RETURNING
+    # OPTIMIZATION: Batch pre-fetch domains for unique companies (when no target_company specified)
+    # This reduces duplicate OpenAI calls during extraction
+    if not target_company and len(data) > 0:
+        batch_domain_start = time.time()
+        print(f"[PDL Extract] 🔍 Pre-fetching domains for unique companies...")
+        unique_companies = set()
+        for person in data[:desired_limit]:
+            experience = person.get('experience', []) or []
+            if experience and isinstance(experience, list) and len(experience) > 0:
+                company_info = experience[0].get('company') or {}
+                if isinstance(company_info, dict):
+                    company_name = company_info.get('name', '').strip()
+                    if company_name and company_name.lower() not in ['', 'n/a', 'none', 'unknown']:
+                        unique_companies.add(company_name)
+        
+        if unique_companies:
+            from app.services.hunter import get_smart_company_domain
+            # Batch lookup domains in parallel (pre-populate cache)
+            with ThreadPoolExecutor(max_workers=min(5, len(unique_companies))) as domain_executor:
+                domain_futures = {
+                    domain_executor.submit(get_smart_company_domain, company): company 
+                    for company in unique_companies
+                }
+                # Wait for all domain lookups to complete (populates cache)
+                for future in as_completed(domain_futures):
+                    company = domain_futures[future]
+                    try:
+                        domain = future.result()
+                        if domain:
+                            print(f"[PDL Extract] ✅ Pre-fetched domain: {company} → {domain}")
+                    except Exception as e:
+                        print(f"[PDL Extract] ⚠️ Failed to pre-fetch domain for {company}: {e}")
+            batch_domain_time = time.time() - batch_domain_start
+            print(f"[PDL Extract] ⏱️  Domain pre-fetch: {batch_domain_time:.2f}s for {len(unique_companies)} companies")
+
+    # TRANSFORM ALL THE DATA BEFORE RETURNING - PARALLEL EXTRACTION
+    extract_start = time.time()
     extracted_contacts = []
-    for person in data[:desired_limit]:
-        contact = extract_contact_from_pdl_person_enhanced(person, target_company=target_company)
-        if contact:  # Only add if extraction was successful
-            extracted_contacts.append(contact)
     
-    print(f"Extracted {len(extracted_contacts)} valid contacts from {len(data[:desired_limit])} PDL records")
+    # Use parallel extraction to speed up email verification
+    # Limit to 5 workers to avoid rate limiting while still getting speedup
+    max_workers = min(5, len(data[:desired_limit]))
+    persons_to_extract = data[:desired_limit]
+    
+    if max_workers > 1 and len(persons_to_extract) > 1:
+        print(f"[PDL Extract] ⚡ Parallel extraction with {max_workers} workers for {len(persons_to_extract)} contacts...")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all extraction tasks
+            future_to_person = {
+                executor.submit(extract_contact_from_pdl_person_enhanced, person, target_company): (i, person)
+                for i, person in enumerate(persons_to_extract)
+            }
+            
+            # Collect results as they complete, with early stopping for contacts with emails
+            contacts_with_emails = 0
+            max_contacts_with_emails = desired_limit * 2  # Get up to 2x to have verified options
+            for future in as_completed(future_to_person):
+                i, person = future_to_person[future]
+                try:
+                    contact = future.result()
+                    if contact:  # Only add if extraction was successful
+                        extracted_contacts.append(contact)
+                        # Check if contact has any email (verified or not)
+                        if contact.get('Email') or contact.get('WorkEmail') or contact.get('PersonalEmail'):
+                            contacts_with_emails += 1
+                        
+                        # Early stop if we have enough contacts with emails (verified filtering happens later)
+                        if contacts_with_emails >= max_contacts_with_emails:
+                            # Cancel remaining futures to save processing time
+                            remaining = len(future_to_person) - len(extracted_contacts)
+                            if remaining > 0:
+                                print(f"[PDL Extract] ⚡ Early stopping: Have {contacts_with_emails} contacts with emails, cancelling {remaining} remaining extractions...")
+                                for remaining_future in future_to_person:
+                                    if remaining_future != future and not remaining_future.done():
+                                        remaining_future.cancel()
+                            break
+                except Exception as e:
+                    name = f"{person.get('first_name', '')} {person.get('last_name', '')}".strip()
+                    print(f"[PDL Extract] ❌ Error extracting {name}: {e}")
+    else:
+        # Fallback to sequential for small batches
+        for i, person in enumerate(persons_to_extract):
+            try:
+                contact = extract_contact_from_pdl_person_enhanced(person, target_company=target_company)
+                if contact:  # Only add if extraction was successful
+                    extracted_contacts.append(contact)
+            except Exception as e:
+                name = f"{person.get('first_name', '')} {person.get('last_name', '')}".strip() or f"person {i+1}"
+                print(f"[PDL Extract] ❌ Error extracting {name}: {e}")
+    
+    extract_time = time.time() - extract_start
+    total_time = time.time() - search_total_start
+    
+    print(f"\n[PDL {search_type}] ⏱️  TIMING BREAKDOWN:")
+    print(f"[PDL {search_type}]   ├── PDL API calls: {pdl_api_time:.2f}s ({pdl_api_time/total_time*100:.1f}%)")
+    print(f"[PDL {search_type}]   └── Contact extraction: {extract_time:.2f}s ({extract_time/total_time*100:.1f}%)")
+    print(f"[PDL {search_type}] ⏱️  Total: {total_time:.2f}s for {len(extracted_contacts)}/{len(data[:desired_limit])} contacts")
+    if len(data[:desired_limit]) > 0:
+        avg_extract = extract_time / len(data[:desired_limit])
+        print(f"[PDL {search_type}] ⏱️  Avg extraction per contact: {avg_extract:.2f}s")
+    
     return extracted_contacts
 
 
@@ -2303,18 +2538,34 @@ def search_contacts_with_smart_location_strategy(
             )
         
         # Step 5: For non-alumni searches, use optimized parallel search
+        search_start = time.time()
         contacts = _fetch_contacts_standard_parallel(
             primary_title, similar_titles, cleaned_company,
             location_strategy, job_title_enrichment,
             max_contacts, exclude_keys
         )
+        search_time = time.time() - search_start
         
-        # LOG FINAL RESULTS
+        total_time = time.time() - start_time
+        
+        # LOG FINAL RESULTS WITH TIMING
+        print(f"\n{'='*70}")
+        print(f"⏱️  SEARCH TIMING SUMMARY")
+        print(f"{'='*70}")
+        print(f"⏱️  Enrichment: {enrichment_time:.2f}s ({enrichment_time/total_time*100:.1f}%)")
+        print(f"⏱️  PDL search + extraction: {search_time:.2f}s ({search_time/total_time*100:.1f}%)")
+        print(f"⏱️  Total time: {total_time:.2f}s")
+        print(f"📊 Contacts found: {len(contacts)}/{max_contacts}")
+        if len(contacts) > 0:
+            avg_time_per_contact = search_time / len(contacts)
+            print(f"⏱️  Avg time per contact: {avg_time_per_contact:.2f}s")
+        
         if len(contacts) == 0:
-            print(f"WARNING: No contacts found with valid emails for {job_title} in {location}")
+            print(f"⚠️  WARNING: No contacts found with valid emails for {job_title} in {location}")
             print(f"Search parameters: title='{primary_title}', company='{cleaned_company}', location='{cleaned_location}'")
         else:
-            print(f"Smart location search completed: {len(contacts)} contacts found with valid emails")
+            print(f"✅ Smart location search completed: {len(contacts)} contacts found with valid emails")
+        print(f"{'='*70}\n")
         
         return contacts[:max_contacts]
         

@@ -17,6 +17,19 @@ from app.services.hunter import (
 )
 from app.services.openai_client import get_openai_client
 
+# Timing statistics
+_timing_stats = {
+    'pdl_search': 0.0,
+    'extraction': 0.0,
+    'scoring': 0.0,
+    'domain_lookups': 0.0,
+    'hunter_email_finder': 0.0,
+    'hunter_email_verifier': 0.0,
+    'hunter_domain_pattern': 0.0,
+    'openai_domain_lookup': 0.0,
+    'total': 0.0
+}
+
 
 def contact_search_optimized(job_title, location, max_contacts=3, user_data=None, company=None, college_alumni=None, exclude_keys=None):
     """
@@ -33,17 +46,32 @@ def contact_search_optimized(job_title, location, max_contacts=3, user_data=None
     3. Score and rank candidates
     4. Verify emails one-by-one until we have enough
     """
+    # Reset timing stats
+    global _timing_stats
+    _timing_stats = {
+        'pdl_search': 0.0,
+        'extraction': 0.0,
+        'scoring': 0.0,
+        'domain_lookups': 0.0,
+        'hunter_email_finder': 0.0,
+        'hunter_email_verifier': 0.0,
+        'hunter_domain_pattern': 0.0,
+        'openai_domain_lookup': 0.0,
+        'email_verification_total': 0.0,
+        'total': 0.0
+    }
+    
     total_start = time.time()
     
     # Step 1: Get PDL results (single API call)
     print(f"\n[ContactSearch] ========================================")
-    print(f"[ContactSearch] Starting optimized search")
+    print(f"[ContactSearch] ⏱️  Starting optimized search")
     print(f"[ContactSearch] Job title: {job_title}, Location: {location}")
     print(f"[ContactSearch] Company: {company or 'Any'}")
     print(f"[ContactSearch] Target contacts: {max_contacts}")
     print(f"[ContactSearch] ========================================\n")
     
-    start = time.time()
+    pdl_start = time.time()
     # Get more results than needed (we'll rank and filter)
     pdl_contacts = search_contacts_with_smart_location_strategy(
         job_title, company, location, 
@@ -51,31 +79,41 @@ def contact_search_optimized(job_title, location, max_contacts=3, user_data=None
         college_alumni=college_alumni,
         exclude_keys=exclude_keys
     )
-    print(f"[ContactSearch] PDL returned {len(pdl_contacts)} results in {time.time()-start:.1f}s")
+    pdl_time = time.time() - pdl_start
+    _timing_stats['pdl_search'] = pdl_time
+    print(f"[ContactSearch] ⏱️  PDL search: {pdl_time:.2f}s - returned {len(pdl_contacts)} results")
     
     if not pdl_contacts:
         print(f"[ContactSearch] ❌ No PDL results found")
         return []
     
     # Step 2: Quick extraction WITHOUT email verification
-    print(f"\n[ContactSearch] Extracting contact info (no email verification yet)...")
+    extract_start = time.time()
+    print(f"\n[ContactSearch] ⏱️  Extracting contact info (no email verification yet)...")
     candidates = []
     for contact in pdl_contacts:
         # Extract basic info from PDL contact format
         candidate = extract_contact_basic_from_pdl_contact(contact)
         if candidate:
             candidates.append(candidate)
-    print(f"[ContactSearch] Extracted {len(candidates)} valid candidates")
+    extract_time = time.time() - extract_start
+    _timing_stats['extraction'] = extract_time
+    print(f"[ContactSearch] ⏱️  Extraction: {extract_time:.2f}s - extracted {len(candidates)} valid candidates")
     
     # Step 3: Score and rank candidates
-    print(f"\n[ContactSearch] Scoring and ranking candidates...")
+    score_start = time.time()
+    print(f"\n[ContactSearch] ⏱️  Scoring and ranking candidates...")
     candidates = score_and_rank_candidates(candidates, job_title)
+    score_time = time.time() - score_start
+    _timing_stats['scoring'] = score_time
+    print(f"[ContactSearch] ⏱️  Scoring: {score_time:.2f}s")
     print(f"[ContactSearch] Top 5 candidates:")
     for i, c in enumerate(candidates[:5]):
         print(f"  {i+1}. {c['name']} - {c['title']} @ {c['company']} (score: {c.get('_score', 0)})")
     
     # Step 4: Two-pass verification
-    print(f"\n[ContactSearch] === PASS 1: Verifying emails ===")
+    verify_start = time.time()
+    print(f"\n[ContactSearch] ⏱️  === PASS 1: Verifying emails ===")
     
     verified_contacts = []
     unverified_contacts = []
@@ -83,14 +121,22 @@ def contact_search_optimized(job_title, location, max_contacts=3, user_data=None
     max_attempts = min(len(candidates), max_contacts * 5)  # Try up to 5x what we need
     
     for i, candidate in enumerate(candidates[:max_attempts]):
-        print(f"\n[ContactSearch] --- Candidate {i+1}/{max_attempts} ---")
-        print(f"[ContactSearch] Processing: {candidate['name']} @ {candidate['company']}")
+        # Early stop if we have enough verified contacts
+        if len(verified_contacts) >= max_contacts:
+            print(f"[ContactSearch] ⚡ Early stopping: Already have {len(verified_contacts)} verified contacts (target: {max_contacts})")
+            break
+            
+        candidate_start = time.time()
+        print(f"\n[ContactSearch] ⏱️  --- Candidate {i+1}/{max_attempts} ({candidate['name']} @ {candidate['company']}) ---")
         
         # Pass target_company so we use the right domain
         email, is_verified = get_verified_email_for_contact_search(
             candidate, 
             target_company=company  # This is the company user searched for
         )
+        
+        candidate_time = time.time() - candidate_start
+        print(f"[ContactSearch] ⏱️  Candidate {i+1} verification: {candidate_time:.2f}s")
         
         if email:
             candidate['email'] = email
@@ -122,8 +168,12 @@ def contact_search_optimized(job_title, location, max_contacts=3, user_data=None
             no_email_contacts.append(candidate)
             print(f"[ContactSearch] ❌ No email found")
     
+    verify_time = time.time() - verify_start
+    _timing_stats['email_verification_total'] = verify_time
+    print(f"\n[ContactSearch] ⏱️  Email verification phase: {verify_time:.2f}s")
+    
     # Step 5: Combine results - verified first, then unverified
-    print(f"\n[ContactSearch] === PASS 2: Combining results ===")
+    print(f"\n[ContactSearch] ⏱️  === PASS 2: Combining results ===")
     print(f"[ContactSearch] Verified: {len(verified_contacts)}")
     print(f"[ContactSearch] Unverified (fallback): {len(unverified_contacts)}")
     print(f"[ContactSearch] No email: {len(no_email_contacts)}")
@@ -146,13 +196,25 @@ def contact_search_optimized(job_title, location, max_contacts=3, user_data=None
             print(f"[ContactSearch] Added UNVERIFIED: {contact['FirstName']} {contact['LastName']} → {contact['Email']}")
     
     total_time = time.time() - total_start
+    _timing_stats['total'] = total_time
     verified_count = sum(1 for c in final_contacts if c.get('is_verified_email', False))
     unverified_count = len(final_contacts) - verified_count
     
+    # Print detailed timing breakdown
     print(f"\n[ContactSearch] ========================================")
-    print(f"[ContactSearch] 📊 SEARCH COMPLETE")
-    print(f"[ContactSearch] Total time: {total_time:.1f}s")
-    print(f"[ContactSearch] Contacts returned: {len(final_contacts)}/{max_contacts}")
+    print(f"[ContactSearch] 📊 SEARCH COMPLETE - TIMING BREAKDOWN")
+    print(f"[ContactSearch] ========================================")
+    print(f"[ContactSearch] ⏱️  Total time: {total_time:.2f}s")
+    print(f"[ContactSearch] ⏱️  PDL search: {_timing_stats['pdl_search']:.2f}s ({_timing_stats['pdl_search']/total_time*100:.1f}%)")
+    print(f"[ContactSearch] ⏱️  Extraction: {_timing_stats['extraction']:.2f}s ({_timing_stats['extraction']/total_time*100:.1f}%)")
+    print(f"[ContactSearch] ⏱️  Scoring: {_timing_stats['scoring']:.2f}s ({_timing_stats['scoring']/total_time*100:.1f}%)")
+    print(f"[ContactSearch] ⏱️  Email verification: {_timing_stats['email_verification_total']:.2f}s ({_timing_stats['email_verification_total']/total_time*100:.1f}%)")
+    print(f"[ContactSearch]     ├── Domain lookups: {_timing_stats['domain_lookups']:.2f}s")
+    print(f"[ContactSearch]     ├── Hunter Email Finder: {_timing_stats['hunter_email_finder']:.2f}s")
+    print(f"[ContactSearch]     ├── Hunter Email Verifier: {_timing_stats['hunter_email_verifier']:.2f}s")
+    print(f"[ContactSearch]     ├── Hunter Domain Pattern: {_timing_stats['hunter_domain_pattern']:.2f}s")
+    print(f"[ContactSearch]     └── OpenAI domain lookup: {_timing_stats['openai_domain_lookup']:.2f}s")
+    print(f"[ContactSearch] 📊 Contacts returned: {len(final_contacts)}/{max_contacts}")
     print(f"[ContactSearch]   ├── Verified: {verified_count}")
     print(f"[ContactSearch]   └── Unverified: {unverified_count}")
     print(f"[ContactSearch] ========================================\n")
@@ -274,6 +336,8 @@ def get_verified_email_for_contact_search(candidate, target_company=None):
         - is_verified=True: Email was verified by Hunter (score >= 80)
         - is_verified=False: Email is pattern-generated or unverified
     """
+    global _timing_stats
+    
     first_name = candidate.get("first_name", "")
     last_name = candidate.get("last_name", "")
     company = candidate.get("company", "")
@@ -286,6 +350,7 @@ def get_verified_email_for_contact_search(candidate, target_company=None):
     print(f"[EmailVerify] PDL work email: {pdl_work_email}")
     
     # === DETERMINE TARGET DOMAIN ===
+    domain_start = time.time()
     if target_company:
         # User searched for specific company - use that domain directly
         target_domain = get_smart_company_domain(target_company, company_website)
@@ -298,6 +363,8 @@ def get_verified_email_for_contact_search(candidate, target_company=None):
         # Fall back to company name from PDL
         target_domain = get_smart_company_domain(company, company_website)
         print(f"[EmailVerify] Using company name domain: {target_domain}")
+    domain_time = time.time() - domain_start
+    _timing_stats['domain_lookups'] += domain_time
     
     if not target_domain:
         print(f"[EmailVerify] ❌ Could not determine domain")
@@ -311,42 +378,54 @@ def get_verified_email_for_contact_search(candidate, target_company=None):
         pdl_domain = pdl_work_email.split("@")[1].lower()
         if pdl_domain == target_domain:
             print(f"[EmailVerify] PDL email matches target domain, verifying: {pdl_work_email}")
+            verify_start = time.time()
             result = verify_email_hunter(pdl_work_email)
+            verify_time = time.time() - verify_start
+            _timing_stats['hunter_email_verifier'] += verify_time
             score = result.get("score", 0) if result else 0
             if score >= 80:
-                print(f"[EmailVerify] ✅ PDL email verified: {pdl_work_email}")
+                print(f"[EmailVerify] ✅ PDL email verified: {pdl_work_email} ({verify_time:.2f}s)")
                 return pdl_work_email, True
             else:
-                print(f"[EmailVerify] PDL email failed verification (score: {score}), trying other strategies")
+                print(f"[EmailVerify] PDL email failed verification (score: {score}, {verify_time:.2f}s), trying other strategies")
     
     # === STRATEGY 2: Hunter Email Finder ===
     print(f"[EmailVerify] Trying Hunter Email Finder with domain: {target_domain}")
+    finder_start = time.time()
     email, score = find_email_with_hunter(first_name, last_name, target_domain)
+    finder_time = time.time() - finder_start
+    _timing_stats['hunter_email_finder'] += finder_time
     if email and score >= 80:
-        print(f"[EmailVerify] ✅ Hunter found verified email: {email} (score: {score})")
+        print(f"[EmailVerify] ✅ Hunter found verified email: {email} (score: {score}, {finder_time:.2f}s)")
         return email, True
     
     # === STRATEGY 3: Pattern-generated email (return even if unverified) ===
     print(f"[EmailVerify] Hunter failed, trying pattern generation for: {target_domain}")
     from app.services.hunter import get_domain_pattern, generate_email_from_pattern
     
+    pattern_start = time.time()
     pattern = get_domain_pattern(target_domain)
+    pattern_time = time.time() - pattern_start
+    _timing_stats['hunter_domain_pattern'] += pattern_time
     
     if pattern:
         generated_email = generate_email_from_pattern(first_name, last_name, target_domain, pattern)
         if generated_email:
-            print(f"[EmailVerify] Generated email from pattern '{pattern}': {generated_email}")
+            print(f"[EmailVerify] Generated email from pattern '{pattern}': {generated_email} (pattern lookup: {pattern_time:.2f}s)")
             
             # Try to verify it
+            verify_start = time.time()
             result = verify_email_hunter(generated_email)
+            verify_time = time.time() - verify_start
+            _timing_stats['hunter_email_verifier'] += verify_time
             score = result.get("score", 0) if result else 0
             
             if score >= 80:
-                print(f"[EmailVerify] ✅ Pattern email verified: {generated_email}")
+                print(f"[EmailVerify] ✅ Pattern email verified: {generated_email} ({verify_time:.2f}s)")
                 return generated_email, True
             else:
                 # Return it anyway as unverified
-                print(f"[EmailVerify] ⚠️ Pattern email unverified (score: {score}), returning anyway: {generated_email}")
+                print(f"[EmailVerify] ⚠️ Pattern email unverified (score: {score}, {verify_time:.2f}s), returning anyway: {generated_email}")
                 return generated_email, False
     
     # === STRATEGY 4: Generate using common patterns ===

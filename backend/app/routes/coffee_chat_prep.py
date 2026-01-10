@@ -147,6 +147,7 @@ def process_coffee_chat_prep_background(
 
         # Step 3: Build user context from resume or stored profile
         print("Step 3: Building user context...")
+        prep_ref.update({"status": "building_context"})  # Add status update for Step 3
         if resume_text:
             user_data = parse_resume_info(resume_text)
         else:
@@ -394,19 +395,26 @@ def create_coffee_chat_prep():
         if validated_data.get("industry"):
             extra_context["industry"] = validated_data.get("industry")
 
-        # Start background processing
+        # Start background processing in a thread so status updates can be polled
         try:
-            process_coffee_chat_prep_background(
-                prep_id,
-                linkedin_url,
-                user_id,
-                credits_available,
-                resume_text,
-                extra_context,
-                user_profile_data,
+            # Run in background thread so status updates are visible to frontend polling
+            thread = threading.Thread(
+                target=process_coffee_chat_prep_background,
+                args=(
+                    prep_id,
+                    linkedin_url,
+                    user_id,
+                    credits_available,
+                    resume_text,
+                    extra_context,
+                    user_profile_data,
+                ),
+                daemon=True  # Thread will terminate when main process exits
             )
+            thread.start()
             
-            # Fetch the completed prep data
+            # Return immediately with prep_id so frontend can start polling
+            # Don't wait for completion - frontend will poll for status
             prep_doc = prep_ref.get()
             if prep_doc.exists:
                 prep_data = prep_doc.to_dict()
@@ -415,10 +423,12 @@ def create_coffee_chat_prep():
                 
                 return jsonify(prep_data), 200
             else:
-                return jsonify({"error": "Prep processing failed"}), 500
+                return jsonify({"error": "Prep creation failed"}), 500
                 
         except Exception as processing_error:
             print(f"❌ Processing error: {processing_error}")
+            import traceback
+            traceback.print_exc()
             return jsonify({"error": str(processing_error)}), 500
 
     except Exception as e:

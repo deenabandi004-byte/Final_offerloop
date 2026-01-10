@@ -13,6 +13,7 @@ import { useScoutChat, formatMessage } from '@/hooks/useScoutChat';
 import { SUGGESTED_QUESTIONS } from '@/data/scout-knowledge';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 import ScoutWavingWhite from '@/assets/ScoutWavingWhite.mp4';
+import ScoutIconImage from '@/assets/Scout_icon.png';
 
 // Backend URL configuration
 const BACKEND_URL = window.location.hostname === 'localhost'
@@ -168,18 +169,6 @@ export function ScoutSidePanel() {
     }
   }, [isPanelOpen, inputRef, searchHelpContext]);
   
-  // Prevent body scroll when panel is open
-  useEffect(() => {
-    if (isPanelOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [isPanelOpen]);
-  
   // Handle keyboard
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -208,13 +197,6 @@ export function ScoutSidePanel() {
     clearChat();
   };
   
-  // Handle overlay click
-  const handleOverlayClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      closePanel();
-    }
-  };
-  
   // Check if we're in search help mode
   const isSearchHelpMode = !!searchHelpContext;
   
@@ -222,20 +204,14 @@ export function ScoutSidePanel() {
   
   return (
     <>
-      {/* Overlay */}
-      <div
-        className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm transition-opacity duration-300"
-        onClick={handleOverlayClick}
-        aria-hidden="true"
-      />
-      
-      {/* Side Panel */}
+      {/* Side Panel - background remains fully interactive */}
       <div
         ref={panelRef}
-        className="fixed right-0 top-0 z-50 h-full w-full sm:w-[400px] bg-white shadow-2xl flex flex-col transform transition-transform duration-300 ease-out"
+        className="fixed right-0 top-0 z-50 h-full w-full sm:w-[450px] bg-white shadow-2xl flex flex-col transform transition-transform duration-300 ease-out"
         style={{
           animation: 'slideIn 0.3s ease-out forwards',
         }}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Add keyframes for slide animation */}
         <style>{`
@@ -250,9 +226,9 @@ export function ScoutSidePanel() {
         `}</style>
         
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-white flex-shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-white flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-[#FFF7EA] flex items-center justify-center overflow-hidden">
+            <div className="w-6 h-6 rounded-full bg-[#FFF7EA] flex items-center justify-center overflow-hidden">
               <video 
                 src={ScoutWavingWhite}
                 autoPlay
@@ -295,14 +271,18 @@ export function ScoutSidePanel() {
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Search Help Mode */}
           {isSearchHelpMode && (
-            <div className="flex-1 overflow-y-auto px-4 py-4">
+            <div className="flex-1 overflow-y-auto px-6 py-4">
               {isLoadingSearchHelp ? (
                 <div className="flex flex-col items-center justify-center min-h-[300px]">
-                  <div className="w-14 h-14 rounded-full bg-[#FFF7EA] flex items-center justify-center mb-4">
-                    <img 
-                      src="/scout-mascot.png" 
-                      alt="Scout" 
-                      className="w-10 h-10 object-contain"
+                  <div className="w-16 h-16 rounded-full bg-[#FFF7EA] flex items-center justify-center mb-4 overflow-hidden">
+                    <video 
+                      src={ScoutWavingWhite}
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      className="w-full h-full object-cover"
+                      style={{ transform: 'scale(1.05)' }}
                     />
                   </div>
                   <div className="flex items-center gap-2 text-gray-600">
@@ -313,16 +293,20 @@ export function ScoutSidePanel() {
               ) : searchHelpResponse ? (
                 <div className="space-y-4">
                   {/* Scout message */}
-                  <div className="flex gap-2">
-                    <div className="w-7 h-7 rounded-full bg-[#FFF7EA] flex-shrink-0 flex items-center justify-center">
-                      <img 
-                        src="/scout-mascot.png" 
-                        alt="Scout" 
-                        className="w-5 h-5 object-contain"
+                  <div className="flex gap-3">
+                    <div className="w-8 h-8 rounded-full bg-[#FFF7EA] flex-shrink-0 flex items-center justify-center overflow-hidden">
+                      <video 
+                        src={ScoutWavingWhite}
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        className="w-full h-full object-cover"
+                        style={{ transform: 'scale(1.05)' }}
                       />
                     </div>
                     <div className="flex-1">
-                      <div className="bg-gray-100 rounded-2xl px-3 py-2">
+                      <div className="bg-gray-100 rounded-lg px-4 py-2.5">
                         <p className="text-sm text-gray-900 leading-relaxed">
                           {searchHelpResponse.message}
                         </p>
@@ -349,7 +333,7 @@ export function ScoutSidePanel() {
                       <div className="mt-4">
                         <button
                           onClick={handleContinue}
-                          className="inline-flex items-center px-4 py-2 rounded-full bg-white border border-gray-200 text-blue-600 text-sm font-medium hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm"
+                          className="inline-flex items-center px-4 py-2.5 rounded-lg bg-white border border-gray-200 text-blue-600 text-sm font-medium hover:bg-gray-50 hover:border-blue-300 transition-all shadow-sm"
                         >
                           Continue
                         </button>
@@ -366,34 +350,38 @@ export function ScoutSidePanel() {
             <>
               {/* Messages area */}
               <div className="flex-1 overflow-y-auto">
-                <div className="px-4 py-4">
+                <div>
                   {/* Empty state with welcome message and suggestions */}
                   {messages.length === 0 && (
-                    <div className="flex flex-col items-center justify-center min-h-[300px]">
-                      {/* Scout avatar */}
-                      <div className="w-14 h-14 rounded-full bg-[#FFF7EA] flex items-center justify-center mb-4">
-                        <img 
-                          src="/scout-mascot.png" 
-                          alt="Scout" 
-                          className="w-10 h-10 object-contain"
+                    <div className="flex flex-col items-center justify-center min-h-[400px] px-6">
+                      {/* Scout avatar - larger with video */}
+                      <div className="w-20 h-20 rounded-full bg-[#FFF7EA] flex items-center justify-center mb-6 overflow-hidden">
+                        <video 
+                          src={ScoutWavingWhite}
+                          autoPlay
+                          loop
+                          muted
+                          playsInline
+                          className="w-full h-full object-cover"
+                          style={{ transform: 'scale(1.05)' }}
                         />
                       </div>
                       
-                      {/* Welcome message */}
-                      <h2 className="text-lg font-semibold text-gray-900 mb-1 text-center">
+                      {/* Welcome message - split into two lines */}
+                      <h2 className="text-xl font-semibold text-gray-900 mb-2 text-center">
                         Hi! I'm Scout
                       </h2>
-                      <p className="text-sm text-gray-600 mb-6 text-center">
+                      <p className="text-sm text-gray-600 mb-8 text-center">
                         Ask me anything about Offerloop!
                       </p>
                       
-                      {/* Suggestion chips */}
-                      <div className="flex flex-wrap justify-center gap-2 max-w-full">
+                      {/* Suggestion chips - better styled buttons */}
+                      <div className="flex flex-wrap justify-center gap-3 max-w-full w-full">
                         {SUGGESTED_QUESTIONS.map((question, idx) => (
                           <button
                             key={idx}
                             onClick={() => handleSuggestionClick(question)}
-                            className="px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-xs text-gray-700 font-medium transition-colors"
+                            className="px-4 py-2.5 rounded-lg bg-white border border-gray-200 hover:border-blue-300 hover:bg-blue-50 text-sm text-gray-700 font-medium transition-all shadow-sm hover:shadow-md"
                           >
                             {question}
                           </button>
@@ -404,17 +392,31 @@ export function ScoutSidePanel() {
                   
                   {/* Messages */}
                   {messages.length > 0 && (
-                    <div className="space-y-4">
+                    <div className="space-y-4 px-6 py-4">
                       {messages.map((message) => (
                         <div
                           key={message.id}
                           className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                         >
-                          <div className={`flex gap-2 max-w-[90%] ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                          <div className={`flex gap-3 max-w-[85%] ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                            {/* Scout avatar for assistant messages */}
+                            {message.role === 'assistant' && (
+                              <div className="w-8 h-8 rounded-full bg-[#FFF7EA] flex-shrink-0 flex items-center justify-center overflow-hidden">
+                                <video 
+                                  src={ScoutWavingWhite}
+                                  autoPlay
+                                  loop
+                                  muted
+                                  playsInline
+                                  className="w-full h-full object-cover"
+                                  style={{ transform: 'scale(1.05)' }}
+                                />
+                              </div>
+                            )}
                             <div className="flex flex-col gap-2">
                               {/* Message bubble */}
                               <div
-                                className={`rounded-2xl px-3 py-2 ${
+                                className={`rounded-lg px-4 py-2.5 ${
                                   message.role === 'user'
                                     ? 'text-white'
                                     : 'bg-gray-100 text-gray-900'
@@ -434,7 +436,7 @@ export function ScoutSidePanel() {
                                 <div className="flex gap-2">
                                   <button
                                     onClick={() => handleNavigate(message.navigate_to!, message.auto_populate)}
-                                    className="inline-flex items-center px-3 py-1.5 rounded-full bg-white border border-gray-200 text-blue-600 text-xs font-medium hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm"
+                                    className="inline-flex items-center px-3 py-2 rounded-lg bg-white border border-gray-200 text-blue-600 text-sm font-medium hover:bg-gray-50 hover:border-blue-300 transition-all shadow-sm"
                                   >
                                     Take me there
                                   </button>
@@ -443,12 +445,12 @@ export function ScoutSidePanel() {
                               
                               {/* Additional action buttons */}
                               {message.role === 'assistant' && message.action_buttons && message.action_buttons.length > 0 && (
-                                <div className="flex flex-wrap gap-1">
+                                <div className="flex flex-wrap gap-2">
                                   {message.action_buttons.map((btn, idx) => (
                                     <button
                                       key={idx}
                                       onClick={() => handleNavigate(btn.route)}
-                                      className="inline-flex items-center px-2 py-1 rounded-full bg-gray-100 text-gray-700 text-xs hover:bg-gray-200 transition-colors"
+                                      className="inline-flex items-center px-3 py-2 rounded-lg bg-gray-100 text-gray-700 text-sm hover:bg-gray-200 transition-colors"
                                     >
                                       {btn.label}
                                     </button>
@@ -456,6 +458,10 @@ export function ScoutSidePanel() {
                                 </div>
                               )}
                             </div>
+                            {/* User avatar placeholder (empty space for alignment) */}
+                            {message.role === 'user' && (
+                              <div className="w-8 h-8 flex-shrink-0" />
+                            )}
                           </div>
                         </div>
                       ))}
@@ -464,17 +470,21 @@ export function ScoutSidePanel() {
                       {isLoading && (
                         <div className="flex justify-start">
                           <div className="flex gap-2">
-                            <div className="w-7 h-7 rounded-full bg-[#FFF7EA] flex-shrink-0 flex items-center justify-center">
-                              <img 
-                                src="/scout-mascot.png" 
-                                alt="Scout" 
-                                className="w-5 h-5 object-contain"
+                            <div className="w-8 h-8 rounded-full bg-[#FFF7EA] flex-shrink-0 flex items-center justify-center overflow-hidden">
+                              <video 
+                                src={ScoutWavingWhite}
+                                autoPlay
+                                loop
+                                muted
+                                playsInline
+                                className="w-full h-full object-cover"
+                                style={{ transform: 'scale(1.05)' }}
                               />
                             </div>
-                            <div className="bg-gray-100 rounded-2xl px-3 py-2">
+                            <div className="bg-gray-100 rounded-lg px-3 py-2">
                               <div className="flex items-center gap-2 text-gray-600">
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                                <span className="text-xs">Thinking...</span>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <span className="text-sm">Scout is thinking...</span>
                               </div>
                             </div>
                           </div>
@@ -489,7 +499,7 @@ export function ScoutSidePanel() {
               </div>
               
               {/* Input area */}
-              <div className="border-t border-gray-100 bg-white px-4 py-3 flex-shrink-0">
+              <div className="border-t border-gray-200 bg-white px-6 py-4 flex-shrink-0">
                 <div className="flex gap-2">
                   <input
                     ref={inputRef}
@@ -498,13 +508,13 @@ export function ScoutSidePanel() {
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder="Ask me anything..."
-                    className="flex-1 px-3 py-2 rounded-xl border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="flex-1 px-4 py-2.5 rounded-lg border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     disabled={isLoading}
                   />
                   <Button
                     onClick={() => sendMessage()}
                     disabled={!input.trim() || isLoading}
-                    className="px-3 py-2 rounded-xl h-auto"
+                    className="px-4 py-2.5 rounded-lg h-auto"
                     style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
                   >
                     {isLoading ? (
@@ -516,7 +526,7 @@ export function ScoutSidePanel() {
                 </div>
                 
                 {/* Footer hint */}
-                <p className="text-[10px] text-gray-400 text-center mt-2">
+                <p className="text-xs text-gray-400 text-center mt-3">
                   No credits used • Press Esc to close
                 </p>
               </div>
