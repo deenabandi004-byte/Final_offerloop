@@ -872,3 +872,176 @@ body {
   border: 1px solid #FECACA;
   margin: 0;
 }
+
+/* ============================================
+   JOB TAB URL-FIRST STYLES
+   ============================================ */
+
+/* Job Status Message */
+.job-status {
+  padding: 12px 16px;
+  background: #F0F9FF;
+  border-bottom: 1px solid #E0F2FE;
+}
+
+.job-status .status-text {
+  font-size: 13px;
+  color: #0369A1;
+  margin: 0;
+}
+
+/* Manual Form Notice */
+.manual-form .form-notice {
+  font-size: 13px;
+  color: #DC2626;
+  margin: 0 0 12px 0;
+  padding: 8px 12px;
+  background: #FEF2F2;
+  border-radius: 6px;
+  border: 1px solid #FECACA;
+}
+
+/* Hidden class for Job tab elements */
+.job-results.hidden,
+.cover-letter-results.hidden,
+.interview-prep-results.hidden,
+.job-loading.hidden,
+.job-error.hidden,
+.manual-form.hidden,
+.job-status.hidden {
+  display: none !important;
+}
+
+/* Cover Letter Results */
+.cover-letter-results {
+  padding: 16px;
+}
+
+.cover-letter-results .result-card {
+  background: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.cover-letter-results .result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #BBF7D0;
+}
+
+.cover-letter-results .result-name {
+  font-weight: 600;
+  color: #059669;
+  font-size: 15px;
+}
+
+.cover-letter-results .result-details {
+  font-size: 14px;
+  color: #374151;
+  margin-bottom: 12px;
+}
+
+.cover-letter-results .result-links {
+  font-size: 13px;
+}
+
+.cover-letter-results .result-links p {
+  margin: 6px 0;
+  color: #4B5563;
+}
+
+.cover-letter-results .result-links a {
+  color: #3B82F6;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.cover-letter-results .result-links a:hover {
+  text-decoration: underline;
+}
+
+/* Job Results */
+.job-results {
+  padding: 16px;
+}
+
+.job-results .result-card {
+  background: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.job-results .result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #BBF7D0;
+}
+
+.job-results .result-name {
+  font-weight: 600;
+  color: #059669;
+  font-size: 15px;
+}
+
+.job-results .result-details {
+  font-size: 14px;
+  color: #374151;
+  margin-bottom: 12px;
+}
+
+.job-results .result-links {
+  font-size: 13px;
+}
+
+.job-results .result-links p {
+  margin: 6px 0;
+  color: #4B5563;
+}
+
+.job-results .result-links a {
+  color: #3B82F6;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.job-results .result-links a:hover {
+  text-decoration: underline;
+}
+
+/* Job Loading */
+.job-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 16px;
+}
+
+.job-loading p {
+  font-size: 14px;
+  color: #6B7280;
+  text-align: center;
+  margin-top: 12px;
+}
+
+/* Job Error */
+.job-error {
+  padding: 16px;
+}
+
+.job-error .error-message {
+  color: #DC2626;
+  font-size: 14px;
+  padding: 12px;
+  background: #FEF2F2;
+  border-radius: 8px;
+  border: 1px solid #FECACA;
+  margin: 0;
+}

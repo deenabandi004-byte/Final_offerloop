@@ -521,6 +521,57 @@ function scrapeJobData() {
   };
 }
 
+// Scrape just the job description (for Cover Letter)
+function scrapeJobDescription() {
+  // Platform-specific selectors for job descriptions
+  const selectors = [
+    // LinkedIn
+    '.jobs-description__content',
+    '.jobs-box__html-content',
+    '.jobs-description-content__text',
+    '#job-details',
+    // Greenhouse
+    '#content',
+    '.content-intro',
+    // Lever
+    '.posting-page .content',
+    '.section-wrapper',
+    // Indeed
+    '#jobDescriptionText',
+    '.jobsearch-jobDescriptionText',
+    // Handshake
+    '[data-testid="description"]',
+    '.job-description',
+    // Generic selectors
+    '[class*="job-description"]',
+    '[class*="jobDescription"]',
+    '[class*="description-content"]',
+    '[id*="description"]',
+    'article',
+    '.content'
+  ];
+  
+  for (const selector of selectors) {
+    try {
+      const el = document.querySelector(selector);
+      if (el && el.textContent?.trim().length > 100) {
+        console.log('[Offerloop] Found job description using selector:', selector);
+        return el.textContent.trim();
+      }
+    } catch (e) {
+      continue;
+    }
+  }
+  
+  // Fallback: try to get main content
+  const main = document.querySelector('main');
+  if (main && main.textContent?.trim().length > 200) {
+    return main.textContent.trim();
+  }
+  
+  return null;
+}
+
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // Handle LinkedIn profile URL request
@@ -529,6 +580,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       isProfilePage: isLinkedInProfilePage(),
       linkedInUrl: isLinkedInProfilePage() ? getLinkedInProfileUrl() : null
     });
+    return true;
+  }
+  
+  // Handle job description scraping (for Cover Letter)
+  if (request.action === 'scrapeJobDescription') {
+    const description = scrapeJobDescription();
+    console.log('[Offerloop] Scraped job description length:', description?.length || 0);
+    sendResponse({ description });
     return true;
   }
   

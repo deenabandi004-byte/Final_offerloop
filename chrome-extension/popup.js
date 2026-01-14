@@ -72,125 +72,107 @@ function initTabSwitcher() {
 }
 
 // ============================================
-// JOB TAB FUNCTIONALITY
+// JOB TAB FUNCTIONALITY (URL-FIRST APPROACH)
 // ============================================
 
-let currentJobData = null;
+let currentJobUrl = null;
+let manualInputRequired = false;
+let interviewPrepPollInterval = null;
 
 // Initialize Job Tab when switched to
 async function initJobTab() {
   console.log('[Offerloop Popup] Initializing Job tab...');
   
+  // Reset state
+  hideAllJobResults();
+  hideJobError();
+  hideManualForm();
+  hideJobLoading();
+  
+  // Get current tab URL
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  currentJobUrl = tab.url;
   
   // Update URL display
   const urlTextEl = document.getElementById('job-url-text');
   if (urlTextEl) {
-    urlTextEl.textContent = truncateUrl(tab.url);
+    urlTextEl.textContent = truncateUrl(currentJobUrl);
   }
   
-  // Reset UI state
-  hideJobResults();
-  hideJobError();
-  hideJobLoading();
-  hideInterviewPrepResults();
-  hideInterviewPrepError();
-  hideInterviewPrepLoading();
-  
-  // Request job data from content script
-  try {
-    const response = await chrome.tabs.sendMessage(tab.id, { action: 'scrapeJob' });
-    console.log('[Offerloop Popup] Scraped job data:', response);
-    handleScrapedData(response);
-  } catch (error) {
-    // Content script not loaded or error - show manual form
-    console.log('[Offerloop Popup] Scraping failed:', error);
-    currentJobData = { jobUrl: tab.url };
-    showManualForm();
-  }
-}
-
-function handleScrapedData(data) {
-  currentJobData = data;
-  
-  if (data && data.scrapedSuccessfully) {
-    // Show scraped info
-    const scrapedInfo = document.getElementById('scraped-info');
-    const manualForm = document.getElementById('manual-form');
-    
-    if (scrapedInfo) scrapedInfo.style.display = 'block';
-    if (manualForm) manualForm.style.display = 'none';
-    
-    const titleEl = document.getElementById('scraped-job-title');
-    const companyEl = document.getElementById('scraped-company');
-    const locationEl = document.getElementById('scraped-location');
-    
-    if (titleEl) titleEl.textContent = data.jobTitle;
-    if (companyEl) companyEl.textContent = data.company;
-    
-    if (locationEl) {
-      if (data.location) {
-        locationEl.textContent = data.location;
-        locationEl.style.display = 'block';
-      } else {
-        locationEl.style.display = 'none';
-      }
-    }
-    
-    // Enable buttons
+  // Check if we're on a supported job board
+  if (isJobUrl(currentJobUrl)) {
+    showJobStatus('Job URL detected. Click a button to proceed.');
     enableJobButtons();
+    manualInputRequired = false;
   } else {
-    // Show manual form
+    showJobStatus('Not on a recognized job page. Please enter details manually.');
     showManualForm();
+    manualInputRequired = true;
+    updateJobButtonState();
   }
 }
 
-function showManualForm() {
-  const scrapedInfo = document.getElementById('scraped-info');
-  const manualForm = document.getElementById('manual-form');
+function isJobUrl(url) {
+  if (!url) return false;
   
-  if (scrapedInfo) scrapedInfo.style.display = 'none';
-  if (manualForm) manualForm.style.display = 'block';
+  const jobPatterns = [
+    /linkedin\.com\/jobs\//,
+    /boards\.greenhouse\.io\//,
+    /jobs\.lever\.co\//,
+    /\.myworkdayjobs\.com\//,
+    /indeed\.com\/(viewjob|jobs)/,
+    /handshake\.com\/.*jobs/,
+    /joinhandshake\.com\/.*jobs/,
+    /app\.joinhandshake\.com\/.*jobs/,
+    /glassdoor\.com\/job-listing/,
+    /ziprecruiter\.com\/jobs/,
+    /wellfound\.com\/jobs/,
+    /\/careers\//,
+    /\/jobs\//
+  ];
   
-  // Pre-fill with any partial data we got
-  if (currentJobData) {
+  return jobPatterns.some(pattern => pattern.test(url));
+}
+
+// ============================================
+// JOB TAB UI HELPERS
+// ============================================
+
+function showJobStatus(message) {
+  const statusEl = document.getElementById('job-status');
+  const textEl = document.getElementById('job-status-text');
+  if (textEl) textEl.textContent = message;
+  if (statusEl) statusEl.classList.remove('hidden');
+}
+
+function hideJobStatus() {
+  const statusEl = document.getElementById('job-status');
+  if (statusEl) statusEl.classList.add('hidden');
+}
+
+function showManualForm(partialData = null) {
+  const form = document.getElementById('manual-form');
+  if (form) form.classList.remove('hidden');
+  manualInputRequired = true;
+  
+  // Pre-fill with any partial data
+  if (partialData) {
     const companyInput = document.getElementById('manual-company');
     const titleInput = document.getElementById('manual-job-title');
     const descInput = document.getElementById('manual-description');
     
-    if (companyInput && currentJobData.company) {
-      companyInput.value = currentJobData.company;
-    }
-    if (titleInput && currentJobData.jobTitle) {
-      titleInput.value = currentJobData.jobTitle;
-    }
-    if (descInput && currentJobData.description) {
-      descInput.value = currentJobData.description;
-    }
+    if (companyInput && partialData.company) companyInput.value = partialData.company;
+    if (titleInput && partialData.jobTitle) titleInput.value = partialData.jobTitle;
+    if (descInput && partialData.description) descInput.value = partialData.description;
   }
   
-  // Update button state based on form
   updateJobButtonState();
 }
 
-function getJobData() {
-  // If we have scraped data, use it
-  if (currentJobData && currentJobData.scrapedSuccessfully) {
-    return currentJobData;
-  }
-  
-  // Otherwise get from manual form
-  const companyInput = document.getElementById('manual-company');
-  const titleInput = document.getElementById('manual-job-title');
-  const descInput = document.getElementById('manual-description');
-  
-  return {
-    company: companyInput?.value.trim() || '',
-    jobTitle: titleInput?.value.trim() || '',
-    description: descInput?.value.trim() || '',
-    jobUrl: currentJobData?.jobUrl || '',
-    platform: 'manual'
-  };
+function hideManualForm() {
+  const form = document.getElementById('manual-form');
+  if (form) form.classList.add('hidden');
+  manualInputRequired = false;
 }
 
 function enableJobButtons() {
@@ -204,21 +186,76 @@ function enableJobButtons() {
 }
 
 function updateJobButtonState() {
-  const companyInput = document.getElementById('manual-company');
-  const titleInput = document.getElementById('manual-job-title');
-  
-  const company = companyInput?.value.trim() || '';
-  const jobTitle = titleInput?.value.trim() || '';
-  
-  const isValid = company.length > 0 && jobTitle.length > 0;
+  const company = document.getElementById('manual-company')?.value.trim() || '';
+  const jobTitle = document.getElementById('manual-job-title')?.value.trim() || '';
+  const description = document.getElementById('manual-description')?.value.trim() || '';
   
   const findBtn = document.getElementById('find-recruiters-btn');
   const coverBtn = document.getElementById('cover-letter-btn');
   const interviewBtn = document.getElementById('interview-prep-btn');
   
-  if (findBtn) findBtn.disabled = !isValid;
-  if (coverBtn) coverBtn.disabled = !isValid;
-  if (interviewBtn) interviewBtn.disabled = !isValid;
+  // Find Recruiters needs company
+  if (findBtn) findBtn.disabled = !company;
+  
+  // Cover Letter needs description
+  if (coverBtn) coverBtn.disabled = !description;
+  
+  // Interview Prep needs company + title
+  if (interviewBtn) interviewBtn.disabled = !(company && jobTitle);
+}
+
+function getManualInputData() {
+  return {
+    company: document.getElementById('manual-company')?.value.trim() || '',
+    jobTitle: document.getElementById('manual-job-title')?.value.trim() || '',
+    jobDescription: document.getElementById('manual-description')?.value.trim() || '',
+    jobUrl: currentJobUrl
+  };
+}
+
+function showJobLoading(message) {
+  const loading = document.getElementById('job-loading');
+  const text = document.getElementById('job-loading-text');
+  if (text) text.textContent = message || 'Processing...';
+  if (loading) loading.classList.remove('hidden');
+}
+
+function hideJobLoading() {
+  const loading = document.getElementById('job-loading');
+  if (loading) loading.classList.add('hidden');
+}
+
+function showJobError(message) {
+  const errorDiv = document.getElementById('job-error');
+  const errorMsg = document.getElementById('job-error-message');
+  if (errorMsg) errorMsg.textContent = message;
+  if (errorDiv) errorDiv.classList.remove('hidden');
+}
+
+function hideJobError() {
+  const errorDiv = document.getElementById('job-error');
+  if (errorDiv) errorDiv.classList.add('hidden');
+}
+
+function showJobResults(result) {
+  const resultsDiv = document.getElementById('job-results');
+  const detailsDiv = document.getElementById('job-result-details');
+  
+  if (detailsDiv) {
+    if (result.recruiters && result.recruiters.length > 0) {
+      detailsDiv.textContent = `Found ${result.recruiters.length} recruiter${result.recruiters.length > 1 ? 's' : ''}`;
+    } else {
+      detailsDiv.textContent = 'Contact saved to your library';
+    }
+  }
+  
+  if (resultsDiv) resultsDiv.classList.remove('hidden');
+}
+
+function hideAllJobResults() {
+  document.getElementById('job-results')?.classList.add('hidden');
+  document.getElementById('cover-letter-results')?.classList.add('hidden');
+  document.getElementById('interview-prep-results')?.classList.add('hidden');
 }
 
 function truncateUrl(url) {
@@ -235,59 +272,70 @@ function truncateUrl(url) {
 }
 
 // ============================================
-// FIND & EMAIL RECRUITERS
+// FIND & EMAIL RECRUITERS (URL-FIRST)
 // ============================================
 
 async function handleFindRecruiters() {
   const btn = document.getElementById('find-recruiters-btn');
-  const jobData = getJobData();
   
-  // Validate
-  if (!jobData.company || !jobData.jobTitle) {
-    showJobError('Please enter company and job title');
+  // Get auth token
+  const authData = await chrome.storage.local.get(['authToken']);
+  if (!authData.authToken) {
+    showJobError('Please sign in to use this feature');
     return;
   }
   
-  // Show loading
-  if (btn) {
-    btn.classList.add('loading');
-    btn.disabled = true;
+  // Build request body
+  let requestBody = {};
+  
+  if (manualInputRequired) {
+    // Use manual input
+    const data = getManualInputData();
+    if (!data.company) {
+      showJobError('Company name is required');
+      return;
+    }
+    requestBody = {
+      company: data.company,
+      jobTitle: data.jobTitle || undefined,
+      jobDescription: data.jobDescription || undefined,
+      jobUrl: data.jobUrl || undefined
+    };
+  } else {
+    // Use URL - backend will parse
+    requestBody = {
+      jobUrl: currentJobUrl
+    };
   }
+  
+  // Show loading
+  btn.classList.add('loading');
+  btn.disabled = true;
   hideJobError();
-  hideJobResults();
+  hideAllJobResults();
   showJobLoading('Finding recruiters...');
   
   try {
-    // Get auth token
-    const authData = await chrome.storage.local.get(['authToken', 'userEmail']);
-    
-    if (!authData.authToken) {
-      showJobError('Please sign in to use this feature');
-      return;
-    }
-    
-    // Call backend API
-    const response = await fetch('https://final-offerloop.onrender.com/api/extension/find-recruiters', {
+    const response = await fetch(`${API_BASE_URL}/api/job-board/find-recruiter`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${authData.authToken}`
       },
-      body: JSON.stringify({
-        company: jobData.company,
-        jobTitle: jobData.jobTitle,
-        jobDescription: jobData.description || '',
-        jobUrl: jobData.jobUrl
-      })
+      body: JSON.stringify(requestBody)
     });
     
     const result = await response.json();
     
-    if (response.ok && result.success) {
+    if (response.ok && (result.success || result.recruiters)) {
       showJobResults(result);
       if (result.creditsRemaining !== undefined) {
         updateCredits(result.creditsRemaining);
       }
+    } else if (result.needsManualInput || result.error?.includes('extract') || result.error?.includes('company')) {
+      // Backend couldn't parse URL - show manual form
+      showJobError('Could not extract job details from URL. Please enter manually.');
+      showManualForm(result.partialData);
     } else {
       showJobError(result.error || 'Failed to find recruiters. Please try again.');
     }
@@ -296,108 +344,275 @@ async function handleFindRecruiters() {
     showJobError('Something went wrong. Please try again.');
   } finally {
     hideJobLoading();
-    if (btn) {
-      btn.classList.remove('loading');
-      btn.disabled = false;
-    }
+    btn.classList.remove('loading');
+    btn.disabled = false;
   }
 }
 
-function showJobResults(result) {
-  const resultsDiv = document.getElementById('job-results');
-  const detailsDiv = document.getElementById('job-result-details');
-  
-  // Update result details
-  if (detailsDiv) {
-    if (result.recruiters && result.recruiters.length > 0) {
-      detailsDiv.textContent = `Found ${result.recruiters.length} recruiter${result.recruiters.length > 1 ? 's' : ''} at ${currentJobData?.company || 'this company'}`;
-    } else {
-      detailsDiv.textContent = 'Contact saved to your library';
-    }
-  }
-  
-  if (resultsDiv) resultsDiv.style.display = 'block';
-}
-
-function hideJobResults() {
-  const resultsDiv = document.getElementById('job-results');
-  if (resultsDiv) resultsDiv.style.display = 'none';
-}
-
-function showJobLoading(message) {
-  const loadingDiv = document.getElementById('job-loading');
-  const loadingText = document.getElementById('job-loading-text');
-  
-  if (loadingText) loadingText.textContent = message || 'Loading...';
-  if (loadingDiv) loadingDiv.style.display = 'flex';
-}
-
-function hideJobLoading() {
-  const loadingDiv = document.getElementById('job-loading');
-  if (loadingDiv) loadingDiv.style.display = 'none';
-}
-
-function showJobError(message) {
-  const errorDiv = document.getElementById('job-error');
-  const errorMsg = document.getElementById('job-error-message');
-  
-  if (errorMsg) errorMsg.textContent = message;
-  if (errorDiv) errorDiv.style.display = 'block';
-}
-
-function hideJobError() {
-  const errorDiv = document.getElementById('job-error');
-  if (errorDiv) errorDiv.style.display = 'none';
-}
-
 // ============================================
-// GENERATE COVER LETTER
+// GENERATE COVER LETTER (URL-FIRST + DOWNLOAD)
 // ============================================
 
-function handleGenerateCoverLetter() {
-  const jobData = getJobData();
+async function handleGenerateCoverLetter() {
+  const btn = document.getElementById('cover-letter-btn');
   
-  // Validate
-  if (!jobData.company || !jobData.jobTitle) {
-    showJobError('Please enter company and job title');
+  // Get auth token
+  const authData = await chrome.storage.local.get(['authToken']);
+  if (!authData.authToken) {
+    showJobError('Please sign in to use this feature');
     return;
   }
   
-  // Build URL with parameters
-  const params = new URLSearchParams({
-    company: jobData.company,
-    title: jobData.jobTitle
+  // Build request body
+  let requestBody = {
+    jobUrl: currentJobUrl
+  };
+  let company = '';
+  let jobTitle = '';
+  
+  if (manualInputRequired) {
+    // Use manual input - job description is required
+    const data = getManualInputData();
+    if (!data.jobDescription) {
+      showJobError('Job description is required for cover letter generation');
+      return;
+    }
+    requestBody = {
+      jobDescription: data.jobDescription,
+      company: data.company || undefined,
+      jobTitle: data.jobTitle || undefined,
+      jobUrl: data.jobUrl || undefined
+    };
+    company = data.company || '';
+    jobTitle = data.jobTitle || '';
+  } else {
+    // Try to scrape job description from the page
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const response = await chrome.tabs.sendMessage(tab.id, { action: 'scrapeJobDescription' });
+      
+      if (response && response.description && response.description.length > 100) {
+        requestBody = {
+          jobDescription: response.description,
+          jobUrl: currentJobUrl
+        };
+      } else {
+        // No description scraped - need manual input
+        showJobError('Could not extract job description. Please paste it manually.');
+        showManualForm();
+        return;
+      }
+    } catch (e) {
+      console.error('[Offerloop Popup] Scraping failed:', e);
+      // Scraping failed - need manual input
+      showJobError('Could not extract job description. Please paste it manually.');
+      showManualForm();
+      return;
+    }
+  }
+  
+  // Show loading
+  btn.classList.add('loading');
+  btn.disabled = true;
+  hideJobError();
+  hideAllJobResults();
+  showJobLoading('Generating cover letter...');
+  
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/job-board/generate-cover-letter`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authData.authToken}`
+      },
+      body: JSON.stringify(requestBody)
+    });
+    
+    const result = await response.json();
+    console.log('[Offerloop Popup] Cover letter API response:', result);
+    console.log('[Offerloop Popup] coverLetter type:', typeof result.coverLetter);
+    
+    if (response.ok && result.coverLetter) {
+      // Success - download the cover letter as a text file
+      hideJobLoading();
+      showCoverLetterResults(result, company, jobTitle);
+      downloadCoverLetterAsText(result.coverLetter, company, jobTitle);
+      
+      if (result.creditsRemaining !== undefined) {
+        updateCredits(result.creditsRemaining);
+      }
+    } else if (response.ok && result.pdfUrl) {
+      // If backend returns PDF URL (future support)
+      hideJobLoading();
+      showCoverLetterResults(result, company, jobTitle);
+      triggerCoverLetterDownload(result.pdfUrl, company, jobTitle);
+      
+      if (result.creditsRemaining !== undefined) {
+        updateCredits(result.creditsRemaining);
+      }
+    } else if (result.error?.includes('description') || result.error?.includes('required')) {
+      // Need job description
+      showJobError('Please paste the job description below');
+      showManualForm();
+    } else {
+      showJobError(result.error || 'Failed to generate cover letter. Please try again.');
+    }
+  } catch (error) {
+    console.error('[Offerloop Popup] Cover letter error:', error);
+    showJobError('Something went wrong. Please try again.');
+  } finally {
+    hideJobLoading();
+    btn.classList.remove('loading');
+    btn.disabled = false;
+  }
+}
+
+function showCoverLetterResults(data, company, jobTitle) {
+  const resultsDiv = document.getElementById('cover-letter-results');
+  const detailsDiv = document.getElementById('cover-letter-details');
+  const downloadLink = document.getElementById('cover-letter-download-link');
+  
+  // Extract company/title from various possible locations
+  let companyName = company || data.company || data.companyName;
+  let title = jobTitle || data.jobTitle || data.job_title || data.title;
+  
+  // Also check inside coverLetter object if it exists
+  if (data.coverLetter && typeof data.coverLetter === 'object') {
+    companyName = companyName || data.coverLetter.company || data.coverLetter.companyName;
+    title = title || data.coverLetter.jobTitle || data.coverLetter.job_title;
+  }
+  
+  if (detailsDiv) {
+    detailsDiv.textContent = `Cover letter for ${title || 'Position'} at ${companyName || 'Company'}`;
+  }
+  
+  // Store cover letter data for re-download
+  if (downloadLink && data.coverLetter) {
+    downloadLink.onclick = (e) => {
+      e.preventDefault();
+      downloadCoverLetterAsText(data.coverLetter, companyName, title);
+    };
+  } else if (downloadLink && data.pdfUrl) {
+    downloadLink.href = data.pdfUrl;
+    downloadLink.onclick = null;
+  }
+  
+  if (resultsDiv) resultsDiv.classList.remove('hidden');
+}
+
+function hideCoverLetterResults() {
+  const resultsDiv = document.getElementById('cover-letter-results');
+  if (resultsDiv) resultsDiv.classList.add('hidden');
+}
+
+function downloadCoverLetterAsText(coverLetterData, company, jobTitle) {
+  // Handle different response formats
+  let text = '';
+  
+  if (typeof coverLetterData === 'string') {
+    // Already a string
+    text = coverLetterData;
+  } else if (typeof coverLetterData === 'object' && coverLetterData !== null) {
+    // It's an object - extract the text content
+    // Try common field names
+    text = coverLetterData.content 
+        || coverLetterData.text 
+        || coverLetterData.letter 
+        || coverLetterData.body
+        || coverLetterData.coverLetter
+        || coverLetterData.cover_letter
+        || coverLetterData.message
+        || '';
+    
+    // If still empty, try to find any long string value in the object
+    if (!text) {
+      for (const key of Object.keys(coverLetterData)) {
+        if (typeof coverLetterData[key] === 'string' && coverLetterData[key].length > 100) {
+          text = coverLetterData[key];
+          console.log('[Offerloop Popup] Found cover letter text in field:', key);
+          break;
+        }
+      }
+    }
+    
+    // Last resort - JSON stringify (but this shouldn't happen)
+    if (!text) {
+      console.error('[Offerloop Popup] Could not extract cover letter text from:', coverLetterData);
+      text = JSON.stringify(coverLetterData, null, 2);
+    }
+    
+    // Also extract company/title from response if not provided
+    if (!company) {
+      company = coverLetterData.company || coverLetterData.companyName || 'unknown';
+    }
+    if (!jobTitle) {
+      jobTitle = coverLetterData.jobTitle || coverLetterData.job_title || coverLetterData.title || 'unknown';
+    }
+  }
+  
+  if (!text) {
+    console.error('[Offerloop Popup] No cover letter text found');
+    showJobError('Cover letter generated but could not extract text');
+    return;
+  }
+  
+  console.log('[Offerloop Popup] Downloading cover letter, text length:', text.length);
+  
+  const sanitize = (str) => (str || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const filename = `cover-letter-${sanitize(company)}-${sanitize(jobTitle)}.txt`;
+  
+  // Create blob and download
+  const blob = new Blob([text], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  
+  chrome.downloads.download({
+    url: url,
+    filename: filename,
+    saveAs: false
+  }, (downloadId) => {
+    if (chrome.runtime.lastError) {
+      console.error('[Offerloop Popup] Cover letter download error:', chrome.runtime.lastError);
+      // Fallback: copy to clipboard
+      navigator.clipboard.writeText(text).then(() => {
+        showJobError('Download failed, but cover letter copied to clipboard!');
+      }).catch(() => {
+        // Last resort: open in new tab
+        const dataUrl = 'data:text/plain;charset=utf-8,' + encodeURIComponent(text);
+        chrome.tabs.create({ url: dataUrl });
+      });
+    } else {
+      console.log('[Offerloop Popup] Cover letter downloaded:', filename);
+    }
+    // Revoke the blob URL after a delay
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
+}
+
+function triggerCoverLetterDownload(pdfUrl, company, jobTitle) {
+  // For future PDF support
+  const sanitize = (str) => (str || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const filename = `cover-letter-${sanitize(company)}-${sanitize(jobTitle)}.pdf`;
   
-  if (jobData.description) {
-    params.append('description', jobData.description.substring(0, 2000)); // Limit length
-  }
-  
-  if (jobData.jobUrl) {
-    params.append('url', jobData.jobUrl);
-  }
-  
-  const coverLetterUrl = `https://www.offerloop.ai/cover-letter?${params.toString()}`;
-  
-  // Open in new tab
-  chrome.tabs.create({ url: coverLetterUrl });
+  chrome.downloads.download({
+    url: pdfUrl,
+    filename: filename,
+    saveAs: false
+  }, (downloadId) => {
+    if (chrome.runtime.lastError) {
+      console.error('[Offerloop Popup] Cover letter PDF download error:', chrome.runtime.lastError);
+      chrome.tabs.create({ url: pdfUrl });
+    } else {
+      console.log('[Offerloop Popup] Cover letter PDF download started:', downloadId);
+    }
+  });
 }
 
 // ============================================
-// INTERVIEW PREP WORKFLOW
+// INTERVIEW PREP WORKFLOW (URL-FIRST)
 // ============================================
-
-let interviewPrepPollInterval = null;
 
 async function handleInterviewPrep() {
   const btn = document.getElementById('interview-prep-btn');
-  const jobData = getJobData();
-  
-  // Validate - need at least company and job title
-  if (!jobData.company || !jobData.jobTitle) {
-    showInterviewPrepError('Please enter company and job title');
-    return;
-  }
   
   // Get auth token
   const authData = await chrome.storage.local.get(['authToken']);
@@ -406,41 +621,37 @@ async function handleInterviewPrep() {
     return;
   }
   
+  // Build request body
+  let requestBody = {};
+  
+  if (manualInputRequired) {
+    // Use manual input
+    const data = getManualInputData();
+    if (!data.company || !data.jobTitle) {
+      showInterviewPrepError('Company name and job title are required');
+      return;
+    }
+    requestBody = {
+      company_name: data.company,
+      job_title: data.jobTitle
+    };
+  } else {
+    // Use URL - backend will parse
+    requestBody = {
+      job_posting_url: currentJobUrl
+    };
+  }
+  
   // Show loading state
   btn.classList.add('loading');
   btn.disabled = true;
-  hideInterviewPrepResults();
   hideInterviewPrepError();
-  showInterviewPrepLoading('Starting Interview Prep...');
+  hideAllJobResults();
+  showJobLoading('Starting Interview Prep...');
   
   try {
-    // Build request body
-    // If we have a job URL from a supported platform, use URL mode
-    // Otherwise use manual mode with company + job title
-    let requestBody = {};
-    
-    const supportedJobUrlPatterns = [
-      /linkedin\.com\/jobs/,
-      /indeed\.com/,
-      /greenhouse\.io/,
-      /lever\.co/,
-      /myworkdayjobs\.com/
-    ];
-    
-    const hasJobUrl = jobData.jobUrl && supportedJobUrlPatterns.some(p => p.test(jobData.jobUrl));
-    
-    if (hasJobUrl) {
-      requestBody = { job_posting_url: jobData.jobUrl };
-    } else {
-      requestBody = {
-        company_name: jobData.company,
-        job_title: jobData.jobTitle
-      };
-    }
-    
     console.log('[Offerloop Popup] Starting Interview Prep with:', requestBody);
     
-    // Step 1: Start the prep
     const startResponse = await fetch(`${API_BASE_URL}/api/interview-prep/generate`, {
       method: 'POST',
       headers: {
@@ -450,35 +661,36 @@ async function handleInterviewPrep() {
       body: JSON.stringify(requestBody)
     });
     
-    if (!startResponse.ok) {
-      const errorData = await startResponse.json().catch(() => ({}));
-      throw new Error(errorData.error || 'Failed to start Interview Prep');
-    }
-    
     const responseData = await startResponse.json();
-    const prepId = responseData.id;
     
-    console.log('[Offerloop Popup] Interview Prep started with ID:', prepId);
-    
-    if (!prepId) {
-      throw new Error('No prep ID returned from server');
+    if (startResponse.ok && responseData.id) {
+      // Start polling for completion
+      pollInterviewPrepStatus(responseData.id, authData.authToken, btn);
+    } else if (responseData.needsManualInput || responseData.error?.includes('extract') || responseData.error?.includes('parse')) {
+      // Backend couldn't parse URL - show manual form
+      hideJobLoading();
+      showInterviewPrepError('Could not extract job details from URL. Please enter manually.');
+      showManualForm(responseData.partialData);
+      btn.classList.remove('loading');
+      btn.disabled = false;
+    } else {
+      hideJobLoading();
+      showInterviewPrepError(responseData.error || 'Failed to start Interview Prep. Please try again.');
+      btn.classList.remove('loading');
+      btn.disabled = false;
     }
-    
-    // Step 2: Poll for completion
-    pollInterviewPrepStatus(prepId, authData.authToken, btn, jobData);
-    
   } catch (error) {
     console.error('[Offerloop Popup] Interview Prep error:', error);
+    hideJobLoading();
     showInterviewPrepError(error.message || 'Something went wrong. Please try again.');
-    hideInterviewPrepLoading();
     btn.classList.remove('loading');
     btn.disabled = false;
   }
 }
 
-function pollInterviewPrepStatus(prepId, authToken, btn, jobData) {
+function pollInterviewPrepStatus(prepId, authToken, btn) {
   let attempts = 0;
-  const maxAttempts = 90; // 3 minutes max (90 * 2 seconds) - Interview Prep may take longer due to Reddit scraping
+  const maxAttempts = 90; // 3 minutes max
   
   // Clear any existing poll
   if (interviewPrepPollInterval) {
@@ -489,11 +701,11 @@ function pollInterviewPrepStatus(prepId, authToken, btn, jobData) {
     'processing': 'Initializing...',
     'parsing_job_posting': 'Parsing job posting...',
     'extracting_requirements': 'Extracting requirements...',
-    'scraping_reddit': 'Scraping Reddit for insights...',
-    'processing_content': 'Processing interview insights...',
+    'scraping_reddit': 'Searching Reddit for insights...',
+    'processing_content': 'Processing interview data...',
     'generating_pdf': 'Generating PDF...',
-    'completed': 'Interview Prep ready!',
-    'failed': 'Generation failed'
+    'completed': 'Done!',
+    'failed': 'Failed'
   };
   
   interviewPrepPollInterval = setInterval(async () => {
@@ -502,8 +714,8 @@ function pollInterviewPrepStatus(prepId, authToken, btn, jobData) {
     if (attempts > maxAttempts) {
       clearInterval(interviewPrepPollInterval);
       interviewPrepPollInterval = null;
-      hideInterviewPrepLoading();
-      showInterviewPrepError('Prep is taking longer than expected. Check the Interview Library for results.');
+      hideJobLoading();
+      showInterviewPrepError('Taking longer than expected. Check Interview Library for results.');
       btn.classList.remove('loading');
       btn.disabled = false;
       return;
@@ -511,31 +723,29 @@ function pollInterviewPrepStatus(prepId, authToken, btn, jobData) {
     
     try {
       const statusResponse = await fetch(`${API_BASE_URL}/api/interview-prep/status/${prepId}`, {
-        headers: {
-          'Authorization': `Bearer ${authToken}`
-        }
+        headers: { 'Authorization': `Bearer ${authToken}` }
       });
       
-      if (!statusResponse.ok) {
-        throw new Error('Failed to check status');
-      }
-      
       const statusData = await statusResponse.json();
-      console.log('[Offerloop Popup] Interview Prep poll status:', statusData.status);
+      console.log('[Offerloop Popup] Interview Prep status:', statusData.status);
       
-      // Update loading message based on status
-      const loadingMessage = statusMessages[statusData.status] || statusData.progress || 'Processing...';
-      updateInterviewPrepLoadingText(loadingMessage);
+      // Update loading message
+      const loadingText = document.getElementById('job-loading-text');
+      if (loadingText) {
+        loadingText.textContent = statusMessages[statusData.status] || statusData.progress || 'Processing...';
+      }
       
       if (statusData.status === 'completed' && statusData.pdfUrl) {
         // Success!
         clearInterval(interviewPrepPollInterval);
         interviewPrepPollInterval = null;
-        
-        hideInterviewPrepLoading();
-        showInterviewPrepResults(statusData, jobData);
-        triggerInterviewPrepPdfDownload(statusData.pdfUrl, jobData.company, jobData.jobTitle);
-        
+        hideJobLoading();
+        showInterviewPrepResults(statusData);
+        triggerInterviewPrepPdfDownload(
+          statusData.pdfUrl, 
+          statusData.jobDetails?.company_name, 
+          statusData.jobDetails?.job_title
+        );
         btn.classList.remove('loading');
         btn.disabled = false;
         
@@ -545,7 +755,7 @@ function pollInterviewPrepStatus(prepId, authToken, btn, jobData) {
             action: 'getCredits',
             authToken: authToken,
           });
-          if (creditsResponse.credits !== undefined) {
+          if (creditsResponse?.credits !== undefined) {
             updateCredits(creditsResponse.credits);
           }
         } catch (e) {
@@ -553,78 +763,60 @@ function pollInterviewPrepStatus(prepId, authToken, btn, jobData) {
         }
         
       } else if (statusData.status === 'failed') {
-        // Failed
         clearInterval(interviewPrepPollInterval);
         interviewPrepPollInterval = null;
-        
-        hideInterviewPrepLoading();
+        hideJobLoading();
         showInterviewPrepError(statusData.error || 'Interview Prep failed. Please try again.');
+        btn.classList.remove('loading');
+        btn.disabled = false;
         
+      } else if (statusData.status === 'parsing_failed' || statusData.needsManualInput) {
+        // URL parsing failed - need manual input
+        clearInterval(interviewPrepPollInterval);
+        interviewPrepPollInterval = null;
+        hideJobLoading();
+        showInterviewPrepError('Could not parse job URL. Please enter details manually.');
+        showManualForm(statusData.partialData);
         btn.classList.remove('loading');
         btn.disabled = false;
       }
-      // If still "processing", "scraping_reddit", or "generating_pdf", continue polling
-      
     } catch (error) {
-      console.error('[Offerloop Popup] Interview Prep polling error:', error);
-      // Don't stop polling on transient errors, just log
+      console.error('[Offerloop Popup] Polling error:', error);
+      // Don't stop polling on transient errors
     }
-  }, 2000); // Poll every 2 seconds
+  }, 2000);
 }
 
-function showInterviewPrepLoading(message) {
-  const loadingDiv = document.getElementById('interview-prep-loading');
-  const loadingText = document.getElementById('interview-prep-loading-text');
-  
-  if (loadingText) loadingText.textContent = message || 'Generating Interview Prep...';
-  if (loadingDiv) loadingDiv.style.display = 'flex';
-}
-
-function hideInterviewPrepLoading() {
-  const loadingDiv = document.getElementById('interview-prep-loading');
-  if (loadingDiv) loadingDiv.style.display = 'none';
-}
-
-function updateInterviewPrepLoadingText(message) {
-  const loadingText = document.getElementById('interview-prep-loading-text');
-  if (loadingText) loadingText.textContent = message;
-}
-
-function showInterviewPrepResults(data, jobData) {
+function showInterviewPrepResults(data) {
   const resultsDiv = document.getElementById('interview-prep-results');
   const detailsDiv = document.getElementById('interview-prep-details');
   const downloadLink = document.getElementById('interview-prep-download-link');
   
   // Show job details
-  const company = data.jobDetails?.company_name || jobData?.company || 'Company';
-  const title = data.jobDetails?.job_title || jobData?.jobTitle || 'Position';
-  detailsDiv.textContent = `${title} at ${company}`;
-  detailsDiv.style.display = 'block';
+  const company = data.jobDetails?.company_name || 'Company';
+  const title = data.jobDetails?.job_title || 'Position';
+  if (detailsDiv) {
+    detailsDiv.textContent = `${title} at ${company}`;
+  }
   
   // Set download link
   if (data.pdfUrl && downloadLink) {
     downloadLink.href = data.pdfUrl;
   }
   
-  if (resultsDiv) resultsDiv.style.display = 'block';
-}
-
-function hideInterviewPrepResults() {
-  const resultsDiv = document.getElementById('interview-prep-results');
-  if (resultsDiv) resultsDiv.style.display = 'none';
+  if (resultsDiv) resultsDiv.classList.remove('hidden');
 }
 
 function showInterviewPrepError(message) {
-  const errorDiv = document.getElementById('interview-prep-error');
-  const errorMsg = document.getElementById('interview-prep-error-message');
+  const errorDiv = document.getElementById('job-error');
+  const errorMsg = document.getElementById('job-error-message');
   
   if (errorMsg) errorMsg.textContent = message;
-  if (errorDiv) errorDiv.style.display = 'block';
+  if (errorDiv) errorDiv.classList.remove('hidden');
 }
 
 function hideInterviewPrepError() {
-  const errorDiv = document.getElementById('interview-prep-error');
-  if (errorDiv) errorDiv.style.display = 'none';
+  hideJobError();
 }
 
 function triggerInterviewPrepPdfDownload(pdfUrl, company, jobTitle) {
@@ -663,34 +855,26 @@ function triggerInterviewPrepPdfDownload(pdfUrl, company, jobTitle) {
 
 function initJobTabListeners() {
   // Find & Email Recruiters button
-  const findBtn = document.getElementById('find-recruiters-btn');
-  if (findBtn) {
-    findBtn.addEventListener('click', handleFindRecruiters);
-  }
+  document.getElementById('find-recruiters-btn')?.addEventListener('click', handleFindRecruiters);
   
   // Generate Cover Letter button
-  const coverBtn = document.getElementById('cover-letter-btn');
-  if (coverBtn) {
-    coverBtn.addEventListener('click', handleGenerateCoverLetter);
-  }
+  document.getElementById('cover-letter-btn')?.addEventListener('click', handleGenerateCoverLetter);
   
   // Interview Prep button
-  const interviewBtn = document.getElementById('interview-prep-btn');
-  if (interviewBtn) {
-    interviewBtn.addEventListener('click', handleInterviewPrep);
-  }
+  document.getElementById('interview-prep-btn')?.addEventListener('click', handleInterviewPrep);
   
   // Manual form input listeners
-  const companyInput = document.getElementById('manual-company');
-  const titleInput = document.getElementById('manual-job-title');
-  
-  if (companyInput) {
-    companyInput.addEventListener('input', updateJobButtonState);
-  }
-  if (titleInput) {
-    titleInput.addEventListener('input', updateJobButtonState);
-  }
+  document.getElementById('manual-company')?.addEventListener('input', updateJobButtonState);
+  document.getElementById('manual-job-title')?.addEventListener('input', updateJobButtonState);
+  document.getElementById('manual-description')?.addEventListener('input', updateJobButtonState);
 }
+
+// Clean up on popup close
+window.addEventListener('unload', () => {
+  if (interviewPrepPollInterval) {
+    clearInterval(interviewPrepPollInterval);
+  }
+});
 
 // Initialize Firebase
 let firebaseApp = null;

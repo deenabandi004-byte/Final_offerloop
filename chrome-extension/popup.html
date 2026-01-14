@@ -163,80 +163,55 @@
           <span class="url-text" id="job-url-text">Loading...</span>
         </div>
 
-        <!-- Scraped Data Display (shown when scraping succeeds) -->
-        <div class="scraped-info" id="scraped-info" style="display: none;">
-          <div class="scraped-title" id="scraped-job-title">Software Engineer</div>
-          <div class="scraped-company">at <span id="scraped-company">Google</span></div>
-          <div class="scraped-location" id="scraped-location"></div>
+        <!-- Status Message -->
+        <div class="job-status" id="job-status">
+          <p class="status-text" id="job-status-text">Detecting job page...</p>
         </div>
 
-        <!-- Manual Input Form (shown when scraping fails) -->
-        <div class="manual-form" id="manual-form" style="display: none;">
+        <!-- Manual Input Form (hidden by default, shown when URL parsing fails) -->
+        <div class="manual-form hidden" id="manual-form">
+          <p class="form-notice">Could not extract job details. Please enter manually:</p>
           <div class="form-group">
             <label for="manual-company">Company *</label>
-            <input type="text" id="manual-company" placeholder="e.g. Google" required>
+            <input type="text" id="manual-company" placeholder="e.g. Google">
           </div>
           <div class="form-group">
             <label for="manual-job-title">Job Title *</label>
-            <input type="text" id="manual-job-title" placeholder="e.g. Software Engineer" required>
+            <input type="text" id="manual-job-title" placeholder="e.g. Software Engineer">
           </div>
           <div class="form-group">
-            <label for="manual-description">Job Description (optional)</label>
+            <label for="manual-description">Job Description (required for Cover Letter)</label>
             <textarea id="manual-description" rows="4" placeholder="Paste job description here..."></textarea>
           </div>
         </div>
 
         <!-- Action Buttons -->
         <div class="job-actions">
-          <button class="btn btn-primary btn-full" id="find-recruiters-btn" disabled>
+          <button class="btn btn-primary btn-full" id="find-recruiters-btn">
             Find & Email Recruiters
           </button>
-          <button class="btn btn-outline btn-full" id="cover-letter-btn" disabled>
+          <button class="btn btn-outline btn-full" id="cover-letter-btn">
             <span>📝</span> Generate Cover Letter
           </button>
-          <button class="btn btn-outline btn-full" id="interview-prep-btn" disabled>
+          <button class="btn btn-outline btn-full" id="interview-prep-btn">
             <span>🎯</span> Interview Prep
           </button>
         </div>
 
-        <!-- Interview Prep Loading State -->
-        <div id="interview-prep-loading" class="interview-prep-loading" style="display: none;">
+        <!-- Loading State -->
+        <div class="job-loading hidden" id="job-loading">
           <div class="spinner"></div>
-          <p id="interview-prep-loading-text">Generating Interview Prep...</p>
+          <p id="job-loading-text">Processing...</p>
         </div>
 
-        <!-- Interview Prep Results (shown after completion) -->
-        <div class="interview-prep-results" id="interview-prep-results" style="display: none;">
+        <!-- Results Section (Find Recruiters) -->
+        <div class="job-results hidden" id="job-results">
           <div class="result-card">
             <div class="result-header">
-              <span class="result-name">🎯 Interview Prep Ready</span>
-              <span class="status-badge">Done</span>
-            </div>
-            <div class="result-contact" id="interview-prep-details">
-              <!-- Job details populated by JS -->
-            </div>
-            <div class="result-links">
-              <p><a href="#" id="interview-prep-download-link" target="_blank">📥 Download PDF</a></p>
-              <p>See all preps in <a href="https://www.offerloop.ai/interview-prep" target="_blank">Interview Library</a></p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Interview Prep Error -->
-        <div class="interview-prep-error" id="interview-prep-error" style="display: none;">
-          <p class="error-message" id="interview-prep-error-message"></p>
-        </div>
-
-        <!-- Results Display (shown after success) -->
-        <div class="job-results" id="job-results" style="display: none;">
-          <div class="result-card">
-            <div class="result-header">
-              <span class="result-name" id="job-result-title">✓ Found recruiters</span>
+              <span class="result-name">✓ Recruiters Found</span>
               <span class="status-badge">Success</span>
             </div>
-            <div class="result-details" id="job-result-details">
-              <!-- Populated by JS -->
-            </div>
+            <div class="result-details" id="job-result-details"></div>
             <div class="result-links">
               <p>See contacts in <a href="https://www.offerloop.ai/contact-library" target="_blank">Contact Library</a></p>
               <p><a href="https://mail.google.com/mail/u/0/#drafts" target="_blank">Open Email Drafts</a></p>
@@ -244,14 +219,38 @@
           </div>
         </div>
 
-        <!-- Loading State -->
-        <div class="job-loading" id="job-loading" style="display: none;">
-          <div class="spinner"></div>
-          <p id="job-loading-text">Finding recruiters...</p>
+        <!-- Cover Letter Results -->
+        <div class="cover-letter-results hidden" id="cover-letter-results">
+          <div class="result-card">
+            <div class="result-header">
+              <span class="result-name">📝 Cover Letter Ready</span>
+              <span class="status-badge">Done</span>
+            </div>
+            <div class="result-details" id="cover-letter-details"></div>
+            <div class="result-links">
+              <p><a href="#" id="cover-letter-download-link">📥 Download Cover Letter</a></p>
+              <p>See all cover letters in <a href="https://www.offerloop.ai/cover-letters" target="_blank">Cover Letter Library</a></p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Interview Prep Results -->
+        <div class="interview-prep-results hidden" id="interview-prep-results">
+          <div class="result-card">
+            <div class="result-header">
+              <span class="result-name">🎯 Interview Prep Ready</span>
+              <span class="status-badge">Done</span>
+            </div>
+            <div class="result-details" id="interview-prep-details"></div>
+            <div class="result-links">
+              <p><a href="#" id="interview-prep-download-link" target="_blank">📥 Download PDF</a></p>
+              <p>See all preps in <a href="https://www.offerloop.ai/interview-prep" target="_blank">Interview Library</a></p>
+            </div>
+          </div>
         </div>
 
         <!-- Error Display -->
-        <div class="job-error" id="job-error" style="display: none;">
+        <div class="job-error hidden" id="job-error">
           <p class="error-message" id="job-error-message"></p>
         </div>
       </div>
