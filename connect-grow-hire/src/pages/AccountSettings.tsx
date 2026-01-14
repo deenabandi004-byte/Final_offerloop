@@ -380,7 +380,53 @@ export default function AccountSettings() {
     try {
       const userRef = doc(db, 'users', user.uid);
       
-      // Prepare update payload - only update the fields we're editing
+      // PHASE 5: Use backend endpoint for preference updates (handles intent change detection and cache invalidation)
+      const API_URL = window.location.hostname === 'localhost'
+        ? 'http://localhost:5001'
+        : 'https://www.offerloop.ai';
+      
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+      
+      // Prepare updates for backend endpoint (only job-relevant fields)
+      const preferenceUpdates: any = {
+        location: {
+          preferredLocation: careerInfo.preferredLocations,
+          jobTypes: careerInfo.jobTypes,
+          interests: careerInfo.industriesOfInterest,
+        },
+        academics: {
+          graduationYear: academicInfo.graduationYear,
+          graduationMonth: academicInfo.graduationMonth,
+          degree: academicInfo.currentDegree,
+          university: personalInfo.university,
+        },
+      };
+      
+      // Call backend endpoint for preference updates (handles intent detection and cache invalidation)
+      let intentChanged = false;
+      try {
+        const invalidationResponse = await fetch(`${API_URL}/api/users/update-preferences`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({ updates: preferenceUpdates })
+        });
+        
+        if (invalidationResponse.ok) {
+          const invalidationResult = await invalidationResponse.json();
+          intentChanged = invalidationResult.intentChanged || false;
+          if (intentChanged) {
+            console.log('✅ Intent changed - job board cache invalidated');
+          }
+        }
+      } catch (invalidationError) {
+        console.warn('Failed to call preference update endpoint (non-critical):', invalidationError);
+        // Continue with direct Firestore update as fallback
+      }
+      
+      // Also update Firestore directly for other fields and backwards compatibility
       const updates: any = {
         // Personal info
         firstName: personalInfo.firstName,
@@ -389,7 +435,7 @@ export default function AccountSettings() {
         university: personalInfo.university,
         phone: personalInfo.phone,
         
-        // Academic info
+        // Academic info (also save top-level for backwards compatibility)
         graduationMonth: academicInfo.graduationMonth,
         graduationYear: academicInfo.graduationYear,
         fieldOfStudy: academicInfo.fieldOfStudy,
@@ -397,16 +443,40 @@ export default function AccountSettings() {
         currentDegree: academicInfo.currentDegree,
         degree: academicInfo.currentDegree, // Also update degree for backward compatibility
         
-        // Career info
+        // Career info (also save top-level for backwards compatibility)
         industriesOfInterest: careerInfo.industriesOfInterest,
         interests: careerInfo.industriesOfInterest, // Also update interests for backward compatibility
         careerInterests: careerInfo.industriesOfInterest, // Also update careerInterests
         preferredJobRole: careerInfo.preferredJobRole,
         preferredJobRolesOrTitles: careerInfo.preferredJobRole, // Also update preferredJobRolesOrTitles
         preferredLocations: careerInfo.preferredLocations,
-        preferredLocation: careerInfo.preferredLocations, // Also update preferredLocation
+        preferredLocation: careerInfo.preferredLocations, // Also update preferredLocation (top-level for backwards compat)
         jobTypes: careerInfo.jobTypes,
         jobTypesInterestedIn: careerInfo.jobTypes, // Also update jobTypesInterestedIn
+      };
+
+      // PHASE 5: Also save to nested location object (correct path for backend)
+      // Read existing location object first to preserve other fields (country, state, city)
+      const userDoc = await getDoc(userRef);
+      const existingData = userDoc.data();
+      const existingLocation = existingData?.location || {};
+      
+      updates.location = {
+        ...existingLocation, // Preserve existing fields
+        preferredLocation: careerInfo.preferredLocations,
+        jobTypes: careerInfo.jobTypes,
+        interests: careerInfo.industriesOfInterest,
+        careerInterests: careerInfo.industriesOfInterest,
+      };
+      
+      // PHASE 5: Also save to nested academics object (correct path for backend)
+      const existingAcademics = existingData?.academics || {};
+      updates.academics = {
+        ...existingAcademics, // Preserve existing fields
+        graduationYear: academicInfo.graduationYear,
+        graduationMonth: academicInfo.graduationMonth,
+        degree: academicInfo.currentDegree,
+        university: personalInfo.university,
       };
 
       // Remove undefined values
@@ -419,10 +489,17 @@ export default function AccountSettings() {
       await updateDoc(userRef, updates);
 
       setSaveSuccess(true);
-      toast({
-        title: "Success",
-        description: "Your profile information has been saved.",
-      });
+      if (intentChanged) {
+        toast({
+          title: "Preferences Updated",
+          description: "Your job recommendations will refresh automatically.",
+        });
+      } else {
+        toast({
+          title: "Success",
+          description: "Your profile information has been saved.",
+        });
+      }
 
       // Clear success message after 3 seconds
       setTimeout(() => setSaveSuccess(false), 3000);

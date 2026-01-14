@@ -121,14 +121,49 @@ def get_cache_key(query: str, location: str, job_type: Optional[str] = None, pag
     return hashlib.md5(cache_string.encode()).hexdigest()
 
 
-def get_cached_jobs(cache_key: str) -> Optional[List[Dict[str, Any]]]:
+def get_cached_jobs(cache_key: str, user_id: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
     """
-    Retrieve cached job results from Firestore if not expired.
+    PHASE 5: Retrieve cached job results from Firestore if not expired.
+    Now checks for cache invalidation markers for the user.
     """
     try:
         db = get_db()
         if not db:
             return None
+        
+        # PHASE 5: Check for cache invalidation for this user
+        if user_id:
+            invalidation_ref = db.collection("job_cache_invalidations").document(user_id)
+            invalidation_doc = invalidation_ref.get()
+            if invalidation_doc.exists:
+                invalidation_data = invalidation_doc.to_dict()
+                invalidated_at = invalidation_data.get("invalidated_at")
+                
+                if invalidated_at:
+                    # Check if cache was created before invalidation
+                    cache_ref = db.collection("job_cache").document(cache_key)
+                    cache_doc = cache_ref.get()
+                    
+                    if cache_doc.exists:
+                        cache_data = cache_doc.to_dict()
+                        cached_at = cache_data.get("cached_at")
+                        
+                        if cached_at:
+                            # Convert timestamps for comparison
+                            if hasattr(invalidated_at, 'timestamp'):
+                                invalidation_time = datetime.fromtimestamp(invalidated_at.timestamp(), tz=timezone.utc).replace(tzinfo=None)
+                            else:
+                                invalidation_time = invalidated_at
+                            
+                            if hasattr(cached_at, 'timestamp'):
+                                cache_time = datetime.fromtimestamp(cached_at.timestamp(), tz=timezone.utc).replace(tzinfo=None)
+                            else:
+                                cache_time = cached_at
+                            
+                            # If cache is older than invalidation, reject it
+                            if cache_time < invalidation_time:
+                                print(f"[JobBoard][INVALIDATE] user={user_id[:8] if user_id else 'unknown'}... cache_key={cache_key[:8]}... invalidated (cache_time={cache_time}, invalidation_time={invalidation_time})")
+                                return None
             
         cache_ref = db.collection("job_cache").document(cache_key)
         cache_doc = cache_ref.get()
@@ -304,6 +339,7 @@ def fetch_jobs_from_serpapi(
     num_results: int = 20,
     use_cache: bool = True,
     page_token: Optional[str] = None,  # Can be next_page_token string or "start=10" format
+    user_id: Optional[str] = None,  # PHASE 5: For cache invalidation checking
 ) -> tuple[List[Dict[str, Any]], Optional[str]]:
     """
     Fetch job listings from SerpAPI Google Jobs with Firestore caching.
@@ -323,7 +359,8 @@ def fetch_jobs_from_serpapi(
     # Check cache first (but only for single-page requests to avoid stale pagination)
     if use_cache and page_token is None:  # Only cache first page to avoid pagination issues
         cache_key = get_cache_key(query, location, job_type, page_token)
-        cached_data = get_cached_jobs(cache_key)
+        # PHASE 5: Pass user_id for cache invalidation checking
+        cached_data = get_cached_jobs(cache_key, user_id=user_id)
         if cached_data is not None:
             # Cache stores tuple of (jobs, next_token) or legacy list format
             if isinstance(cached_data, tuple) and len(cached_data) == 2:
@@ -786,17 +823,25 @@ def get_user_career_profile(uid: str) -> dict:
         # Use helper function to extract profile from both old and new formats
         profile = extract_user_profile_from_resume(user_data)
         professional_info = user_data.get("professionalInfo", {})
+        academics_data = user_data.get("academics", {})
         
         # Extract minor (only from professionalInfo, not in resumeParsed)
         minor = professional_info.get("minor") or None
         
-        # Extract graduation year
+        # Extract graduation year - PHASE 1 FIX: Handle "May 2026" format
         graduation_year = None
-        year_str = profile.get('graduation') or professional_info.get("graduationYear")
+        year_str = profile.get('graduation') or professional_info.get("graduationYear") or academics_data.get("graduationYear")
         if year_str:
             try:
-                graduation_year = int(str(year_str).strip()[:4])  # Take first 4 digits
-            except (ValueError, TypeError):
+                year_str_clean = str(year_str).strip()
+                # Try to extract 4-digit year (handles "2026", "May 2026", "2026-05", etc.)
+                year_match = re.search(r'\b(19|20)\d{2}\b', year_str_clean)
+                if year_match:
+                    graduation_year = int(year_match.group())
+                else:
+                    # Fallback: try first 4 digits
+                    graduation_year = int(year_str_clean[:4])
+            except (ValueError, TypeError, AttributeError):
                 pass
         
         # Extract GPA
@@ -814,17 +859,72 @@ def get_user_career_profile(uid: str) -> dict:
         if not isinstance(target_industries, list):
             target_industries = []
         
-        # Extract job types
-        job_types = user_data.get("jobTypes", [])
+        # Extract job types - PHASE 1 FIX: Read from location.jobTypes (where onboarding saves it)
+        # Fallback to top-level jobTypes for backwards compatibility
+        location_data = user_data.get("location", {})
+        job_types = location_data.get("jobTypes", [])
+        if not job_types:
+            job_types = user_data.get("jobTypes", [])
         if not isinstance(job_types, list):
             job_types = []
         
-        # Extract interests (from professionalInfo or user_data, not resumeParsed)
-        interests = professional_info.get("interests", [])
+        # Extract interests/careerInterests - PHASE 1 FIX: Read from location.interests or location.careerInterests
+        # Fallback to professionalInfo.interests or top-level interests for backwards compatibility
+        interests = location_data.get("interests", [])
+        if not interests:
+            interests = location_data.get("careerInterests", [])
+        if not interests:
+            interests = professional_info.get("interests", [])
         if not interests:
             interests = user_data.get("interests", [])
+        if not interests:
+            interests = user_data.get("careerInterests", [])
         if not isinstance(interests, list):
             interests = []
+        
+        # Extract preferredLocation - PHASE 1 FIX: Read from location.preferredLocation (currently never read)
+        # PHASE 5: Also check top-level preferredLocation/preferredLocations for backwards compatibility
+        preferred_location = location_data.get("preferredLocation", [])
+        if not preferred_location:
+            # Fallback to top-level fields (frontend may save here)
+            preferred_location = user_data.get("preferredLocation", [])
+        if not preferred_location:
+            preferred_location = user_data.get("preferredLocations", [])
+        if not isinstance(preferred_location, list):
+            preferred_location = []
+        
+        # Extract graduationMonth - PHASE 1 FIX: Read from academics.graduationMonth (currently never read)
+        graduation_month = academics_data.get("graduationMonth") or professional_info.get("graduationMonth")
+        
+        # Extract degree - PHASE 1 FIX: Read from academics.degree (currently never read)
+        degree = academics_data.get("degree") or professional_info.get("degree")
+        
+        # Extract university - PHASE 1 FIX: Ensure we read from academics.university
+        university = academics_data.get("university") or professional_info.get("university") or profile.get("university", "")
+        
+        # Check if resume is present - PHASE 1 FIX: Boolean flag for resume presence
+        resume_present = bool(user_data.get("resumeParsed")) or bool(user_data.get("resumeUrl"))
+        
+        # PHASE 1: Log raw intent extraction for observability
+        print(f"[Intent] Raw profile extracted for user {uid[:8]}...: "
+              f"preferredLocation={len(preferred_location) if preferred_location else 0} locations, "
+              f"careerInterests={len(interests)} interests, "
+              f"jobTypes={len(job_types)} types, "
+              f"graduationYear={graduation_year}, "
+              f"graduationMonth={graduation_month}, "
+              f"degree={degree}, "
+              f"university={university[:30] if university else 'None'}, "
+              f"resume_present={resume_present}")
+        
+        # Log warnings for missing critical fields
+        if not preferred_location:
+            print(f"[Intent][WARN] Missing preferredLocation for user {uid[:8]}..., using default behavior")
+        if not interests:
+            print(f"[Intent][WARN] Missing careerInterests for user {uid[:8]}..., will fallback to major-based inference")
+        if not job_types:
+            print(f"[Intent][WARN] Missing jobTypes for user {uid[:8]}..., will use default based on graduation year")
+        if not graduation_year:
+            print(f"[Intent][WARN] Missing graduationYear for user {uid[:8]}..., will assume current year + 1")
         
         # Convert experience list to expected format
         experiences = []
@@ -844,9 +944,14 @@ def get_user_career_profile(uid: str) -> dict:
             "experiences": experiences,  # Already limited to top 10
             "interests": interests[:10],  # Limit to top 10
             "graduation_year": graduation_year,
+            "graduation_month": graduation_month,  # PHASE 1: Added
+            "degree": degree,  # PHASE 1: Added
+            "university": university,  # PHASE 1: Added (was in profile but not in result)
             "gpa": gpa,
             "target_industries": target_industries,
-            "job_types": job_types
+            "job_types": job_types,
+            "preferred_location": preferred_location,  # PHASE 1: Added (critical - was never read)
+            "resume_present": resume_present  # PHASE 1: Added
         }
         
         # Cache the result
@@ -859,6 +964,273 @@ def get_user_career_profile(uid: str) -> dict:
         import traceback
         traceback.print_exc()
         return {}
+
+
+def normalize_intent(user_profile: dict) -> dict:
+    """
+    PHASE 1: Convert raw user profile data into a clean intent contract.
+    
+    Normalizes and returns:
+    - career_domains: Canonical list derived from careerInterests
+    - preferred_locations: Normalized city variants
+    - job_types: Normalized casing and synonyms
+    - graduation_timing: Computed graduation year, months until graduation, career phase
+    - education_context: Degree, university
+    - resume_present: Boolean flag
+    
+    Args:
+        user_profile: Raw user profile from get_user_career_profile()
+        
+    Returns:
+        Normalized intent contract dict with all fields safely defaulted
+    """
+    from datetime import datetime
+    
+    # Extract raw fields with safe defaults
+    career_interests = user_profile.get("interests", []) or []
+    preferred_location = user_profile.get("preferred_location", []) or []
+    job_types = user_profile.get("job_types", []) or []
+    graduation_year = user_profile.get("graduation_year")
+    graduation_month = user_profile.get("graduation_month")
+    degree = user_profile.get("degree")
+    university = user_profile.get("university", "")
+    resume_present = user_profile.get("resume_present", False)
+    
+    # === NORMALIZE CAREER DOMAINS ===
+    # Map career interests to canonical domain categories
+    career_domains = []
+    domain_mapping = {
+        # Finance domain
+        "investment banking": "finance_banking",
+        "private equity": "finance_banking",
+        "hedge funds": "finance_banking",
+        "asset management": "finance_banking",
+        "wealth management": "finance_banking",
+        "finance": "finance_banking",
+        "banking": "finance_banking",
+        "trading": "finance_banking",
+        "equity research": "finance_banking",
+        "fintech": "finance_banking",  # Adjacent domain
+        
+        # Technology domain
+        "software engineering": "technology",
+        "software development": "technology",
+        "software engineer": "technology",
+        "data science": "technology",
+        "data scientist": "technology",
+        "machine learning": "technology",
+        "artificial intelligence": "technology",
+        "cybersecurity": "technology",
+        "product management": "technology",
+        "technology": "technology",
+        "tech": "technology",
+        
+        # Consulting domain
+        "management consulting": "consulting",
+        "strategy consulting": "consulting",
+        "consulting": "consulting",
+        "advisory": "consulting",
+        
+        # Other domains (add as needed)
+        "marketing": "marketing",
+        "sales": "sales",
+        "operations": "operations",
+        "healthcare": "healthcare",
+        "education": "education",
+    }
+    
+    for interest in career_interests:
+        if not interest:
+            continue
+        interest_lower = str(interest).lower().strip()
+        # Direct match
+        if interest_lower in domain_mapping:
+            domain = domain_mapping[interest_lower]
+            if domain not in career_domains:
+                career_domains.append(domain)
+        else:
+            # Partial match (e.g., "Investment Banking Analyst" contains "investment banking")
+            for key, domain in domain_mapping.items():
+                if key in interest_lower:
+                    if domain not in career_domains:
+                        career_domains.append(domain)
+                    break
+    
+    # If no career interests, infer from major
+    if not career_domains:
+        major = user_profile.get("major", "").lower()
+        if any(kw in major for kw in ["finance", "economics", "accounting", "business"]):
+            career_domains = ["finance_banking"]
+        elif any(kw in major for kw in ["computer", "software", "data", "information", "cs"]):
+            career_domains = ["technology"]
+        elif any(kw in major for kw in ["consulting", "strategy", "management"]):
+            career_domains = ["consulting"]
+        else:
+            career_domains = []  # Unknown domain
+    
+    # === NORMALIZE PREFERRED LOCATIONS ===
+    # Normalize common city variants to "City, State" format
+    normalized_locations = []
+    location_normalizations = {
+        "new york": "New York, NY",
+        "nyc": "New York, NY",
+        "manhattan": "New York, NY",
+        "brooklyn": "New York, NY",
+        "queens": "New York, NY",
+        "san francisco": "San Francisco, CA",
+        "sf": "San Francisco, CA",
+        "los angeles": "Los Angeles, CA",
+        "la": "Los Angeles, CA",
+        "chicago": "Chicago, IL",
+        "boston": "Boston, MA",
+        "seattle": "Seattle, WA",
+        "austin": "Austin, TX",
+        "washington": "Washington, DC",
+        "dc": "Washington, DC",
+        "remote": "Remote",  # Special case - keep as-is
+    }
+    
+    for loc in preferred_location:
+        if not loc:
+            continue
+        loc_str = str(loc).strip()
+        loc_lower = loc_str.lower()
+        
+        # Check if already in normalized format (contains comma and state)
+        if "," in loc_str and len(loc_str.split(",")) == 2:
+            normalized_locations.append(loc_str)
+        elif loc_lower in location_normalizations:
+            normalized_locations.append(location_normalizations[loc_lower])
+        else:
+            # Try partial match
+            normalized = None
+            for key, normalized_loc in location_normalizations.items():
+                if key in loc_lower or loc_lower in key:
+                    normalized = normalized_loc
+                    break
+            if normalized:
+                normalized_locations.append(normalized)
+            else:
+                # Keep original if can't normalize (user may have entered custom location)
+                normalized_locations.append(loc_str)
+    
+    # Deduplicate
+    normalized_locations = list(dict.fromkeys(normalized_locations))
+    
+    # === NORMALIZE JOB TYPES ===
+    # Normalize casing and synonyms
+    normalized_job_types = []
+    job_type_mapping = {
+        "internship": "internship",
+        "intern": "internship",
+        "summer analyst": "internship",
+        "co-op": "internship",
+        "coop": "internship",
+        "full-time": "full-time",
+        "fulltime": "full-time",
+        "full time": "full-time",
+        "entry level": "full-time",
+        "new grad": "full-time",
+        "part-time": "part-time",
+        "parttime": "part-time",
+        "part time": "part-time",
+    }
+    
+    for jt in job_types:
+        if not jt:
+            continue
+        jt_lower = str(jt).lower().strip()
+        normalized = job_type_mapping.get(jt_lower, jt_lower)
+        if normalized not in normalized_job_types:
+            normalized_job_types.append(normalized)
+    
+    # === COMPUTE GRADUATION TIMING ===
+    current_year = datetime.now().year
+    current_month = datetime.now().month
+    
+    graduation_year_int = None
+    if graduation_year:
+        try:
+            graduation_year_int = int(str(graduation_year).strip()[:4])
+        except (ValueError, TypeError):
+            pass
+    
+    # Compute months until graduation
+    months_until_graduation = None
+    if graduation_year_int and graduation_month:
+        # Map month name to number
+        month_map = {
+            "january": 1, "february": 2, "march": 3, "april": 4,
+            "may": 5, "june": 6, "july": 7, "august": 8,
+            "september": 9, "october": 10, "november": 11, "december": 12
+        }
+        month_str = str(graduation_month).lower().strip()
+        graduation_month_num = month_map.get(month_str, 5)  # Default to May
+        
+        # Calculate months until graduation
+        graduation_date = datetime(graduation_year_int, graduation_month_num, 1)
+        current_date = datetime(current_year, current_month, 1)
+        if graduation_date > current_date:
+            months_until_graduation = (graduation_year_int - current_year) * 12 + (graduation_month_num - current_month)
+        else:
+            months_until_graduation = 0  # Already graduated
+    elif graduation_year_int:
+        # No month specified, assume May (standard graduation)
+        graduation_date = datetime(graduation_year_int, 5, 1)
+        current_date = datetime(current_year, current_month, 1)
+        if graduation_date > current_date:
+            months_until_graduation = (graduation_year_int - current_year) * 12 + (5 - current_month)
+        else:
+            months_until_graduation = 0
+    
+    # Determine career phase
+    career_phase = "unknown"
+    if months_until_graduation is not None:
+        if months_until_graduation > 12:
+            career_phase = "internship"  # More than 1 year until graduation
+        elif months_until_graduation > 0:
+            career_phase = "new_grad"  # 0-12 months until graduation
+        else:
+            career_phase = "new_grad"  # Already graduated or graduating soon
+    elif graduation_year_int:
+        years_until_grad = graduation_year_int - current_year
+        if years_until_grad > 1:
+            career_phase = "internship"
+        else:
+            career_phase = "new_grad"
+    else:
+        # No graduation year, default to internship phase (conservative)
+        career_phase = "internship"
+    
+    # === BUILD INTENT CONTRACT ===
+    intent_contract = {
+        "career_domains": career_domains,
+        "preferred_locations": normalized_locations,
+        "job_types": normalized_job_types,
+        "graduation_timing": {
+            "graduation_year": graduation_year_int,
+            "graduation_month": graduation_month,
+            "months_until_graduation": months_until_graduation,
+            "career_phase": career_phase,
+        },
+        "education_context": {
+            "degree": degree,
+            "university": university,
+        },
+        "resume_present": resume_present,
+    }
+    
+    # PHASE 1: Log normalized intent
+    print(f"[Intent] Normalized intent for user: "
+          f"career_domains={career_domains}, "
+          f"preferred_locations={normalized_locations}, "
+          f"job_types={normalized_job_types}, "
+          f"career_phase={career_phase}, "
+          f"graduation_year={graduation_year_int}, "
+          f"months_until_grad={months_until_graduation}, "
+          f"resume_present={resume_present}")
+    
+    return intent_contract
 
 
 # Extracurricular to career signal mapping
@@ -1285,31 +1657,459 @@ for primary, synonyms in SKILL_SYNONYMS.items():
         SKILL_TO_SYNONYMS[term].update(all_terms)
 
 
+# =============================================================================
+# PHASE 3: Domain-Owned Query Templates
+# =============================================================================
+
+# Domain-specific query template registry
+DOMAIN_QUERY_TEMPLATES = {
+    "finance_banking": {
+        "allowed_roles": [
+            "Investment Banking",
+            "Summer Analyst",
+            "Private Equity",
+            "Equity Research",
+            "Asset Management",
+            "Corporate Finance",
+            "Wealth Management",
+            "Trading",
+            "Sales & Trading",
+            "Investment Banking Analyst",
+        ],
+        "allowed_programs": [
+            "Summer Analyst Program",
+            "Investment Banking Internship Program",
+            "Finance Internship Program",
+            "Analyst Program",
+        ],
+        "top_firms": [
+            "Goldman Sachs", "Morgan Stanley", "JP Morgan", "JPMorgan",
+            "Bank of America", "Citi", "Citigroup", "Credit Suisse",
+            "Barclays", "Deutsche Bank", "UBS", "Wells Fargo",
+            "Evercore", "Lazard", "Moelis", "Centerview",
+            "PJT Partners", "Rothschild", "Greenhill", "Houlihan Lokey",
+        ],
+        "forbidden_keywords": [
+            "python", "java", "sql", "software engineer", "SWE", "SDE",
+            "data scientist", "product manager", "product",
+            "analyst intern",  # Too generic without finance qualifier
+            "business intern",  # Too generic
+        ],
+        "requires_finance_keyword": True,  # Every query must include finance-specific role
+    },
+    "technology": {
+        "allowed_roles": [
+            "Software Engineer",
+            "Backend Engineer",
+            "Frontend Engineer",
+            "Full Stack Engineer",
+            "Data Engineer",
+            "Machine Learning Engineer",
+            "Product Manager",
+            "SWE",
+            "SDE",
+        ],
+        "allowed_skills": [
+            "Python", "JavaScript", "Java", "React", "C++", "TypeScript",
+            "Node.js", "AWS", "Docker", "Kubernetes",
+        ],
+        "top_firms": TOP_TECH_COMPANIES[:15],
+        "forbidden_keywords": [
+            "investment banking", "private equity", "consulting",
+            "financial analyst", "equity research",
+        ],
+        "requires_finance_keyword": False,
+    },
+    "consulting": {
+        "allowed_roles": [
+            "Consultant",
+            "Strategy Consultant",
+            "Management Consultant",
+            "Business Analyst",
+            "Associate Consultant",
+        ],
+        "top_firms": TOP_CONSULTING_COMPANIES[:10],
+        "forbidden_keywords": [
+            "software engineer", "developer", "programmer",
+            "investment banking", "private equity",
+        ],
+        "requires_finance_keyword": False,
+    },
+}
+
+
 def build_personalized_queries(user_profile: dict, job_types: List[str]) -> List[dict]:
     """
-    Build multiple targeted search queries based on user's career profile.
+    PHASE 3: Build intent-aligned queries using domain-specific templates.
+    
+    Uses user_profile["_intent_contract"] to generate domain-appropriate queries
+    with location-first narrowing.
     
     Args:
-        user_profile: Comprehensive user career profile
+        user_profile: Comprehensive user career profile (must have _intent_contract)
         job_types: List of job types (e.g., ["Internship", "Full-Time"])
         
     Returns:
         List of query dicts: [{query: str, priority: int, source: str, weight: float}]
     """
     queries = []
-    job_type_str = job_types[0].lower() if job_types else "internship"
+    intent_contract = user_profile.get("_intent_contract", {})
+    
+    # PHASE 3: If no intent contract, fall back to old logic (backwards compatibility)
+    if not intent_contract:
+        print("[QueryGen][WARN] No intent_contract found, using legacy query generation")
+        return _build_legacy_queries(user_profile, job_types)
+    
+    # Extract normalized intent
+    career_domains = intent_contract.get("career_domains", [])
+    preferred_locations = intent_contract.get("preferred_locations", [])
+    normalized_job_types = intent_contract.get("job_types", [])
     
     # Normalize job type for search
+    job_type_str = normalized_job_types[0].lower() if normalized_job_types and len(normalized_job_types) > 0 else (job_types[0].lower() if job_types and len(job_types) > 0 else "internship")
+    if job_type_str == "full-time":
+        job_type_str = "entry level"
+    elif job_type_str == "internship":
+        job_type_str = "internship"
+    
+    # Determine primary domain (use first domain)
+    primary_domain = career_domains[0] if career_domains else None
+    
+    if not primary_domain:
+        print("[QueryGen][WARN] No career_domains in intent_contract, using legacy query generation")
+        return _build_legacy_queries(user_profile, job_types)
+    
+    # Get domain template
+    domain_template = DOMAIN_QUERY_TEMPLATES.get(primary_domain)
+    if not domain_template:
+        print(f"[QueryGen][WARN] No template for domain={primary_domain}, using legacy query generation")
+        return _build_legacy_queries(user_profile, job_types)
+    
+    # PHASE 3: Location-first query narrowing
+    # Build queries with location embedded, not as fallback
+    location_variants = _build_location_variants(preferred_locations)
+    
+    # Query Priority Order (as specified):
+    # 1. Exact role + location
+    # 2. Program-based + location
+    # 3. Firm-based + location
+    # 4. Remote-only (explicit)
+    
+    priority = 1
+    
+    # 1. EXACT ROLE + LOCATION queries (location embedded in query)
+    # PHASE 5 FIX: Generate queries for EACH preferred location, not just first 3 variants
+    if domain_template.get("allowed_roles"):
+        for role in domain_template["allowed_roles"][:5]:  # Top 5 roles
+            # Iterate through each preferred location directly
+            for pref_location in preferred_locations[:3]:  # Top 3 preferred locations
+                if "remote" in pref_location.lower():
+                    query = f"{role} {job_type_str} Remote"
+                    location_param = "Remote"
+                else:
+                    # Use full location format: "City, State"
+                    query = f"{role} {job_type_str} {pref_location}"
+                    location_param = pref_location
+                    
+                    # PHASE 7B: Remove city-only variant (deduplication now handles this)
+                    # City-only variants create duplicate queries that return same jobs
+                    # Since deduplication exists, prefer full location format only
+                
+                queries.append({
+                    "query": query,
+                    "priority": priority,
+                    "source": f"role_{role.replace(' ', '_').lower()}",
+                    "weight": 1.3,  # High weight for exact role matches
+                    "location": location_param  # Store location for SerpAPI param
+                })
+                priority += 1
+    
+    # 2. PROGRAM-BASED + LOCATION queries
+    # PHASE 5 FIX: Generate for each preferred location
+    if domain_template.get("allowed_programs"):
+        for program in domain_template["allowed_programs"][:3]:  # Top 3 programs
+            for pref_location in preferred_locations[:2]:  # Top 2 preferred locations
+                if "remote" in pref_location.lower():
+                    query = f"{program} Remote"
+                    location_param = "Remote"
+                else:
+                    query = f"{program} {pref_location}"
+                    location_param = pref_location
+                queries.append({
+                    "query": query,
+                    "priority": priority,
+                    "source": f"program_{program.replace(' ', '_').lower()}",
+                    "weight": 1.25,  # High weight for program matches
+                    "location": location_param
+                })
+                priority += 1
+    
+    # 3. FIRM-BASED + LOCATION queries
+    # PHASE 5 FIX: Generate for each preferred location
+    if domain_template.get("top_firms"):
+        firms = domain_template["top_firms"][:5]  # Top 5 firms
+        for firm in firms:
+            for pref_location in preferred_locations[:2]:  # Top 2 preferred locations
+                if "remote" in pref_location.lower():
+                    query = f"{firm} {job_type_str} Remote"
+                    location_param = "Remote"
+                else:
+                    query = f"{firm} {job_type_str} {pref_location}"
+                    location_param = pref_location
+                queries.append({
+                    "query": query,
+                    "priority": priority,
+                    "source": f"firm_{firm.replace(' ', '_').lower()}",
+                    "weight": 1.2,  # High weight for top firms
+                    "location": location_param
+                })
+                priority += 1
+    
+    # 4. REMOTE-ONLY queries (explicit)
+    if domain_template.get("allowed_roles"):
+        for role in domain_template["allowed_roles"][:3]:  # Top 3 roles
+            query = f"Remote {role} {job_type_str}"
+            queries.append({
+                "query": query,
+                "priority": priority,
+                "source": "remote_explicit",
+                "weight": 1.15,
+                "location": "United States"  # Remote jobs use US as location param
+            })
+            priority += 1
+    
+    # PHASE 3: Technology domain can use skill-based queries (ONLY for tech domain)
+    if primary_domain == "technology" and domain_template.get("allowed_skills"):
+        skills = user_profile.get("skills", [])
+        if skills:
+            # Use top 3 skills that match allowed_skills
+            matching_skills = [s for s in skills[:5] if any(allowed.lower() in s.lower() or s.lower() in allowed.lower() 
+                                                           for allowed in domain_template["allowed_skills"])]
+            for skill in matching_skills[:3]:  # Top 3 matching skills
+                for location_variant in location_variants[:2]:
+                    if location_variant.lower() == "remote":
+                        query = f"{skill} {job_type_str} Remote"
+                    else:
+                        query = f"{skill} {job_type_str} {location_variant}"
+                    queries.append({
+                        "query": query,
+                        "priority": priority,
+                        "source": f"skill_{skill.lower().replace(' ', '_')}",
+                        "weight": 1.1,
+                        "location": location_variant
+                    })
+                    priority += 1
+    
+    # PHASE 3: Kill generic skill queries for non-technical domains
+    # This is handled by domain templates - only technology domain has allowed_skills
+    
+    # PHASE 7B: Deduplicate queries (remove exact duplicates and near-duplicates)
+    seen_queries_normalized = set()
+    deduplicated_queries = []
+    removed_query_count = 0
+    
+    for q in queries:
+        # Normalize query for comparison (lowercase, strip, remove extra spaces)
+        query_normalized = " ".join(q["query"].lower().strip().split())
+        if query_normalized not in seen_queries_normalized:
+            seen_queries_normalized.add(query_normalized)
+            deduplicated_queries.append(q)
+        else:
+            removed_query_count += 1
+            print(f"[QueryGen][REDUCE] removed_duplicate_query=\"{q['query']}\"")
+    
+    queries = deduplicated_queries
+    
+    # Limit total queries (stop once we have enough)
+    queries = queries[:12]  # Max 12 queries to avoid API overload
+    
+    if removed_query_count > 0:
+        print(f"[QueryGen][REDUCE] removed {removed_query_count} duplicate queries, {len(queries)} remaining")
+    
+    # PHASE 3: Safety check - if no queries generated, try fallback expansion
+    if not queries:
+        print(f"[QueryGen][WARN] No queries generated for domain={primary_domain}, attempting fallback expansion")
+        
+        # Expand firms (safety fallback)
+        if domain_template.get("top_firms") and len(domain_template["top_firms"]) > 5:
+            firms = domain_template["top_firms"][5:10]  # Next 5 firms
+            primary_location = location_variants[0] if location_variants else "United States"
+            for firm in firms[:3]:
+                query = f"{firm} {job_type_str} {primary_location}"
+                queries.append({
+                    "query": query,
+                    "priority": 200,
+                    "source": "fallback_expand_firms",
+                    "weight": 0.9,
+                    "location": primary_location
+                })
+        
+        # Expand program keywords (safety fallback)
+        if not queries and domain_template.get("allowed_programs") and len(domain_template["allowed_programs"]) > 3:
+            programs = domain_template["allowed_programs"][3:6]
+            primary_location = location_variants[0] if location_variants else "United States"
+            for program in programs[:2]:
+                query = f"{program} {primary_location}"
+                queries.append({
+                    "query": query,
+                    "priority": 250,
+                    "source": "fallback_expand_programs",
+                    "weight": 0.85,
+                    "location": primary_location
+                })
+        
+        # Expand geography one level (safety fallback)
+        if not queries and location_variants:
+            # Try state-level if we were using city-level
+            expanded_locations = [loc for loc in location_variants if "," not in loc or loc.split(",")[1].strip()][:2]
+            allowed_roles = domain_template.get("allowed_roles", [])
+            if expanded_locations and allowed_roles and len(allowed_roles) > 0:
+                role = allowed_roles[0]
+                for loc in expanded_locations[:2]:
+                    query = f"{role} {job_type_str} {loc}"
+                    queries.append({
+                        "query": query,
+                        "priority": 300,
+                        "source": "fallback_expand_geography",
+                        "weight": 0.8,
+                        "location": loc
+                    })
+        
+        # Minimal fallback (last resort - but NEVER generic "internship")
+        if not queries:
+            print(f"[QueryGen][WARN] All fallback attempts failed for domain={primary_domain}, using minimal specific fallback")
+            allowed_roles = domain_template.get("allowed_roles", [])
+            fallback_role = allowed_roles[0] if allowed_roles and len(allowed_roles) > 0 else None
+            if not fallback_role:
+                # Even in fallback, use domain-specific role, not generic
+                if primary_domain == "finance_banking":
+                    fallback_role = "Investment Banking"
+                elif primary_domain == "technology":
+                    fallback_role = "Software Engineer"
+                elif primary_domain == "consulting":
+                    fallback_role = "Consultant"
+                else:
+                    fallback_role = job_type_str
+            
+            primary_location = location_variants[0] if location_variants else "United States"
+            query = f"{fallback_role} {job_type_str} {primary_location}"
+            queries.append({
+                "query": query,
+                "priority": 400,
+                "source": "fallback_minimal_specific",
+                "weight": 0.7,
+                "location": primary_location
+            })
+    
+    # PHASE 3: Validate queries don't contain forbidden keywords (safety check)
+    if domain_template.get("forbidden_keywords"):
+        forbidden = domain_template["forbidden_keywords"]
+        validated_queries = []
+        for q in queries:
+            query_lower = q["query"].lower()
+            # Check if query contains any forbidden keywords
+            contains_forbidden = any(forbidden_kw in query_lower for forbidden_kw in forbidden)
+            if contains_forbidden:
+                print(f"[QueryGen][WARN] Query contains forbidden keyword for domain={primary_domain}: {q['query']}, skipping")
+                continue
+            validated_queries.append(q)
+        
+        if len(validated_queries) < len(queries):
+            print(f"[QueryGen][WARN] Filtered out {len(queries) - len(validated_queries)} queries with forbidden keywords")
+            queries = validated_queries
+        
+        # If all queries were filtered, use minimal fallback
+        if not queries:
+            print(f"[QueryGen][ERROR] All queries filtered due to forbidden keywords, using minimal fallback")
+            allowed_roles = domain_template.get("allowed_roles", [])
+            fallback_role = allowed_roles[0] if allowed_roles and len(allowed_roles) > 0 else job_type_str
+            primary_location = location_variants[0] if location_variants else "United States"
+            queries.append({
+                "query": f"{fallback_role} {job_type_str} {primary_location}",
+                "priority": 500,
+                "source": "fallback_after_validation",
+                "weight": 0.6,
+                "location": primary_location
+            })
+    
+    # Log query generation
+    query_strings = [q["query"] for q in queries]
+    print(f"[QueryGen] domain={primary_domain} generated_queries={query_strings[:5]}... (total={len(queries)})")
+    
+    return queries
+
+
+def _build_location_variants(preferred_locations: List[str]) -> List[str]:
+    """
+    PHASE 3: Build location variants for location-first query narrowing.
+    
+    Priority order:
+    1. Preferred city (exact)
+    2. Metro area
+    3. State
+    4. Remote-only (if no locations)
+    
+    NEVER starts at "United States" unless no preferences.
+    """
+    if not preferred_locations:
+        return ["Remote"]  # Explicit remote, not "United States"
+    
+    variants = []
+    
+    for location in preferred_locations[:3]:  # Top 3 preferred locations
+        # Handle "Remote" specially
+        if "remote" in location.lower():
+            variants.append("Remote")
+            continue
+        
+        # Extract components: "City, State" format
+        if "," in location:
+            parts = [p.strip() for p in location.split(",")]
+            city = parts[0]
+            state = parts[1] if len(parts) > 1 else ""
+            
+            # Variant 1: Full "City, State"
+            variants.append(location)
+            
+            # Variant 2: City only (metro area)
+            if city:
+                variants.append(city)
+            
+            # Variant 3: State only (broader geographic)
+            if state:
+                variants.append(state)
+        else:
+            # Just city or state name
+            variants.append(location)
+    
+    # Deduplicate while preserving order
+    seen = set()
+    unique_variants = []
+    for variant in variants:
+        variant_lower = variant.lower()
+        if variant_lower not in seen:
+            seen.add(variant_lower)
+            unique_variants.append(variant)
+    
+    return unique_variants[:5]  # Max 5 variants
+
+
+def _build_legacy_queries(user_profile: dict, job_types: List[str]) -> List[dict]:
+    """
+    Legacy query generation (backwards compatibility when intent_contract missing).
+    This is the old implementation kept for fallback.
+    """
+    queries = []
+    job_type_str = job_types[0].lower() if job_types else "internship"
+    
     if job_type_str == "full-time":
         job_type_str = "entry level"
     
     major = user_profile.get("major", "")
     skills = user_profile.get("skills", [])
-    extracurriculars = user_profile.get("extracurriculars", [])
     interests = user_profile.get("interests", [])
     target_industries = user_profile.get("target_industries", [])
     
-    # Query 1: Major-focused (highest priority)
     if major:
         major_jobs = get_job_keywords_for_major(major)[:4]
         if major_jobs:
@@ -1318,10 +2118,9 @@ def build_personalized_queries(user_profile: dict, job_types: List[str]) -> List
                 "query": major_query,
                 "priority": 1,
                 "source": "major",
-                "weight": 1.2  # Boost jobs from this query
+                "weight": 1.2
             })
     
-    # Query 2: Top skills focused
     if skills and len(skills) >= 2:
         top_skills = skills[:4]
         skills_query = f"{job_type_str} ({' OR '.join(top_skills[:3])})"
@@ -1332,29 +2131,6 @@ def build_personalized_queries(user_profile: dict, job_types: List[str]) -> List
             "weight": 1.1
         })
     
-    # Query 2.5: Skill-pair combination (targeted matches with 2 skills)
-    if skills and len(skills) >= 2:
-        top_2_skills = skills[:2]
-        skill_pair_query = f"{job_type_str} {top_2_skills[0]} {top_2_skills[1]}"
-        queries.append({
-            "query": skill_pair_query,
-            "priority": 2,
-            "source": "skill_pair",
-            "weight": 1.15
-        })
-    
-    # Query 3: Extracurricular-aligned
-    ec_signals = extract_career_signals(extracurriculars)
-    if ec_signals and len(ec_signals) >= 2:
-        ec_query = f"{job_type_str} ({' OR '.join(ec_signals[:3])})"
-        queries.append({
-            "query": ec_query,
-            "priority": 3,
-            "source": "extracurriculars",
-            "weight": 1.15
-        })
-    
-    # Query 4: Industry-focused
     if target_industries:
         industry = target_industries[0]
         industry_keywords = INDUSTRY_TO_KEYWORDS.get(industry.lower(), [industry])
@@ -1366,40 +2142,6 @@ def build_personalized_queries(user_profile: dict, job_types: List[str]) -> List
             "weight": 1.0
         })
     
-    # Query 4.5: Remote-specific query (targets remote opportunities)
-    if major:
-        major_jobs = get_job_keywords_for_major(major)[:4]
-        if major_jobs:
-            remote_query = f"remote {job_type_str} ({' OR '.join(major_jobs[:3])})"
-            queries.append({
-                "query": remote_query,
-                "priority": 3,
-                "source": "remote",
-                "weight": 1.1
-            })
-    
-    # Query 5: Interest-based (if specified)
-    if interests:
-        interest_query = f"{job_type_str} {interests[0]}"
-        queries.append({
-            "query": interest_query,
-            "priority": 5,
-            "source": "interests",
-            "weight": 1.0
-        })
-    
-    # Query 6: TOP COMPANIES QUERY (for quality)
-    # Add a query specifically targeting prestigious companies based on user's industry
-    top_companies_query = build_top_companies_query(user_profile, job_type_str)
-    if top_companies_query:
-        queries.append({
-            "query": top_companies_query,
-            "priority": 2,  # High priority
-            "source": "top_companies",
-            "weight": 1.25  # Highest weight - these are premium jobs
-        })
-    
-    # Fallback: Generic query if no personalized queries built
     if not queries:
         queries.append({
             "query": f"{job_type_str} jobs",
@@ -1521,16 +2263,21 @@ def build_search_query(
 
 def build_location_query(locations: List[str]) -> str:
     """
-    Build location string for SerpAPI.
+    PHASE 3: Build location string for SerpAPI (location-first approach).
+    
+    Uses first preferred location, never defaults to "United States" unless
+    no locations specified or only remote.
     """
     if not locations:
-        return "United States"
+        return "United States"  # Fallback only if no preferences
     
     primary_location = locations[0]
     
+    # Handle remote specially
     if "remote" in primary_location.lower():
-        return "United States"
+        return "United States"  # Remote jobs can be anywhere in US
     
+    # PHASE 3: Use preferred location directly (location-first)
     return primary_location
 
 
@@ -1647,19 +2394,1421 @@ def calculate_field_affinity(user_major: str, job_title: str, job_desc: str) -> 
     return 0.2
 
 
+# =============================================================================
+# PHASE 2: HARD GATES (Intent-Based Filtering)
+# =============================================================================
+
+# =============================================================================
+# PHASE 4A: Domain-Aware Seniority Rules
+# =============================================================================
+
+# PHASE 7B.1: Hard block keywords that prevent entry-level overrides
+SENIORITY_HARD_BLOCK_KEYWORDS = [
+    "level 4", "level 5", "level iv", "level v",
+    "l4", "l5",
+    "staff", "principal", "lead"
+]
+
+DOMAIN_SENIORITY_RULES = {
+    "finance_banking": {
+        # Entry-level roles (ALLOW for internship/new grad seekers)
+        # PHASE 7B.2: Finance-specific entry-level allowlist (analyst keywords are entry-level in finance)
+        "entry_level_allow": [
+            "analyst",
+            "summer analyst",
+            "investment banking analyst",
+            "capital markets analyst",
+            "equity research analyst",
+            "corporate banking analyst",
+            "transaction advisory analyst",
+            "associate",  # If internship context
+            "early careers",
+            "early career",
+            "capital markets",  # If intern context
+            "cib",  # Corporate & Investment Banking
+            "markets",  # If intern context
+            "investment banking intern",
+            "corporate banking intern",
+            "equity research intern",
+            "sales and trading intern",
+            "asset management intern",
+            "wealth management intern",
+        ],
+        # Senior roles (REJECT for internship/new grad seekers)
+        "senior_reject": [
+            "vice president",
+            "vp ",
+            "director",
+            "managing director",
+            "md ",
+            "principal",
+            "head of",
+            "lead ",  # Only if NOT intern context - but "lead analyst" is handled by finance allowlist
+        ],
+        # Use allow-list logic (prefer allowing entry-level titles)
+        "prefer_allow_list": True,
+    },
+    "technology": {
+        "entry_level_allow": [
+            "intern",
+            "internship",
+            "entry level",
+            "entry-level",
+            "junior",
+            "new grad",
+            "recent grad",
+            "associate",
+            "0-2 years",
+        ],
+        "senior_reject": [
+            "senior",
+            "lead",
+            "principal",
+            "director",
+            "manager",
+            "head of",
+            "staff",
+            "architect",
+        ],
+        "prefer_allow_list": False,  # Tech uses reject-list logic
+    },
+    "consulting": {
+        "entry_level_allow": [
+            "analyst",
+            "associate",
+            "intern",
+            "internship",
+            "entry level",
+            "business analyst",
+        ],
+        "senior_reject": [
+            "manager",
+            "director",
+            "principal",
+            "partner",
+            "vp ",
+            "vice president",
+        ],
+        "prefer_allow_list": True,
+    },
+}
+
+# =============================================================================
+# PHASE 4A: Metro Area Mapping
+# =============================================================================
+
+METRO_AREAS = {
+    "Los Angeles, CA": {
+        "Los Angeles",
+        "Santa Monica",
+        "Beverly Hills",
+        "Culver City",
+        "Westwood",
+        "Pasadena",
+        "El Segundo",
+        "Venice",
+        "Manhattan Beach",
+        "Irvine",
+        "Glendale",
+        "Burbank",
+        "Torrance",
+        "Long Beach",
+        "Redondo Beach",
+        "Hermosa Beach",
+    },
+    "New York, NY": {
+        "New York",
+        "Manhattan",
+        "Brooklyn",
+        "Queens",
+        "Bronx",
+        "Staten Island",
+        "Jersey City",
+        "Hoboken",
+        "Newark",
+        "White Plains",
+        "Stamford",
+    },
+    "San Francisco, CA": {
+        "San Francisco",
+        "Oakland",
+        "Berkeley",
+        "Palo Alto",
+        "Mountain View",
+        "Sunnyvale",
+        "Redwood City",
+        "San Mateo",
+        "Foster City",
+        "Burlingame",
+        "Millbrae",
+        "San Jose",  # Major tech hub
+        "Cupertino",  # Apple
+        "Santa Clara",  # Major tech hub
+        "Fremont",  # East Bay tech
+        "Milpitas",  # South Bay
+        "Menlo Park",  # Facebook/Meta
+        "San Rafael",  # North Bay
+        "Sausalito",  # North Bay
+        "Daly City",  # South SF
+        "Redwood Shores",  # Oracle
+    },
+    "Chicago, IL": {
+        "Chicago",
+        "Evanston",
+        "Oak Park",
+        "Naperville",
+        "Schaumburg",
+        "Arlington Heights",
+        "Des Plaines",
+    },
+    "Boston, MA": {
+        "Boston",
+        "Cambridge",
+        "Somerville",
+        "Newton",
+        "Waltham",
+        "Burlington",
+        "Lexington",
+    },
+    "Seattle, WA": {
+        "Seattle",
+        "Bellevue",
+        "Redmond",
+        "Kirkland",
+        "Renton",
+        "Tacoma",
+    },
+    "Washington, DC": {
+        "Washington",
+        "Arlington",
+        "Alexandria",
+        "Bethesda",
+        "Silver Spring",
+        "Rockville",
+    },
+    "Austin, TX": {
+        "Austin",
+        "Round Rock",
+        "Cedar Park",
+        "Pflugerville",
+    },
+}
+
+
+def _infer_job_domain(job: dict, intent_contract: dict) -> Optional[str]:
+    """
+    PHASE 4A: Infer the job's domain from title/description.
+    Returns the primary domain if job matches user's career domains.
+    """
+    career_domains = intent_contract.get("career_domains", [])
+    if not career_domains:
+        return None
+    
+    job_title = (job.get("title") or "").lower()
+    job_desc = (job.get("description") or "").lower()
+    job_text = f"{job_title} {job_desc}".lower()
+    
+    # Use same domain keywords as career domain gate
+    job_domain_keywords = {
+        "finance_banking": [
+            "investment banking", "private equity", "hedge fund", "asset management",
+            "wealth management", "financial analyst", "trader", "equity research",
+            "capital markets", "m&a", "mergers and acquisitions", "banking",
+            "fintech", "financial services", "investment management"
+        ],
+        "technology": [
+            "software engineer", "software developer", "developer", "programmer",
+            "data scientist", "data engineer", "machine learning", "ml engineer",
+            "ai engineer", "cybersecurity", "security engineer", "product manager",
+            "full stack", "backend", "frontend", "swe", "sde"
+        ],
+        "consulting": [
+            "consultant", "consulting", "advisory", "strategy consultant",
+            "management consultant", "business consultant", "advisory services"
+        ],
+    }
+    
+    # Check which domain the job matches
+    for domain in career_domains:
+        keywords = job_domain_keywords.get(domain, [])
+        for keyword in keywords:
+            if keyword in job_text:
+                return domain
+    
+    return None
+
+
+def apply_hard_gate_career_domain(job: dict, intent_contract: dict) -> Tuple[bool, str]:
+    """
+    PHASE 2: Hard gate for career domain alignment.
+    
+    Rejects jobs that are in wrong career domains (e.g., Finance major seeing SWE jobs).
+    Allows adjacent domains (e.g., Finance ↔ FinTech).
+    
+    Args:
+        job: Job dict with title, description, company
+        intent_contract: Normalized intent contract from normalize_intent()
+        
+    Returns:
+        Tuple of (passes_gate: bool, reason: str)
+        - passes_gate=True: Job matches career domain (allow)
+        - passes_gate=False: Job in wrong domain (reject)
+        - reason: Human-readable explanation
+    """
+    career_domains = intent_contract.get("career_domains", [])
+    
+    # If no career domains specified, allow all (fallback behavior)
+    if not career_domains:
+        return True, "no_domain_constraint"
+    
+    job_title = (job.get("title") or "").lower()
+    job_desc = (job.get("description") or "").lower()
+    job_company = (job.get("company") or "").lower()
+    job_text = f"{job_title} {job_desc} {job_company}".lower()
+    
+    # Infer job's domain from title/description
+    job_domain_keywords = {
+        "finance_banking": [
+            "investment banking", "private equity", "hedge fund", "asset management",
+            "wealth management", "financial analyst", "trader", "equity research",
+            "capital markets", "m&a", "mergers and acquisitions", "banking",
+            "fintech", "financial services", "investment management"
+        ],
+        "technology": [
+            "software engineer", "software developer", "developer", "programmer",
+            "data scientist", "data engineer", "machine learning", "ml engineer",
+            "ai engineer", "cybersecurity", "security engineer", "product manager",
+            "full stack", "backend", "frontend", "swe", "sde"
+        ],
+        "consulting": [
+            "consultant", "consulting", "advisory", "strategy consultant",
+            "management consultant", "business consultant", "advisory services"
+        ],
+        "marketing": [
+            "marketing", "brand manager", "digital marketing", "product marketing",
+            "growth", "marketing analyst", "marketing coordinator"
+        ],
+        "sales": [
+            "sales", "account executive", "business development", "sales representative",
+            "sales manager", "account manager"
+        ],
+        "operations": [
+            "operations", "operations analyst", "supply chain", "logistics",
+            "operations manager", "process improvement"
+        ],
+        "healthcare": [
+            "healthcare", "medical", "clinical", "hospital", "health services",
+            "nursing", "physician", "healthcare administration"
+        ],
+        "education": [
+            "education", "teaching", "teacher", "educator", "curriculum",
+            "instructional design", "education coordinator"
+        ],
+    }
+    
+    # Check if job matches any of user's career domains
+    job_domain_matches = []
+    for domain in career_domains:
+        keywords = job_domain_keywords.get(domain, [])
+        for keyword in keywords:
+            if keyword in job_text:
+                job_domain_matches.append(domain)
+                break
+    
+    # If job matches at least one career domain, pass
+    if job_domain_matches:
+        return True, f"matches_domain:{','.join(job_domain_matches)}"
+    
+    # Check for adjacent domains (e.g., Finance ↔ FinTech)
+    adjacent_domains = {
+        "finance_banking": ["technology"],  # FinTech is adjacent
+        "technology": ["finance_banking"],  # FinTech is adjacent
+    }
+    
+    for domain in career_domains:
+        adjacent = adjacent_domains.get(domain, [])
+        for adj_domain in adjacent:
+            keywords = job_domain_keywords.get(adj_domain, [])
+            # Check for cross-domain keywords (e.g., "fintech" in tech job for finance user)
+            for keyword in keywords:
+                if keyword in job_text and any(cross_term in job_text for cross_term in ["fintech", "financial", "banking", "investment"]):
+                    return True, f"adjacent_domain:{adj_domain}"
+    
+    # Job doesn't match any career domain - REJECT
+    return False, f"domain_mismatch:job_domain=unknown,user_domains={','.join(career_domains)}"
+
+
+def apply_hard_gate_job_type(job: dict, intent_contract: dict) -> Tuple[bool, str]:
+    """
+    PHASE 2: Hard gate for job type alignment.
+    
+    Rejects jobs that don't match user's requested job types.
+    Internship seekers should NEVER see full-time roles.
+    
+    Args:
+        job: Job dict with type field
+        intent_contract: Normalized intent contract
+        
+    Returns:
+        Tuple of (passes_gate: bool, reason: str)
+    """
+    job_types = intent_contract.get("job_types", [])
+    
+    # If no job types specified, allow all (fallback behavior)
+    if not job_types:
+        return True, "no_type_constraint"
+    
+    job_type_raw = (job.get("type") or "").lower()
+    job_title = (job.get("title") or "").lower()
+    job_text = f"{job_type_raw} {job_title}".lower()
+    
+    # Normalize job type from job posting
+    job_type_normalized = None
+    if "intern" in job_text or "internship" in job_text or "summer analyst" in job_text or "co-op" in job_text or "coop" in job_text:
+        job_type_normalized = "internship"
+    elif "full-time" in job_text or "fulltime" in job_text or "full time" in job_text:
+        job_type_normalized = "full-time"
+    elif "entry level" in job_text or "new grad" in job_text or "entry-level" in job_text:
+        job_type_normalized = "full-time"  # Entry level is full-time
+    elif "part-time" in job_text or "parttime" in job_text or "part time" in job_text:
+        job_type_normalized = "part-time"
+    
+    # If couldn't infer job type, be lenient (allow through, let scoring handle it)
+    if not job_type_normalized:
+        return True, "type_ambiguous"
+    
+    # Check if job type matches user's requested types
+    if job_type_normalized in job_types:
+        return True, f"type_match:{job_type_normalized}"
+    
+    # Hard rejection: job type doesn't match
+    return False, f"type_mismatch:job_type={job_type_normalized},user_types={','.join(job_types)}"
+
+
+def apply_hard_gate_location(job: dict, intent_contract: dict) -> Tuple[bool, str]:
+    """
+    PHASE 4A: Hard gate for location alignment with metro-aware matching.
+    
+    Rejects jobs that are not in user's preferred locations (unless remote).
+    Now handles metro areas (e.g., Santa Monica matches Los Angeles, CA).
+    
+    Args:
+        job: Job dict with location field
+        intent_contract: Normalized intent contract
+        
+    Returns:
+        Tuple of (passes_gate: bool, reason: str)
+    """
+    preferred_locations = intent_contract.get("preferred_locations", [])
+    
+    # If no preferred locations specified, allow all (no geographic constraint)
+    if not preferred_locations:
+        return True, "no_location_constraint"
+    
+    job_location_raw = (job.get("location") or "").strip()
+    job_remote = job.get("remote", False)
+    
+    # Remote jobs always pass (location-agnostic)
+    if job_remote or "remote" in job_location_raw.lower():
+        return True, "remote_job"
+    
+    # PHASE 4A: Extract job city from location string
+    job_city = None
+    job_loc_lower = job_location_raw.lower()
+    
+    # Handle "City, State" format
+    if "," in job_location_raw:
+        job_city = job_location_raw.split(",")[0].strip()
+    else:
+        # Try to extract city name (first word or two)
+        words = job_location_raw.split()
+        if len(words) >= 1:
+            job_city = words[0]  # Take first word as city
+    
+    # Check if job location matches any preferred location (exact or partial)
+    for pref_loc in preferred_locations:
+        pref_loc_lower = pref_loc.lower()
+        
+        # Exact match (case-insensitive)
+        if job_loc_lower == pref_loc_lower:
+            return True, f"location_exact_match:{pref_loc}"
+        
+        # PHASE 4A: Metro area matching
+        if pref_loc in METRO_AREAS:
+            metro_cities = METRO_AREAS[pref_loc]
+            # Check if job city is in metro area
+            if job_city and job_city in metro_cities:
+                print(f"[Location] job_city={job_city} matched metro={pref_loc}")
+                return True, f"location_metro_match:job_city={job_city},metro={pref_loc}"
+            
+            # Check if job location mentions "Greater [Metro] Area"
+            metro_name = pref_loc.split(",")[0]  # Extract city name from "City, State"
+            if f"greater {metro_name.lower()} area" in job_loc_lower:
+                print(f"[Location] job_location={job_location_raw} matched metro={pref_loc} (Greater Area)")
+                return True, f"location_metro_greater_area:metro={pref_loc}"
+        
+        # Partial match: "New York, NY" matches "New York" or "NYC"
+        # Extract city name from "City, State" format
+        if "," in pref_loc:
+            pref_city = pref_loc.split(",")[0].strip().lower()
+            if pref_city in job_loc_lower or job_loc_lower in pref_city:
+                return True, f"location_partial_match:{pref_loc}"
+        else:
+            # Preferred location is just city name
+            if pref_loc_lower in job_loc_lower or job_loc_lower in pref_loc_lower:
+                return True, f"location_partial_match:{pref_loc}"
+        
+        # Handle common city abbreviations
+        city_abbrevs = {
+            "nyc": "new york",
+            "sf": "san francisco",
+            "la": "los angeles",
+        }
+        for abbrev, full_name in city_abbrevs.items():
+            if abbrev in pref_loc_lower and full_name in job_loc_lower:
+                return True, f"location_abbrev_match:{pref_loc}"
+            if abbrev in job_loc_lower and full_name in pref_loc_lower:
+                return True, f"location_abbrev_match:{pref_loc}"
+    
+    # Job location doesn't match any preferred location - REJECT
+    if job_city:
+        print(f"[Location][REJECT] job_city={job_city} not in metro/preferred={','.join(preferred_locations)}")
+    return False, f"location_mismatch:job_location={job_location_raw},preferred={','.join(preferred_locations)}"
+
+
+def apply_hard_gate_seniority(job: dict, intent_contract: dict) -> Tuple[bool, str]:
+    """
+    PHASE 4A: Hard gate for seniority/graduation timing alignment with domain-aware interpretation.
+    
+    Rejects jobs that require seniority beyond user's career phase.
+    Now uses domain-specific seniority rules (e.g., "Analyst" is entry-level in finance).
+    
+    Args:
+        job: Job dict with title field
+        intent_contract: Normalized intent contract with graduation_timing
+        
+    Returns:
+        Tuple of (passes_gate: bool, reason: str)
+    """
+    graduation_timing = intent_contract.get("graduation_timing", {})
+    career_phase = graduation_timing.get("career_phase", "unknown")
+    months_until_grad = graduation_timing.get("months_until_graduation")
+    
+    # If career phase unknown or graduation timing missing, be lenient (allow through)
+    if career_phase == "unknown" or months_until_grad is None:
+        return True, "seniority_unknown"
+    
+    job_title = (job.get("title") or "").lower()
+    job_desc = (job.get("description") or "").lower()
+    job_text = f"{job_title} {job_desc}".lower()
+    
+    # PHASE 4A: Infer job domain for domain-aware seniority interpretation
+    job_domain = _infer_job_domain(job, intent_contract)
+    domain_rules = DOMAIN_SENIORITY_RULES.get(job_domain, {}) if job_domain else {}
+    
+    # PHASE 4A: Domain-aware seniority interpretation
+    job_seniority = "unknown"
+    interpreted_level = "unknown"
+    
+    # PHASE 7B.1: Check for hard block keywords FIRST (prevent false overrides)
+    has_hard_block = False
+    matched_hard_block_keyword = None
+    # Normalize job text for matching (lowercase, strip punctuation)
+    job_text_normalized = re.sub(r'[^\w\s]', ' ', job_text).lower()
+    for block_keyword in SENIORITY_HARD_BLOCK_KEYWORDS:
+        if block_keyword.lower() in job_text_normalized:
+            has_hard_block = True
+            matched_hard_block_keyword = block_keyword
+            break
+    
+    # PHASE 7B.2: Internship/Student Override (applies to all domains, but critical for finance)
+    # Force entry-level if internship/student keywords are present (unless hard block)
+    has_student_override = False
+    matched_student_keyword = None
+    if not has_hard_block:
+        student_intern_keywords = [
+            "intern", "internship", "summer", "spring", "off-cycle",
+            "class of 2025", "class of 2026", "class of 2027", "class of 2028", "class of 2029",
+            "graduating 2025", "graduating 2026", "graduating 2027", "graduating 2028", "graduating 2029",
+            "current student", "undergraduate", "masters student", "mba candidate"
+        ]
+        for keyword in student_intern_keywords:
+            if keyword.lower() in job_text:
+                has_student_override = True
+                matched_student_keyword = keyword
+                break
+    
+    # PHASE 7B.2: Finance-specific entry-level allowlist (analyst keywords are entry-level in finance)
+    finance_override_applied = False
+    matched_finance_keyword = None
+    if job_domain == "finance_banking" and not has_hard_block and not has_student_override:
+        finance_entry_keywords = [
+            "analyst",
+            "summer analyst",
+            "investment banking analyst",
+            "capital markets analyst",
+            "equity research analyst",
+            "corporate banking analyst",
+            "transaction advisory analyst"
+        ]
+        for keyword in finance_entry_keywords:
+            if keyword.lower() in job_text:
+                finance_override_applied = True
+                matched_finance_keyword = keyword
+                break
+    
+    if domain_rules and domain_rules.get("prefer_allow_list", False):
+        # Use allow-list logic (e.g., finance: prefer allowing entry-level titles)
+        entry_level_allow = domain_rules.get("entry_level_allow", [])
+        senior_reject = domain_rules.get("senior_reject", [])
+        
+        # PHASE 7B: Expanded entry-level keywords for allow-list domains too
+        entry_level_keywords_expanded = [
+            "entry level", "entry-level", "entrylevel",
+            "new grad", "new graduate", "newgrad", "newgraduate",
+            "early career", "earlycareer",
+            "college graduate", "collegegraduate",
+            "recent graduate", "recentgraduate",
+            "class of 2025", "class of 2026", "class of 2027", "class of 2028", "class of 2029",
+            "graduate program", "graduateprogram",
+            "junior",  # Only when not paired with 3+ years
+            "engineer i", "engineer 1", "engineer i ", "engineer 1 ",
+            "analyst i", "analyst 1", "analyst i ", "analyst 1 ",
+            "developer i", "developer 1", "developer i ", "developer 1 ",
+            "associate",
+            "0-2 years", "0-1 years", "0-3 years",
+            "recent grad",
+            "new hire",
+            "rotational program", "rotationalprogram",
+            "campus hire", "campushire"
+        ]
+        all_entry_level_allow = list(set(entry_level_allow + entry_level_keywords_expanded))
+        
+        # PHASE 7B: Check entry-level signals (override senior terms, but not hard blocks or overrides)
+        is_entry_level = False
+        matched_entry_keyword = None
+        if not has_hard_block and not has_student_override and not finance_override_applied:
+            for entry_term in all_entry_level_allow:
+                if entry_term.lower() in job_text:
+                    # Special handling: "junior" only if not paired with 3+ years
+                    if entry_term.lower() == "junior":
+                        has_experience_req = any(exp_kw in job_text for exp_kw in ["3+", "4+", "5+", "6+", "7+", "8+", "9+", "10+", "years"])
+                        if has_experience_req:
+                            continue
+                    is_entry_level = True
+                    matched_entry_keyword = entry_term
+                    interpreted_level = "entry_level"
+                    break
+        
+        # Check if title matches senior reject list (only if no entry-level signal)
+        is_senior = False
+        if not is_entry_level and not has_student_override and not finance_override_applied:
+            for senior_term in senior_reject:
+                if senior_term.lower() in job_text:
+                    # Special handling: "lead" in finance might be "lead analyst" (entry) vs "lead" (senior)
+                    if senior_term == "lead " and "intern" in job_text:
+                        continue  # "Lead Intern" is entry-level
+                    is_senior = True
+                    interpreted_level = "senior"
+                    break
+        
+        if has_hard_block:
+            # PHASE 7B.1: Hard block keywords force senior classification
+            job_seniority = "senior"
+            interpreted_level = "senior"
+            print(f"[Seniority][BLOCK] title=\"{job.get('title', '')[:50]}\" reason=explicit_senior_marker keyword=\"{matched_hard_block_keyword}\"")
+        elif has_student_override:
+            # PHASE 7B.2: Student/intern override forces entry-level
+            job_seniority = "entry"
+            interpreted_level = "entry_level"
+            print(f"[Seniority][STUDENT_OVERRIDE] title=\"{job.get('title', '')[:50]}\" keyword=\"{matched_student_keyword}\"")
+        elif finance_override_applied:
+            # PHASE 7B.2: Finance override forces entry-level
+            job_seniority = "entry"
+            interpreted_level = "entry_level"
+            print(f"[Seniority][FINANCE_OVERRIDE] title=\"{job.get('title', '')[:50]}\" keyword=\"{matched_finance_keyword}\"")
+        elif is_entry_level:
+            job_seniority = "entry"
+            print(f"[Seniority][OVERRIDE] title=\"{job.get('title', '')[:50]}\" reason=entry_level_keyword keyword=\"{matched_entry_keyword}\"")
+        elif is_senior:
+            job_seniority = "senior"
+        else:
+            # Ambiguous - check for experienced keywords
+            experienced_keywords = ["experienced", "3+ years", "5+ years", "7+ years", "10+ years", "years of experience"]
+            has_experienced = any(keyword in job_text for keyword in experienced_keywords)
+            if has_experienced:
+                job_seniority = "experienced"
+                interpreted_level = "experienced"
+            else:
+                # Ambiguous - be lenient for allow-list domains
+                interpreted_level = "ambiguous"
+                return True, f"seniority_ambiguous:domain={job_domain},title={job_title[:50]}"
+    else:
+        # Use reject-list logic (e.g., technology: reject senior keywords)
+        # PHASE 7B: Expanded entry-level keywords that override senior terms
+        entry_level_keywords_expanded = [
+            "entry level", "entry-level", "entrylevel",
+            "new grad", "new graduate", "newgrad", "newgraduate",
+            "early career", "earlycareer",
+            "college graduate", "collegegraduate",
+            "recent graduate", "recentgraduate",
+            "class of 2025", "class of 2026", "class of 2027", "class of 2028", "class of 2029",
+            "graduate program", "graduateprogram",
+            "junior",  # Only when not paired with 3+ years
+            "engineer i", "engineer 1", "engineer i ", "engineer 1 ",
+            "analyst i", "analyst 1", "analyst i ", "analyst 1 ",
+            "developer i", "developer 1", "developer i ", "developer 1 ",
+            "associate",
+            "0-2 years", "0-1 years", "0-3 years",
+            "recent grad",
+            "new hire",
+            "rotational program", "rotationalprogram",
+            "campus hire", "campushire"
+        ]
+        
+        senior_keywords = domain_rules.get("senior_reject", ["senior", "lead", "principal", "director", "manager", "head of", "vp ", "vice president", "staff", "level 4", "level 5", "5+ years"])
+        experienced_keywords = ["experienced", "3+ years", "5+ years", "7+ years", "10+ years", "years of experience"]
+        entry_keywords = domain_rules.get("entry_level_allow", ["entry level", "entry-level", "junior", "associate", "new grad", "recent grad", "0-2 years"])
+        
+        # PHASE 7B: Merge expanded entry keywords with domain-specific ones
+        all_entry_keywords = list(set(entry_keywords + entry_level_keywords_expanded))
+        
+        # PHASE 7B.2: Internship/Student Override (applies to all domains)
+        # Force entry-level if internship/student keywords are present (unless hard block)
+        has_student_override_tech = False
+        matched_student_keyword_tech = None
+        if not has_hard_block:
+            student_intern_keywords = [
+                "intern", "internship", "summer", "spring", "off-cycle",
+                "class of 2025", "class of 2026", "class of 2027", "class of 2028", "class of 2029",
+                "graduating 2025", "graduating 2026", "graduating 2027", "graduating 2028", "graduating 2029",
+                "current student", "undergraduate", "masters student", "mba candidate"
+            ]
+            for keyword in student_intern_keywords:
+                if keyword.lower() in job_text:
+                    has_student_override_tech = True
+                    matched_student_keyword_tech = keyword
+                    break
+        
+        # PHASE 7B: Check for entry-level signals (override senior terms, but not hard blocks or overrides)
+        has_entry_keywords = False
+        matched_entry_keyword = None
+        if not has_hard_block and not has_student_override_tech:
+            for keyword in all_entry_keywords:
+                # Use word boundaries for better matching (e.g., "junior" not in "senior")
+                keyword_lower = keyword.lower()
+                if keyword_lower in job_text:
+                    # Special handling: "junior" only if not paired with 3+ years
+                    if keyword_lower == "junior":
+                        # Check if job has experience requirements
+                        has_experience_req = any(exp_kw in job_text for exp_kw in ["3+", "4+", "5+", "6+", "7+", "8+", "9+", "10+", "years"])
+                        if has_experience_req:
+                            continue  # Skip this match - "junior" with experience = not entry-level
+                    has_entry_keywords = True
+                    matched_entry_keyword = keyword
+                    break
+        
+        # Check for seniority indicators in job
+        has_senior_keywords = any(keyword in job_text for keyword in senior_keywords)
+        has_experienced_keywords = any(keyword in job_text for keyword in experienced_keywords)
+        
+        # PHASE 7B: Entry-level signals override senior terms (but hard blocks override everything)
+        if has_hard_block:
+            # PHASE 7B.1: Hard block keywords force senior classification
+            job_seniority = "senior"
+            interpreted_level = "senior"
+            print(f"[Seniority][BLOCK] title=\"{job.get('title', '')[:50]}\" reason=explicit_senior_marker keyword=\"{matched_hard_block_keyword}\"")
+        elif has_student_override_tech:
+            # PHASE 7B.2: Student/intern override forces entry-level
+            job_seniority = "entry"
+            interpreted_level = "entry_level"
+            print(f"[Seniority][STUDENT_OVERRIDE] title=\"{job.get('title', '')[:50]}\" keyword=\"{matched_student_keyword_tech}\"")
+        elif has_entry_keywords:
+            job_seniority = "entry"
+            interpreted_level = "entry_level"
+            print(f"[Seniority][OVERRIDE] title=\"{job.get('title', '')[:50]}\" reason=entry_level_keyword keyword=\"{matched_entry_keyword}\"")
+        elif has_senior_keywords:
+            # Only classify as senior if explicit senior signals exist AND no entry-level signals
+            job_seniority = "senior"
+            interpreted_level = "senior"
+        elif has_experienced_keywords:
+            job_seniority = "experienced"
+            interpreted_level = "experienced"
+        else:
+            # Ambiguous - be lenient
+            interpreted_level = "ambiguous"
+            return True, f"seniority_ambiguous:domain={job_domain or 'unknown'},title={job_title[:50]}"
+    
+    # PHASE 4A: Log interpretation decision
+    print(f"[Seniority] domain={job_domain or 'unknown'} title=\"{job.get('title', '')[:50]}\" "
+          f"→ interpreted_level={interpreted_level} job_seniority={job_seniority}")
+    
+    # Apply gates based on career phase
+    if career_phase == "internship":
+        # User is >12 months from graduation (sophomore/junior)
+        # REJECT: Senior, experienced roles
+        if job_seniority == "senior":
+            return False, f"seniority_too_high:career_phase={career_phase},job_seniority={job_seniority},domain={job_domain},months_until_grad={months_until_grad}"
+        if job_seniority == "experienced":
+            return False, f"seniority_too_high:career_phase={career_phase},job_seniority={job_seniority},domain={job_domain},months_until_grad={months_until_grad}"
+        # ALLOW: Entry-level and ambiguous roles
+        return True, f"seniority_acceptable:career_phase={career_phase},job_seniority={job_seniority},domain={job_domain}"
+    
+    elif career_phase == "new_grad":
+        # User is graduating within 12 months or already graduated
+        # REJECT: Senior roles only (experienced roles might be OK depending on requirements)
+        if job_seniority == "senior":
+            return False, f"seniority_too_high:career_phase={career_phase},job_seniority={job_seniority},domain={job_domain},months_until_grad={months_until_grad}"
+        # ALLOW: Entry-level, experienced (with lenient interpretation), ambiguous
+        return True, f"seniority_acceptable:career_phase={career_phase},job_seniority={job_seniority},domain={job_domain}"
+    
+    # Unknown career phase - be lenient
+    return True, "seniority_unknown_phase"
+
+
+def apply_all_hard_gates(jobs: List[dict], intent_contract: dict, user_id: str = "") -> Tuple[List[dict], dict]:
+    """
+    PHASE 2: Apply all hard gates to a list of jobs.
+    
+    Filters jobs through all hard gates in order:
+    1. Career domain gate
+    2. Job type gate
+    3. Location gate
+    4. Seniority gate
+    
+    Args:
+        jobs: List of job dicts
+        intent_contract: Normalized intent contract
+        user_id: User ID for logging (optional)
+        
+    Returns:
+        Tuple of (filtered_jobs: List[dict], rejection_stats: dict)
+    """
+    filtered_jobs = []
+    rejection_stats = {
+        "career_domain": 0,
+        "job_type": 0,
+        "location": 0,
+        "seniority": 0,
+        "total_rejected": 0,
+        "total_kept": 0,
+        # PHASE 7B: Seniority telemetry
+        "seniority_entry_keywords_seen": 0,
+        "seniority_entry_keywords_misclassified": 0,
+        "seniority_entry_keyword_breakdown": {},
+        # PHASE 7B.1: Hard block stats
+        "seniority_overrides_blocked_by_level": 0,
+        # PHASE 7B.2: Finance and student override stats
+        "finance_overrides_applied": 0,
+        "student_overrides_applied": 0
+    }
+    
+    for job in jobs:
+        job_id = job.get("id", "unknown")
+        rejected = False
+        rejection_reason = None
+        rejection_gate = None
+        
+        # Gate 1: Career Domain
+        passes, reason = apply_hard_gate_career_domain(job, intent_contract)
+        if not passes:
+            rejected = True
+            rejection_reason = reason
+            rejection_gate = "career_domain"
+            rejection_stats["career_domain"] += 1
+            print(f"[HardGate][REJECT] user={user_id[:8] if user_id else 'unknown'}... job={job_id} gate=career_domain reason={reason} job_title=\"{job.get('title', '')[:50]}\"")
+        
+        # Gate 2: Job Type (only check if passed domain gate)
+        if not rejected:
+            passes, reason = apply_hard_gate_job_type(job, intent_contract)
+            if not passes:
+                rejected = True
+                rejection_reason = reason
+                rejection_gate = "job_type"
+                rejection_stats["job_type"] += 1
+                print(f"[HardGate][REJECT] user={user_id[:8] if user_id else 'unknown'}... job={job_id} gate=job_type reason={reason} job_title=\"{job.get('title', '')[:50]}\"")
+        
+        # Gate 3: Location (only check if passed previous gates)
+        if not rejected:
+            passes, reason = apply_hard_gate_location(job, intent_contract)
+            if not passes:
+                rejected = True
+                rejection_reason = reason
+                rejection_gate = "location"
+                rejection_stats["location"] += 1
+                print(f"[HardGate][REJECT] user={user_id[:8] if user_id else 'unknown'}... job={job_id} gate=location reason={reason} job_location=\"{job.get('location', '')[:50]}\"")
+        
+        # Gate 4: Seniority (only check if passed previous gates)
+        # PHASE 7B: Track entry-level keywords for telemetry
+        job_title_gate = (job.get("title") or "").lower()
+        job_desc_gate = (job.get("description") or "").lower()
+        job_text_gate = f"{job_title_gate} {job_desc_gate}".lower()
+        entry_level_keywords_for_telemetry = [
+            "entry level", "entry-level", "new grad", "new graduate",
+            "early career", "college graduate", "recent graduate",
+            "class of 2025", "class of 2026", "class of 2027", "class of 2028", "class of 2029",
+            "graduate program", "junior", "engineer i", "engineer 1",
+            "analyst i", "analyst 1", "developer i", "developer 1",
+            "associate", "0-2 years", "recent grad", "new hire",
+            "rotational program", "campus hire"
+        ]
+        has_entry_keyword_for_telemetry = any(keyword in job_text_gate for keyword in entry_level_keywords_for_telemetry)
+        matched_entry_keyword_for_telemetry = None
+        if has_entry_keyword_for_telemetry:
+            for keyword in entry_level_keywords_for_telemetry:
+                if keyword in job_text_gate:
+                    matched_entry_keyword_for_telemetry = keyword
+                    break
+        
+        # PHASE 7B.1: Check for hard block keywords before calling seniority gate (for stats)
+        job_text_gate_normalized = re.sub(r'[^\w\s]', ' ', job_text_gate).lower()
+        has_hard_block_for_stats = any(block_keyword.lower() in job_text_gate_normalized for block_keyword in SENIORITY_HARD_BLOCK_KEYWORDS)
+        
+        # PHASE 7B.2: Check for student/intern override keywords (for stats)
+        student_intern_keywords_for_stats = [
+            "intern", "internship", "summer", "spring", "off-cycle",
+            "class of 2025", "class of 2026", "class of 2027", "class of 2028", "class of 2029",
+            "graduating 2025", "graduating 2026", "graduating 2027", "graduating 2028", "graduating 2029",
+            "current student", "undergraduate", "masters student", "mba candidate"
+        ]
+        has_student_override_for_stats = not has_hard_block_for_stats and any(keyword.lower() in job_text_gate for keyword in student_intern_keywords_for_stats)
+        
+        # PHASE 7B.2: Check for finance override keywords (for stats)
+        # Need to infer job domain first
+        job_domain_for_stats = None
+        if intent_contract:
+            job_domain_for_stats = _infer_job_domain(job, intent_contract)
+        
+        finance_entry_keywords_for_stats = [
+            "analyst",
+            "summer analyst",
+            "investment banking analyst",
+            "capital markets analyst",
+            "equity research analyst",
+            "corporate banking analyst",
+            "transaction advisory analyst"
+        ]
+        has_finance_override_for_stats = (
+            job_domain_for_stats == "finance_banking" and
+            not has_hard_block_for_stats and
+            not has_student_override_for_stats and
+            any(keyword.lower() in job_text_gate for keyword in finance_entry_keywords_for_stats)
+        )
+        
+        if not rejected:
+            passes, reason = apply_hard_gate_seniority(job, intent_contract)
+            
+            # PHASE 7B.1: Track if entry-level override was blocked by hard block keywords
+            if has_entry_keyword_for_telemetry and has_hard_block_for_stats:
+                rejection_stats["seniority_overrides_blocked_by_level"] += 1
+            
+            # PHASE 7B.2: Track finance and student overrides applied
+            if has_finance_override_for_stats:
+                rejection_stats["finance_overrides_applied"] += 1
+            if has_student_override_for_stats:
+                rejection_stats["student_overrides_applied"] += 1
+            if not passes:
+                rejected = True
+                rejection_reason = reason
+                rejection_gate = "seniority"
+                rejection_stats["seniority"] += 1
+                
+                # PHASE 7B: Track entry-level keyword misclassifications
+                if has_entry_keyword_for_telemetry:
+                    rejection_stats["seniority_entry_keywords_misclassified"] += 1
+                    keyword_key = matched_entry_keyword_for_telemetry or "unknown"
+                    rejection_stats["seniority_entry_keyword_breakdown"][keyword_key] = \
+                        rejection_stats["seniority_entry_keyword_breakdown"].get(keyword_key, 0) + 1
+                
+                print(f"[HardGate][REJECT] user={user_id[:8] if user_id else 'unknown'}... job={job_id} gate=seniority reason={reason} job_title=\"{job.get('title', '')[:50]}\"")
+        
+        # PHASE 7B: Track entry-level keywords seen (regardless of rejection)
+        if has_entry_keyword_for_telemetry:
+            rejection_stats["seniority_entry_keywords_seen"] += 1
+        
+        # Keep job if passed all gates
+        if not rejected:
+            filtered_jobs.append(job)
+            rejection_stats["total_kept"] += 1
+        else:
+            rejection_stats["total_rejected"] += 1
+    
+    # STEP 2: Gate Outcome Summary
+    total_fetched = len(jobs)
+    rejected_domain = rejection_stats['career_domain']
+    rejected_location = rejection_stats['location']
+    rejected_seniority = rejection_stats['seniority']
+    rejected_type = rejection_stats['job_type']
+    passed = rejection_stats['total_kept']
+    
+    print(f"[GateSummary]")
+    print(f"[GateSummary] total_fetched={total_fetched}")
+    print(f"[GateSummary] rejected_domain={rejected_domain}")
+    print(f"[GateSummary] rejected_location={rejected_location}")
+    print(f"[GateSummary] rejected_seniority={rejected_seniority}")
+    print(f"[GateSummary] rejected_type={rejected_type}")
+    print(f"[GateSummary] passed={passed}")
+    
+    # PHASE 7B: Log seniority telemetry (preserved for detailed analysis)
+    if rejection_stats["seniority_entry_keywords_seen"] > 0:
+        print(f"[Seniority][STATS] entry_keywords_seen={rejection_stats['seniority_entry_keywords_seen']} "
+              f"misclassified={rejection_stats['seniority_entry_keywords_misclassified']} "
+              f"breakdown={rejection_stats['seniority_entry_keyword_breakdown']}")
+    
+    # PHASE 7B.1: Log hard block stats
+    if rejection_stats["seniority_overrides_blocked_by_level"] > 0:
+        print(f"[Seniority][STATS] overrides_blocked_by_level={rejection_stats['seniority_overrides_blocked_by_level']}")
+    
+    # PHASE 7B.2: Log finance and student override stats
+    if rejection_stats["finance_overrides_applied"] > 0:
+        print(f"[Seniority][STATS] finance_overrides_applied={rejection_stats['finance_overrides_applied']}")
+    if rejection_stats["student_overrides_applied"] > 0:
+        print(f"[Seniority][STATS] student_overrides_applied={rejection_stats['student_overrides_applied']}")
+    
+    return filtered_jobs, rejection_stats
+
+
+# PHASE 6: Job Deduplication with Source Priority
+# =============================================================================
+
+# Source priority table (higher = better)
+SOURCE_PRIORITY = {
+    "company_site": 100,
+    "greenhouse": 95,
+    "lever": 95,
+    "ashby": 95,
+    "workday": 90,
+    "linkedin": 85,
+    "builtin": 80,
+    "indeed": 75,
+    "ziprecruiter": 70,
+    "simplify": 65,
+    "wayup": 65,
+    "glassdoor": 60,
+    "other": 50
+}
+
+
+def get_job_source_score(job: dict) -> int:
+    """
+    PHASE 6: Infer job source from URL or 'via' field and return priority score.
+    
+    Determines source by checking:
+    1. job["via"] field (from SerpAPI)
+    2. job["url"] field (parsing domain)
+    
+    Returns:
+        Integer priority score from SOURCE_PRIORITY (defaults to "other" = 50)
+    """
+    # Try to get source from "via" field first
+    via_field = job.get("via", "").strip().lower()
+    if via_field:
+        # Check common patterns in via field
+        if "linkedin" in via_field:
+            return SOURCE_PRIORITY["linkedin"]
+        elif "greenhouse" in via_field:
+            return SOURCE_PRIORITY["greenhouse"]
+        elif "lever" in via_field:
+            return SOURCE_PRIORITY["lever"]
+        elif "ashby" in via_field:
+            return SOURCE_PRIORITY["ashby"]
+        elif "indeed" in via_field:
+            return SOURCE_PRIORITY["indeed"]
+        elif "ziprecruiter" in via_field:
+            return SOURCE_PRIORITY["ziprecruiter"]
+        elif "glassdoor" in via_field:
+            return SOURCE_PRIORITY["glassdoor"]
+        elif "builtin" in via_field:
+            return SOURCE_PRIORITY["builtin"]
+        elif "simplify" in via_field:
+            return SOURCE_PRIORITY["simplify"]
+        elif "wayup" in via_field:
+            return SOURCE_PRIORITY["wayup"]
+    
+    # Try to infer from URL
+    url = job.get("url", "").strip().lower()
+    if url:
+        # Parse URL to extract domain
+        try:
+            parsed_url = urlparse(url)
+            domain = parsed_url.netloc.lower()
+            
+            # Remove www. prefix
+            if domain.startswith("www."):
+                domain = domain[4:]
+            
+            # Check for known sources in domain
+            if "linkedin.com" in domain:
+                return SOURCE_PRIORITY["linkedin"]
+            elif "greenhouse.io" in domain or "boards.greenhouse.io" in domain:
+                return SOURCE_PRIORITY["greenhouse"]
+            elif "lever.co" in domain or "jobs.lever.co" in domain:
+                return SOURCE_PRIORITY["lever"]
+            elif "ashbyhq.com" in domain or "jobs.ashbyhq.com" in domain:
+                return SOURCE_PRIORITY["ashby"]
+            elif "myworkdayjobs.com" in domain or "wd5.myworkday.com" in domain:
+                return SOURCE_PRIORITY["workday"]
+            elif "indeed.com" in domain:
+                return SOURCE_PRIORITY["indeed"]
+            elif "ziprecruiter.com" in domain:
+                return SOURCE_PRIORITY["ziprecruiter"]
+            elif "glassdoor.com" in domain:
+                return SOURCE_PRIORITY["glassdoor"]
+            elif "builtin.com" in domain:
+                return SOURCE_PRIORITY["builtin"]
+            elif "simplify.jobs" in domain:
+                return SOURCE_PRIORITY["simplify"]
+            elif "wayup.com" in domain:
+                return SOURCE_PRIORITY["wayup"]
+            else:
+                # Check if it looks like a company site (common patterns)
+                # If URL doesn't match known aggregators, assume company site
+                aggregator_domains = ["indeed", "linkedin", "glassdoor", "ziprecruiter", 
+                                    "monster", "careerbuilder", "dice", "simplyhired"]
+                if not any(agg in domain for agg in aggregator_domains):
+                    return SOURCE_PRIORITY["company_site"]
+        except Exception:
+            # Fail-safe: if URL parsing fails, continue to fallback
+            pass
+    
+    # Default fallback
+    return SOURCE_PRIORITY["other"]
+
+
+def get_job_source_name(job: dict) -> str:
+    """
+    PHASE 6: Get human-readable source name from job.
+    
+    Returns the source name (key from SOURCE_PRIORITY) for logging.
+    Determines source directly from job fields (similar to get_job_source_score).
+    """
+    # Try to get source from "via" field first
+    via_field = job.get("via", "").strip().lower()
+    if via_field:
+        # Check common patterns in via field
+        if "linkedin" in via_field:
+            return "linkedin"
+        elif "greenhouse" in via_field:
+            return "greenhouse"
+        elif "lever" in via_field:
+            return "lever"
+        elif "ashby" in via_field:
+            return "ashby"
+        elif "indeed" in via_field:
+            return "indeed"
+        elif "ziprecruiter" in via_field:
+            return "ziprecruiter"
+        elif "glassdoor" in via_field:
+            return "glassdoor"
+        elif "builtin" in via_field:
+            return "builtin"
+        elif "simplify" in via_field:
+            return "simplify"
+        elif "wayup" in via_field:
+            return "wayup"
+    
+    # Try to infer from URL
+    url = job.get("url", "").strip().lower()
+    if url:
+        try:
+            parsed_url = urlparse(url)
+            domain = parsed_url.netloc.lower()
+            
+            # Remove www. prefix
+            if domain.startswith("www."):
+                domain = domain[4:]
+            
+            # Check for known sources in domain
+            if "linkedin.com" in domain:
+                return "linkedin"
+            elif "greenhouse.io" in domain or "boards.greenhouse.io" in domain:
+                return "greenhouse"
+            elif "lever.co" in domain or "jobs.lever.co" in domain:
+                return "lever"
+            elif "ashbyhq.com" in domain or "jobs.ashbyhq.com" in domain:
+                return "ashby"
+            elif "myworkdayjobs.com" in domain or "wd5.myworkday.com" in domain:
+                return "workday"
+            elif "indeed.com" in domain:
+                return "indeed"
+            elif "ziprecruiter.com" in domain:
+                return "ziprecruiter"
+            elif "glassdoor.com" in domain:
+                return "glassdoor"
+            elif "builtin.com" in domain:
+                return "builtin"
+            elif "simplify.jobs" in domain:
+                return "simplify"
+            elif "wayup.com" in domain:
+                return "wayup"
+            else:
+                # Check if it looks like a company site
+                aggregator_domains = ["indeed", "linkedin", "glassdoor", "ziprecruiter", 
+                                    "monster", "careerbuilder", "dice", "simplyhired"]
+                if not any(agg in domain for agg in aggregator_domains):
+                    return "company_site"
+        except Exception:
+            pass
+    
+    # Default fallback
+    return "other"
+
+
+def _parse_posted_date(job: dict) -> Optional[datetime]:
+    """
+    PHASE 6: Parse posted date from job for tie-breaking.
+    
+    Attempts to extract a datetime from the "posted" field.
+    Returns None if parsing fails or field is missing.
+    """
+    posted_str = job.get("posted", "").strip()
+    if not posted_str:
+        return None
+    
+    posted_lower = posted_str.lower()
+    
+    # Try to parse common formats like "2 days ago", "1 week ago", etc.
+    # For tie-breaking, we want more recent = better
+    # Return a datetime that represents "how old" the posting is (older = earlier datetime)
+    try:
+        if "hour" in posted_lower or "just" in posted_lower:
+            # Very recent
+            return datetime.now(timezone.utc)
+        elif "day" in posted_lower:
+            # Extract number of days
+            days_match = re.search(r'(\d+)', posted_str)
+            if days_match:
+                days = int(days_match.group(1))
+                return datetime.now(timezone.utc) - timedelta(days=days)
+        elif "week" in posted_lower:
+            days_match = re.search(r'(\d+)', posted_str)
+            if days_match:
+                weeks = int(days_match.group(1))
+                return datetime.now(timezone.utc) - timedelta(weeks=weeks)
+        elif "month" in posted_lower:
+            days_match = re.search(r'(\d+)', posted_str)
+            if days_match:
+                months = int(days_match.group(1))
+                return datetime.now(timezone.utc) - timedelta(days=months * 30)
+    except Exception:
+        pass
+    
+    return None
+
+
+def compute_job_fingerprint(job: dict) -> Optional[str]:
+    """
+    PHASE 6: Compute a deterministic fingerprint for a job.
+    
+    Creates a stable, source-independent fingerprint using:
+    - company_name (normalized)
+    - job_title (normalized)
+    - address_city (normalized metro if available)
+    
+    Normalization:
+    - Lowercase
+    - Strip whitespace
+    - Remove punctuation
+    
+    Returns:
+        SHA-256 hash string of "company|title|city", or None if required fields are missing
+    """
+    # Extract required fields
+    company_name = job.get("company", "").strip()
+    job_title = job.get("title", "").strip()
+    location = job.get("location", "").strip()
+    
+    # Fail-safe: return None if required fields are missing
+    if not company_name or not job_title:
+        return None
+    
+    # Extract city from location string
+    city = None
+    if location:
+        # Handle "City, State" format
+        if "," in location:
+            city = location.split(",")[0].strip()
+        else:
+            # Take first word as city
+            words = location.split()
+            if words:
+                city = words[0].strip()
+    
+    # Normalize city to metro if available
+    normalized_city = None
+    if city:
+        # Check if city is in any metro area and normalize to metro name
+        for metro_name, metro_cities in METRO_AREAS.items():
+            if city in metro_cities:
+                # Extract city name from metro (e.g., "San Francisco, CA" -> "San Francisco")
+                metro_city = metro_name.split(",")[0].strip()
+                normalized_city = metro_city
+                break
+        
+        # If not in a metro area, use the city as-is
+        if not normalized_city:
+            normalized_city = city
+    
+    # Normalize inputs: lowercase, strip whitespace, remove punctuation
+    def normalize_string(s: str) -> str:
+        if not s:
+            return ""
+        # Lowercase and strip
+        s = s.lower().strip()
+        # Remove punctuation (keep alphanumeric and spaces)
+        s = re.sub(r'[^\w\s]', '', s)
+        # Normalize whitespace (multiple spaces to single space)
+        s = re.sub(r'\s+', ' ', s)
+        return s.strip()
+    
+    normalized_company = normalize_string(company_name)
+    normalized_title = normalize_string(job_title)
+    normalized_city_str = normalize_string(normalized_city) if normalized_city else ""
+    
+    # Create fingerprint: "company|title|city"
+    fingerprint_string = f"{normalized_company}|{normalized_title}|{normalized_city_str}"
+    
+    # Generate SHA-256 hash
+    fingerprint_hash = hashlib.sha256(fingerprint_string.encode('utf-8')).hexdigest()
+    
+    return fingerprint_hash
+
+
+def deduplicate_jobs(jobs: List[dict]) -> Tuple[List[dict], dict]:
+    """
+    PHASE 6: Remove duplicate jobs using fingerprinting with source priority.
+    
+    Uses compute_job_fingerprint to identify duplicates.
+    Groups jobs by fingerprint and selects the job with the best source.
+    
+    Selection priority:
+    1. Higher source score (from SOURCE_PRIORITY)
+    2. More recent posting date (if available)
+    3. First seen (stable fallback)
+    
+    Args:
+        jobs: List of job dicts (should have passed hard gates)
+        
+    Returns:
+        Tuple of (deduplicated_jobs: List[dict], stats: dict)
+        stats contains: before, after, removed, source_promotions
+    """
+    # Group jobs by fingerprint, tracking original order
+    fingerprint_groups: Dict[str, List[Tuple[dict, int]]] = {}  # (job, original_index)
+    jobs_without_fingerprint: List[dict] = []
+    
+    for idx, job in enumerate(jobs):
+        fingerprint = compute_job_fingerprint(job)
+        
+        # Skip if fingerprint computation failed (missing required fields)
+        if not fingerprint:
+            # Fail-safe: include job if fingerprint can't be computed
+            jobs_without_fingerprint.append(job)
+            continue
+        
+        if fingerprint not in fingerprint_groups:
+            fingerprint_groups[fingerprint] = []
+        fingerprint_groups[fingerprint].append((job, idx))
+    
+    deduplicated_jobs: List[dict] = []
+    removed_count = 0
+    source_promotions = 0
+    
+    stats = {
+        "before": len(jobs),
+        "after": 0,
+        "removed": 0,
+        "source_promotions": 0
+    }
+    
+    # Process each fingerprint group
+    for fingerprint, group_jobs_with_indices in fingerprint_groups.items():
+        if len(group_jobs_with_indices) == 1:
+            # No duplicates for this fingerprint
+            deduplicated_jobs.append(group_jobs_with_indices[0][0])
+            continue
+        
+        # Multiple jobs with same fingerprint - select the best one
+        # Sort by: source score (desc), posting date (desc, more recent = better), original order (asc, first seen = better)
+        def job_sort_key(job_with_idx: Tuple[dict, int]) -> Tuple[int, float, int]:
+            job, original_idx = job_with_idx
+            source_score = get_job_source_score(job)
+            posted_date = _parse_posted_date(job)
+            # Use negative source_score for descending order
+            # Use negative timestamp so more recent (larger datetime) comes first
+            # Use original order for tie-breaking (ascending = first seen wins)
+            if posted_date:
+                date_key = -posted_date.timestamp()  # More recent = higher timestamp = better
+            else:
+                date_key = float('inf')  # No date = sort last
+            return (-source_score, date_key, original_idx)
+        
+        # Sort to find the best job
+        sorted_jobs_with_indices = sorted(group_jobs_with_indices, key=job_sort_key)
+        winner, winner_idx = sorted_jobs_with_indices[0]
+        losers_with_indices = sorted_jobs_with_indices[1:]
+        
+        # Get source names for logging
+        winner_source = get_job_source_name(winner)
+        winner_score = get_job_source_score(winner)
+        
+        # Check if there was a source promotion (winner has higher score than at least one loser)
+        # Find the highest-scoring loser for logging
+        promoted = False
+        best_loser_source = None
+        best_loser_score = -1
+        
+        for loser, loser_idx in losers_with_indices:
+            loser_source = get_job_source_name(loser)
+            loser_score = get_job_source_score(loser)
+            
+            if winner_score > loser_score:
+                promoted = True
+                # Track the best loser (highest score) for logging
+                if loser_score > best_loser_score:
+                    best_loser_score = loser_score
+                    best_loser_source = loser_source
+        
+        # Log once per duplicate group if there was a promotion
+        if promoted and best_loser_source:
+            job_title = winner.get("title", "Unknown")
+            print(f"[Dedup][SOURCE] fingerprint={fingerprint[:8]} winner={winner_source} loser={best_loser_source} title=\"{job_title}\"")
+            source_promotions += 1
+        
+        # Add winner
+        deduplicated_jobs.append(winner)
+        removed_count += len(losers_with_indices)
+    
+    # Add jobs without fingerprints (fail-safe)
+    deduplicated_jobs.extend(jobs_without_fingerprint)
+    
+    stats["after"] = len(deduplicated_jobs)
+    stats["removed"] = removed_count
+    stats["source_promotions"] = source_promotions
+    
+    # Log summary statistics
+    print(f"[Dedup][STATS] before={stats['before']} after={stats['after']} removed={stats['removed']} source_promotions={stats['source_promotions']}")
+    
+    return deduplicated_jobs, stats
+
+
 def score_job_for_user(job: dict, user_profile: dict, query_weight: float = 1.0) -> int:
     """
-    Calculate a match score for a job based on user's profile.
+    PHASE 2: Calculate a match score for a job based on user's profile.
+    
+    IMPORTANT: This function assumes all jobs have already passed hard intent gates
+    (career domain, job type, location, seniority). Scoring is for RANKING only,
+    not for filtering. If a job reaches this function, it is already acceptable.
     
     Scoring breakdown (100 points max):
-    - Base relevance: 20 points (having a profile)
-    - Field/Major affinity: 20 points (semantic matching)
+    - Base relevance: 20 points (having a profile) [PHASE 2: Removed job type check - now 20 points]
+    - Field/Major affinity: 20 points (semantic matching) [Note: Domain validated by hard gate, this is for ranking]
     - Skills match: 30 points (with synonym expansion)
     - Experience relevance: 15 points
     - Additional signals: 15 points (extracurriculars, interests, timing)
     
     Args:
-        job: Job dict with title, description, requirements
+        job: Job dict with title, description, requirements (must have passed hard gates)
         user_profile: User's career profile
         query_weight: Multiplier based on query source (1.0-1.2)
         
@@ -1675,15 +3824,13 @@ def score_job_for_user(job: dict, user_profile: dict, query_weight: float = 1.0)
     job_text = f"{job_title} {job_desc} {job_reqs} {job_company}"
     
     # 1. BASE RELEVANCE (20 points max)
+    # PHASE 2: Removed job type check (now handled by hard gate)
     has_profile = bool(user_profile.get("major") or user_profile.get("skills"))
     if has_profile:
-        score += 15.0
-        job_type = (job.get("type") or "").lower()
-        user_job_types = user_profile.get("job_types", [])
-        if user_job_types and any(jt.lower() in job_type or job_type in jt.lower() for jt in user_job_types):
-            score += 5.0
+        score += 20.0  # PHASE 2: Full 20 points since job type already validated by hard gate
     
     # 2. FIELD/MAJOR AFFINITY (20 points)
+    # PHASE 2: Note - career domain is now validated by hard gate, this is for ranking within acceptable domain
     major = user_profile.get("major") or ""
     field_affinity = calculate_field_affinity(major, job_title, job_desc)
     score += field_affinity * 20
@@ -1787,6 +3934,8 @@ def score_job_for_user(job: dict, user_profile: dict, query_weight: float = 1.0)
             break
     
     # Graduation timing (2 points)
+    # PHASE 2: Keep timing scoring but note that seniority is now validated by hard gate
+    # This is for ranking within acceptable jobs (e.g., internship seeker sees multiple internships, this helps prioritize)
     grad_year = user_profile.get("graduation_year")
     if grad_year:
         current_year = datetime.now().year
@@ -2042,15 +4191,16 @@ def score_jobs_by_resume_match(jobs: List[dict], user_profile: dict, query_weigh
         List of jobs with matchScore and qualityScore added, sorted by combined score descending
     """
     # Check if profile is empty or has no meaningful data
+    # Check for actual non-empty values (not just existence of keys)
     has_profile_data = (
         user_profile and 
         (
-            user_profile.get("major") or
-            user_profile.get("skills") or
-            user_profile.get("extracurriculars") or
-            user_profile.get("experiences") or
-            user_profile.get("interests") or
-            user_profile.get("target_industries")
+            (user_profile.get("major") and user_profile.get("major").strip()) or
+            (user_profile.get("skills") and len(user_profile.get("skills", [])) > 0) or
+            (user_profile.get("extracurriculars") and len(user_profile.get("extracurriculars", [])) > 0) or
+            (user_profile.get("experiences") and len(user_profile.get("experiences", [])) > 0) or
+            (user_profile.get("interests") and len(user_profile.get("interests", [])) > 0) or
+            (user_profile.get("target_industries") and len(user_profile.get("target_industries", [])) > 0)
         )
     )
     
@@ -3382,7 +5532,9 @@ def _fetch_jobs_for_query(
     refresh: bool
 ) -> tuple[List[dict], dict]:
     """
-    Helper function to fetch jobs for a single query.
+    PHASE 3: Helper function to fetch jobs for a single query.
+    Uses location from query_info if available (location-first), otherwise uses fallback location.
+    
     Used for parallel execution.
     
     Returns:
@@ -3392,16 +5544,22 @@ def _fetch_jobs_for_query(
     weight = query_info.get("weight", 1.0)
     source = query_info.get("source", "unknown")
     
+    # PHASE 3: Use location from query_info if specified (location-first), otherwise use fallback
+    query_location = query_info.get("location", location)
+    # If query_location is "Remote", use "United States" for SerpAPI (remote jobs can be anywhere in US)
+    if query_location and query_location.lower() == "remote":
+        query_location = "United States"
+    
     query_jobs = []
     current_token = None
     
     try:
-        # QUICK WIN: Fetch jobs for this query (up to 20 per query, reduced from 50)
-        # We'll fetch 2 pages (20 jobs) per query (reduced from 5 pages)
-        for page_num in range(2):  # 2 pages = 20 jobs max (reduced from 5 pages)
+        # PHASE 3: Fetch jobs for this query (queries now have location embedded)
+        # We'll fetch 2 pages (20 jobs) per query
+        for page_num in range(2):  # 2 pages = 20 jobs max
             jobs_batch, next_token = fetch_jobs_from_serpapi(
                 query=query,
-                location=location,
+                location=query_location,  # PHASE 3: Use query-specific location
                 job_type=primary_job_type,
                 num_results=10,  # Google Jobs returns 10 per page
                 use_cache=not refresh and page_num == 0,  # Only cache first page
@@ -3471,23 +5629,34 @@ def fetch_personalized_jobs(
     job_types: List[str],
     locations: List[str],
     max_jobs: int = 50,  # QUICK WIN: Reduced default from 150 to 50 for faster loading
-    refresh: bool = False
+    refresh: bool = False,
+    user_id: str = ""  # PHASE 2: Added for hard gate logging
 ) -> tuple[List[dict], dict]:
     """
-    Fetch jobs using multiple personalized queries and merge results.
+    PHASE 3: Fetch jobs using intent-aligned queries and merge results.
     Uses parallel execution for faster performance.
     
     Args:
-        user_profile: User's career profile
+        user_profile: User's career profile (must have _intent_contract from Phase 1)
         job_types: List of job types
         locations: List of preferred locations
-        max_jobs: Maximum jobs to return (default 50, QUICK WIN: reduced from 150)
+        max_jobs: Maximum jobs to return (default 50)
         refresh: Whether to bypass cache
+        user_id: User ID for logging (optional)
         
     Returns:
         Tuple of (jobs list, metadata dict)
     """
+    # PHASE 3: Build intent-aligned queries (queries now include location)
     queries = build_personalized_queries(user_profile, job_types)
+    
+    # PHASE 3: Extract location from intent contract for logging/stats
+    intent_contract = user_profile.get("_intent_contract", {})
+    preferred_locations = intent_contract.get("preferred_locations", []) if intent_contract else locations
+    career_domains = intent_contract.get("career_domains", []) if intent_contract else []
+    primary_domain = career_domains[0] if career_domains and len(career_domains) > 0 else None
+    
+    # Build location query for SerpAPI (queries themselves have location embedded, but SerpAPI needs separate param)
     location = build_location_query(locations)
     
     all_jobs = []
@@ -3555,19 +5724,71 @@ def fetch_personalized_jobs(
     elapsed_time = (datetime.now() - start_time).total_seconds()
     print(f"[JobBoard] Parallel query execution completed in {elapsed_time:.2f} seconds")
     
-    # Filter out low-quality jobs BEFORE scoring
-    filtered_jobs = filter_jobs_by_quality(all_jobs, min_quality_score=MIN_QUALITY_SCORE)
+    # Filter out low-quality jobs BEFORE intent gates
+    quality_filtered_jobs = filter_jobs_by_quality(all_jobs, min_quality_score=MIN_QUALITY_SCORE)
     
-    # Score remaining jobs (match + quality scoring)
-    scored_jobs = score_jobs_by_resume_match(filtered_jobs, user_profile, query_weights)
+    # PHASE 2: Apply hard intent gates (after quality filter, before scoring)
+    intent_contract = user_profile.get("_intent_contract", {})
+    if not intent_contract:
+        print(f"[HardGate][WARN] No intent_contract found for user, skipping hard gates (Phase 1 may not have run)")
+        filtered_jobs = quality_filtered_jobs
+        gate_stats = {"total_rejected": 0, "total_kept": len(quality_filtered_jobs), "career_domain": 0, "job_type": 0, "location": 0, "seniority": 0}
+    else:
+        filtered_jobs, gate_stats = apply_all_hard_gates(quality_filtered_jobs, intent_contract, user_id)
+        
+        # PHASE 3: Log gate effectiveness (target: rejection rate < 25%)
+        total_after_quality = len(quality_filtered_jobs)
+        total_rejected = gate_stats["total_rejected"]
+        rejection_rate = (total_rejected / total_after_quality * 100) if total_after_quality > 0 else 0
+        primary_domain = intent_contract.get("career_domains", [None])[0] if intent_contract else "unknown"
+        
+        print(f"[QueryGen][STATS] domain={primary_domain} "
+              f"fetched={len(all_jobs)} "
+              f"after_quality={total_after_quality} "
+              f"rejected_by_gates={total_rejected} "
+              f"kept={gate_stats['total_kept']} "
+              f"rejection_rate={rejection_rate:.1f}%")
+        
+        # Warn if rejection rate is too high (indicates query generation needs improvement)
+        if rejection_rate > 25.0 and total_after_quality > 0:
+            print(f"[QueryGen][WARN] High rejection rate {rejection_rate:.1f}% for domain={primary_domain}, queries may be too broad")
+    
+    # PHASE 6: Deduplicate jobs (after hard gates, before scoring)
+    deduplicated_jobs, dedup_stats = deduplicate_jobs(filtered_jobs)
+    
+    # Score remaining jobs (match + quality scoring) - only jobs that passed all gates and deduplication
+    scored_jobs = score_jobs_by_resume_match(deduplicated_jobs, user_profile, query_weights)
+    
+    # STEP 3: Ranking Transparency (No Changes)
+    top_jobs = scored_jobs[:5]
+    top_titles = [job.get("title", "N/A") for job in top_jobs]
+    top_companies = [job.get("company", "N/A") for job in top_jobs]
+    
+    if scored_jobs:
+        score_values = [job.get("combinedScore", 0) for job in scored_jobs]
+        min_score = min(score_values) if score_values else 0
+        max_score = max(score_values) if score_values else 0
+        score_range = f"{min_score}-{max_score}"
+    else:
+        score_range = "N/A"
+    
+    print(f"[RankingSummary]")
+    print(f"[RankingSummary] top_titles={top_titles}")
+    print(f"[RankingSummary] top_companies={top_companies}")
+    print(f"[RankingSummary] score_range={score_range}")
     
     # Return top jobs
     metadata = {
         "queries_used": queries_used,
         "total_fetched": len(all_jobs),
-        "total_after_filter": len(filtered_jobs),
-        "filtered_out": len(all_jobs) - len(filtered_jobs),
-        "location": location
+        "total_after_quality_filter": len(quality_filtered_jobs),
+        "total_after_intent_gates": len(filtered_jobs),  # PHASE 2: Track jobs after intent gates
+        "total_after_deduplication": len(deduplicated_jobs),  # PHASE 6: Track jobs after deduplication
+        "total_after_filter": len(deduplicated_jobs),  # Keep for backwards compatibility (updated to post-dedup)
+        "filtered_out": len(all_jobs) - len(deduplicated_jobs),
+        "location": location,
+        "gate_stats": gate_stats,  # PHASE 2: Add gate rejection stats to metadata
+        "dedup_stats": dedup_stats  # PHASE 6: Add deduplication stats to metadata
     }
     
     return scored_jobs[:max_jobs], metadata
@@ -3604,8 +5825,41 @@ def get_job_listings():
         per_page = data.get("perPage", 20)
         start = (page - 1) * per_page
         
+        # PHASE 5: Check for cache invalidation before fetching profile
+        db = get_db()
+        if db:
+            invalidation_ref = db.collection("job_cache_invalidations").document(user_id)
+            invalidation_doc = invalidation_ref.get()
+            if invalidation_doc.exists:
+                invalidation_data = invalidation_doc.to_dict()
+                reason = invalidation_data.get("reason", "unknown")
+                changed_fields = invalidation_data.get("changed_fields", [])
+                print(f"[JobBoard][RECOMPUTE] user={user_id[:8]}... triggered_by=preference_update reason={reason} changed_fields={changed_fields}")
+        
         # Get comprehensive user profile
         user_profile = get_user_career_profile(user_id)
+        
+        # PHASE 1: Normalize intent contract (foundation for future phases)
+        intent_contract = normalize_intent(user_profile)
+        # Attach normalized intent to user_profile for downstream use (future phases)
+        user_profile["_intent_contract"] = intent_contract
+        
+        # STEP 1: Persona Logging Guardrail
+        education_context = intent_contract.get("education_context", {})
+        graduation_timing = intent_contract.get("graduation_timing", {})
+        degree = education_context.get("degree", "")
+        career_phase = graduation_timing.get("career_phase", "unknown")
+        domains = intent_contract.get("career_domains", [])
+        preferred_locations = intent_contract.get("preferred_locations", [])
+        months_until_graduation = graduation_timing.get("months_until_graduation")
+        
+        print(f"[Persona]")
+        print(f"[Persona] degree={degree}")
+        print(f"[Persona] career_phase={career_phase}")
+        print(f"[Persona] job_types={job_types}")
+        print(f"[Persona] domains={domains}")
+        print(f"[Persona] preferred_locations={preferred_locations}")
+        print(f"[Persona] months_until_graduation={months_until_graduation}")
         
         # Debug: Log profile data (without sensitive info)
         major_value = user_profile.get('major', '')
@@ -3626,7 +5880,8 @@ def get_job_listings():
                 job_types=job_types,
                 locations=locations,
                 max_jobs=50,  # QUICK WIN: Reduced from 150 to 50 jobs for faster loading
-                refresh=refresh
+                refresh=refresh,
+                user_id=user_id  # PHASE 2: Pass user_id for hard gate logging
             )
         else:
             # For subsequent pages, use simpler single-query approach with pagination
@@ -3666,6 +5921,13 @@ def get_job_listings():
         # Quality filter toggle (default to True)
         quality_filter = data.get("qualityFilter", True)
         
+        # STEP 4: Location UX Micro-Clarification
+        location_label = None
+        if len(preferred_locations) > 1:
+            location_label = f"Showing jobs in: {' · '.join(preferred_locations)}"
+        elif len(preferred_locations) == 1:
+            location_label = f"Showing jobs in: {preferred_locations[0]}"
+        
         print(f"[JobBoard] Returning {len(paginated_jobs)} jobs, hasMore={has_more}, estimatedTotal={estimated_total}")
         
         return jsonify({
@@ -3678,6 +5940,7 @@ def get_job_listings():
             "source": source,
             "query": primary_query,
             "location": location,
+            "locationLabel": location_label,
             "cached": source == "serpapi" and not refresh,
             "quality": {
                 "filtered_out": metadata.get("filtered_out", 0),
@@ -3724,6 +5987,7 @@ def search_jobs():
             job_type=job_type,
             num_results=10,
             page_token=None,
+            user_id=None,  # PHASE 5: user_id not available in this context
         )
         
         return jsonify({
