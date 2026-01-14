@@ -279,9 +279,15 @@ def generate_interview_prep():
         except ValidationError as ve:
             return ve.to_response()
         
-        job_posting_url = validated_data.get("job_posting_url")
-        company_name = validated_data.get("company_name")
-        job_title = validated_data.get("job_title")
+        # CRITICAL: Force string conversion to prevent HttpUrl objects reaching Firestore
+        job_posting_url_raw = validated_data.get("job_posting_url")
+        job_posting_url = str(job_posting_url_raw) if job_posting_url_raw is not None else None
+        company_name = str(validated_data.get("company_name")) if validated_data.get("company_name") else None
+        job_title = str(validated_data.get("job_title")) if validated_data.get("job_title") else None
+        
+        # Debug logging
+        print(f"[Interview Prep] URL type after conversion: {type(job_posting_url)}")
+        print(f"[Interview Prep] URL value: {job_posting_url}")
 
         user_id = request.firebase_user.get("uid")
         user_email = request.firebase_user.get("email")
@@ -330,20 +336,25 @@ def generate_interview_prep():
                             }
                         )
 
-        # Create prep record
+        # Create prep record - ALL values must be Firestore-compatible primitives
         prep_data = {
             "status": "processing",
             "createdAt": datetime.now().isoformat(),
-            "userId": user_id,
-            "userEmail": user_email,
+            "userId": str(user_id) if user_id else None,
+            "userEmail": str(user_email) if user_email else None,
         }
         
         if job_posting_url:
-            prep_data["jobPostingUrl"] = job_posting_url
+            # CRITICAL: Triple-check string conversion for Firestore
+            url_as_string = str(job_posting_url)
+            # Verify it's actually a string now
+            assert isinstance(url_as_string, str), f"URL conversion failed: got {type(url_as_string)}"
+            print(f"[Interview Prep] Saving URL to Firestore - type: {type(url_as_string)}, value: {url_as_string[:100]}...")
+            prep_data["jobPostingUrl"] = url_as_string
         else:
             # Manual input mode
-            prep_data["companyName"] = company_name
-            prep_data["jobTitle"] = job_title
+            prep_data["companyName"] = str(company_name) if company_name else None
+            prep_data["jobTitle"] = str(job_title) if job_title else None
 
         prep_ref = (
             db.collection("users")
@@ -355,14 +366,23 @@ def generate_interview_prep():
         prep_id = prep_ref.id
 
         # Start background processing
+        # CRITICAL: Ensure all arguments are primitive types for thread safety
+        job_url_str = str(job_posting_url) if job_posting_url else None
+        company_name_str = str(company_name) if company_name else None
+        job_title_str = str(job_title) if job_title else None
+        user_id_str = str(user_id) if user_id else None
+        
+        # Verify types before passing to thread
+        print(f"[Interview Prep] Passing to thread - URL type: {type(job_url_str)}, value: {job_url_str}")
+        
         thread = threading.Thread(
             target=process_interview_prep_background,
             args=(
                 prep_id,
-                job_posting_url,
-                company_name,
-                job_title,
-                user_id,
+                job_url_str,
+                company_name_str,
+                job_title_str,
+                user_id_str,
                 credits_available,
             ),
         )

@@ -1,0 +1,874 @@
+/* Offerloop Chrome Extension Popup Styles */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  width: 350px;
+  min-height: 400px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  background: #F8FAFC;
+  color: #1F2937;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  min-height: 400px;
+}
+
+/* Header */
+.header {
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+  color: white;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-icon {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.logo-text {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+/* Tab Switcher */
+.tab-switcher {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #F9FAFB;
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.tab {
+  flex: 1;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tab:not(.active) {
+  background: transparent;
+  color: #6B7280;
+}
+
+.tab:not(.active):hover {
+  background: #E5E7EB;
+}
+
+.tab.active {
+  background: #3B82F6;
+  color: white;
+}
+
+/* Tab Content */
+.tab-content {
+  display: block;
+}
+
+.tab-content.hidden {
+  display: none;
+}
+
+/* Placeholder Message */
+.placeholder-message {
+  padding: 40px 20px;
+  text-align: center;
+  color: #6B7280;
+}
+
+.placeholder-icon {
+  width: 48px;
+  height: 48px;
+  color: #9CA3AF;
+  margin-bottom: 16px;
+}
+
+.placeholder-message p {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* URL Display (Job Tab) */
+.url-display {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: white;
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.url-display .url-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.url-display .url-text {
+  font-size: 13px;
+  color: #3B82F6;
+  word-break: break-all;
+  font-weight: 500;
+}
+
+/* Scraped Info Display */
+.scraped-info {
+  padding: 16px;
+  background: #F9FAFB;
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.scraped-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.scraped-company {
+  font-size: 14px;
+  color: #6B7280;
+  margin-top: 4px;
+}
+
+.scraped-company span {
+  color: #3B82F6;
+  font-weight: 500;
+}
+
+.scraped-location {
+  font-size: 13px;
+  color: #9CA3AF;
+  margin-top: 4px;
+}
+
+/* Manual Form */
+.manual-form {
+  padding: 16px;
+}
+
+.form-group {
+  margin-bottom: 12px;
+}
+
+.form-group:last-child {
+  margin-bottom: 0;
+}
+
+.form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 4px;
+}
+
+.form-group input,
+.form-group textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #D1D5DB;
+  border-radius: 6px;
+  font-size: 14px;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: #3B82F6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* Job Actions */
+.job-actions {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Job Results */
+.job-results {
+  padding: 16px;
+}
+
+.job-results .result-card {
+  background: white;
+  border: 1px solid #D1FAE5;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.job-results .result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.job-results .result-name {
+  font-weight: 600;
+  color: #059669;
+}
+
+.job-results .result-details {
+  font-size: 14px;
+  color: #374151;
+  margin-bottom: 12px;
+}
+
+.job-results .result-links {
+  font-size: 13px;
+  padding-top: 12px;
+  border-top: 1px solid #E5E7EB;
+}
+
+.job-results .result-links p {
+  margin: 4px 0;
+  color: #4B5563;
+}
+
+.job-results .result-links a {
+  color: #3B82F6;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.job-results .result-links a:hover {
+  text-decoration: underline;
+}
+
+/* Job Loading */
+.job-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 16px;
+}
+
+.job-loading p {
+  font-size: 14px;
+  color: #6B7280;
+}
+
+/* Job Error */
+.job-error {
+  padding: 16px;
+}
+
+.job-error .error-message {
+  color: #DC2626;
+  font-size: 14px;
+  padding: 12px;
+  background: #FEF2F2;
+  border-radius: 6px;
+  border: 1px solid #FECACA;
+  margin: 0;
+}
+
+/* Button loading state */
+.btn.loading {
+  opacity: 0.8;
+  cursor: wait;
+  position: relative;
+}
+
+.btn.loading::after {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-left: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.btn-outline.loading::after {
+  border: 2px solid rgba(59, 130, 246, 0.3);
+  border-top-color: #3B82F6;
+}
+
+/* Main Content */
+.content {
+  flex: 1;
+  padding: 20px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* Message Box (for login/no profile states) */
+.message-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 24px 16px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.message-icon {
+  width: 48px;
+  height: 48px;
+  color: #3B82F6;
+  margin-bottom: 16px;
+}
+
+.message-icon.linkedin {
+  color: #0A66C2;
+}
+
+.message-box h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1F2937;
+  margin-bottom: 8px;
+}
+
+.message-box p {
+  font-size: 14px;
+  color: #6B7280;
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+/* Profile Card */
+.profile-card {
+  background: white;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.profile-url {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.url-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.url-text {
+  font-size: 13px;
+  color: #3B82F6;
+  word-break: break-all;
+  font-weight: 500;
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.btn-secondary {
+  background: #F3F4F6;
+  color: #374151;
+  border: 1px solid #E5E7EB;
+}
+
+.btn-secondary:hover {
+  background: #E5E7EB;
+}
+
+.btn-outline {
+  background: white;
+  color: #3B82F6;
+  border: 2px solid #3B82F6;
+}
+
+.btn-outline:hover {
+  background: #EFF6FF;
+}
+
+.btn-outline:active {
+  transform: scale(0.98);
+}
+
+.btn-success {
+  background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+  color: white;
+}
+
+.btn-success:hover {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+}
+
+/* Google Sign-in Button */
+.btn-google {
+  background: white;
+  color: #374151;
+  border: 1px solid #E5E7EB;
+  padding: 12px 20px;
+  font-weight: 500;
+}
+
+.btn-google:hover {
+  background: #F9FAFB;
+  border-color: #D1D5DB;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.google-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.btn-full {
+  width: 100%;
+}
+
+.btn-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Actions */
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Results */
+.results {
+  margin-top: 8px;
+}
+
+.result-card {
+  background: white;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #F3F4F6;
+}
+
+.result-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1F2937;
+}
+
+.status-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: #D1FAE5;
+  color: #059669;
+}
+
+.status-badge.no-email {
+  background: #FEF3C7;
+  color: #D97706;
+}
+
+.result-details {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.result-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.result-icon {
+  width: 16px;
+  height: 16px;
+  color: #9CA3AF;
+  flex-shrink: 0;
+}
+
+.result-value {
+  font-size: 13px;
+  color: #4B5563;
+  word-break: break-all;
+}
+
+/* Success Links */
+.success-links {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #F3F4F6;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.success-link-text {
+  font-size: 13px;
+  color: #4B5563;
+  margin: 0;
+}
+
+.success-link-text a {
+  color: #3B82F6;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.success-link-text a:hover {
+  text-decoration: underline;
+}
+
+/* Loading */
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 16px;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #E5E7EB;
+  border-top-color: #3B82F6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading p {
+  font-size: 14px;
+  color: #6B7280;
+}
+
+/* Error */
+.error-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 24px 16px;
+  background: #FEF2F2;
+  border-radius: 12px;
+  border: 1px solid #FECACA;
+}
+
+.error-icon {
+  width: 40px;
+  height: 40px;
+  color: #DC2626;
+  margin-bottom: 12px;
+}
+
+.error-box p {
+  font-size: 14px;
+  color: #991B1B;
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+/* Footer */
+.footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  background: white;
+  border-top: 1px solid #E5E7EB;
+}
+
+.credits-display {
+  font-size: 13px;
+  color: #6B7280;
+}
+
+.credits-display span:last-child {
+  font-weight: 600;
+  color: #3B82F6;
+}
+
+.footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.footer-link {
+  font-size: 13px;
+  color: #3B82F6;
+  text-decoration: none;
+  font-weight: 500;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.footer-link:hover {
+  text-decoration: underline;
+}
+
+/* Transitions */
+.section {
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================
+   COFFEE CHAT PREP STYLES
+   ============================================ */
+
+/* Coffee Chat Loading */
+.coffee-chat-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 16px;
+  margin-top: 12px;
+}
+
+.coffee-chat-loading p {
+  font-size: 14px;
+  color: #6B7280;
+  text-align: center;
+}
+
+/* Coffee Chat Results */
+.coffee-chat-results {
+  margin-top: 12px;
+}
+
+.coffee-chat-results .result-card {
+  background: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.coffee-chat-results .result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #BBF7D0;
+}
+
+.coffee-chat-results .result-name {
+  font-weight: 600;
+  color: #059669;
+  font-size: 15px;
+}
+
+.coffee-chat-results .result-contact {
+  font-size: 14px;
+  color: #374151;
+  margin-bottom: 12px;
+}
+
+.coffee-chat-results .result-links {
+  font-size: 13px;
+}
+
+.coffee-chat-results .result-links p {
+  margin: 6px 0;
+  color: #4B5563;
+}
+
+.coffee-chat-results .result-links a {
+  color: #3B82F6;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.coffee-chat-results .result-links a:hover {
+  text-decoration: underline;
+}
+
+/* Coffee Chat Error */
+.coffee-chat-error {
+  margin-top: 12px;
+}
+
+.coffee-chat-error .error-message {
+  color: #DC2626;
+  font-size: 14px;
+  padding: 12px;
+  background: #FEF2F2;
+  border-radius: 8px;
+  border: 1px solid #FECACA;
+  margin: 0;
+}
+
+/* ============================================
+   INTERVIEW PREP STYLES
+   ============================================ */
+
+/* Interview Prep Loading */
+.interview-prep-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 16px;
+}
+
+.interview-prep-loading p {
+  font-size: 14px;
+  color: #6B7280;
+  text-align: center;
+}
+
+/* Interview Prep Results */
+.interview-prep-results {
+  padding: 16px;
+}
+
+.interview-prep-results .result-card {
+  background: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.interview-prep-results .result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #BBF7D0;
+}
+
+.interview-prep-results .result-name {
+  font-weight: 600;
+  color: #059669;
+  font-size: 15px;
+}
+
+.interview-prep-results .result-contact {
+  font-size: 14px;
+  color: #374151;
+  margin-bottom: 12px;
+}
+
+.interview-prep-results .result-links {
+  font-size: 13px;
+}
+
+.interview-prep-results .result-links p {
+  margin: 6px 0;
+  color: #4B5563;
+}
+
+.interview-prep-results .result-links a {
+  color: #3B82F6;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.interview-prep-results .result-links a:hover {
+  text-decoration: underline;
+}
+
+/* Interview Prep Error */
+.interview-prep-error {
+  padding: 0 16px 16px;
+}
+
+.interview-prep-error .error-message {
+  color: #DC2626;
+  font-size: 14px;
+  padding: 12px;
+  background: #FEF2F2;
+  border-radius: 8px;
+  border: 1px solid #FECACA;
+  margin: 0;
+}

@@ -1,0 +1,74 @@
+{
+  "manifest_version": 3,
+  "name": "Offerloop",
+  "version": "1.0.0",
+  "description": "LinkedIn networking assistant powered by Offerloop",
+  "permissions": [
+    "tabs",
+    "storage",
+    "activeTab",
+    "contextMenus",
+    "notifications",
+    "scripting",
+    "identity",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "https://linkedin.com/*",
+    "https://final-offerloop.onrender.com/*",
+    "https://www.offerloop.ai/*",
+    "https://*.firebaseapp.com/*",
+    "https://*.googleapis.com/*"
+  ],
+  "oauth2": {
+    "client_id": "184607281467-kcu9e6jfiecn5rdmep38556k6ka6sl66.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/userinfo.profile"
+    ]
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.linkedin.com/in/*",
+        "https://linkedin.com/in/*",
+        "https://www.linkedin.com/jobs/*",
+        "https://linkedin.com/jobs/*",
+        "https://boards.greenhouse.io/*",
+        "https://jobs.lever.co/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://www.indeed.com/*",
+        "https://indeed.com/*",
+        "https://*.handshake.com/*",
+        "https://*.joinhandshake.com/*",
+        "https://app.joinhandshake.com/*",
+        "https://www.glassdoor.com/*",
+        "https://www.ziprecruiter.com/*",
+        "https://wellfound.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

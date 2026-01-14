@@ -79,9 +79,23 @@ class CoffeeChatPrepRequest(BaseModel):
 
 class InterviewPrepRequest(BaseModel):
     """Validation schema for interview prep requests"""
-    job_posting_url: Optional[HttpUrl] = Field(None, description="Job posting URL")
+    # Use str instead of HttpUrl to avoid serialization issues with Firestore
+    job_posting_url: Optional[str] = Field(None, description="Job posting URL")
     company_name: Optional[str] = Field(None, min_length=1, max_length=200, description="Company name (if no URL)")
     job_title: Optional[str] = Field(None, min_length=1, max_length=200, description="Job title (if no URL)")
+    
+    @field_validator('job_posting_url')
+    @classmethod
+    def validate_job_url(cls, v):
+        if v is None:
+            return None
+        v = str(v).strip()  # Force string conversion
+        if not v:
+            return None
+        # Basic URL validation
+        if not v.startswith(('http://', 'https://')):
+            raise ValueError('Job posting URL must start with http:// or https://')
+        return v
     
     @field_validator('company_name', 'job_title')
     @classmethod
@@ -118,6 +132,39 @@ class ContactUpdateRequest(BaseModel):
     status: Optional[str] = Field(None, max_length=50)
 
 
+def _convert_pydantic_types_to_primitives(data: dict) -> dict:
+    """
+    Convert any Pydantic special types (HttpUrl, EmailStr, etc.) to primitive Python types.
+    This ensures compatibility with Firestore which only accepts primitives.
+    """
+    result = {}
+    for key, value in data.items():
+        if value is None:
+            result[key] = None
+        elif isinstance(value, dict):
+            result[key] = _convert_pydantic_types_to_primitives(value)
+        elif isinstance(value, list):
+            result[key] = [
+                _convert_pydantic_types_to_primitives(item) if isinstance(item, dict) 
+                else str(item) if hasattr(item, '__class__') and 'pydantic' in str(type(item).__module__)
+                else item
+                for item in value
+            ]
+        else:
+            # Check if it's a Pydantic type (HttpUrl, EmailStr, etc.)
+            value_type_name = type(value).__name__
+            value_module = str(type(value).__module__)
+            
+            if 'pydantic' in value_module or 'Url' in value_type_name or 'HttpUrl' in value_type_name:
+                result[key] = str(value)
+            elif not isinstance(value, (str, int, float, bool)):
+                # For any other non-primitive type, convert to string
+                result[key] = str(value)
+            else:
+                result[key] = value
+    return result
+
+
 def validate_request(schema_class: type[BaseModel], data: dict, raise_on_error: bool = True):
     """
     Validate request data against a Pydantic schema.
@@ -134,9 +181,15 @@ def validate_request(schema_class: type[BaseModel], data: dict, raise_on_error: 
     try:
         validated = schema_class(**data)
         if raise_on_error:
-            return validated.model_dump(exclude_none=True)
+            # Use mode='json' to convert HttpUrl and other special types to strings
+            result = validated.model_dump(exclude_none=True, mode='json')
+            # SAFETY: Explicitly convert any remaining Pydantic types to primitives
+            result = _convert_pydantic_types_to_primitives(result)
+            return result
         else:
-            return True, validated.model_dump(exclude_none=True), []
+            result = validated.model_dump(exclude_none=True, mode='json')
+            result = _convert_pydantic_types_to_primitives(result)
+            return True, result, []
     except Exception as e:
         if isinstance(e, ValidationError):
             raise
