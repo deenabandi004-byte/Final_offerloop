@@ -39,12 +39,16 @@ def generate_firm_names_with_chatgpt(
     size = filters.get("size", "none")
     keywords = filters.get("keywords", [])
     
-    # Enhanced prompt - emphasizes matching EXACT company type from original query
+    # Enhanced prompt - emphasizes matching EXACT company type and LOCATION from original query
     system_prompt = """Generate specific company names matching the user's search criteria.
 
 CRITICAL RULES:
 
-1. Only include companies ACTUALLY LOCATED in the specified location.
+1. LOCATION REQUIREMENT (MOST IMPORTANT):
+   - ONLY include companies with headquarters/primary operations in the specified location
+   - Do NOT include companies that are merely "operating" or "have offices" there
+   - The specified location is MANDATORY - not optional
+   - If you're unsure about a company's location, SKIP IT rather than guessing
 
 2. Match the EXACT type of company the user is looking for - not just the broad industry.
 
@@ -88,7 +92,13 @@ If the user said "law firms", only return law firms.
 
 Do NOT return broadly related companies.
 
-Only include companies that have their headquarters or primary operations in the specified location ({location_str}).
+CRITICAL LOCATION REQUIREMENT:
+- ONLY include companies with headquarters/primary operations in: {location_str}
+- Do NOT include companies that are merely "operating" or "have offices" there
+- If you're unsure about a company's exact location, SKIP IT rather than including it
+- The location {location_str} is MANDATORY - verify each company's location before including it
+
+This is the MOST IMPORTANT requirement - only return companies you can confirm are located in {location_str}.
 
 CRITICAL SIZE RULE: When size preference is not specified, prioritize returning the BIGGEST and MOST ESTABLISHED companies in the industry. List them from largest to smallest.
 

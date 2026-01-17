@@ -433,10 +433,10 @@ async function handleGenerateCoverLetter() {
     console.log('[Offerloop Popup] coverLetter type:', typeof result.coverLetter);
     
     if (response.ok && result.coverLetter) {
-      // Success - download the cover letter as a text file
+      // Success - download the cover letter as a PDF
       hideJobLoading();
       showCoverLetterResults(result, company, jobTitle);
-      downloadCoverLetterAsText(result.coverLetter, company, jobTitle);
+      downloadCoverLetterAsPDF(result.coverLetter, company, jobTitle);
       
       if (result.creditsRemaining !== undefined) {
         updateCredits(result.creditsRemaining);
@@ -490,7 +490,7 @@ function showCoverLetterResults(data, company, jobTitle) {
   if (downloadLink && data.coverLetter) {
     downloadLink.onclick = (e) => {
       e.preventDefault();
-      downloadCoverLetterAsText(data.coverLetter, companyName, title);
+      downloadCoverLetterAsPDF(data.coverLetter, companyName, title);
     };
   } else if (downloadLink && data.pdfUrl) {
     downloadLink.href = data.pdfUrl;
@@ -505,7 +505,7 @@ function hideCoverLetterResults() {
   if (resultsDiv) resultsDiv.classList.add('hidden');
 }
 
-function downloadCoverLetterAsText(coverLetterData, company, jobTitle) {
+async function downloadCoverLetterAsPDF(coverLetterData, company, jobTitle) {
   // Handle different response formats
   let text = '';
   
@@ -556,42 +556,87 @@ function downloadCoverLetterAsText(coverLetterData, company, jobTitle) {
     return;
   }
   
-  console.log('[Offerloop Popup] Downloading cover letter, text length:', text.length);
+  console.log('[Offerloop Popup] Generating PDF for cover letter, text length:', text.length);
   
-  const sanitize = (str) => (str || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  const filename = `cover-letter-${sanitize(company)}-${sanitize(jobTitle)}.txt`;
+  // Get auth token
+  const authData = await chrome.storage.local.get(['authToken']);
+  if (!authData.authToken) {
+    console.error('[Offerloop Popup] No auth token found');
+    showJobError('Please log in to download cover letter');
+    return;
+  }
   
-  // Create blob and download
-  const blob = new Blob([text], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-  
-  chrome.downloads.download({
-    url: url,
-    filename: filename,
-    saveAs: false
-  }, (downloadId) => {
-    if (chrome.runtime.lastError) {
-      console.error('[Offerloop Popup] Cover letter download error:', chrome.runtime.lastError);
-      // Fallback: copy to clipboard
-      navigator.clipboard.writeText(text).then(() => {
-        showJobError('Download failed, but cover letter copied to clipboard!');
-      }).catch(() => {
-        // Last resort: open in new tab
-        const dataUrl = 'data:text/plain;charset=utf-8,' + encodeURIComponent(text);
-        chrome.tabs.create({ url: dataUrl });
-      });
-    } else {
-      console.log('[Offerloop Popup] Cover letter downloaded:', filename);
+  try {
+    // Call backend to generate PDF
+    const response = await fetch(`${API_BASE_URL}/api/job-board/cover-letter-pdf`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authData.authToken}`
+      },
+      body: JSON.stringify({ content: text, company: company })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`PDF generation failed: ${response.status}`);
     }
-    // Revoke the blob URL after a delay
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  });
+    
+    // Get PDF blob
+    const pdfBlob = await response.blob();
+    
+    // Create filename: companyname_cover_letter.pdf
+    const sanitize = (str) => {
+      if (!str) return 'unknown';
+      return str.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    };
+    const filename = company ? `${sanitize(company)}_cover_letter.pdf` : 'cover_letter.pdf';
+    
+    // Create object URL and download
+    const url = URL.createObjectURL(pdfBlob);
+    
+    chrome.downloads.download({
+      url: url,
+      filename: filename,
+      saveAs: false
+    }, (downloadId) => {
+      if (chrome.runtime.lastError) {
+        console.error('[Offerloop Popup] Cover letter PDF download error:', chrome.runtime.lastError);
+        // Fallback: copy text to clipboard
+        navigator.clipboard.writeText(text).then(() => {
+          showJobError('PDF download failed, but cover letter copied to clipboard!');
+        }).catch(() => {
+          // Last resort: open PDF in new tab
+          chrome.tabs.create({ url: url });
+        });
+      } else {
+        console.log('[Offerloop Popup] Cover letter PDF downloaded:', filename);
+      }
+      // Revoke the blob URL after a delay
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+  } catch (error) {
+    console.error('[Offerloop Popup] Error generating PDF:', error);
+    // Fallback: download as text file
+    const sanitize = (str) => (str || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const filename = `cover-letter-${sanitize(company)}-${sanitize(jobTitle)}.txt`;
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    chrome.downloads.download({
+      url: url,
+      filename: filename,
+      saveAs: false
+    });
+    showJobError('PDF generation failed, downloaded as text file instead');
+  }
 }
 
 function triggerCoverLetterDownload(pdfUrl, company, jobTitle) {
   // For future PDF support
-  const sanitize = (str) => (str || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  const filename = `cover-letter-${sanitize(company)}-${sanitize(jobTitle)}.pdf`;
+  const sanitize = (str) => {
+    if (!str) return 'unknown';
+    return str.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  };
+  const filename = company ? `${sanitize(company)}_cover_letter.pdf` : 'cover_letter.pdf';
   
   chrome.downloads.download({
     url: pdfUrl,

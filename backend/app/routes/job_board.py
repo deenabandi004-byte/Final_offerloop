@@ -26,6 +26,7 @@ from app.services.ats_scorer import calculate_ats_score
 from app.services.recruiter_finder import find_recruiters, determine_job_type
 from app.services.resume_optimizer_v2 import optimize_resume_v2 as run_resume_optimization
 from app.services.resume_capabilities import get_capabilities
+from app.services.pdf_builder import generate_cover_letter_pdf
 from firebase_admin import firestore
 
 job_board_bp = Blueprint("job_board", __name__, url_prefix="/api/job-board")
@@ -5391,6 +5392,62 @@ async def generate_cover_letter_with_ai(
     # Extract name for closing signature
     user_name = str(relevant_resume.get("name", "") or "")
     
+    # Determine seniority level from resume
+    def determine_seniority(resume: Dict[str, Any]) -> str:
+        """Determine candidate seniority level from resume."""
+        experience = resume.get("experience", [])
+        education = resume.get("education", [])
+        
+        # Check if currently in school or recent grad
+        education_list = education if isinstance(education, list) else [education] if education else []
+        current_year = datetime.now().year
+        
+        # Check graduation dates
+        for edu in education_list:
+            if isinstance(edu, dict):
+                grad_date = edu.get("graduationDate") or edu.get("endDate") or edu.get("end_date")
+                if grad_date:
+                    grad_year = None
+                    if isinstance(grad_date, dict):
+                        grad_year = grad_date.get("year")
+                    elif isinstance(grad_date, str):
+                        # Try to extract year
+                        import re
+                        year_match = re.search(r'\d{4}', grad_date)
+                        if year_match:
+                            grad_year = int(year_match.group())
+                    
+                    if grad_year and grad_year >= current_year - 2:
+                        # Recent grad or still in school
+                        return "new grad" if grad_year <= current_year else "intern"
+        
+        # Check experience years
+        if experience:
+            exp_list = experience if isinstance(experience, list) else [experience]
+            total_years = 0
+            for exp in exp_list:
+                if isinstance(exp, dict):
+                    start_date = exp.get("startDate") or exp.get("start_date")
+                    end_date = exp.get("endDate") or exp.get("end_date") or {"year": current_year}
+                    if isinstance(start_date, dict) and isinstance(end_date, dict):
+                        start_year = start_date.get("year")
+                        end_year = end_date.get("year") or current_year
+                        if start_year:
+                            total_years += (end_year - start_year)
+            
+            if total_years <= 1:
+                return "new grad"
+            elif total_years <= 3:
+                return "early career"
+        
+        # Default based on experience presence
+        if experience and len(experience if isinstance(experience, list) else [experience]) > 0:
+            return "early career"
+        
+        return "new grad"  # Default assumption
+    
+    seniority_level = determine_seniority(relevant_resume)
+    
     # Custom JSON encoder that handles DocumentReferences and other non-serializable objects
     def json_default(obj):
         """Custom default handler for json.dumps that catches DocumentReferences."""
@@ -5421,35 +5478,258 @@ async def generate_cover_letter_with_ai(
     # Truncate job description to prevent overly long prompts
     job_desc_truncated = job_description[:3000] if len(job_description) > 3000 else job_description
     
-    prompt = f"""You are an expert cover letter writer who creates compelling, personalized cover letters.
+    prompt = f"""SYSTEM PROMPT — End-to-End Elite Cover Letter Generator
 
-TASK: Write a professional cover letter for this job application.
+You are an expert career writer whose goal is to maximize interview conversion by producing cover letters that are:
 
-APPLICANT'S RESUME:
-{resume_json}
+clearly human-written
 
-JOB DETAILS:
-- Title: {job_title or 'Not specified'}
-- Company: {company or 'Not specified'}
-- Description: {job_desc_truncated}
+role-specific and company-specific
 
-COVER LETTER REQUIREMENTS:
-1. Professional but personable tone - suitable for a college student/new grad
-2. 3-4 paragraphs max (keep it concise)
-3. Reference specific experiences, achievements, and skills from the resume that match job requirements
-4. Highlight 2-3 concrete accomplishments or projects from the resume that demonstrate relevant capabilities
-5. Show genuine interest in the company/role with specific reasons
-6. Strong opening hook and confident closing with call-to-action
-7. Don't be generic - use actual details from the resume to show why you're a strong fit
+grounded in how work is actually done
 
-OUTPUT FORMAT (JSON):
-{{
-    "content": "Dear Hiring Manager,\\n\\n[Paragraph 1: Hook + why this role]\\n\\n[Paragraph 2: Relevant experience/achievements]\\n\\n[Paragraph 3: Why this company + enthusiasm]\\n\\n[Closing: Call to action]\\n\\nSincerely,\\n{user_name}",
-    "highlights": ["Achievement 1 emphasized", "Skill 2 highlighted", "Experience 3 connected"],
-    "tone": "Professional and enthusiastic"
-}}
+free of generic or AI-sounding language
 
-Return ONLY valid JSON."""
+You do not write before reasoning.
+You do not rely on marketing language or mission statements.
+
+INPUTS
+
+You will receive:
+
+Company name: {company or 'Not specified'}
+Job title: {job_title or 'Not specified'}
+Job description: {job_desc_truncated}
+Candidate resume (JSON or text): {resume_json}
+Candidate seniority: {seniority_level}
+
+INTERNAL WORKFLOW (MANDATORY)
+
+You must complete Stages 1–3 internally before producing the final output.
+Only the final cover letter text is returned.
+
+🔍 STAGE 1 — ROLE & COMPANY REALITY EXTRACTION
+
+From the job description and general public knowledge, infer the work realities of this role.
+
+Extract:
+
+A. Operating Model
+
+How work is executed day to day
+
+Ownership level and autonomy
+
+Pace and pressure
+
+Team or client interaction model
+
+Degree of ambiguity
+
+B. Success Criteria
+
+What strong performance looks like in the first 3–6 months
+
+What outputs actually matter
+
+C. Risk Factors
+
+Common mistakes
+
+What underperformance looks like
+
+What the role must avoid
+
+Rules
+
+Do not copy job description language
+
+Do not use marketing or mission statements
+
+Focus on execution reality
+
+🧠 STAGE 2 — OPERATING MODEL COMPRESSION
+
+Compress Stage 1 into 3–5 operating traits.
+
+Each trait must describe how work is actually done, not values.
+
+Examples of acceptable traits:
+
+high ownership with limited direction
+
+execution under tight deadlines
+
+hypothesis-driven problem solving
+
+reliability-first engineering
+
+frequent client or user interaction
+
+These traits will act as anchors for the letter.
+
+✍️ STAGE 3 — COVER LETTER GENERATION
+
+Write a 3–4 paragraph cover letter using the operating traits as constraints.
+
+Paragraph 1 — Intentional, Company-Specific Hook
+
+OPENING CONSTRAINT
+
+Do not begin the cover letter with phrases such as:
+
+"I am writing to apply"
+
+"I am writing to express my interest"
+
+"I am excited to apply"
+
+The opening sentence must instead:
+
+Reference how work is done in this role or company
+
+Explain why this environment is a strong fit for how the candidate operates
+
+The opening should read as motivation-driven, not application-driven.
+
+Explain why this role at this company
+
+Reference how the organization operates, not just what it does
+
+This paragraph must fail if the company name is swapped with a competitor
+
+Paragraph 2 — Ownership + Evidence
+
+Highlight 2–3 concrete experiences
+
+Use ownership verbs (built, led, owned, designed, shipped)
+
+Include at least one real constraint (ambiguity, scale, deadlines, accuracy)
+
+Frame as: action → result → impact
+
+Paragraph 3 — Role Alignment via Operating Traits
+
+Align the candidate's behavior and experience to the operating traits
+
+ANALYTICAL SPIKE FRAMING
+
+When including a technical or analytical example, frame it around:
+
+how options were evaluated
+
+tradeoffs considered
+
+decisions made under constraints
+
+Do not focus solely on performance improvements or technical elegance.
+
+Include one concrete analytical or technical spike:
+
+a specific task or analysis
+
+the method used
+
+the decision or outcome it supported
+
+Avoid abstract skill claims.
+
+OPERATING MECHANICS RULE
+
+At least one sentence in the letter must reference a concrete work mechanic, such as:
+
+team structure
+
+feedback or learning loop
+
+ownership model
+
+iteration cadence
+
+decision-making process
+
+Values alone (impact, excellence, innovation) do not satisfy this requirement.
+
+Paragraph 4 — Confident Close
+
+CLOSING CONSTRAINT
+
+The closing paragraph must:
+
+Signal readiness to contribute
+
+Invite a conversation about impact or fit
+
+Avoid phrases that only express gratitude or excitement
+
+The tone should be confident and forward-looking, not deferential.
+
+Forward-looking
+
+Invites conversation
+
+No over-gratitude or insecurity
+
+✂️ STYLE CONSTRAINTS (ANTI-AI, STRICT)
+
+Do NOT use:
+
+em dashes or hyphens
+
+parentheses
+
+bullet points
+
+overly balanced or mirrored sentences
+
+Prefer:
+
+commas and periods
+
+natural sentence variation
+
+clear, direct language
+
+mild repetition if it improves clarity
+
+The writing should resemble a strong, thoughtful student or early-career professional, not optimized AI prose.
+
+✅ FINAL QUALITY CHECK (MANDATORY)
+
+Before returning the letter, verify:
+
+At least two company-specific operating references
+
+At least one concrete analytical or technical detail
+
+At least two ownership verbs
+
+Language matches how work is done in this role
+
+HARD SWAP TEST
+
+Replace the company name with a direct competitor and reread the letter.
+
+If the letter still reads naturally without revision, it fails.
+
+Revise until at least one paragraph becomes inaccurate or awkward when swapped.
+
+No AI punctuation or stylistic tells
+
+INEVITABILITY CHECK
+
+After writing, ask:
+"Does this letter make it clear why this candidate belongs in this environment specifically?"
+
+If the answer is no, revise to strengthen operating-model alignment.
+
+If any condition fails, revise.
+
+FINAL OUTPUT
+
+Return only the finalized cover letter text.
+No explanations. No internal reasoning. No formatting notes.
+Include a proper greeting (Dear [Hiring Manager/Team]) and closing with signature (Sincerely, {user_name})."""
 
     # Use fresh OpenAI client per request to avoid connection pool issues
     from app.services.openai_client import create_async_openai_client
@@ -5479,7 +5759,7 @@ Return ONLY valid JSON."""
             api_call = openai_client.chat.completions.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": "You are an expert cover letter writer. Return only valid JSON."},
+                    {"role": "system", "content": "You are an expert cover letter writer whose goal is to maximize interview conversion. Return only the finalized cover letter text, with no explanations or metadata."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7,  # Reduced from 0.8 for slightly faster, more deterministic responses
@@ -5492,15 +5772,25 @@ Return ONLY valid JSON."""
             print(f"[JobBoard] ✅ OpenAI API call completed for cover letter (attempt {retry_attempt + 1})")
             
             content = response.choices[0].message.content.strip()
-            if content.startswith("```"):
-                content = re.sub(r"```json?\n?", "", content)
-                content = re.sub(r"\n?```", "", content)
             
-            result = json.loads(content)
+            # Remove markdown code blocks if present
+            if content.startswith("```"):
+                content = re.sub(r"```[a-z]*\n?", "", content)
+                content = re.sub(r"\n?```", "", content)
+                content = content.strip()
+            
+            # Ensure proper signature is included if name is available
+            if user_name and not content.lower().endswith(user_name.lower()):
+                # Check if there's already a "Sincerely" or similar closing
+                if "sincerely" not in content.lower() and "best regards" not in content.lower() and "regards" not in content.lower():
+                    # Add signature if not present
+                    content = content.rstrip() + f"\n\nSincerely,\n{user_name}"
+            
+            # Return in the expected format (maintaining backward compatibility)
             return {
-                "content": result.get("content", ""),
-                "highlights": result.get("highlights", []),
-                "tone": result.get("tone", "Professional"),
+                "content": content,
+                "highlights": [],  # No longer extracting highlights
+                "tone": "Professional",  # Default tone
             }
             
         except asyncio.TimeoutError:
@@ -7324,6 +7614,49 @@ def generate_cover_letter():
         
     except Exception as e:
         print(f"[JobBoard] Cover letter generation error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@job_board_bp.route("/cover-letter-pdf", methods=["POST"])
+@require_firebase_auth
+def generate_cover_letter_pdf_endpoint():
+    """
+    Generate a PDF from cover letter text content.
+    No credit cost - just PDF generation.
+    """
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        content = data.get("content", "")
+        company = data.get("company", "")
+        
+        if not content:
+            return jsonify({"error": "Cover letter content is required"}), 400
+        
+        # Generate PDF
+        pdf_buffer = generate_cover_letter_pdf(content)
+        
+        # Create filename: companyname_cover_letter.pdf
+        import re
+        if company:
+            # Sanitize company name for filename: lowercase, replace spaces/special chars with underscores
+            sanitized_company = re.sub(r'[^a-z0-9]+', '_', company.lower().strip())
+            sanitized_company = sanitized_company.strip('_')
+            filename = f"{sanitized_company}_cover_letter.pdf"
+        else:
+            filename = "cover_letter.pdf"
+        
+        # Return PDF as response
+        from flask import Response
+        return Response(
+            pdf_buffer.getvalue(),
+            mimetype='application/pdf',
+            headers={
+                'Content-Disposition': f'attachment; filename={filename}'
+            }
+        )
+        
+    except Exception as e:
+        print(f"[JobBoard] Cover letter PDF generation error: {e}")
         return jsonify({"error": str(e)}), 500
 
 

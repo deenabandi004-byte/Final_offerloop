@@ -1610,6 +1610,19 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None):
                         else:
                             print(f"[ContactExtraction] ⚠️ Not at target company - first job: {first_job_company_name} (cleaned: {cleaned_first_job}), target: {target_company} (cleaned: {cleaned_target})")
 
+        # Store minimal experience data for anchor detection (first 2 jobs with dates)
+        experience_for_anchors = []
+        if experience and isinstance(experience, list):
+            for i, job in enumerate(experience[:2]):  # Only need first 2 for transition detection
+                if isinstance(job, dict):
+                    job_data = {
+                        'company': job.get('company', {}),
+                        'title': job.get('title', {}),
+                        'start_date': job.get('start_date', {}),
+                        'end_date': job.get('end_date', {})
+                    }
+                    experience_for_anchors.append(job_data)
+        
         contact = {
             'FirstName': first_name,
             'LastName': last_name,
@@ -1632,7 +1645,8 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None):
             'DataVersion': person.get('dataset_version', 'Unknown'),
             'EmailSource': email_source,  # Track email source (pdl or hunter.io)
             'EmailVerified': email_verified,  # Track if email was verified
-            'IsCurrentlyAtTarget': is_currently_at_target  # Track if currently at target company
+            'IsCurrentlyAtTarget': is_currently_at_target,  # Track if currently at target company
+            'experience': experience_for_anchors  # Store minimal experience for anchor detection
         }
 
         extract_time = time.time() - extract_start

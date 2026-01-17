@@ -9,6 +9,7 @@ import json
 import hashlib
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+from functools import lru_cache
 
 from app.config import PEOPLE_DATA_LABS_API_KEY, PDL_BASE_URL
 from app.services.openai_client import get_openai_client
@@ -106,24 +107,25 @@ COUNTRY_CODE_MAP = {
 # OPENAI PROMPT PARSING - Extract structured fields from natural language
 # =============================================================================
 
-def parse_firm_search_prompt(prompt: str) -> Dict[str, Any]:
+def _normalize_query_for_cache(prompt: str) -> str:
+    """Normalize query string for consistent caching."""
+    return prompt.lower().strip()
+
+
+def _hash_query(query: str) -> str:
+    """Create stable hash for query caching."""
+    normalized = _normalize_query_for_cache(query)
+    return hashlib.md5(normalized.encode()).hexdigest()
+
+
+@lru_cache(maxsize=500)
+def _cached_parse_firm_search_prompt_impl(normalized_query: str) -> str:
     """
-    Use OpenAI to extract structured search parameters from natural language.
-    WITH RETRY LOGIC for robustness.
-    
-    Returns:
-        {
-            "success": bool,
-            "parsed": {
-                "industry": str or None,
-                "location": str or None,
-                "size": "small" | "mid" | "large" | "none" or None,
-                "keywords": list[str]
-            },
-            "error": str or None (if required fields missing)
-        }
+    Internal cached implementation of query parsing.
+    Returns JSON string for lru_cache compatibility (since dicts aren't directly hashable).
     """
     client = get_openai_client()
+    prompt = normalized_query  # Use normalized query as the actual prompt
     
     system_prompt = """You are a search query parser for a professional networking platform. 
 Extract structured information from natural language queries about finding companies/firms.
@@ -213,12 +215,13 @@ IMPORTANT: Be as lenient as possible. If the query mentions any industry-related
             if missing_fields:
                 # If this is the last attempt, return error
                 if attempt == max_retries - 1:
-                    return {
+                    result = {
                         "success": False,
                         "parsed": parsed,
                         "error": f"Missing required fields: {', '.join(missing_fields)}. Please include the industry (e.g., investment banking, consulting, venture capital) and location (e.g., New York, San Francisco Bay Area) in your search. You can also add keywords like 'healthcare M&A' or 'technology focused' to narrow results.",
                         "missing_fields": missing_fields
                     }
+                    return json.dumps(result)  # Serialize for caching
                 # Otherwise, retry with a more explicit prompt
                 print(f"⚠️ Attempt {attempt + 1}: Missing fields {missing_fields}, retrying with more explicit prompt...")
                 current_prompt = system_prompt + f"\n\nRETRY: The previous attempt missed: {', '.join(missing_fields)}. Please re-examine the query more carefully and extract these fields if at all possible."
@@ -238,39 +241,80 @@ IMPORTANT: Be as lenient as possible. If the query mentions any industry-related
             elif isinstance(parsed["keywords"], str):
                 parsed["keywords"] = [parsed["keywords"]]
                 
-            return {
+            result = {
                 "success": True,
                 "parsed": parsed,
                 "error": None
             }
+            return json.dumps(result)  # Serialize for caching
             
         except json.JSONDecodeError as e:
             last_error = f"Failed to parse OpenAI response as JSON: {e}"
             print(f"⚠️ Attempt {attempt + 1}: {last_error}")
             if attempt < max_retries - 1:
                 continue
-            return {
+            result = {
                 "success": False,
                 "parsed": None,
                 "error": "Failed to understand your search query. Please try rephrasing, for example: 'mid-sized investment banks in New York focused on healthcare'"
             }
+            return json.dumps(result)  # Serialize for caching
         except Exception as e:
             last_error = f"OpenAI parsing error: {e}"
             print(f"⚠️ Attempt {attempt + 1}: {last_error}")
             if attempt < max_retries - 1:
                 continue
-            return {
+            result = {
                 "success": False,
                 "parsed": None,
                 "error": f"Error processing your search: {str(e)}"
             }
+            return json.dumps(result)  # Serialize for caching
     
     # Should not reach here, but just in case
-    return {
+    result = {
         "success": False,
         "parsed": None,
         "error": f"Failed to parse query after {max_retries} attempts. Please try rephrasing your search."
     }
+    return json.dumps(result)  # Serialize for caching
+
+
+def parse_firm_search_prompt(prompt: str, use_cache: bool = True) -> Dict[str, Any]:
+    """
+    Use OpenAI to extract structured search parameters from natural language.
+    WITH RETRY LOGIC and CACHING for robustness.
+    
+    Returns:
+        {
+            "success": bool,
+            "parsed": {
+                "industry": str or None,
+                "location": str or None,
+                "size": "small" | "mid" | "large" | "none" or None,
+                "keywords": list[str]
+            },
+            "error": str or None (if required fields missing)
+        }
+    """
+    # Normalize query for caching
+    normalized_query = _normalize_query_for_cache(prompt)
+    
+    # Use cache if enabled
+    if use_cache:
+        try:
+            cached_result_json = _cached_parse_firm_search_prompt_impl(normalized_query)
+            cached_result = json.loads(cached_result_json)
+            print(f"✅ Cache hit for query parsing: '{prompt[:50]}...'")
+            return cached_result
+        except Exception as e:
+            print(f"⚠️ Cache lookup failed, falling back to fresh parse: {e}")
+            # Fall through to fresh parse
+    
+    # Fresh parse (will be cached by the implementation)
+    result_json = _cached_parse_firm_search_prompt_impl(normalized_query)
+    result = json.loads(result_json)
+    return result
 
 
 # =============================================================================

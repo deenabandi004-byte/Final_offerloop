@@ -17,6 +17,69 @@ MAX_ITERATIONS = int(os.getenv('FIRM_SEARCH_MAX_ITERATIONS', '3'))  # Maximum re
 MAX_TOTAL_FIRMS_MULTIPLIER = float(os.getenv('FIRM_SEARCH_MAX_TOTAL_MULTIPLIER', '5.0'))  # limit × this = absolute cap
 MIN_BATCH_BUFFER = 5  # Always generate at least needed + this many firms per iteration
 
+# Filtering success rate tracking for adaptive multipliers (in-memory)
+_filter_stats = {}  # {(industry, location_key): {"success_rate": float, "iterations": int}}
+
+
+def _normalize_location_for_stats(location: Dict[str, Optional[str]]) -> str:
+    """Create a normalized location key for statistics tracking."""
+    parts = []
+    if location.get("locality"):
+        parts.append(location["locality"].lower())
+    if location.get("region"):
+        parts.append(location["region"].lower())
+    if location.get("country"):
+        parts.append(location["country"].lower())
+    return "|".join(parts) if parts else "unknown"
+
+
+def _calculate_adaptive_multiplier(industry: str, location: Dict[str, Optional[str]], iteration: int) -> float:
+    """
+    Calculate adaptive multiplier based on historical filtering success rates.
+    If we know that only 30% of firms pass location filtering, we need ~3.3x multiplier.
+    """
+    location_key = _normalize_location_for_stats(location)
+    stats_key = (industry.lower(), location_key)
+    
+    if stats_key in _filter_stats and iteration > 0:
+        success_rate = _filter_stats[stats_key]["success_rate"]
+        # Cap success rate between 0.1 (10%) and 1.0 (100%)
+        success_rate = max(0.1, min(1.0, success_rate))
+        # Calculate multiplier: if 30% pass, need 1/0.3 = 3.3x
+        calculated_mult = 1.0 / success_rate
+        # Cap between 2.0x and 6.0x for safety
+        adaptive_mult = max(2.0, min(6.0, calculated_mult))
+        print(f"📊 Using adaptive multiplier {adaptive_mult:.2f}x (based on {success_rate*100:.1f}% success rate)")
+        return adaptive_mult
+    
+    # Use defaults for first iteration or unknown patterns
+    return OVERFETCH_MULTIPLIER if iteration == 0 else RETRY_MULTIPLIER
+
+
+def _update_filter_stats(industry: str, location: Dict[str, Optional[str]], added: int, total_tried: int):
+    """Update filtering statistics for adaptive multiplier calculation."""
+    if total_tried == 0:
+        return
+    
+    location_key = _normalize_location_for_stats(location)
+    stats_key = (industry.lower(), location_key)
+    
+    success_rate = added / total_tried
+    
+    if stats_key in _filter_stats:
+        # Exponential moving average for stability
+        old_rate = _filter_stats[stats_key]["success_rate"]
+        # Weight new rate 30%, old rate 70%
+        _filter_stats[stats_key]["success_rate"] = 0.3 * success_rate + 0.7 * old_rate
+        _filter_stats[stats_key]["iterations"] += 1
+    else:
+        _filter_stats[stats_key] = {
+            "success_rate": success_rate,
+            "iterations": 1
+        }
+    
+    print(f"📊 Updated filter stats for {industry}@{location_key}: {_filter_stats[stats_key]['success_rate']*100:.1f}% success rate")
+
 
 def _extract_domain(url: Optional[str]) -> str:
     """Extract domain from URL for deduplication."""
@@ -176,8 +239,8 @@ def search_companies_with_serp(
                 break
             
             # Calculate batch size for this iteration
-            # Use progressive multiplier: 2.5x first iteration, 3.0x on retries
-            multiplier = OVERFETCH_MULTIPLIER if iteration == 0 else RETRY_MULTIPLIER
+            # Use adaptive multiplier based on historical success rates
+            multiplier = _calculate_adaptive_multiplier(industry, location, iteration)
             batch_size = max(needed + MIN_BATCH_BUFFER, int(needed * multiplier))
             
             # Check absolute cap
@@ -273,6 +336,17 @@ def search_companies_with_serp(
             
             print(f"📍 Iteration {iteration + 1} results: {added_count} added, {filtered_count} filtered out")
             print(f"📊 Total collected so far: {len(firms_collected)}/{limit}")
+            
+            # Update filtering statistics for adaptive multipliers
+            total_tried_in_iteration = added_count + filtered_count
+            if total_tried_in_iteration > 0:
+                _update_filter_stats(industry, location, added_count, total_tried_in_iteration)
+            
+            # OPTIMIZATION: Early stopping - if no firms matched after first iteration, stop
+            # (First iteration failure might be normal, but subsequent failures suggest tight filtering)
+            if added_count == 0 and iteration > 0:
+                print(f"⚠️ No firms matched location filter in iteration {iteration + 1}, stopping early to save API calls")
+                break
             
             # Check if we have enough
             if len(firms_collected) >= limit:

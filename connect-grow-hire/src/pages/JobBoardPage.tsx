@@ -78,6 +78,7 @@ import ResumeActions from "@/components/ResumeActions";
 import ResumeRendererSkeleton from "@/components/ResumeRendererSkeleton";
 import RecruiterSpreadsheet from "@/components/RecruiterSpreadsheet";
 import "@/components/ResumeRenderer.css";
+import { downloadCoverLetterAsPDF } from "@/utils/pdfGenerator";
 
 // ============================================================================
 // TYPES
@@ -1343,17 +1344,20 @@ const JobBoardPage: React.FC = () => {
     toast({ title: `${type} copied to clipboard!` });
   };
 
-  const handleDownload = (content: string, filename: string) => {
-    const blob = new Blob([content], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast({ title: "Downloaded!" });
+  const handleDownload = async (content: string, filename: string) => {
+    try {
+      // Extract base filename without extension for PDF
+      const baseFilename = filename.replace(/\.(txt|pdf)$/i, '');
+      await downloadCoverLetterAsPDF(content, baseFilename);
+      toast({ title: "Downloaded!" });
+    } catch (error) {
+      console.error('Error downloading PDF:', error);
+      toast({ 
+        title: "Download failed", 
+        description: "Failed to generate PDF. Please try again.",
+        variant: "destructive"
+      });
+    }
   };
 
   // Helper to normalize resume data from API response
@@ -2389,7 +2393,7 @@ const JobBoardPage: React.FC = () => {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => handleDownload(coverLetter.content, "cover_letter.txt")}
+                              onClick={() => handleDownload(coverLetter.content, "cover_letter.pdf")}
                             >
                               <Download className="h-4 w-4 mr-2" />
                               Download

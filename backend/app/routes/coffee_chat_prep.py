@@ -136,6 +136,7 @@ def process_coffee_chat_prep_background(
             division=context["division"],
             office=context["office"],
             industry=context["industry"],
+            job_title=contact_data.get("jobTitle", ""),
             time_window=extra_context.get("time_window", "last 90 days")
             if extra_context
             else "last 90 days",
@@ -179,7 +180,7 @@ def process_coffee_chat_prep_background(
         # Step 4: Hometown inference
         print("Step 4: Inferring hometown from education history...")
         prep_ref.update({"status": "extracting_hometown"})
-        hometown = infer_hometown_from_education(context["education"])
+        hometown = infer_hometown_from_education(context["education"], contact_data)
         if hometown:
             contact_data["hometown"] = hometown
 
