@@ -1,16 +1,16 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffect } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { AppHeader } from "@/components/AppHeader";
 import { BackToHomeButton } from "@/components/BackToHomeButton";
 import { CreditPill } from "@/components/credits";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { useScout } from "@/contexts/ScoutContext";
-import { Search, FileText, Upload as UploadIcon, Download, Linkedin, Send, Loader2 } from "lucide-react";
+import { Search, Download, Linkedin, Send, Loader2 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 // ScoutBubble removed - now using ScoutHeaderButton in PageHeaderActions
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import ContactDirectoryComponent from "@/components/ContactDirectory";
 import { Progress } from "@/components/ui/progress";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
@@ -21,17 +21,76 @@ import { toast } from "@/hooks/use-toast";
 import { TIER_CONFIGS } from "@/lib/constants";
 import { logActivity, generateContactSearchSummary } from "@/utils/activityLogger";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
-import { PageHeaderActions } from "@/components/PageHeaderActions";
+import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { db, storage, auth } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { PromptSearchFlow } from "@/components/search/PromptSearchFlow";
 import { trackFeatureActionCompleted, trackError } from "../lib/analytics";
 import ContactImport from "@/components/ContactImport";
 import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileTypes";
 
 // Session storage key for Scout auto-populate
 const SCOUT_AUTO_POPULATE_KEY = 'scout_auto_populate';
+
+// Stripe-style Tabs Component with animated underline
+interface StripeTabsProps {
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+  tabs: { id: string; label: string }[];
+}
+
+const StripeTabs: React.FC<StripeTabsProps> = ({ activeTab, onTabChange, tabs }) => {
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
+
+  // Update indicator position when active tab changes
+  useLayoutEffect(() => {
+    const activeIndex = tabs.findIndex(tab => tab.id === activeTab);
+    const activeTabRef = tabRefs.current[activeIndex];
+    
+    if (activeTabRef) {
+      const { offsetLeft, offsetWidth } = activeTabRef;
+      setIndicatorStyle({ left: offsetLeft, width: offsetWidth });
+    }
+  }, [activeTab, tabs]);
+
+  return (
+    <div className="relative">
+      {/* Tab buttons */}
+      <div className="flex items-center gap-8">
+        {tabs.map((tab, index) => (
+          <button
+            key={tab.id}
+            ref={(el) => { tabRefs.current[index] = el; }}
+            onClick={() => onTabChange(tab.id)}
+            className={`
+              relative pb-3 text-sm font-medium transition-colors duration-150
+              focus:outline-none focus-visible:outline-none
+              ${activeTab === tab.id 
+                ? 'text-[#3B82F6]' 
+                : 'text-gray-500 hover:text-gray-700'
+              }
+            `}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      
+      {/* Full-width divider line */}
+      <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gray-200" />
+      
+      {/* Animated underline indicator - sits on top of divider */}
+      <div
+        className="absolute bottom-0 h-[2px] bg-[#3B82F6] transition-all duration-200 ease-out"
+        style={{
+          left: indicatorStyle.left,
+          width: indicatorStyle.width,
+        }}
+      />
+    </div>
+  );
+};
 
 const ContactSearchPage: React.FC = () => {
   const { user, checkCredits, updateCredits } = useFirebaseAuth();
@@ -100,9 +159,6 @@ const ContactSearchPage: React.FC = () => {
 
   // Tab state
   const [activeTab, setActiveTab] = useState<string>("contact-search");
-  
-  // Search mode state (traditional vs prompt)
-  const [searchMode, setSearchMode] = useState<'traditional' | 'prompt'>('traditional');
 
   // LinkedIn Import state
   const [linkedInUrl, setLinkedInUrl] = useState('');
@@ -539,53 +595,6 @@ const ContactSearchPage: React.FC = () => {
     event.target.value = '';
   };
 
-  // Drag and drop handlers
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const file = e.dataTransfer.files?.[0];
-    if (!file) return;
-
-    if (!isValidResumeFile(file)) {
-      toast({
-        title: "Invalid file type",
-        description: "Please upload a PDF, DOCX, or DOC file.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      toast({
-        title: "File Too Large",
-        description: "Please upload a file smaller than 10MB.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      await saveResumeToAccountSettings(file);
-    } catch (error) {
-      // Error already handled in saveResumeToAccountSettings
-    }
-  };
 
   // LinkedIn Import handler
   const handleLinkedInImport = async () => {
@@ -1186,585 +1195,408 @@ const ContactSearchPage: React.FC = () => {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-white text-foreground">
+      <div className="flex min-h-screen w-full text-foreground">
         <AppSidebar />
 
-        <div className="flex-1">
-          <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-white shadow-sm relative z-20">
-            <div className="flex items-center gap-4">
-              <SidebarTrigger className="text-foreground hover:bg-secondary" />
-              <h1 className="text-xl font-semibold">Contact Search</h1>
-            </div>
-            <PageHeaderActions onJobTitleSuggestion={handleJobTitleSuggestion} />
-          </header>
+        <MainContentWrapper>
+          <AppHeader 
+            title="" 
+            onJobTitleSuggestion={handleJobTitleSuggestion}
+          />
 
-          <main className="p-8 bg-white">
-            <div className="max-w-5xl mx-auto">
+          <main className="bg-white min-h-screen">
+            {/* Page Header Container */}
+            <div className="max-w-5xl mx-auto px-8 pt-10 pb-4">
+              <h1 className="text-[28px] font-semibold text-gray-900 mb-4">
+                Find People
+              </h1>
+
+              {/* Stripe-style Tabs */}
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <div className="flex justify-center mb-8">
-                  <TabsList className="h-14 tabs-container-gradient border border-border grid grid-cols-4 max-w-3xl w-full rounded-xl p-1 bg-white">
-                    <TabsTrigger
-                      value="contact-search"
-                      className="h-12 font-medium text-base data-[state=active] data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
-                    >
-                      <Search className="h-5 w-5 mr-2" />
-                      Contact Search
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="contact-library"
-                      className="h-12 font-medium text-base data-[state=active] data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
-                    >
-                      <FileText className="h-5 w-5 mr-2" />
-                      Contact Library
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="import"
-                      className="h-12 font-medium text-base data-[state=active] data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
-                    >
-                      <UploadIcon className="h-5 w-5 mr-2" />
-                      Import
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="linkedin-email"
-                      className="h-12 font-medium text-base data-[state=active] data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
-                    >
-                      <Linkedin className="h-5 w-5 mr-2" />
-                      LinkedIn to Email
-                    </TabsTrigger>
-                  </TabsList>
-                </div>
+                <StripeTabs 
+                  activeTab={activeTab} 
+                  onTabChange={setActiveTab}
+                  tabs={[
+                    { id: 'contact-search', label: 'Find People' },
+                    { id: 'import', label: 'Spreadsheet Upload' },
+                    { id: 'linkedin-email', label: 'LinkedIn Lookup' },
+                    { id: 'contact-library', label: 'Networking Tracker' },
+                  ]}
+                />
 
-                <TabsContent value="contact-search" className="mt-6">
-                  {/* Prompt Search Toggle */}
-                  <div className="mb-6 flex justify-center">
-                    <div className="inline-flex rounded-lg border border-border bg-muted p-1">
-                      <button
-                        onClick={() => setSearchMode('traditional')}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                          searchMode === 'traditional'
-                            ? 'bg-background text-foreground shadow-sm'
-                            : 'text-muted-foreground hover:text-foreground'
-                        }`}
-                      >
-                        Traditional Search
-                      </button>
-                      <button
-                        onClick={() => userTier === 'elite' ? setSearchMode('prompt') : null}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
-                          searchMode === 'prompt'
-                            ? 'bg-background text-foreground shadow-sm'
-                            : 'text-muted-foreground hover:text-foreground'
-                        } ${userTier !== 'elite' ? 'opacity-70 cursor-not-allowed' : ''}`}
-                        title={userTier !== 'elite' ? 'Upgrade to Elite to unlock Prompt Search' : ''}
-                      >
-                        Prompt Search
-                        {userTier !== 'elite' && (
-                          <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded">
-                            ELITE
-                          </span>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Prompt Search Flow */}
-                  {searchMode === 'prompt' && (
-                    <div className="mb-6">
-                      {userTier === 'elite' ? (
-                        <PromptSearchFlow
-                          onSearchComplete={(contacts, parsedQuery) => {
-                            setLastResults(contacts);
-                            setSearchComplete(true);
-                            setProgressValue(100);
-                            setIsSearching(false);
-                            
-                            // Trigger Scout if 0 results
-                            if (contacts.length === 0 && parsedQuery) {
-                              openPanelWithSearchHelp({
-                                searchType: 'contact',
-                                failedSearchParams: {
-                                  job_title: parsedQuery.jobTitle || '',
-                                  company: parsedQuery.company || '',
-                                  location: parsedQuery.location || '',
-                                },
-                                errorType: 'no_results',
-                              });
-                            }
-                            
-                            // Pass the parsed location to autoSaveToDirectory
-                            const searchLocation = parsedQuery?.location || '';
-                            autoSaveToDirectory(contacts, searchLocation);
-                            // Track PostHog event
-                            // Note: Only captures metadata (counts, credits, filter presence), not actual search terms or user input
-                            const creditsUsed = contacts.length * 15;
-                            trackFeatureActionCompleted('contact_search', 'search', true, {
-                              results_count: contacts.length,
-                              credits_spent: creditsUsed,
-                              alumni_filter: !!(parsedQuery?.school || '').trim(),
-                            });
-                          }}
-                          onSearchStart={() => {
-                            setIsSearching(true);
-                            setSearchComplete(false);
-                            setLastResults([]); // Clear previous results
-                            setProgressValue(0);
-                          }}
-                          userTier={userTier}
-                          userCredits={effectiveUser.credits ?? 0}
-                        />
-                      ) : (
-                        <div className="p-8 rounded-xl border border-purple-500/30 bg-gradient-to-br from-purple-500/5 to-indigo-500/5">
-                          <div className="text-center space-y-4">
-                            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-purple-500/20 to-indigo-500/20 mb-2">
-                              <span className="text-3xl">✨</span>
-                            </div>
-                            <h3 className="text-xl font-semibold text-foreground">
-                              Prompt Search is an Elite Feature
-                            </h3>
-                            <p className="text-muted-foreground max-w-md mx-auto">
-                              Describe who you want to reach in natural language - our AI parses your prompt and finds the perfect contacts automatically.
-                            </p>
-                            <button
-                              onClick={() => navigate('/pricing')}
-                              className="mt-4 px-6 py-3 rounded-lg bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-medium hover:from-purple-600 hover:to-indigo-600 transition-all"
-                            >
-                              Upgrade to Elite
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Traditional Search Form */}
-                  {searchMode === 'traditional' && (
-                    <>
+                {/* Content area with proper spacing from divider */}
+                <div className="pb-8 pt-6">
+                  <TabsContent value="contact-search" className="mt-0">
                   {/* Fit Context Indicator - Shows when emails will be targeted */}
                   {currentFitContext && currentFitContext.job_title && (
-                    <Card className="mb-6 bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200">
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-                              <span className="text-blue-600 text-lg">🎯</span>
-                            </div>
-                            <div>
-                              <p className="text-sm font-semibold text-blue-900">
-                                Targeted Email Generation Active
-                              </p>
-                              <p className="text-xs text-blue-700">
-                                Emails will be tailored for <strong>{currentFitContext.job_title}</strong>
-                                {currentFitContext.company ? ` at ${currentFitContext.company}` : ''}
-                                {currentFitContext.score ? ` (${currentFitContext.score}% fit match)` : ''}
-                              </p>
-                              <p className="text-xs text-blue-600 mt-1">
-                                Includes your strengths, talking points, and role-specific insights
-                              </p>
-                            </div>
-                          </div>
-                          <Button
-                            onClick={() => {
-                              localStorage.removeItem('scout_fit_context');
-                              setCurrentFitContext(null);
-                              toast({
-                                title: "Fit context cleared",
-                                description: "Emails will now use general networking format",
-                              });
-                            }}
-                            variant="outline"
-                            size="sm"
-                            className="bg-white border-blue-300 text-blue-700 hover:bg-blue-50"
-                          >
-                            Clear
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
-                  
-                  {/* Gmail Connection Status */}
-                  <Card className="mb-6 bg-white border-border">
-                    <CardContent className="p-4">
+                    <div className="mb-6 p-4 border border-blue-200 rounded-lg bg-blue-50/50">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <div className={`w-3 h-3 rounded-full ${gmailConnected ? 'bg-blue-500' : 'bg-yellow-500'}`} />
+                          <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                            <span className="text-blue-600 text-lg">🎯</span>
+                          </div>
                           <div>
-                            <p className="text-sm font-medium text-foreground">
-                              {gmailConnected ? 'Gmail Connected' : 'Gmail Not Connected'}
+                            <p className="text-sm font-semibold text-blue-700">
+                              Targeted Email Generation Active
                             </p>
-                            <p className="text-xs text-muted-foreground">
-                              {gmailConnected 
-                                ? 'Email drafts will be created in your Gmail' 
-                                : 'Connect Gmail to create email drafts automatically'}
+                            <p className="text-xs text-gray-600">
+                              Emails will be tailored for <strong className="text-gray-900">{currentFitContext.job_title}</strong>
+                              {currentFitContext.company ? ` at ${currentFitContext.company}` : ''}
+                              {currentFitContext.score ? ` (${currentFitContext.score}% fit match)` : ''}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-1">
+                              Includes your strengths, talking points, and role-specific insights
                             </p>
                           </div>
                         </div>
                         <Button
-                          onClick={() => initiateGmailOAuth()}
-                          variant={gmailConnected ? "outline" : "default"}
+                          onClick={() => {
+                            localStorage.removeItem('scout_fit_context');
+                            setCurrentFitContext(null);
+                            toast({
+                              title: "Fit context cleared",
+                              description: "Emails will now use general networking format",
+                            });
+                          }}
+                          variant="outline"
                           size="sm"
-                          className={gmailConnected 
-                            ? "bg-white border border-gray-200 text-gray-700 hover:bg-gray-50" 
-                            : " text-white shadow-sm"}
-                          style={!gmailConnected ? { background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' } : undefined}
+                          className="border-gray-300 text-gray-700 hover:bg-gray-50"
                         >
-                          {gmailConnected ? 'Reconnect' : 'Connect Gmail'}
+                          Clear
                         </Button>
                       </div>
-                    </CardContent>
-                  </Card>
+                    </div>
+                  )}
 
-                  <Card className="bg-white border-border">
-                    <CardHeader className="border-b border-border">
-                      <CardTitle className="text-xl text-foreground">
-                        Professional Search Filters<span className="text-sm text-muted-foreground">- I want to network with...</span>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-6">
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-                        <div>
-                          <label className="block text-sm font-medium mb-2 text-foreground">
-                            Job Title <span className="text-destructive">*</span>
-                          </label>
-                          <AutocompleteInput
-                            value={jobTitle}
-                            onChange={setJobTitle}
-                            placeholder="e.g. Analyst, unsure of exact title in company? Ask Scout"
-                            dataType="job_title"
-                            disabled={isSearching}
-                            className="bg-white border-input text-foreground placeholder:text-muted-foreground focus:border-purple-500 hover:border-purple-400 transition-colors"
-                          />
-                        </div>
+                  {/* Hidden file input for resume upload */}
+                  <input
+                    type="file"
+                    accept={ACCEPTED_RESUME_TYPES.accept}
+                    onChange={handleFileUpload}
+                    className="hidden"
+                    id="resume-upload"
+                    disabled={isSearching || isUploadingResume}
+                  />
 
-                        <div>
-                          <label className="block text-sm font-medium mb-2 text-foreground">Company</label>
-                          <AutocompleteInput
-                            value={company}
-                            onChange={setCompany}
-                            placeholder="e.g. Google, Meta, or any preferred firm"
-                            dataType="company"
-                            disabled={isSearching}
-                            className="bg-white border-input text-foreground placeholder:text-muted-foreground focus:border-purple-500 hover:border-purple-400 transition-colors"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-medium mb-2 text-foreground">
-                            Location <span className="text-destructive">*</span>
-                          </label>
-                          <AutocompleteInput
-                            value={location}
-                            onChange={setLocation}
-                            placeholder="e.g. Los Angeles, CA, New York, NY, city of office"
-                            dataType="location"
-                            disabled={isSearching}
-                            className="bg-white border-input text-foreground placeholder:text-muted-foreground focus:border-purple-500 hover:border-purple-400 transition-colors"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-medium mb-2 text-foreground">
-                            College Alumni
-                          </label>
-                          <AutocompleteInput
-                            value={collegeAlumni}
-                            onChange={setCollegeAlumni}
-                            placeholder="e.g. Stanford, USC, preferred college they attended"
-                            dataType="school"
-                            disabled={isSearching}
-                            className="bg-white border-input text-foreground placeholder:text-muted-foreground focus:border-purple-500 hover:border-purple-400 transition-colors"
-                          />
-                        </div>
+                  {/* Search Filters Section - Flat layout */}
+                  <div className="mb-6">
+                    <h2 className="text-xl font-semibold text-gray-900 mb-6">
+                      Who are you trying to find?
+                    </h2>
+                    
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+                      <div>
+                        <label className="block text-sm font-medium mb-2 text-gray-700">
+                          Job Title <span className="text-red-500">*</span>
+                        </label>
+                        <AutocompleteInput
+                          value={jobTitle}
+                          onChange={setJobTitle}
+                          placeholder="e.g. Analyst, unsure of exact title in company? Ask Scout"
+                          dataType="job_title"
+                          disabled={isSearching}
+                          className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 hover:border-gray-400 transition-colors"
+                        />
                       </div>
 
-                      <div className="col-span-1 lg:col-span-2 mt-4">
-                        <div className="flex items-center gap-2 mb-4">
-                          <label className="text-sm font-medium text-foreground">
-                            Email Batch Size
-                          </label>
-                          <span className="text-sm text-muted-foreground">
-                            - Choose how many contacts to generate per search
-                          </span>
-                        </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2 text-gray-700">Company</label>
+                        <AutocompleteInput
+                          value={company}
+                          onChange={setCompany}
+                          placeholder="e.g. Google, Meta, or any preferred firm"
+                          dataType="company"
+                          disabled={isSearching}
+                          className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 hover:border-gray-400 transition-colors"
+                        />
+                      </div>
 
-                        <div className="bg-muted/30 rounded-xl p-4 sm:p-6 border border-border shadow-lg">
-                          <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
-                            <div className="bg-gradient-to-br from-blue-500/20 to-cyan-500/20 border border-blue-400/40 rounded-xl px-4 py-3 min-w-[60px] sm:min-w-[70px] text-center shadow-inner">
-                              <span className="text-2xl font-bold bg-gradient-to-r from-blue-300 to-cyan-300 bg-clip-text text-transparent">
-                                {batchSize}
-                              </span>
+                      <div>
+                        <label className="block text-sm font-medium mb-2 text-gray-700">
+                          Location <span className="text-red-500">*</span>
+                        </label>
+                        <AutocompleteInput
+                          value={location}
+                          onChange={setLocation}
+                          placeholder="e.g. Los Angeles, CA, New York, NY, city of office"
+                          dataType="location"
+                          disabled={isSearching}
+                          className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 hover:border-gray-400 transition-colors"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium mb-2 text-gray-700">
+                          College Alumni
+                        </label>
+                        <AutocompleteInput
+                          value={collegeAlumni}
+                          onChange={setCollegeAlumni}
+                          placeholder="e.g. Stanford, USC, preferred college they attended"
+                          dataType="school"
+                          disabled={isSearching}
+                          className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 hover:border-gray-400 transition-colors"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="col-span-1 lg:col-span-2 mt-6 mb-2">
+                      {/* Section Header */}
+                      <h2 className="text-lg font-semibold text-gray-900 mb-2">
+                        How many people do you want to find?
+                      </h2>
+                      <p className="text-sm text-gray-500 mb-6">
+                        We create an{' '}
+                        <a 
+                          href="https://mail.google.com/mail/u/0/#drafts" 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-700 underline"
+                        >
+                          email draft
+                        </a>
+                        {' '}for each person and save them to your{' '}
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab('contact-library')}
+                          className="text-blue-600 hover:text-blue-700 underline"
+                        >
+                          Networking Tracker
+                        </button>
+                        .
+                      </p>
+
+                      {/* Two-column layout: Slider (left) + Resume (right) */}
+                      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
+                        {/* Left column: Slider + Cost */}
+                        <div className="flex-1">
+                          {/* Slider Row: [ X ] ─────●───── [ max ] */}
+                          <div className="flex items-center gap-4 max-w-[400px]">
+                            {/* Current value */}
+                            <div className="flex items-center justify-center w-12 h-10 border border-gray-300 rounded-md bg-white">
+                              <span className="text-base font-semibold text-blue-600">{batchSize}</span>
                             </div>
 
-                            <div className="flex-1 w-full sm:max-w-[320px] pt-2 sm:pt-4">
-                              <div className="relative">
-                                <input
-                                  type="range"
-                                  min="1"
-                                  max={maxBatchSize}
-                                  value={batchSize}
-                                  onChange={(e) => setBatchSize(Number(e.target.value))}
-                                  disabled={isSearching || maxBatchSize < 1}
-                                  className="w-full h-3 bg-gray-700/50 rounded-full appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed 
-                                    [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 
-                                    [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white
-                                    [&::-webkit-slider-thumb]:shadow-[0_0_20px_rgba(59,130,246,0.6)] 
-                                    [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-blue-400
-                                    [&::-webkit-slider-thumb]:hover:shadow-[0_0_25px_rgba(59,130,246,0.8)] 
-                                    [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:duration-200
-                                    [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-7 [&::-moz-range-thumb]:h-7 
-                                    [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white
-                                    [&::-moz-range-thumb]:shadow-[0_0_20px_rgba(59,130,246,0.6)] 
-                                    [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-blue-400"
-                                  style={{
-                                    background: `linear-gradient(to right, 
-                                      rgba(59, 130, 246, 0.8) 0%, 
-                                      rgba(96, 165, 250, 0.8) ${((batchSize - 1) / (maxBatchSize - 1)) * 100}%, 
-                                      rgba(55, 65, 81, 0.3) ${((batchSize - 1) / (maxBatchSize - 1)) * 100}%, 
-                                      rgba(55, 65, 81, 0.3) 100%)`
-                                  }}
-                                />
-
-                                <div className="flex justify-between text-xs text-muted-foreground mt-3 font-medium">
-                                  <span>1</span>
-                                  <span>{maxBatchSize}</span>
-                                </div>
-                              </div>
+                            {/* Slider */}
+                            <div className="flex-1">
+                              <input
+                                type="range"
+                                min="1"
+                                max={maxBatchSize}
+                                value={batchSize}
+                                onChange={(e) => setBatchSize(Number(e.target.value))}
+                                disabled={isSearching || maxBatchSize < 1}
+                                className="w-full h-2 bg-gray-200 rounded-full appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed 
+                                  [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 
+                                  [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500
+                                  [&::-webkit-slider-thumb]:border-0
+                                  [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:duration-200
+                                  [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 
+                                  [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-blue-500
+                                  [&::-moz-range-thumb]:border-0"
+                                style={{
+                                  background: `linear-gradient(to right, 
+                                    rgb(59, 130, 246) 0%, 
+                                    rgb(59, 130, 246) ${((batchSize - 1) / (maxBatchSize - 1)) * 100}%, 
+                                    rgb(229, 231, 235) ${((batchSize - 1) / (maxBatchSize - 1)) * 100}%, 
+                                    rgb(229, 231, 235) 100%)`
+                                }}
+                              />
                             </div>
 
-                            <div className="bg-blue-50 rounded-xl px-4 py-3 min-w-[80px] sm:min-w-[100px] w-full sm:w-auto border border-blue-400/20">
-                              <div className="text-center">
-                                <span className="text-xl font-bold text-blue-600">{batchSize * 15}</span>
-                                <span className="text-sm text-blue-600/70 ml-2">credits</span>
-                              </div>
+                            {/* Max value */}
+                            <div className="flex items-center justify-center w-12 h-10 border border-gray-300 rounded-md bg-white">
+                              <span className="text-base font-semibold text-gray-500">{maxBatchSize}</span>
                             </div>
                           </div>
-                        </div>
 
-                        {maxBatchSize < (userTier === 'free' ? 3 : userTier === 'pro' ? 8 : 15) && (
-                          <div className="mt-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
-                            <p className="text-xs text-yellow-700 flex items-start gap-2">
-                              <span>Warning</span>
-                              <span>Limited by available credits. Maximum: {maxBatchSize} contacts.</span>
+                          {/* Summary line */}
+                          <p className="text-sm text-gray-500 mt-3">
+                            This will find <span className="font-medium text-blue-600">{batchSize}</span> {batchSize === 1 ? 'person' : 'people'} • Cost: <span className="font-medium text-blue-600">{batchSize * 15}</span> credits
+                          </p>
+
+                          {maxBatchSize < (userTier === 'free' ? 3 : userTier === 'pro' ? 8 : 15) && (
+                            <p className="text-xs text-yellow-600 mt-2">
+                              Limited by available credits. Maximum: {maxBatchSize} contacts.
                             </p>
-                          </div>
-                        )}
-                      </div>
+                          )}
+                        </div>
 
-                      {(userTier === "free" || userTier === "pro" || userTier === "elite") && (
-                        <div className="mb-6">
-                          <label className="block text-sm font-medium mb-2 text-foreground">
-                            Resume {(userTier === "pro" || userTier === "elite") && <span className="text-destructive">*</span>}
-                            {(userTier === "pro" || userTier === "elite") && ` (Required for ${userTier === "elite" ? "Elite" : "Pro"} tier AI similarity matching)`}
-                            {userTier === "free" && " (Optional - helps with personalized matching)"}
-                          </label>
+                        {/* Right column: Resume */}
+                        <div className="lg:text-right">
+                          <span className="text-xs text-gray-400 uppercase tracking-wide">Resume</span>
                           {savedResumeUrl && savedResumeFileName ? (
-                            <div className="border-2 border-dashed border-green-500/50 rounded-lg p-4 bg-green-500/10">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                  <FileText className="h-5 w-5 text-green-600" />
-                                  <div>
-                                    <p className="text-sm font-medium text-foreground">{savedResumeFileName}</p>
-                                    <p className="text-xs text-muted-foreground">Resume saved to your account</p>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      const input = document.getElementById('resume-upload') as HTMLInputElement;
-                                      input?.click();
-                                    }}
-                                    disabled={isSearching || isUploadingResume}
-                                  >
-                                    {isUploadingResume ? "Uploading..." : "Change"}
-                                  </Button>
-                                </div>
+                            <div className="mt-1">
+                              <div className="flex items-center lg:justify-end gap-2">
+                                <span className="text-sm text-gray-700">{savedResumeFileName}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const input = document.getElementById('resume-upload') as HTMLInputElement;
+                                    input?.click();
+                                  }}
+                                  disabled={isSearching || isUploadingResume}
+                                  className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  {isUploadingResume ? "Uploading..." : "Change"}
+                                </button>
                               </div>
+                              <p className="text-xs text-gray-400 mt-0.5">Used to improve match quality and email personalization</p>
                             </div>
                           ) : (
-                            <div
-                              className="border-2 border-dashed border-input rounded-lg p-6 text-center hover:border-purple-400 transition-colors bg-muted/30 cursor-pointer"
-                              onDragOver={handleDragOver}
-                              onDragEnter={handleDragEnter}
-                              onDragLeave={handleDragLeave}
-                              onDrop={handleDrop}
-                              onClick={() => {
-                                if (!isSearching && !isUploadingResume) {
-                                  const input = document.getElementById('resume-upload') as HTMLInputElement;
-                                  input?.click();
-                                }
-                              }}
-                            >
-                              <input
-                                type="file"
-                                accept={ACCEPTED_RESUME_TYPES.accept}
-                                onChange={handleFileUpload}
-                                className="hidden"
-                                id="resume-upload"
-                                disabled={isSearching || isUploadingResume}
-                              />
-                              <div className={`${isSearching || isUploadingResume ? "opacity-50 cursor-not-allowed" : ""}`}>
-                                <UploadIcon className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                                <p className="text-sm text-foreground mb-1 font-medium">
-                                  {isUploadingResume 
-                                    ? "Uploading resume..." 
-                                    : "Drag and drop your resume here, or click to upload"}
-                                </p>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  Accepted: PDF, DOCX, DOC (max 10MB)
-                                  <span className="text-blue-600 ml-1">(DOCX recommended)</span>
-                                </p>
+                            <div className="mt-1">
+                              <div className="flex items-center lg:justify-end gap-2">
+                                <span className="text-sm text-gray-500">No resume uploaded</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const input = document.getElementById('resume-upload') as HTMLInputElement;
+                                    input?.click();
+                                  }}
+                                  disabled={isSearching || isUploadingResume}
+                                  className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  {isUploadingResume ? "Uploading..." : "Upload"}
+                                </button>
                               </div>
+                              <p className="text-xs text-gray-400 mt-0.5">Required for match quality and email personalization</p>
                             </div>
                           )}
                         </div>
-                      )}
+                      </div>
+                    </div>
 
-                      <div className="space-y-4 mt-8">
-                        <Button
-                          onClick={handleSearch}
-                          disabled={
-                            !jobTitle.trim() ||
-                            !location.trim() ||
-                            isSearching ||
-                            ((userTier === "pro" || userTier === "elite") && !uploadedFile && !savedResumeUrl) ||
-                            (effectiveUser.credits ?? 0) < 15
-                          }
-                          size="lg"
-                          className=" text-white font-medium px-8 transition-all hover:scale-105 shadow-sm"
-                          style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
-                        >
-                          {isSearching ? "Searching..." : "Find Contacts"}
-                        </Button>
+                    <div className="space-y-4 mt-8">
+                      <Button
+                        onClick={handleSearch}
+                        disabled={
+                          !jobTitle.trim() ||
+                          !location.trim() ||
+                          isSearching ||
+                          ((userTier === "pro" || userTier === "elite") && !uploadedFile && !savedResumeUrl) ||
+                          (effectiveUser.credits ?? 0) < 15
+                        }
+                        size="lg"
+                        className="text-white font-medium px-8 transition-all hover:opacity-90"
+                        style={{ background: '#3B82F6' }}
+                      >
+                        {isSearching ? "Searching..." : "Find Contacts"}
+                      </Button>
 
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                          <div className="flex items-center gap-2">
-                            <Download className="h-4 w-4" />
-                            <span>Up to {currentTierConfig.maxContacts} contacts + emails</span>
+                      <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <div className="flex items-center gap-2">
+                          <Download className="h-4 w-4 text-gray-400" />
+                          <span>Up to {currentTierConfig.maxContacts} contacts + emails</span>
+                        </div>
+                        <span>•</span>
+                        <span>Auto-saved to Networking Tracker</span>
+                      </div>
+                    </div>
+
+                    {(isSearching || searchComplete) && (
+                      <div className="mt-6">
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-gray-700">
+                              {searchComplete ? (
+                                <span className="text-green-600 font-semibold">
+                                  Search completed successfully!
+                                </span>
+                              ) : (
+                                `Searching with ${currentTierConfig.name} tier...`
+                              )}
+                            </span>
+                            <span className={searchComplete ? "text-green-600 font-bold" : "text-blue-600"}>
+                              {progressValue}%
+                            </span>
                           </div>
-                          <span className="text-muted-foreground">•</span>
-                          <span>Auto-saved to Contact Library</span>
+                          <Progress value={progressValue} className="h-2" />
+                          {searchComplete && (
+                            <div className="mt-2 text-sm text-green-600">
+                              Check your Networking Tracker to view and manage your new contacts.
+                            </div>
+                          )}
                         </div>
                       </div>
+                    )}
 
-                      {(isSearching || searchComplete) && (
-                        <Card className="mt-6 bg-white border-border">
-                          <CardContent className="p-6">
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between text-sm">
-                                <span className="text-foreground">
-                                  {searchComplete ? (
-                                    <span className="text-green-600 font-semibold">
-                                      Search completed successfully!
-                                    </span>
-                                  ) : (
-                                    `Searching with ${currentTierConfig.name} tier...`
-                                  )}
-                                </span>
-                                <span className={searchComplete ? "text-green-600 font-bold" : "text-primary"}>
-                                  {progressValue}%
-                                </span>
-                              </div>
-                              <Progress value={progressValue} className="h-2" />
-                              {searchComplete && (
-                                <div className="mt-2 text-sm text-green-600">
-                                  Check your Contact Library to view and manage your new contacts.
-                                </div>
-                              )}
-                            </div>
-                          </CardContent>
-                        </Card>
-                      )}
+                    {isSearching && !hasResults && (
+                      <div className="mt-6">
+                        <LoadingSkeleton variant="contacts" count={3} />
+                      </div>
+                    )}
 
-                      {isSearching && !hasResults && (
-                        <Card className="mt-6 bg-white border-border">
-                          <CardContent className="p-6">
-                            <LoadingSkeleton variant="contacts" count={3} />
-                          </CardContent>
-                        </Card>
-                      )}
-
-                      {searchComplete && lastResults.length === 0 && (
-                        <div className="mt-4 p-4 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border-2 border-yellow-500/50 rounded-lg">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="text-base font-semibold text-yellow-700">
-                              No Contacts Found
-                            </div>
-                          </div>
-                          <div className="text-sm text-yellow-700 mt-2">
-                            <p className="mb-2">The search criteria may be too restrictive. Try:</p>
-                            <ul className="list-disc list-inside space-y-1 ml-2">
-                              <li>Using a broader job title (e.g., "analyst" instead of "investment banking analyst")</li>
-                              <li>Removing the company filter</li>
-                              <li>Using a broader location (e.g., just the state instead of city)</li>
-                              <li>Removing the school filter if searching for alumni</li>
-                            </ul>
-                            {searchMode === 'prompt' && (
-                              <p className="mt-3 text-xs text-yellow-600">
-                                💡 Tip: Edit the filters in the confirmation screen to make them less specific
-                              </p>
-                            )}
+                    {searchComplete && lastResults.length === 0 && (
+                      <div className="mt-6 p-4 border border-yellow-300 rounded-lg bg-yellow-50/50">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="text-base font-semibold text-yellow-700">
+                            No Contacts Found
                           </div>
                         </div>
-                      )}
-
-                      {hasResults && lastSearchStats && (
-                        <div className="mt-4 p-4 bg-gradient-to-r from-green-500/10 to-blue-500/10 border-2 border-green-500/50 rounded-lg">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="text-base font-semibold text-green-700">
-                              Search Completed Successfully!
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-2 gap-4 mt-3">
-                            <div className="bg-blue-50 rounded p-2 border border-blue-200/50">
-                              <div className="text-2xl font-bold text-blue-600">{lastResults.length}</div>
-                              <div className="text-xs text-blue-600/70">Contacts Found</div>
-                            </div>
-                            <div className="bg-blue-50 rounded p-2 border border-blue-200/50">
-                              <div className="text-2xl font-bold text-blue-600">{lastResults.length}</div>
-                              <div className="text-xs text-blue-600/70">Email Drafts</div>
-                            </div>
-                          </div>
-                          <div className="text-sm text-blue-700 mt-3 flex items-center">
-                            <span className="mr-2">Saved</span>
-                            All contacts saved to your Contact Library
-                          </div>
-                          <button 
-                            onClick={() => setActiveTab('contact-library')}
-                            className="mt-3 text-sm text-blue-600 hover:text-blue-700 underline"
-                          >
-                            View in Contact Library
-                          </button>
+                        <div className="text-sm text-yellow-700 mt-2">
+                          <p className="mb-2">The search criteria may be too restrictive. Try:</p>
+                          <ul className="list-disc list-inside space-y-1 ml-2">
+                            <li>Using a broader job title (e.g., "analyst" instead of "investment banking analyst")</li>
+                            <li>Removing the company filter</li>
+                            <li>Using a broader location (e.g., just the state instead of city)</li>
+                            <li>Removing the school filter if searching for alumni</li>
+                          </ul>
                         </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                    </>
-                  )}
-                </TabsContent>
+                      </div>
+                    )}
 
-                <TabsContent value="contact-library" className="mt-6">
-                  <ContactDirectoryComponent />
-                </TabsContent>
-
-                <TabsContent value="import" className="mt-6">
-                  <div className="bg-white border border-border rounded-xl p-6">
-                    <ContactImport 
-                      onImportComplete={() => {
-                        // Switch to Contact Library tab and refresh
-                        setActiveTab('contact-library');
-                      }} 
-                    />
+                    {hasResults && lastSearchStats && (
+                      <div className="mt-6 p-4 border border-green-300 rounded-lg bg-green-50/50">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="text-base font-semibold text-green-700">
+                            Search Completed Successfully!
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 mt-3">
+                          <div className="p-2">
+                            <div className="text-2xl font-bold text-blue-600">{lastResults.length}</div>
+                            <div className="text-xs text-gray-500">Contacts Found</div>
+                          </div>
+                          <div className="p-2">
+                            <div className="text-2xl font-bold text-blue-600">{lastResults.length}</div>
+                            <div className="text-xs text-gray-500">Email Drafts</div>
+                          </div>
+                        </div>
+                        <div className="text-sm text-gray-600 mt-3 flex items-center">
+                          <span className="mr-2">✓</span>
+                          All contacts saved to your Networking Tracker
+                        </div>
+                        <button 
+                          onClick={() => setActiveTab('contact-library')}
+                          className="mt-3 text-sm text-blue-600 hover:text-blue-700 underline"
+                        >
+                          View in Networking Tracker
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </TabsContent>
+                  
+                  <TabsContent value="contact-library" className="mt-0">
+                    <ContactDirectoryComponent />
+                  </TabsContent>
 
-                <TabsContent value="linkedin-email" className="mt-6">
-                  <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-gray-100 shadow-sm p-6">
+                  <TabsContent value="import" className="mt-0">
+                    <div className="p-6">
+                      <ContactImport 
+                        onImportComplete={() => {
+                          // Switch to Networking Tracker tab and refresh
+                          setActiveTab('contact-library');
+                        }} 
+                      />
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="linkedin-email" className="mt-0">
+                  <div className="p-6">
                     <div className="flex items-center gap-2 mb-4">
                       <Linkedin className="w-5 h-5 text-blue-600" />
-                      <h2 className="text-xl font-semibold text-gray-900">Import from LinkedIn</h2>
+                      <h2 className="text-xl font-semibold text-gray-900">LinkedIn Lookup</h2>
                     </div>
                     <p className="text-sm text-gray-500 mb-4">
                       Paste a LinkedIn profile URL to automatically find their email, generate a personalized message, and create a Gmail draft.
@@ -1776,12 +1608,12 @@ const ContactSearchPage: React.FC = () => {
                         value={linkedInUrl}
                         onChange={(e) => setLinkedInUrl(e.target.value)}
                         placeholder="https://www.linkedin.com/in/username"
-                        className="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="flex-1 px-4 py-3 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-500"
                       />
                       <button
                         onClick={handleLinkedInImport}
                         disabled={!linkedInUrl.trim() || linkedInLoading}
-                        className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                       >
                         {linkedInLoading ? (
                           <>
@@ -1798,26 +1630,27 @@ const ContactSearchPage: React.FC = () => {
                     </div>
                     
                     {linkedInError && (
-                      <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                      <div className="mt-3 p-3 border border-red-300 rounded-lg text-red-600 text-sm bg-red-50/50">
                         {linkedInError}
                       </div>
                     )}
                     
                     {linkedInSuccess && (
-                      <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
+                      <div className="mt-3 p-3 border border-green-300 rounded-lg text-green-600 text-sm bg-green-50/50">
                         {linkedInSuccess}
                       </div>
                     )}
                     
-                    <p className="text-xs text-gray-400 mt-3">
+                    <p className="text-xs text-gray-500 mt-3">
                       Uses 1 credit per import • Email draft will be saved to your Gmail Drafts
                     </p>
                   </div>
                 </TabsContent>
+                </div>
               </Tabs>
             </div>
           </main>
-        </div>
+        </MainContentWrapper>
       </div>
     </SidebarProvider>
   );

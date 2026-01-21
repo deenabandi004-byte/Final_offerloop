@@ -16,9 +16,9 @@ const AboutUs = () => {
           {/* Back Button */}
           <div className="flex justify-start">
             <Button variant="ghost" size="sm" asChild>
-              <Link to="/home" className="flex items-center gap-2 text-gray-300 text-slate-700 hover:text-blue-400">
+              <Link to="/dashboard" className="flex items-center gap-2 text-gray-300 text-slate-700 hover:text-blue-400">
                 <ArrowLeft className="h-4 w-4" />
-                Back to Home
+                Back to Dashboard
               </Link>
             </Button>
           </div>

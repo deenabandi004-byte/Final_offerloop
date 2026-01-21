@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { AppHeader } from "@/components/AppHeader";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useToast } from "@/hooks/use-toast";
-import { CreditPill } from "@/components/credits";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -13,14 +13,11 @@ import {
   Search,
   ExternalLink,
   RefreshCw,
-  ArrowLeft,
   Sparkles,
   FileText,
   Send,
   Coins,
-  Coffee,
   Inbox,
-  Briefcase,
   LucideIcon,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -60,23 +57,6 @@ const StatCard = ({ icon: Icon, label, value }: StatCardProps) => (
     </div>
   </div>
 );
-
-/* ---------- Helper Functions ---------- */
-
-const getGreeting = () => {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
-};
-
-const parseFirstName = (fullName: string | undefined): string => {
-  if (!fullName || typeof fullName !== 'string') {
-    return "";
-  }
-  const nameParts = fullName.trim().split(' ');
-  return nameParts[0] || "";
-};
 
 export default function Outbox() {
   const { user } = useFirebaseAuth();
@@ -141,18 +121,6 @@ export default function Outbox() {
   }, [threads]);
 
   const credits = user?.credits ?? 0;
-
-  const firstName = parseFirstName(user?.name);
-  const greeting = getGreeting();
-  const contextualSubtitle = useMemo(() => {
-    if (draftCount > 0) {
-      return `You have ${draftCount} ${draftCount === 1 ? 'draft' : 'drafts'} ready to send`;
-    }
-    if (threads.length === 0) {
-      return "Ready to grow your network?";
-    }
-    return "Let's keep the conversation going";
-  }, [draftCount, threads.length]);
 
   /* ---------- Helpers ---------- */
 
@@ -242,68 +210,30 @@ export default function Outbox() {
         <AppSidebar />
 
         <div className="flex-1 flex flex-col">
-          {/* Header */}
-          <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-white shadow-sm">
-            <div className="flex items-center gap-4">
-              <SidebarTrigger className="text-foreground hover:bg-secondary" />
-              <div className="flex items-center gap-2">
-                <Mail className="h-5 w-5 text-primary" />
-                <h1 className="text-xl font-semibold">Outbox</h1>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <CreditPill credits={user?.credits ?? 0} max={user?.maxCredits ?? 300} />
-            </div>
-          </header>
+          <AppHeader title="" />
 
           {/* Main content */}
-          <main className="flex-1 p-8 bg-white">
-            <div className="max-w-6xl mx-auto space-y-8">
-              {/* Welcome Header - First thing users see after login */}
-              <div className="space-y-1">
-                <h1 className="text-2xl font-semibold text-foreground">
-                  {greeting}{firstName ? `, ${firstName}` : ""}! 👋
+          <main className="flex-1 overflow-y-auto p-6 bg-white">
+            <div style={{ width: '100%', minWidth: 'fit-content' }}>
+              <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%' }}>
+                {/* Page Title - Matching Find People styling */}
+                <h1 className="text-[28px] font-semibold text-gray-900 mb-2">
+                  Track Email Outreach
                 </h1>
-                <p className="text-muted-foreground">
-                  {contextualSubtitle}
+                
+                {/* Helper text */}
+                <p className="text-gray-500 text-sm mb-6">
+                  Track outreach, responses, and generate follow-ups automatically.
                 </p>
-              </div>
 
-              {/* Stats Row */}
-              <div className="flex flex-wrap gap-4">
-                <StatCard icon={FileText} label="Drafts" value={draftCount} />
-                <StatCard icon={Send} label="Sent" value={sentCount} />
-                <StatCard icon={Coins} label="Credits" value={credits} />
-              </div>
+                {/* Stats Row */}
+                <div className="flex flex-wrap gap-4 mb-6">
+                  <StatCard icon={FileText} label="Drafts" value={draftCount} />
+                  <StatCard icon={Send} label="Sent" value={sentCount} />
+                  <StatCard icon={Coins} label="Credits" value={credits} />
+                </div>
 
-              {/* Quick Actions */}
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  variant="outline"
-                  onClick={() => navigate("/contact-search")}
-                  className="border-0 shadow-sm hover:shadow-md bg-white text-foreground hover:bg-gray-50"
-                >
-                  <Search className="w-4 h-4 mr-2" /> Find Contacts
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => navigate("/coffee-chat-prep")}
-                  className="border-0 shadow-sm hover:shadow-md bg-white text-foreground hover:bg-gray-50"
-                >
-                  <Coffee className="w-4 h-4 mr-2" /> Coffee Chat Prep
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => navigate("/interview-prep")}
-                  className="border-0 shadow-sm hover:shadow-md bg-white text-foreground hover:bg-gray-50"
-                >
-                  <Briefcase className="w-4 h-4 mr-2" /> Interview Prep
-                </Button>
-              </div>
-
-              {/* Divider */}
-              <div className="border-t border-gray-100/30 pt-6">
+                {/* Main Content Area */}
                 <div className="flex gap-6">
 
               {/* LEFT: Thread list */}
@@ -545,3 +475,46 @@ export default function Outbox() {
     </SidebarProvider>
   );
 }
+
+/* ---------- Loading Components ---------- */
+
+const LoadingBar = ({ variant = "determinate", size = "md", progress = 0 }: { 
+  variant?: "determinate" | "indeterminate"; 
+  size?: "sm" | "md"; 
+  progress?: number;
+}) => {
+  const height = size === "sm" ? "h-1" : "h-2";
+  
+  if (variant === "indeterminate") {
+    return (
+      <div className={`w-full ${height} bg-gray-200 rounded-full overflow-hidden`}>
+        <div 
+          className={`${height} bg-blue-500 rounded-full animate-[loading_1.5s_ease-in-out_infinite]`}
+          style={{ width: "30%" }}
+        />
+      </div>
+    );
+  }
+  
+  return (
+    <div className={`w-full ${height} bg-gray-200 rounded-full overflow-hidden`}>
+      <div 
+        className={`${height} bg-blue-500 rounded-full transition-all duration-300`}
+        style={{ width: `${progress}%` }}
+      />
+    </div>
+  );
+};
+
+const InlineLoadingBar = ({ isLoading }: { isLoading: boolean }) => {
+  if (!isLoading) return null;
+  
+  return (
+    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gray-200 overflow-hidden">
+      <div 
+        className="h-full bg-blue-500 animate-[loading_1.5s_ease-in-out_infinite]"
+        style={{ width: "30%" }}
+      />
+    </div>
+  );
+};

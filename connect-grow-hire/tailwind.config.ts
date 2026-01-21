@@ -16,6 +16,10 @@ export default {
 				'2xl': '1400px'
 			}
 		},
+		fontFamily: {
+			// Standardize font-family globally - matching sidebar (source of truth)
+			sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+		},
 		extend: {
 			colors: {
 				border: 'hsl(var(--border))',

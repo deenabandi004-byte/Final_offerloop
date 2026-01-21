@@ -28,6 +28,8 @@ from .app.routes.contact_import import contact_import_bp
 from .app.routes.job_board import job_board_bp
 from .app.routes.scout_assistant import scout_assistant_bp
 from .app.routes.linkedin_import import linkedin_import_bp
+from .app.routes.resume_workshop import resume_workshop_bp
+from .app.routes.cover_letter_workshop import cover_letter_workshop_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -114,6 +116,8 @@ def create_app() -> Flask:
     app.register_blueprint(contact_import_bp)
     app.register_blueprint(job_board_bp)
     app.register_blueprint(scout_assistant_bp)
+    app.register_blueprint(resume_workshop_bp)
+    app.register_blueprint(cover_letter_workshop_bp)
 
     # --- Debug route to check frontend build ---
     @app.route('/api/debug/frontend')

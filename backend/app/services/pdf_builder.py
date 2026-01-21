@@ -190,6 +190,86 @@ def generate_coffee_chat_pdf(
         return fallback
 
 
+async def build_resume_pdf_from_text(resume_text: str) -> bytes:
+    """Generate a PDF from resume text content"""
+    try:
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=36, bottomMargin=36, leftMargin=54, rightMargin=54)
+        styles = getSampleStyleSheet()
+        story: List = []
+
+        # Define styles
+        name_style = ParagraphStyle(
+            "Name",
+            parent=styles["Heading1"],
+            fontSize=16,
+            textColor="#1a1a1a",
+            spaceAfter=6,
+            alignment=TA_CENTER,
+        )
+        section_title = ParagraphStyle(
+            "SectionTitle",
+            parent=styles["Heading2"],
+            fontSize=11,
+            textColor="#1a1a1a",
+            spaceAfter=6,
+            spaceBefore=12,
+            borderPadding=(0, 0, 2, 0),
+        )
+        body_style = ParagraphStyle(
+            "Body",
+            parent=styles["BodyText"],
+            fontSize=10,
+            leading=12,
+            alignment=TA_LEFT,
+            spaceAfter=4,
+        )
+        bullet_style = ParagraphStyle(
+            "Bullets",
+            parent=body_style,
+            leftIndent=12,
+            bulletIndent=0,
+            spaceAfter=2,
+        )
+
+        # Parse and render resume sections
+        lines = resume_text.strip().split('\n')
+        current_section = None
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Detect section headers (all caps or ending with :)
+            if line.isupper() or (line.endswith(':') and len(line) < 50):
+                current_section = line.rstrip(':')
+                story.append(_safe_paragraph(f"<b>{current_section}</b>", section_title))
+            # Detect bullet points
+            elif line.startswith(('•', '-', '*', '–')):
+                bullet_text = line.lstrip('•-*– ').strip()
+                story.append(Paragraph(f"<bullet>•</bullet> {bullet_text}", bullet_style))
+            # First non-section line is often the name
+            elif len(story) == 0 and len(line) < 60:
+                story.append(_safe_paragraph(f"<b>{line}</b>", name_style))
+            else:
+                story.append(_safe_paragraph(line, body_style))
+
+        doc.build(story)
+        buffer.seek(0)
+        return buffer.read()
+
+    except Exception as exc:
+        logger.error(f"Resume PDF generation failed: {exc}")
+        import traceback
+        traceback.print_exc()
+        # Return minimal valid PDF on error
+        fallback = BytesIO()
+        fallback.write(b"%PDF-1.4\nResume - Error generating PDF")
+        fallback.seek(0)
+        return fallback.read()
+
+
 def generate_cover_letter_pdf(content: str) -> BytesIO:
     """Generate a PDF from cover letter text content"""
     try:

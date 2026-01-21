@@ -238,7 +238,7 @@ const Index = () => {
           <div className="hidden md:flex items-center gap-4">
             {user ? (
               <button
-                onClick={() => navigate("/home")}
+                onClick={() => navigate("/dashboard")}
                 className="btn-secondary-glass px-4 py-2 text-sm"
               >
                 Go to Dashboard
@@ -333,7 +333,7 @@ const Index = () => {
               {user ? (
                 <button
                   onClick={() => {
-                    navigate("/home");
+                    navigate("/dashboard");
                     setMobileMenuOpen(false);
                   }}
                   className="btn-secondary-glass px-4 py-2 text-sm w-full"
@@ -381,7 +381,7 @@ const Index = () => {
           {/* Hero Text - Centered */}
           <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-12 mb-12 md:mb-20">
             <div className="max-w-5xl mx-auto text-center">
-              <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold mb-6" style={{ overflow: 'visible', lineHeight: '1.1', letterSpacing: '-0.02em' }}>
+              <h1 className="text-[70px] md:text-[84px] lg:text-[96px] font-bold mb-6" style={{ overflow: 'visible', lineHeight: '1.1', letterSpacing: '-0.02em' }}>
                 <span className="text-hero-primary tracking-tight">
                   Land Job Offers.
                   <br />
@@ -419,11 +419,14 @@ const Index = () => {
           <FeatureCards />
         </section>
 
-          {/* Recruiting doesn't have to mean Header */}
+          {/* Getting a Job doesn't have to mean Header */}
           <div className="text-center mt-16 mb-8">
-            <h2 className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold text-section-heading flex items-baseline justify-center">
-              Recruiting doesn't have to mean
-              <AnimatedDots />
+            <h2 className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold text-section-heading flex flex-col items-center justify-center">
+              <span>Getting a Job</span>
+              <span className="flex items-baseline">
+                doesn't have to mean
+                <AnimatedDots />
+              </span>
             </h2>
           </div>
 

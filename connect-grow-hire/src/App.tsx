@@ -20,8 +20,9 @@ import AuthCallback from "./pages/AuthCallback";
 import UscBeta from "@/pages/UscBeta";
 
 // Lazy load heavy pages for code splitting
-const Home = React.lazy(() => import("./pages/Home"));
 const AboutUs = React.lazy(() => import("./pages/AboutUs"));
+const Outbox = React.lazy(() => import("./pages/Outbox"));
+const CalendarPage = React.lazy(() => import("./pages/CalendarPage"));
 const Contact = React.lazy(() => import("./pages/Contact"));
 const CoffeeChatLibrary = React.lazy(() => import("./pages/CoffeeChatLibrary"));
 const ContactDirectory = React.lazy(() => import("./pages/ContactDirectory"));
@@ -31,7 +32,6 @@ const TermsOfService = React.lazy(() => import("./pages/TermsOfService"));
 const TermsOfServiceSettings = React.lazy(() => import("./pages/TermsOfServiceSettings"));
 const AccountSettings = React.lazy(() => import("./pages/AccountSettings"));
 const Pricing = React.lazy(() => import("./pages/Pricing"));
-const Dashboard = React.lazy(() => import("./pages/Dashboard"));
 const DashboardPage = React.lazy(() => import("./pages/DashboardPage"));
 const JobBoardPage = React.lazy(() => import("./pages/JobBoardPage"));
 const RecruiterSpreadsheetPage = React.lazy(() => import("./pages/RecruiterSpreadsheetPage"));
@@ -43,6 +43,8 @@ const ContactSearchPage = React.lazy(() => import("./pages/ContactSearchPage"));
 const InterviewPrepPage = React.lazy(() => import("./pages/InterviewPrepPage"));
 const FirmSearchPage = React.lazy(() => import("./pages/FirmSearchPage"));
 const ApplicationLabPage = React.lazy(() => import("./pages/ApplicationLabPage"));
+const ResumeWorkshopPage = React.lazy(() => import("./pages/ResumeWorkshopPage"));
+const CoverLetterPage = React.lazy(() => import("./pages/CoverLetterPage"));
 // New Lovable Onboarding Flow
 const OnboardingFlow = React.lazy(() => import("./pages/OnboardingFlow").then(m => ({ default: m.OnboardingFlow })));
 
@@ -165,12 +167,12 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   // Only redirect authenticated users if they're not coming from sign-out
   if (user) {
-    const redirectPath = user.needsOnboarding ? "/onboarding" : "/home";
+    const redirectPath = user.needsOnboarding ? "/onboarding" : "/dashboard";
     devLog("🛣️ [PUBLIC ROUTE] User authenticated, redirecting to:", redirectPath);
     return user.needsOnboarding ? (
       <Navigate to="/onboarding" replace />
     ) : (
-      <Navigate to="/home" replace />
+      <Navigate to="/dashboard" replace />
     );
   }
   
@@ -205,8 +207,11 @@ const AppRoutes: React.FC = () => {
       <Route path="/onboarding/*" element={<Navigate to="/onboarding" replace />} />
 
       {/* Protected App Pages - Wrapped in Suspense for lazy loading */}
-      <Route path="/home" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><Home /></Suspense></ProtectedRoute>} />
       <Route path="/dashboard" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><DashboardPage /></Suspense></ProtectedRoute>} />
+      <Route path="/outbox" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><Outbox /></Suspense></ProtectedRoute>} />
+      <Route path="/calendar" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CalendarPage /></Suspense></ProtectedRoute>} />
+      {/* Legacy /home redirect to dashboard */}
+      <Route path="/home" element={<Navigate to="/dashboard" replace />} />
       <Route path="/contact-directory" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ContactDirectory /></Suspense></ProtectedRoute>} />
       <Route path="/coffee-chat-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoffeeChatLibrary /></Suspense></ProtectedRoute>} />
       <Route path="/account-settings" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AccountSettings /></Suspense></ProtectedRoute>} />
@@ -222,6 +227,12 @@ const AppRoutes: React.FC = () => {
       <Route path="/recruiter-spreadsheet" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><RecruiterSpreadsheetPage /></Suspense></ProtectedRoute>} />
       <Route path="/scout" element={<ProtectedRoute><ScoutRedirect /></ProtectedRoute>} />
       <Route path="/application-lab" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ApplicationLabPage /></Suspense></ProtectedRoute>} />
+      
+      {/* Write Pages - Resume & Cover Letter */}
+      <Route path="/write/resume" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ResumeWorkshopPage /></Suspense></ProtectedRoute>} />
+      <Route path="/write/resume-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ResumeWorkshopPage /></Suspense></ProtectedRoute>} />
+      <Route path="/write/cover-letter" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoverLetterPage /></Suspense></ProtectedRoute>} />
+      <Route path="/write/cover-letter-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoverLetterPage /></Suspense></ProtectedRoute>} />
 
       {/* Public informational pages */}
       <Route path="/about" element={<Suspense fallback={<PageLoader />}><AboutUs /></Suspense>} />
@@ -252,8 +263,8 @@ const ScoutRedirect: React.FC = () => {
     openPanel();
   }, [openPanel]);
   
-  // Redirect to home
-  return <Navigate to="/home" replace />;
+  // Redirect to dashboard
+  return <Navigate to="/dashboard" replace />;
 };
 
 /* ---------------- Conditional Background Wrapper ---------------- */

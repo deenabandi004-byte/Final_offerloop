@@ -1,13 +1,11 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useMemo, useState, useRef, useLayoutEffect } from "react";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { AppSidebar } from "@/components/AppSidebar";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import {
   Coffee,
   Download,
@@ -18,12 +16,8 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  FileText,
 } from "lucide-react";
 import { UpgradeBanner } from "@/components/UpgradeBanner";
-import { CreditPill } from "@/components/credits";
-import { BackToHomeButton } from "@/components/BackToHomeButton";
-import { BetaBadge } from "@/components/BetaBadges";
 import { apiService } from "@/services/api";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import type { CoffeeChatPrep, CoffeeChatPrepStatus } from "@/services/api";
@@ -31,15 +25,69 @@ import { InlineLoadingBar, SteppedLoadingBar } from "@/components/ui/LoadingBar"
 import { toast } from "@/hooks/use-toast";
 import { COFFEE_CHAT_CREDITS } from "@/lib/constants";
 import { flushSync } from "react-dom";
-// ScoutBubble removed - now using ScoutHeaderButton in PageHeaderActions
 import { logActivity, generateCoffeeChatPrepSummary } from "@/utils/activityLogger";
-import { PageHeaderActions } from "@/components/PageHeaderActions";
+import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { useSubscription } from "@/hooks/useSubscription";
-import { canUseFeature, getRemainingUses, getFeatureLimit } from "@/utils/featureAccess";
+import { canUseFeature, getFeatureLimit } from "@/utils/featureAccess";
 import { trackFeatureActionCompleted, trackContentViewed, trackError } from "../lib/analytics";
 
+// Stripe-style Tabs Component with animated underline
+interface StripeTabsProps {
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+  tabs: { id: string; label: string }[];
+}
+
+const StripeTabs: React.FC<StripeTabsProps> = ({ activeTab, onTabChange, tabs }) => {
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
+
+  useLayoutEffect(() => {
+    const activeIndex = tabs.findIndex(tab => tab.id === activeTab);
+    const activeTabRef = tabRefs.current[activeIndex];
+    
+    if (activeTabRef) {
+      const { offsetLeft, offsetWidth } = activeTabRef;
+      setIndicatorStyle({ left: offsetLeft, width: offsetWidth });
+    }
+  }, [activeTab, tabs]);
+
+  return (
+    <div className="relative">
+      <div className="flex items-center gap-8">
+        {tabs.map((tab, index) => (
+          <button
+            key={tab.id}
+            ref={(el) => { tabRefs.current[index] = el; }}
+            onClick={() => onTabChange(tab.id)}
+            className={`
+              relative pb-3 text-sm font-medium transition-colors duration-150
+              focus:outline-none focus-visible:outline-none
+              ${activeTab === tab.id 
+                ? 'text-[#3B82F6]' 
+                : 'text-gray-500 hover:text-gray-700'
+              }
+            `}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      
+      <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gray-200" />
+      
+      <div
+        className="absolute bottom-0 h-[2px] bg-[#3B82F6] transition-all duration-200 ease-out"
+        style={{
+          left: indicatorStyle.left,
+          width: indicatorStyle.width,
+        }}
+      />
+    </div>
+  );
+};
+
 const CoffeeChatPrepPage: React.FC = () => {
-  const navigate = useNavigate();
   const { user: firebaseUser, checkCredits } = useFirebaseAuth();
   const { subscription } = useSubscription();
   const effectiveUser = firebaseUser || {
@@ -67,11 +115,6 @@ const CoffeeChatPrepPage: React.FC = () => {
   
   // User has access only if they have both monthly limit AND credits
   const hasAccess = hasMonthlyAccess && hasEnoughCredits;
-
-  // Get remaining uses for upgrade message
-  const remainingUses = subscription
-    ? getRemainingUses(subscription.tier, 'coffeeChatPreps', currentUsage)
-    : 0;
 
   // Coffee Chat Generation State
   const [linkedinUrl, setLinkedinUrl] = useState("");
@@ -463,55 +506,37 @@ const CoffeeChatPrepPage: React.FC = () => {
     return { completed, inProgress };
   }, [preps]);
 
+  // Tab state
+  const [activeTab, setActiveTab] = useState<string>("coffee-chat-prep");
+
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-white text-foreground">
+      <div className="flex min-h-screen w-full text-foreground">
         <AppSidebar />
 
-        <div className="flex-1">
-          <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-white shadow-sm relative z-20">
-            <div className="flex items-center gap-4">
-              <SidebarTrigger className="text-foreground hover:bg-secondary" />
-              <h1 className="text-xl font-semibold">Coffee Chat Prep</h1>
-            </div>
-            <PageHeaderActions />
-          </header>
+        <MainContentWrapper>
+          <AppHeader title="" />
 
-          <main className="p-8 bg-white">
-            <div className="max-w-5xl mx-auto">
-              <Tabs defaultValue="coffee-chat-prep" className="w-full">
-                <div className="flex justify-center mb-8">
-                  <TabsList className="h-14 tabs-container-gradient border border-border grid grid-cols-2 max-w-lg w-full rounded-xl p-1 bg-white">
-                    <TabsTrigger
-                      value="coffee-chat-prep"
-                      className="h-12 font-medium text-base data-[state=active] data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
-                    >
-                      <Coffee className="h-5 w-5 mr-2" />
-                      Coffee Chat Prep
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="coffee-library"
-                      className="h-12 font-medium text-base data-[state=active] data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
-                    >
-                      <FileText className="h-5 w-5 mr-2" />
-                      Coffee Library
-                    </TabsTrigger>
-                  </TabsList>
-                </div>
+          <main className="bg-white min-h-screen">
+            <div className="max-w-5xl mx-auto px-8 pt-10 pb-4">
+              <h1 className="text-[28px] font-semibold text-gray-900 mb-4">
+                Coffee Chat Prep
+              </h1>
 
-                <TabsContent value="coffee-chat-prep" className="mt-6">
-                  <Card className="bg-white border-border rounded-2xl">
-                    <CardHeader className="border-b border-border">
-                      <CardTitle className="text-xl text-foreground flex items-center gap-2">
-                        Coffee Chat Prep
-                        <BetaBadge size="xs" variant="glow" />
-                        <Badge variant="secondary" className="ml-auto">
-                          {COFFEE_CHAT_CREDITS} credits
-                        </Badge>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-6 space-y-8">
-                      {!hasAccess && (
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                <StripeTabs 
+                  activeTab={activeTab} 
+                  onTabChange={setActiveTab}
+                  tabs={[
+                    { id: 'coffee-chat-prep', label: 'Coffee Chat Prep' },
+                    { id: 'coffee-library', label: `Coffee Library (${preps.length})` },
+                  ]}
+                />
+
+                <div className="pb-8 pt-6">
+                  <TabsContent value="coffee-chat-prep" className="mt-0">
+                    {!hasAccess && (
+                      <div className="mb-6">
                         <UpgradeBanner
                           hasExhaustedLimit={!hasMonthlyAccess}
                           hasEnoughCredits={hasEnoughCredits}
@@ -524,38 +549,44 @@ const CoffeeChatPrepPage: React.FC = () => {
                           nextTier={subscription?.tier === 'free' ? 'Pro' : 'Elite'}
                           showUpgradeButton={!hasMonthlyAccess || !hasEnoughCredits}
                         />
-                      )}
+                      </div>
+                    )}
+
+                    <div className="mb-6">
+                      <h2 className="text-xl font-semibold text-gray-900 mb-6">
+                        Who are you meeting with?
+                      </h2>
+
                       <div className="grid gap-6 lg:grid-cols-2">
                         <div className="space-y-5">
                           <div>
-                            <label className="block text-sm font-medium mb-2 text-foreground">
-                              LinkedIn Profile URL
+                            <label className="block text-sm font-medium mb-2 text-gray-700">
+                              LinkedIn Profile URL <span className="text-red-500">*</span>
                             </label>
                             <Input
                               value={linkedinUrl}
                               onChange={(e) => setLinkedinUrl(e.target.value)}
                               placeholder="https://linkedin.com/in/username"
-                              className="bg-white border-input text-foreground placeholder:text-muted-foreground"
+                              className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 hover:border-gray-400 transition-colors"
                               disabled={coffeeChatLoading || !hasAccess}
                             />
-                            <p className="text-xs text-muted-foreground mt-2">
-                              Uses {COFFEE_CHAT_CREDITS} credits. Generates a PDF with recent division news, talking points, and similarities.
+                            <p className="text-sm text-gray-500 mt-2">
+                              Uses <span className="font-medium text-blue-600">{COFFEE_CHAT_CREDITS}</span> credits • Generates a PDF with recent news, talking points, and similarities.
                             </p>
                           </div>
 
-                          <div className="flex flex-wrap gap-3">
+                          <div className="space-y-4">
                             <Button
                               onClick={handleCoffeeChatSubmit}
                               disabled={coffeeChatLoading || !linkedinUrl.trim() || (effectiveUser.credits ?? 0) < COFFEE_CHAT_CREDITS || !hasAccess}
-                              className="relative overflow-hidden"
+                              size="lg"
+                              className="text-white font-medium px-8 transition-all hover:opacity-90 relative overflow-hidden"
+                              style={{ background: '#3B82F6' }}
                             >
                               {coffeeChatLoading ? (
                                 'Generating...'
                               ) : (
-                                <>
-                                  <Coffee className="h-4 w-4 mr-2" />
-                                  Generate Prep
-                                </>
+                                'Generate Prep'
                               )}
                               <InlineLoadingBar isLoading={coffeeChatLoading} />
                             </Button>
@@ -564,7 +595,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                               <Button
                                 variant="outline"
                                 onClick={() => downloadCoffeeChatPDF()}
-                                className="border-green-500/60 text-green-300 hover:bg-green-500/10"
+                                className="border-green-500 text-green-600 hover:bg-green-50"
                               >
                                 <Download className="h-4 w-4 mr-2" />
                                 Download PDF
@@ -573,21 +604,21 @@ const CoffeeChatPrepPage: React.FC = () => {
                           </div>
 
                           {coffeeChatStatus !== 'idle' && (
-                            <div className="rounded-lg border border-border bg-muted/50 p-4 shadow-inner text-sm text-foreground">
+                            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
                               {coffeeChatStatus === 'completed' ? (
                                 <div className="flex items-center gap-2">
-                                  <CheckCircle className="h-4 w-4 text-blue-600" />
+                                  <CheckCircle className="h-4 w-4 text-green-600" />
                                   <span>{coffeeChatProgress}</span>
                                 </div>
                               ) : coffeeChatStatus === 'failed' ? (
                                 <div className="flex items-center gap-2">
-                                  <XCircle className="h-4 w-4 text-destructive" />
+                                  <XCircle className="h-4 w-4 text-red-500" />
                                   <span>{coffeeChatProgress || 'Generation failed'}</span>
                                 </div>
                               ) : (
                                 <div className="space-y-3">
                                   <div className="flex items-center gap-2">
-                                    <Clock className="h-4 w-4 text-primary" />
+                                    <Clock className="h-4 w-4 text-blue-600" />
                                     <span className="font-medium">{coffeeChatProgress}</span>
                                   </div>
                                   <SteppedLoadingBar 
@@ -603,54 +634,54 @@ const CoffeeChatPrepPage: React.FC = () => {
                         <div className="space-y-4">
                           {coffeeChatStatus === 'completed' && coffeeChatResult ? (
                             <>
-                              <div className="rounded-xl border border-green-500/40 bg-green-500/10 p-5 space-y-3">
+                              <div className="rounded-lg border border-green-200 bg-green-50 p-5 space-y-3">
                                 <div className="flex items-center justify-between">
                                   <h3 className="text-sm font-semibold text-green-700 uppercase tracking-wide">
                                     Contact Snapshot
                                   </h3>
-                                  <span className="text-xs text-blue-600/80">
+                                  <span className="text-xs text-green-600">
                                     Ready for coffee chat
                                   </span>
                                 </div>
-                                <div className="space-y-1 text-sm text-foreground">
-                                  <p><span className="text-muted-foreground">Name:</span> {coffeeChatResult.contactData?.firstName} {coffeeChatResult.contactData?.lastName}</p>
-                                  <p><span className="text-muted-foreground">Role:</span> {coffeeChatResult.contactData?.jobTitle}</p>
-                                  <p><span className="text-muted-foreground">Company:</span> {coffeeChatResult.contactData?.company}</p>
-                                  <p><span className="text-muted-foreground">Office:</span> {coffeeChatResult.contactData?.location || coffeeChatResult.context?.office}</p>
+                                <div className="space-y-1 text-sm text-gray-700">
+                                  <p><span className="text-gray-500">Name:</span> {coffeeChatResult.contactData?.firstName} {coffeeChatResult.contactData?.lastName}</p>
+                                  <p><span className="text-gray-500">Role:</span> {coffeeChatResult.contactData?.jobTitle}</p>
+                                  <p><span className="text-gray-500">Company:</span> {coffeeChatResult.contactData?.company}</p>
+                                  <p><span className="text-gray-500">Office:</span> {coffeeChatResult.contactData?.location || coffeeChatResult.context?.office}</p>
                                   {coffeeChatResult.hometown && (
-                                    <p><span className="text-muted-foreground">Hometown:</span> {coffeeChatResult.hometown}</p>
+                                    <p><span className="text-gray-500">Hometown:</span> {coffeeChatResult.hometown}</p>
                                   )}
                                 </div>
                               </div>
 
                               {coffeeChatResult.similaritySummary && (
-                                <div className="rounded-xl border border-blue-500/40 bg-blue-500/10 p-4">
+                                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
                                   <h3 className="text-sm font-semibold text-blue-700 uppercase tracking-wide mb-2">
                                     Common Ground
                                   </h3>
-                                  <p className="text-sm text-foreground leading-relaxed">
+                                  <p className="text-sm text-gray-700 leading-relaxed">
                                     {coffeeChatResult.similaritySummary}
                                   </p>
                                 </div>
                               )}
 
                               {coffeeChatResult.industrySummary && (
-                                <div className="rounded-xl border border-purple-500/40 bg-purple-500/10 p-4">
+                                <div className="rounded-lg border border-purple-200 bg-purple-50 p-4">
                                   <h3 className="text-sm font-semibold text-purple-700 uppercase tracking-wide mb-2">
                                     Industry Pulse
                                   </h3>
-                                  <p className="text-sm text-foreground leading-relaxed">
+                                  <p className="text-sm text-gray-700 leading-relaxed">
                                     {coffeeChatResult.industrySummary}
                                   </p>
                                 </div>
                               )}
                             </>
                           ) : (
-                            <div className="rounded-xl border border-border bg-muted/30 p-5 text-sm text-foreground space-y-3">
-                              <h3 className="text-sm font-semibold text-foreground uppercase tracking-wide">
+                            <div className="rounded-lg border border-gray-200 bg-gray-50 p-5 text-sm space-y-3">
+                              <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">
                                 What you'll receive
                               </h3>
-                              <ul className="space-y-2 text-foreground">
+                              <ul className="space-y-2 text-gray-700">
                                 <li className="flex items-start gap-2">
                                   <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5" />
                                   Curated headlines tied to the division and office
@@ -661,134 +692,137 @@ const CoffeeChatPrepPage: React.FC = () => {
                                 </li>
                                 <li className="flex items-start gap-2">
                                   <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5" />
-                                  PDF saved to your Coffee Chat Library
+                                  PDF saved to your Coffee Library
                                 </li>
                               </ul>
                             </div>
                           )}
                         </div>
                       </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
+                    </div>
+                  </TabsContent>
 
-                <TabsContent value="coffee-library" className="mt-6">
-                  <div className="space-y-6">
-                    {libraryLoading ? (
-                      <Card className="bg-white border-border">
-                        <CardContent className="p-6">
-                          <LoadingSkeleton variant="card" count={3} />
-                        </CardContent>
-                      </Card>
-                    ) : preps.length === 0 ? (
-                      <div className="rounded-xl border border-border bg-white p-10 text-center space-y-4">
-                        <Coffee className="h-10 w-10 mx-auto text-primary" />
-                        <h3 className="text-lg font-semibold text-foreground">No preps yet</h3>
-                        <p className="text-sm text-muted-foreground">
-                          Generate your first coffee chat prep to see it appear here.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-6">
-                        {groupedPreps.inProgress.length > 0 && (
-                          <section>
-                            <h3 className="text-sm font-semibold text-muted-foreground uppercase mb-3">
-                              In Progress
-                            </h3>
-                            <div className="grid gap-4">
-                              {groupedPreps.inProgress.map((prep) => (
-                                <div
-                                  key={prep.id}
-                                  className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-5 py-4 flex items-center justify-between"
-                                >
-                                  <div>
-                                    <p className="text-sm text-foreground font-medium">{prep.contactName}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {prep.jobTitle} @ {prep.company}
-                                    </p>
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                      Requested {prep.createdAt ? new Date(prep.createdAt).toLocaleString() : ""}
-                                    </p>
+                  <TabsContent value="coffee-library" className="mt-0">
+                    <div className="space-y-6">
+                      {libraryLoading ? (
+                        <LoadingSkeleton variant="card" count={3} />
+                      ) : preps.length === 0 ? (
+                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-10 text-center space-y-4">
+                          <Coffee className="h-10 w-10 mx-auto text-blue-600" />
+                          <h3 className="text-lg font-semibold text-gray-900">No preps yet</h3>
+                          <p className="text-sm text-gray-500">
+                            Generate your first coffee chat prep to see it appear here.
+                          </p>
+                          <Button
+                            onClick={() => setActiveTab('coffee-chat-prep')}
+                            variant="outline"
+                            className="border-blue-500 text-blue-600 hover:bg-blue-50"
+                          >
+                            Create Your First Prep
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="space-y-6">
+                          {groupedPreps.inProgress.length > 0 && (
+                            <section>
+                              <h3 className="text-sm font-semibold text-gray-500 uppercase mb-3">
+                                In Progress
+                              </h3>
+                              <div className="grid gap-4">
+                                {groupedPreps.inProgress.map((prep) => (
+                                  <div
+                                    key={prep.id}
+                                    className="rounded-lg border border-yellow-200 bg-yellow-50 px-5 py-4 flex items-center justify-between"
+                                  >
+                                    <div>
+                                      <p className="text-sm text-gray-900 font-medium">{prep.contactName}</p>
+                                      <p className="text-xs text-gray-500">
+                                        {prep.jobTitle} @ {prep.company}
+                                      </p>
+                                      <p className="text-xs text-gray-400 mt-1">
+                                        Requested {prep.createdAt ? new Date(prep.createdAt).toLocaleString() : ""}
+                                      </p>
+                                    </div>
+                                    <div className="text-xs uppercase text-yellow-600 font-medium">Processing...</div>
                                   </div>
-                                  <div className="text-xs uppercase text-yellow-600">Processing...</div>
-                                </div>
-                              ))}
-                            </div>
-                          </section>
-                        )}
+                                ))}
+                              </div>
+                            </section>
+                          )}
 
-                        {groupedPreps.completed.length > 0 && (
-                          <section className="space-y-3">
-                            <h3 className="text-sm font-semibold text-muted-foreground uppercase">
-                              Completed ({groupedPreps.completed.length})
-                            </h3>
-                            <div className="grid gap-4">
-                              {groupedPreps.completed.map((prep) => (
-                                <div
-                                  key={prep.id}
-                                  className="rounded-xl border border-border bg-white p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4"
-                                >
-                                  <div className="space-y-2">
-                                    <div className="flex items-center gap-2 text-sm text-foreground font-medium">
-                                      <BadgeCheck className="h-4 w-4 text-blue-600" />
-                                      {prep.contactName}
-                                    </div>
-                                    <div className="text-sm text-foreground">
-                                      {prep.jobTitle} @ {prep.company}
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                                      <span className="flex items-center gap-1">
-                                        <Calendar className="h-3 w-3" />
-                                        {prep.createdAt ? new Date(prep.createdAt).toLocaleDateString() : "—"}
-                                      </span>
-                                      {prep.hometown && (
+                          {groupedPreps.completed.length > 0 && (
+                            <section className="space-y-3">
+                              <h3 className="text-sm font-semibold text-gray-500 uppercase">
+                                Completed ({groupedPreps.completed.length})
+                              </h3>
+                              <div className="grid gap-4">
+                                {groupedPreps.completed.map((prep) => (
+                                  <div
+                                    key={prep.id}
+                                    className="rounded-lg border border-gray-200 bg-white p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4"
+                                  >
+                                    <div className="space-y-2">
+                                      <div className="flex items-center gap-2 text-sm text-gray-900 font-medium">
+                                        <BadgeCheck className="h-4 w-4 text-blue-600" />
+                                        {prep.contactName}
+                                      </div>
+                                      <div className="text-sm text-gray-700">
+                                        {prep.jobTitle} @ {prep.company}
+                                      </div>
+                                      <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
                                         <span className="flex items-center gap-1">
-                                          <MapPin className="h-3 w-3" />
-                                          {prep.hometown}
+                                          <Calendar className="h-3 w-3" />
+                                          {prep.createdAt ? new Date(prep.createdAt).toLocaleDateString() : "—"}
                                         </span>
+                                        {prep.hometown && (
+                                          <span className="flex items-center gap-1">
+                                            <MapPin className="h-3 w-3" />
+                                            {prep.hometown}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {prep.industrySummary && (
+                                        <p className="text-xs text-gray-500">
+                                          {prep.industrySummary}
+                                        </p>
                                       )}
                                     </div>
-                                    {prep.industrySummary && (
-                                      <p className="text-xs text-muted-foreground">
-                                        {prep.industrySummary}
-                                      </p>
-                                    )}
-                                  </div>
 
-                                  <div className="flex items-center gap-3">
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="border-primary text-primary hover:bg-primary/10"
-                                      onClick={() => handleLibraryDownload(prep)}
-                                    >
-                                      <Download className="h-4 w-4 mr-2" />
-                                      PDF
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="relative overflow-hidden text-destructive hover:text-destructive/80"
-                                      disabled={deletingId === prep.id}
-                                      onClick={() => handleLibraryDelete(prep.id)}
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                      <InlineLoadingBar isLoading={deletingId === prep.id} />
-                                    </Button>
+                                    <div className="flex items-center gap-3">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="border-blue-500 text-blue-600 hover:bg-blue-50"
+                                        onClick={() => handleLibraryDownload(prep)}
+                                      >
+                                        <Download className="h-4 w-4 mr-2" />
+                                        PDF
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="relative overflow-hidden text-red-500 hover:text-red-600 hover:bg-red-50"
+                                        disabled={deletingId === prep.id}
+                                        onClick={() => handleLibraryDelete(prep.id)}
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                        <InlineLoadingBar isLoading={deletingId === prep.id} />
+                                      </Button>
+                                    </div>
                                   </div>
-                                </div>
-                              ))}
-                            </div>
-                          </section>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </TabsContent>
+                                ))}
+                              </div>
+                            </section>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </TabsContent>
+                </div>
               </Tabs>
             </div>
           </main>
-        </div>
+        </MainContentWrapper>
       </div>
     </SidebarProvider>
   );

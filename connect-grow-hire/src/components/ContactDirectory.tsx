@@ -7,10 +7,8 @@ import {
   RefreshCw,
   Trash2,
   ExternalLink,
-  ArrowLeft,
   Download,
   User,
-  ChevronRight
 } from "lucide-react";
 import { LoadingSkeleton } from "./LoadingSkeleton";
 import { useNavigate } from "react-router-dom";
@@ -29,20 +27,19 @@ import {
 import { firebaseApi } from '../services/firebaseApi';
 import type { Contact as ContactApi } from '../services/firebaseApi';
 import { useFirebaseMigration } from '../hooks/useFirebaseMigration';
-import { NotificationBell } from '../components/NotificationBell'; // adjust if your bell lives elsewhere
+import { NotificationBell } from '../components/NotificationBell';
 import { apiService } from '@/services/api';
 
-// Reuse the Contact shape from firebaseApi so types stay in sync
 type Contact = ContactApi;
 
 const STATUS_OPTIONS = [
-  { value: 'Not Contacted', color: '#A0A0A0', label: 'Not Contacted' },
-  { value: 'Contacted', color: '#4285F4', label: 'Contacted' },
-  { value: 'Followed Up', color: '#FB8C00', label: 'Followed Up' },
-  { value: 'Responded', color: '#34A853', label: 'Responded' },
-  { value: 'Call Scheduled', color: '#9C27B0', label: 'Call Scheduled' },
-  { value: 'Rejected', color: '#EA4335', label: 'Rejected' },
-  { value: 'Hired', color: '#FFD700', label: 'Hired' }
+  { value: 'Not Contacted', color: '#6B7280', label: 'Not Contacted' },
+  { value: 'Contacted', color: '#3B82F6', label: 'Contacted' },
+  { value: 'Followed Up', color: '#F59E0B', label: 'Followed Up' },
+  { value: 'Responded', color: '#10B981', label: 'Responded' },
+  { value: 'Call Scheduled', color: '#8B5CF6', label: 'Call Scheduled' },
+  { value: 'Rejected', color: '#EF4444', label: 'Rejected' },
+  { value: 'Hired', color: '#F59E0B', label: 'Hired' }
 ];
 
 const SpreadsheetContactDirectory: React.FC = () => {
@@ -60,14 +57,10 @@ const SpreadsheetContactDirectory: React.FC = () => {
   const [selectedContactForEmail, setSelectedContactForEmail] = useState<Contact | null>(null);
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
 
-  // 🔔 Reply check state
   const [replyStatuses, setReplyStatuses] = useState<Record<string, any>>({});
   const [isCheckingReplies, setIsCheckingReplies] = useState(false);
 
-  // Swipe hint state
   const tableContainerRef = useRef<HTMLDivElement>(null);
-  const [hasHorizontalOverflow, setHasHorizontalOverflow] = useState(false);
-  const [hasScrolled, setHasScrolled] = useState(false);
 
   const getStorageKey = () => {
     return currentUser ? `contacts_${currentUser.uid}` : 'contacts_anonymous';
@@ -92,7 +85,6 @@ const SpreadsheetContactDirectory: React.FC = () => {
     gmailDraftUrl: serverContact.gmailDraftUrl || serverContact.gmail_draft_url || '',
     createdAt: serverContact.createdAt || serverContact.created_at,
     updatedAt: serverContact.updatedAt || serverContact.updated_at,
-    // Gmail tracking fields
     gmailThreadId: serverContact.gmailThreadId || serverContact.gmail_thread_id,
     gmailMessageId: serverContact.gmailMessageId || serverContact.gmail_message_id,
     hasUnreadReply: serverContact.hasUnreadReply || serverContact.has_unread_reply || false,
@@ -144,9 +136,8 @@ const SpreadsheetContactDirectory: React.FC = () => {
     }
   };
 
-  // ✅ Build a strictly typed array for bulkCreateContacts
   const stripUndefined = <T extends Record<string, any>>(obj: T) =>
-  Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as T;
+    Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as T;
 
   const addContactsToDirectory = async (contactsToAdd: any[]) => {
     try {
@@ -165,13 +156,9 @@ const SpreadsheetContactDirectory: React.FC = () => {
             `${c.City ?? ''}${c.City && c.State ? ', ' : ''}${c.State ?? ''}`.trim() ||
             c.location ||
             '',
-
-          // required
           firstContactDate: today,
           status: 'Not Contacted',
           lastContactDate: today,
-
-          // optional (only include if present)
           emailSubject: c.email_subject ?? c.emailSubject ?? undefined,
           emailBody: c.email_body ?? c.emailBody ?? undefined,
           gmailThreadId: c.gmailThreadId ?? c.gmail_thread_id ?? undefined,
@@ -211,8 +198,6 @@ const SpreadsheetContactDirectory: React.FC = () => {
     }
   };
 
-
-  // 🔔 Check replies for all contacts
   const checkRepliesForAllContacts = useCallback(async () => {
     if (!contacts || contacts.length === 0 || isCheckingReplies || !currentUser) return;
     setIsCheckingReplies(true);
@@ -244,45 +229,6 @@ const SpreadsheetContactDirectory: React.FC = () => {
       return () => clearInterval(interval);
     }
   }, [currentUser, contacts.length, checkRepliesForAllContacts]);
-
-  // Check for horizontal overflow and handle scroll
-  useEffect(() => {
-    const checkOverflow = () => {
-      if (tableContainerRef.current) {
-        const hasOverflow = tableContainerRef.current.scrollWidth > tableContainerRef.current.clientWidth;
-        setHasHorizontalOverflow(hasOverflow);
-      }
-    };
-
-    checkOverflow();
-    window.addEventListener('resize', checkOverflow);
-    
-    // Check overflow when contacts change
-    const timeoutId = setTimeout(checkOverflow, 100);
-
-    return () => {
-      window.removeEventListener('resize', checkOverflow);
-      clearTimeout(timeoutId);
-    };
-  }, [filteredContacts]);
-
-  // Track horizontal scroll
-  useEffect(() => {
-    const handleScroll = () => {
-      if (tableContainerRef.current) {
-        const scrollLeft = tableContainerRef.current.scrollLeft;
-        if (scrollLeft > 0) {
-          setHasScrolled(true);
-        }
-      }
-    };
-
-    const container = tableContainerRef.current;
-    if (container) {
-      container.addEventListener('scroll', handleScroll, { passive: true });
-      return () => container.removeEventListener('scroll', handleScroll);
-    }
-  }, [filteredContacts]);
 
   useEffect(() => {
     (window as any).addContactsToDirectory = addContactsToDirectory;
@@ -355,7 +301,6 @@ const SpreadsheetContactDirectory: React.FC = () => {
   };
 
   const buildGmailLink = (contact: Contact) => {
-    // If a Gmail draft exists, open that instead (has resume attached)
     if (contact.gmailDraftUrl) {
       return contact.gmailDraftUrl;
     }
@@ -373,13 +318,10 @@ const SpreadsheetContactDirectory: React.FC = () => {
   };
 
   const handleEmailClick = (contact: Contact) => {
-    // If Gmail draft exists, open it directly (has resume attached)
     if (contact.gmailDraftUrl) {
       window.open(contact.gmailDraftUrl, '_blank');
       return;
     }
-    
-    // Otherwise, show dialog to choose mail app
     setSelectedContactForEmail(contact);
     setMailAppDialogOpen(true);
   };
@@ -412,13 +354,11 @@ const SpreadsheetContactDirectory: React.FC = () => {
       return;
     }
 
-    // Check if user is on free tier
     if (currentUser?.tier === 'free') {
       setShowUpgradeDialog(true);
       return;
     }
 
-    // Define CSV headers based on Contact interface
     const headers = [
       'First Name',
       'Last Name',
@@ -438,7 +378,6 @@ const SpreadsheetContactDirectory: React.FC = () => {
 
     const headerRow = headers.join(',');
 
-    // Map contacts to CSV rows
     const rows = contacts.map((contact) => {
       const escapeCsv = (val: string | undefined | null) => {
         if (!val) return '';
@@ -512,358 +451,324 @@ const SpreadsheetContactDirectory: React.FC = () => {
   }
 
   return (
-    <div className="space-y-4">
-      {/* Export CSV Card */}
-      {contacts.length > 0 && (
-        <div className="flex justify-between items-center bg-card rounded-lg border border-border p-4">
-          <div>
-            <p className="text-sm font-medium text-foreground">
-              {contacts.length} contact{contacts.length !== 1 ? 's' : ''} saved
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Export your contacts to CSV for further analysis
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              onClick={handleExportCsv}
-              disabled={currentUser?.tier === 'free'}
-              className={`gap-2 ${
-                currentUser?.tier === 'free' 
-                  ? 'bg-gray-400 hover:bg-gray-400 cursor-not-allowed opacity-60' 
-                  : 'bg-blue-600 hover:bg-blue-700'
-              }`}
-              title={currentUser?.tier === 'free' ? 'Upgrade to Pro or Elite to export CSV' : 'Export contacts to CSV'}
-            >
-              <Download className="h-4 w-4" />
-              Export CSV
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadContacts}
-              disabled={isLoading}
-              className="relative overflow-hidden border-border text-foreground hover:bg-secondary"
-            >
-              <RefreshCw className="h-4 w-4" />
-              <InlineLoadingBar isLoading={isLoading} />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={clearAllContacts}
-              className="text-destructive border-destructive hover:bg-destructive/10"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
+    <div className="space-y-6">
+      {/* Helper text */}
+      <p className="text-sm text-gray-500">
+        Track saved contacts, outreach status, and follow-ups.
+      </p>
+
+      {/* Top Controls - Matching Find People layout */}
+      <div className="flex items-center justify-between gap-4">
+        {/* Search */}
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+          <Input
+            type="text"
+            placeholder="Search contacts..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:ring-blue-500 hover:border-gray-400 transition-colors"
+          />
         </div>
-      )}
+
+        {/* Actions */}
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-500">
+            {contacts.length} contact{contacts.length !== 1 ? 's' : ''}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportCsv}
+            disabled={contacts.length === 0}
+            className="gap-2 border-gray-300 hover:border-gray-400"
+          >
+            <Download className="h-4 w-4" />
+            Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadContacts}
+            disabled={isLoading}
+            className="relative overflow-hidden border-gray-300 hover:border-gray-400"
+          >
+            <RefreshCw className="h-4 w-4" />
+            <InlineLoadingBar isLoading={isLoading} />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={clearAllContacts}
+            disabled={contacts.length === 0}
+            className="text-red-600 border-gray-300 hover:border-red-300 hover:bg-red-50"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
 
       {error && (
-        <div className="bg-destructive/10 border border-destructive text-destructive px-6 py-3 rounded-lg">
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
           {error}
         </div>
       )}
 
+      {/* Empty State */}
       {contacts.length === 0 ? (
-        <div className="bg-card rounded-lg border border-border p-12 text-center">
-          <Mail className="h-10 w-10 text-muted-foreground mx-auto mb-4" />
-          <p className="text-foreground mb-2">No contacts to display yet</p>
-          <p className="text-sm text-muted-foreground">
-            Switch to the "Contact Search" tab to find contacts
+        <div className="border border-gray-200 rounded-lg p-12 text-center bg-white">
+          <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Mail className="h-6 w-6 text-gray-400" />
+          </div>
+          <p className="text-gray-900 font-medium mb-2">No contacts saved yet</p>
+          <p className="text-sm text-gray-500 mb-6">
+            Use the Find People search to discover and save contacts
           </p>
+          <Button
+            onClick={() => navigate('/contact-search')}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            Find People
+          </Button>
         </div>
       ) : (
-        <div className="bg-card backdrop-blur-sm rounded-xl shadow-sm border border-border overflow-hidden">
-          {/* Results Header */}
-          <div className="px-6 py-4 border-b border-border bg-muted">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Mail className="h-5 w-5 text-blue-400" />
-                <span className="font-medium text-foreground">
-                  {filteredContacts.length} {filteredContacts.length === 1 ? 'contact' : 'contacts'}
-                  {searchQuery && ` (filtered from ${contacts.length})`}
-                </span>
-              </div>
-              <div className="flex items-center gap-3">
-                {hasHorizontalOverflow && !hasScrolled && (
-                  <div className="swipe-hint flex items-center gap-1.5 text-sm font-bold text-black">
-                    <span>Scroll</span>
-                    <ChevronRight className="h-4 w-4 swipe-hint-arrow" />
-                  </div>
-                )}
-              </div>
-            </div>
+        /* Table Container - Flat styling like Find People */
+        <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">
+          {/* Table */}
+          <div ref={tableContainerRef} className="overflow-x-auto">
+            <table className="min-w-full">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Contact
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    LinkedIn
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Email
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Company
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Role
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Location
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Status
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white">
+                {filteredContacts.map((contact, index) => {
+                  const statusOption = STATUS_OPTIONS.find(opt => opt.value === contact.status);
+
+                  return (
+                    <tr
+                      key={contact.id}
+                      className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50/50 transition-colors"
+                    >
+                      {/* Contact Name */}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center flex-shrink-0">
+                            <User className="h-4 w-4 text-blue-500" />
+                          </div>
+                          {editingCell?.row === index && editingCell?.col === 'name' ? (
+                            <div className="space-y-1">
+                              <Input
+                                value={contact.firstName}
+                                onChange={(e) => handleCellEdit(contact.id!, 'firstName', e.target.value)}
+                                onBlur={handleCellBlur}
+                                placeholder="First name"
+                                className="text-sm h-7 border-gray-300"
+                                autoFocus
+                              />
+                              <Input
+                                value={contact.lastName}
+                                onChange={(e) => handleCellEdit(contact.id!, 'lastName', e.target.value)}
+                                onBlur={handleCellBlur}
+                                placeholder="Last name"
+                                className="text-sm h-7 border-gray-300"
+                              />
+                            </div>
+                          ) : (
+                            <div
+                              onClick={() => handleCellClick(index, 'name')}
+                              className="cursor-pointer"
+                            >
+                              <span className="text-sm font-medium text-gray-900">
+                                {getDisplayName(contact)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* LinkedIn */}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {contact.linkedinUrl ? (
+                          <a
+                            href={
+                              contact.linkedinUrl.startsWith('http')
+                                ? contact.linkedinUrl
+                                : `https://${contact.linkedinUrl}`
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-sm"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            View
+                          </a>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+
+                      {/* Email */}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {contact.email ? (
+                          <span className="text-sm text-gray-700 truncate max-w-[180px] block">{contact.email}</span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+
+                      {/* Company */}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {editingCell?.row === index && editingCell?.col === 'company' ? (
+                          <Input
+                            value={contact.company}
+                            onChange={(e) => handleCellEdit(contact.id!, 'company', e.target.value)}
+                            onBlur={handleCellBlur}
+                            className="text-sm h-7 border-gray-300"
+                            autoFocus
+                          />
+                        ) : (
+                          <div
+                            onClick={() => handleCellClick(index, 'company')}
+                            className="cursor-pointer text-sm text-gray-700"
+                          >
+                            {contact.company || <span className="text-gray-300">—</span>}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Role */}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {editingCell?.row === index && editingCell?.col === 'jobTitle' ? (
+                          <Input
+                            value={contact.jobTitle}
+                            onChange={(e) => handleCellEdit(contact.id!, 'jobTitle', e.target.value)}
+                            onBlur={handleCellBlur}
+                            className="text-sm h-7 border-gray-300"
+                            autoFocus
+                          />
+                        ) : (
+                          <div
+                            onClick={() => handleCellClick(index, 'jobTitle')}
+                            className="cursor-pointer text-sm text-gray-700"
+                          >
+                            {contact.jobTitle || <span className="text-gray-300">—</span>}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Location */}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {editingCell?.row === index && editingCell?.col === 'location' ? (
+                          <Input
+                            value={contact.location}
+                            onChange={(e) => handleCellEdit(contact.id!, 'location', e.target.value)}
+                            onBlur={handleCellBlur}
+                            className="text-sm h-7 border-gray-300"
+                            autoFocus
+                          />
+                        ) : (
+                          <div
+                            onClick={() => handleCellClick(index, 'location')}
+                            className="cursor-pointer text-sm text-gray-700"
+                          >
+                            {contact.location || <span className="text-gray-300">—</span>}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Status */}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={contact.status}
+                            onChange={(e) => handleCellEdit(contact.id!, 'status', e.target.value)}
+                            className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer hover:border-gray-400 transition-colors"
+                            style={{ color: statusOption?.color }}
+                          >
+                            {STATUS_OPTIONS.map(option => (
+                              <option
+                                key={option.value}
+                                value={option.value}
+                                style={{ color: option.color }}
+                              >
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+
+                          {contact.gmailThreadId && contact.id && (
+                            <NotificationBell
+                              contactId={contact.id}
+                              contactEmail={contact.email}
+                              gmailThreadId={contact.gmailThreadId}
+                              hasUnreadReply={replyStatuses[contact.id]?.isUnread || false}
+                              notificationsMuted={contact.notificationsMuted || false}
+                              onStateChange={() => {
+                                loadContacts();
+                                checkRepliesForAllContacts();
+                              }}
+                            />
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Actions */}
+                      <td className="px-4 py-3 whitespace-nowrap text-right">
+                        {contact.email ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleEmailClick(contact)}
+                            className="text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                          >
+                            <Mail className="h-4 w-4" />
+                          </Button>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
 
-          {/* Search Bar */}
-          <div className="px-6 py-4 border-b border-border bg-background">
-            <div className="relative w-80">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-              <Input
-                type="text"
-                placeholder="Search contacts..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 bg-muted border-border text-foreground placeholder-muted-foreground focus:border-primary focus:ring-primary"
-              />
-            </div>
-          </div>
-
-          {/* Empty State for No Search Results */}
+          {/* Empty search results */}
           {filteredContacts.length === 0 && contacts.length > 0 && searchQuery && (
             <div className="px-6 py-12 text-center">
-              <p className="text-muted-foreground mb-2">No contacts match your search.</p>
+              <p className="text-gray-500 mb-2">No contacts match your search.</p>
               <button
                 onClick={() => setSearchQuery('')}
-                className="text-sm text-blue-600 hover:text-blue-700 underline"
+                className="text-sm text-blue-600 hover:text-blue-700"
               >
                 Clear search
               </button>
-            </div>
-          )}
-
-          {/* Table */}
-          {filteredContacts.length > 0 && (
-            <div ref={tableContainerRef} className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-border">
-                <thead className="bg-muted">
-                  <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Contact
-                    </th>
-                    <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      LinkedIn
-                    </th>
-                    <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Email
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Company
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Role
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Location
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-background divide-y divide-border">
-                  {filteredContacts.map((contact, index) => {
-                    const statusOption = STATUS_OPTIONS.find(opt => opt.value === contact.status);
-
-                    return (
-                      <tr
-                        key={contact.id}
-                        className="hover:bg-secondary transition-colors"
-                      >
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <div className="flex-shrink-0 h-10 w-10 bg-blue-500/20 rounded-lg flex items-center justify-center border border-blue-500/30">
-                              <User className="h-5 w-5 text-blue-400" />
-                            </div>
-                            <div className="ml-4 flex-1">
-                              {editingCell?.row === index && editingCell?.col === 'name' ? (
-                                <div className="space-y-1">
-                                  <Input
-                                    value={contact.firstName}
-                                    onChange={(e) => handleCellEdit(contact.id!, 'firstName', e.target.value)}
-                                    onBlur={handleCellBlur}
-                                    placeholder="First name"
-                                    className="text-sm h-8 bg-background border-input text-foreground"
-                                    autoFocus
-                                  />
-                                  <Input
-                                    value={contact.lastName}
-                                    onChange={(e) => handleCellEdit(contact.id!, 'lastName', e.target.value)}
-                                    onBlur={handleCellBlur}
-                                    placeholder="Last name"
-                                    className="text-sm h-8 bg-background border-input text-foreground"
-                                  />
-                                </div>
-                              ) : (
-                                <div
-                                  onClick={() => handleCellClick(index, 'name')}
-                                  className="cursor-text"
-                                >
-                                  <div className="text-sm font-medium text-foreground">
-                                    {getDisplayName(contact)}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-
-                        <td className="px-4 py-4 whitespace-nowrap">
-                          {contact.linkedinUrl ? (
-                            <a
-                              href={
-                                contact.linkedinUrl.startsWith('http')
-                                  ? contact.linkedinUrl
-                                  : `https://${contact.linkedinUrl}`
-                              }
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 hover:underline text-sm"
-                            >
-                              <ExternalLink className="h-4 w-4" />
-                              <span className="truncate max-w-[200px]">{contact.linkedinUrl.replace(/^https?:\/\//g, '')}</span>
-                            </a>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
-
-                        <td className="px-4 py-4 whitespace-nowrap">
-                          {contact.email ? (
-                            <span className="text-sm text-foreground">{contact.email}</span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
-
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {editingCell?.row === index && editingCell?.col === 'company' ? (
-                            <Input
-                              value={contact.company}
-                              onChange={(e) => handleCellEdit(contact.id!, 'company', e.target.value)}
-                              onBlur={handleCellBlur}
-                              className="text-sm h-8 bg-background border-input text-foreground"
-                              autoFocus
-                            />
-                          ) : (
-                            <div
-                              onClick={() => handleCellClick(index, 'company')}
-                              className="cursor-text hover:bg-muted rounded px-2 py-1 text-sm text-foreground"
-                            >
-                              {contact.company || <span className="text-muted-foreground">—</span>}
-                            </div>
-                          )}
-                        </td>
-
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {editingCell?.row === index && editingCell?.col === 'jobTitle' ? (
-                            <Input
-                              value={contact.jobTitle}
-                              onChange={(e) => handleCellEdit(contact.id!, 'jobTitle', e.target.value)}
-                              onBlur={handleCellBlur}
-                              className="text-sm h-8 bg-background border-input text-foreground"
-                              autoFocus
-                            />
-                          ) : (
-                            <div
-                              onClick={() => handleCellClick(index, 'jobTitle')}
-                              className="cursor-text hover:bg-muted rounded px-2 py-1 text-sm text-foreground"
-                            >
-                              {contact.jobTitle || <span className="text-muted-foreground">—</span>}
-                            </div>
-                          )}
-                        </td>
-
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {editingCell?.row === index && editingCell?.col === 'location' ? (
-                            <Input
-                              value={contact.location}
-                              onChange={(e) => handleCellEdit(contact.id!, 'location', e.target.value)}
-                              onBlur={handleCellBlur}
-                              className="text-sm h-8 bg-background border-input text-foreground"
-                              autoFocus
-                            />
-                          ) : (
-                            <div
-                              onClick={() => handleCellClick(index, 'location')}
-                              className="cursor-text hover:bg-muted rounded px-2 py-1 text-sm text-foreground"
-                            >
-                              {contact.location || <span className="text-muted-foreground">—</span>}
-                            </div>
-                          )}
-                        </td>
-
-                        {/* Status + Bell */}
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center gap-2">
-                            <select
-                              value={contact.status}
-                              onChange={(e) => handleCellEdit(contact.id!, 'status', e.target.value)}
-                              className="flex-1 text-xs bg-background border-input text-foreground focus:ring-1 focus:ring-blue-500 cursor-pointer rounded px-2 py-1"
-                              style={{ color: statusOption?.color }}
-                            >
-                              {STATUS_OPTIONS.map(option => (
-                                <option
-                                  key={option.value}
-                                  value={option.value}
-                                  style={{ color: option.color, backgroundColor: '#ffffff' }}
-                                >
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-
-                            {contact.gmailThreadId && contact.id && (
-                              <NotificationBell
-                                contactId={contact.id}
-                                contactEmail={contact.email}
-                                gmailThreadId={contact.gmailThreadId}
-                                hasUnreadReply={replyStatuses[contact.id]?.isUnread || false}
-                                notificationsMuted={contact.notificationsMuted || false}
-                                onStateChange={() => {
-                                  loadContacts();
-                                  checkRepliesForAllContacts();
-                                }}
-                              />
-                            )}
-                          </div>
-                        </td>
-
-                        <td className="px-6 py-4 whitespace-nowrap text-right">
-                          {contact.email ? (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleEmailClick(contact)}
-                              className="hover:bg-muted text-muted-foreground hover:text-foreground"
-                              title={`Email ${getDisplayName(contact)}${
-                                contact.emailSubject ? ' (Generated email available)' : ''
-                              }`}
-                            >
-                              <Mail
-                                className={`h-4 w-4 ${
-                                  contact.emailSubject ? 'text-blue-600' : 'text-blue-600'
-                                }`}
-                              />
-                            </Button>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Footer */}
-          {filteredContacts.length > 0 && (
-            <div className="px-6 py-4 border-t border-border bg-muted">
-              <div className="flex justify-between items-center text-sm text-muted-foreground">
-                <p className="text-center flex-1">
-                  Click on cells to edit contact information
-                </p>
-                <p className="text-xs">
-                  {(filteredContacts || contacts).filter(c => c.emailSubject).length} contacts have generated emails
-                </p>
-              </div>
             </div>
           )}
         </div>
@@ -871,31 +776,32 @@ const SpreadsheetContactDirectory: React.FC = () => {
 
       {/* Mail App Selection Dialog */}
       {mailAppDialogOpen && selectedContactForEmail && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-card rounded-lg p-6 max-w-md w-full mx-4 border border-border shadow-lg">
-            <h3 className="text-xl font-semibold text-foreground mb-4">Choose Email App</h3>
-            <p className="text-muted-foreground mb-6">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 border border-gray-200">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Choose Email App</h3>
+            <p className="text-gray-600 mb-6 text-sm">
               Send email to {getDisplayName(selectedContactForEmail)}
             </p>
 
             <div className="flex gap-3">
               <Button
                 onClick={() => handleMailAppSelect('apple')}
-                className="flex-1 bg-muted hover:bg-muted/80 text-foreground py-6"
+                variant="outline"
+                className="flex-1 py-6"
               >
                 <div className="flex flex-col items-center gap-2">
-                  <Mail className="h-6 w-6" />
-                  <span>Apple Mail</span>
+                  <Mail className="h-5 w-5" />
+                  <span className="text-sm">Apple Mail</span>
                 </div>
               </Button>
 
               <Button
                 onClick={() => handleMailAppSelect('gmail')}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-6"
+                className="flex-1 py-6 bg-blue-600 hover:bg-blue-700"
               >
                 <div className="flex flex-col items-center gap-2">
-                  <Mail className="h-6 w-6" />
-                  <span>Gmail</span>
+                  <Mail className="h-5 w-5" />
+                  <span className="text-sm">Gmail</span>
                 </div>
               </Button>
             </div>
@@ -906,7 +812,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
                 setSelectedContactForEmail(null);
               }}
               variant="ghost"
-              className="w-full mt-4 text-muted-foreground hover:text-foreground"
+              className="w-full mt-4 text-gray-500"
             >
               Cancel
             </Button>
@@ -920,16 +826,16 @@ const SpreadsheetContactDirectory: React.FC = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>Upgrade to Export CSV</AlertDialogTitle>
             <AlertDialogDescription>
-              CSV export is available for Pro and Elite tier users. Upgrade your plan to export your contacts to CSV for further analysis.
+              CSV export is available for Pro and Elite tier users. Upgrade your plan to export your contacts to CSV.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => navigate('/pricing')}
-              className="bg-blue-600 hover:bg-blue-700 focus:ring-blue-600"
+              className="bg-blue-600 hover:bg-blue-700"
             >
-              Upgrade to Pro/Elite
+              Upgrade
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

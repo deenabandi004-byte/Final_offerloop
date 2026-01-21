@@ -73,24 +73,52 @@
 
   * {
     @apply border-border;
+    /* Standardize font-family globally - matching sidebar */
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    /* Consistent font smoothing - matching sidebar rendering */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  html {
+    background-color: white !important;
+    /* Standardize font-family on html level */
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 
   body {
     @apply bg-background text-foreground;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    /* Standardize font-family - source of truth for sidebar */
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
     font-weight: 400;
     overflow-x: hidden;
     background-color: white !important;
-  }
-  
-  html {
-    background-color: white !important;
+    /* Consistent font smoothing - matching sidebar */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 
+  /* All headings use the same font-family, only weight varies */
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
     font-weight: 700;
     letter-spacing: -0.02em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Ensure all text elements inherit the standard font */
+  p, span, div, a, button, input, textarea, select, label {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 }
 
@@ -135,16 +163,26 @@
   }
 
   /* Card hover effects - matching glass-card style */
-  /* Only apply to content boxes, not inputs or buttons */
+  /* Only apply to content boxes, not inputs, buttons, or headers */
   .card:hover,
-  [class*="bg-card"]:hover:not(input):not(button):not(select):not(textarea),
-  [class*="bg-white"]:hover:not(input):not(button):not(select):not(textarea) {
+  [class*="bg-card"]:hover:not(input):not(button):not(select):not(textarea):not(header),
+  [class*="bg-white"]:hover:not(input):not(button):not(select):not(textarea):not(header) {
     border-color: rgba(59, 130, 246, 0.5) !important;
     box-shadow: 
       0 8px 24px rgba(59, 130, 246, 0.18),
       0 4px 12px rgba(96, 165, 250, 0.15),
       0 2px 6px rgba(37, 99, 235, 0.12),
       inset 0 1px 0 rgba(255, 255, 255, 1) !important;
+  }
+
+  /* Ensure headers never have hover/focus visual effects */
+  header,
+  header:hover,
+  header:focus,
+  header:focus-visible {
+    box-shadow: none !important;
+    border-bottom: none !important;
+    outline: none !important;
   }
 
   /* Tabs container gradient background */
@@ -545,28 +583,16 @@
 }
 
 
-/* Scrollbar Thumb - Subtle gradient matching design system */
+/* Scrollbar Thumb - Subtle blue matching design system */
 ::-webkit-scrollbar-thumb {
-  background: rgba(139, 92, 246, 0.3); /* Purple with transparency */
+  background: rgba(59, 130, 246, 0.3); /* Blue-500 with transparency */
   border-radius: 4px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(139, 92, 246, 0.5); /* More visible on hover */
-  border: 1px solid transparent;
-  background-clip: padding-box;
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgba(139, 92, 246, 0.25);
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(139, 92, 246, 0.4);
+  background: rgba(59, 130, 246, 0.5); /* More visible on hover */
   border: 1px solid transparent;
   background-clip: padding-box;
 }
@@ -574,11 +600,7 @@
 /* Firefox scrollbar */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(139, 92, 246, 0.3) transparent;
-}
-
-* {
-  scrollbar-color: rgba(139, 92, 246, 0.25) transparent;
+  scrollbar-color: rgba(59, 130, 246, 0.3) transparent;
 }
 
 /* Selection styling */

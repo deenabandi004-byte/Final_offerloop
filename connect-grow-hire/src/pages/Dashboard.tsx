@@ -37,11 +37,11 @@ const Dashboard = () => {
       <main className="container mx-auto px-4 py-16">
         <Button 
           variant="ghost" 
-          onClick={() => navigate("/home")} 
+          onClick={() => navigate("/dashboard")} 
           className="mb-8 p-2"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Home
+          Back to Dashboard
         </Button>
         
         <div className="max-w-5xl mx-auto">

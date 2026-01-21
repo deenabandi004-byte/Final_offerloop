@@ -33,8 +33,8 @@ import {
   Mail,
 } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { PageHeaderActions } from "@/components/PageHeaderActions";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { AppHeader } from "@/components/AppHeader";
 import { GlassCard } from "@/components/GlassCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1432,23 +1432,7 @@ const JobBoardPage: React.FC = () => {
       <div className="flex h-screen bg-background overflow-hidden">
         <AppSidebar />
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-          {/* Header */}
-          <div className="border-b border-border/50 bg-background/80 backdrop-blur-sm">
-            <div className="flex items-center justify-between p-4">
-              <div className="flex items-center gap-4">
-                <SidebarTrigger />
-                <div className="flex items-center gap-2">
-                  <h1 className="text-xl font-semibold text-foreground">
-                    Job Board
-                  </h1>
-                  <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-blue-100 text-blue-700 rounded border border-blue-200">
-                    Beta
-                  </span>
-                </div>
-              </div>
-              <PageHeaderActions />
-            </div>
-          </div>
+          <AppHeader title="Job Board" />
 
           {/* Tabs - Hide when in job detail view */}
           {!showJobDetailView && (

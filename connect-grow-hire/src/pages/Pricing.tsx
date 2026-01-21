@@ -163,7 +163,7 @@ const Pricing = () => {
           credits: 300,
           maxCredits: 300
         }); 
-        navigate("/home");
+        navigate("/dashboard");
       } 
       else if (planType === 'pro' || planType === 'elite') {
         // Track PostHog event
@@ -265,11 +265,11 @@ const Pricing = () => {
       <div className="container mx-auto px-6 py-6 max-w-7xl">
         <Button
           variant="ghost"
-          onClick={() => navigate("/home")}
+          onClick={() => navigate("/dashboard")}
           className="mb-8 text-gray-300 text-slate-700 hover:text-blue-400"
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Home
+          Back to Dashboard
         </Button>
 
         {hasActiveSubscription && (

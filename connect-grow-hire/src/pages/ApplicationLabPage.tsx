@@ -9,8 +9,9 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AppSidebar } from '@/components/AppSidebar';
-import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
-import { PageHeaderActions } from '@/components/PageHeaderActions';
+import { SidebarProvider } from '@/components/ui/sidebar';
+import { AppHeader } from '@/components/AppHeader';
+import { MainContentWrapper } from '@/components/MainContentWrapper';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 import { ApplicationLabPanel } from '@/components/ApplicationLabPanel';
 import { analyzeApplication, getAnalysis, repairResume, JobInput } from '@/services/applicationLab';
@@ -300,20 +301,14 @@ export default function ApplicationLabPage() {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-white text-foreground">
+      <div className="flex min-h-screen w-full text-foreground">
         <AppSidebar />
 
-        <div className="flex-1">
-          <header className="h-16 flex items-center justify-between border-b border-gray-100/30 px-6 bg-white shadow-sm relative z-20">
-            <div className="flex items-center gap-4">
-              <SidebarTrigger className="text-foreground hover:bg-secondary" />
-              <div className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-foreground" />
-                <h1 className="text-xl font-semibold">Application Lab</h1>
-              </div>
-            </div>
-            <PageHeaderActions />
-          </header>
+        <MainContentWrapper>
+          <AppHeader 
+            title="Application Lab" 
+            titleIcon={<FileText className="h-5 w-5" />}
+          />
 
           <main className="p-8 bg-white">
             <div className="max-w-5xl mx-auto">
@@ -562,7 +557,7 @@ export default function ApplicationLabPage() {
               )}
             </div>
           </main>
-        </div>
+        </MainContentWrapper>
       </div>
     </SidebarProvider>
   );

@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { AppSidebar } from "@/components/AppSidebar";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import {
   Coffee,
@@ -121,25 +122,7 @@ const CoffeeChatLibrary: React.FC = () => {
         <AppSidebar />
 
         <div className="flex-1">
-          <header className="h-16 flex items-center justify-between border-b border-gray-800 px-6 bg-gray-900/80 backdrop-blur-sm">
-            <div className="flex items-center gap-4">
-              <SidebarTrigger className="text-white hover:bg-gray-800/50" />
-              <h1 className="text-xl font-semibold">Coffee Chat Library</h1>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <CreditPill credits={user?.credits ?? 0} max={user?.maxCredits ?? 300} />
-              <Button
-                size="sm"
-                onClick={() => navigate("/home")}
-                variant="outline"
-                className="border-gray-600 hover:border-gray-500"
-              >
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Home
-              </Button>
-            </div>
-          </header>
+          <AppHeader title="Coffee Chat Library" />
 
           <main className="p-8">
             <div className="max-w-6xl mx-auto space-y-8">
