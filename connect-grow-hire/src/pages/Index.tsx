@@ -1,18 +1,13 @@
 // src/pages/Index.tsx
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Check, ArrowRight, Twitter, Linkedin, Instagram, Menu, X } from 'lucide-react';
+import { Check, ArrowRight, Twitter, Linkedin, Instagram, Menu, X, Calendar as CalendarIconLucide, ChevronDown } from 'lucide-react';
 // Removed SidebarProvider and AppSidebar - landing page should be public without sidebar
-import { BackToHomeButton } from "@/components/BackToHomeButton";
-import { CreditPill } from "@/components/credits";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { ExpandablePrivacyLock } from '@/components/ExpandablePrivacyLock';
 import { ProductTour } from '@/components/ProductTour';
-import DynamicBackground from '@/components/background/DynamicBackground';
-import { DynamicGradientBackground } from '@/components/background/DynamicGradientBackground';
-import { Logo } from '@/components/Logo';
+import { GranolaBackground } from '@/components/GranolaBackground';
 import OfferloopLogo from '@/assets/offerloop_logo2.png';
-import RotatingImage from '@/components/RotatingImage';
 import AnimatedDots from '@/components/AnimatedDots';
 import TextType from '@/components/TextType';
 import { AnimatedMadeForText } from '@/components/AnimatedMadeForText';
@@ -32,6 +27,61 @@ import AppleCalendarLogo from '@/assets/applecalendarlogo.png';
 import GoogleCalendarLogo from '@/assets/Googlecalendar.png';
 import GmailLogo from '@/assets/Gmaillogopng.png';
 import GoogleSheetsLogo from '@/assets/sheetslogo.png';
+
+// Sidebar icons for Features mega-menu
+import BriefcaseIcon from '@/assets/sidebaricons/icons8-briefcase-48.png';
+import BuildingIcon from '@/assets/sidebaricons/icons8-building-50.png';
+import BuildingIcon2 from '@/assets/sidebaricons/icons8-building-50 2.png';
+import CupIcon from '@/assets/sidebaricons/icons8-cup-48.png';
+import FindUserIcon from '@/assets/sidebaricons/icons8-find-user-male-48 (1).png';
+import MailIcon from '@/assets/sidebaricons/icons8-important-mail-48.png';
+import MagnifyingGlassIcon from '@/assets/sidebaricons/icons8-magnifying-glass-50.png';
+import PaperIcon from '@/assets/sidebaricons/icons8-paper-48.png';
+import PeopleIcon from '@/assets/sidebaricons/icons8-people-working-together-48.png';
+import WriteIcon from '@/assets/sidebaricons/icons8-write-48.png';
+import ScheduleIcon from '@/assets/icons8-schedule-50.png';
+
+// Feature item component for mega-menu
+const FeatureItem = ({ icon, title, description, onClick }: { icon: string; title: string; description: string; onClick?: () => void }) => (
+  <button
+    onClick={onClick}
+    className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors w-full text-left group"
+  >
+    <div className="w-10 h-10 rounded-lg bg-[#3B82F6] flex items-center justify-center flex-shrink-0">
+      <img 
+        src={icon} 
+        alt="" 
+        className="w-5 h-5"
+        style={{ filter: 'brightness(0) invert(1)' }}
+      />
+    </div>
+    <div className="flex flex-col min-w-0">
+      <span className="font-medium text-gray-800 group-hover:text-[#3B82F6] transition-colors">{title}</span>
+      <span className="text-sm text-gray-500 line-clamp-3">{description}</span>
+    </div>
+  </button>
+);
+
+// Calendar icon feature item (using custom schedule icon)
+const FeatureItemCalendar = ({ title, description, onClick }: { title: string; description: string; onClick?: () => void }) => (
+  <button
+    onClick={onClick}
+    className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors w-full text-left group"
+  >
+    <div className="w-10 h-10 rounded-lg bg-[#3B82F6] flex items-center justify-center flex-shrink-0">
+      <img 
+        src={ScheduleIcon} 
+        alt="" 
+        className="w-5 h-5"
+        style={{ filter: 'brightness(0) invert(1)' }}
+      />
+    </div>
+    <div className="flex flex-col min-w-0">
+      <span className="font-medium text-gray-800 group-hover:text-[#3B82F6] transition-colors">{title}</span>
+      <span className="text-sm text-gray-500 line-clamp-3">{description}</span>
+    </div>
+  </button>
+);
 
 // Wrapper component to retrigger typing animation on scroll
 const RetriggerableTextType = ({ text, className, ...props }: { text: string; className?: string; [key: string]: any }) => {
@@ -134,7 +184,24 @@ const Index = () => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [parallaxOffset, setParallaxOffset] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [featuresMenuOpen, setFeaturesMenuOpen] = useState(false);
+  const featuresMenuTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const sectionRefs = useRef<(HTMLElement | null)[]>([]);
+  
+  // Helper functions for features menu hover
+  const handleFeaturesMenuEnter = () => {
+    if (featuresMenuTimeoutRef.current) {
+      clearTimeout(featuresMenuTimeoutRef.current);
+      featuresMenuTimeoutRef.current = null;
+    }
+    setFeaturesMenuOpen(true);
+  };
+  
+  const handleFeaturesMenuLeave = () => {
+    featuresMenuTimeoutRef.current = setTimeout(() => {
+      setFeaturesMenuOpen(false);
+    }, 150);
+  };
 
   // Handle scroll for scene transitions and parallax
   useEffect(() => {
@@ -169,10 +236,14 @@ const Index = () => {
   ];
 
   return (
-    <div className="min-h-screen w-full bg-transparent text-foreground">
-      {/* Public Landing Page - No Sidebar */}
+    <GranolaBackground>
+      {/* Fixed Floating Privacy Lock */}
+      <ExpandablePrivacyLock />
+      
+      <div className="min-h-screen w-full text-slate-900">
+        {/* Public Landing Page - No Sidebar */}
         <div className="flex-1 flex flex-col">
-        <header className="fixed top-2 left-2 right-2 md:top-4 md:left-4 md:right-4 h-14 md:h-16 flex items-center justify-between px-3 md:px-6 bg-[#ECF4FF] backdrop-blur-md shadow-xl rounded-xl md:rounded-2xl border border-blue-200/50 z-50">
+        <header className="fixed top-4 left-1/2 -translate-x-1/2 h-14 md:h-16 flex items-center justify-between px-6 md:px-8 bg-white/90 backdrop-blur-md shadow-lg rounded-full border border-slate-200/50 z-50 w-[90%] max-w-4xl">
           <div className="flex items-center gap-2 md:gap-4">
             <img 
               src={OfferloopLogo} 
@@ -183,18 +254,158 @@ const Index = () => {
           </div>
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-6">
-            <button
-              onClick={() => {
-                const element = document.getElementById('features');
-                if (element) {
-                  element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-                setMobileMenuOpen(false);
-              }}
-              className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors"
+            {/* Features Mega Menu */}
+            <div 
+              className="relative"
+              onMouseEnter={handleFeaturesMenuEnter}
+              onMouseLeave={handleFeaturesMenuLeave}
             >
-              Features
-            </button>
+              <button
+                className="text-base font-medium text-slate-700 hover:text-blue-600 transition-colors flex items-center gap-1"
+              >
+                Features
+                <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${featuresMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+              
+              {/* Mega Menu Dropdown */}
+              <div 
+                className={`fixed left-1/2 -translate-x-1/2 top-20 bg-white rounded-2xl shadow-xl border border-gray-100 p-6 transition-all duration-200 ${
+                  featuresMenuOpen 
+                    ? 'opacity-100 visible translate-y-0' 
+                    : 'opacity-0 invisible -translate-y-2'
+                }`}
+                style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem', width: '1020px' }}
+                onMouseEnter={handleFeaturesMenuEnter}
+                onMouseLeave={handleFeaturesMenuLeave}
+              >
+                {/* Column 1: Find */}
+                <div className="space-y-1">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 whitespace-nowrap">Find</h3>
+                  <FeatureItem 
+                    icon={MagnifyingGlassIcon} 
+                    title="People"
+                    description="Discover professionals at your target companies"
+                    onClick={() => {
+                      navigate('/contact-search');
+                      setFeaturesMenuOpen(false);
+                    }}
+                  />
+                  <FeatureItem 
+                    icon={BuildingIcon} 
+                    title="Companies"
+                    description="Research companies hiring for your dream roles"
+                    onClick={() => {
+                      navigate('/firm-search');
+                      setFeaturesMenuOpen(false);
+                    }}
+                  />
+                  <FeatureItem 
+                    icon={FindUserIcon} 
+                    title="Hiring Managers"
+                    description="Connect directly with decision makers"
+                    onClick={() => {
+                      navigate('/recruiter-spreadsheet');
+                      setFeaturesMenuOpen(false);
+                    }}
+                  />
+                </div>
+                
+                {/* Column 2: Prepare */}
+                <div className="space-y-1">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 whitespace-nowrap">Prepare</h3>
+                  <FeatureItem 
+                    icon={CupIcon} 
+                    title="Coffee Chat"
+                    description="Get smart talking points for any conversation"
+                    onClick={() => {
+                      navigate('/coffee-chat-prep');
+                      setFeaturesMenuOpen(false);
+                    }}
+                  />
+                  <FeatureItem 
+                    icon={BriefcaseIcon} 
+                    title="Interview"
+                    description="Ace interviews with personalized prep"
+                    onClick={() => {
+                      navigate('/interview-prep');
+                      setFeaturesMenuOpen(false);
+                    }}
+                  />
+                </div>
+                
+                {/* Column 3: Write */}
+                <div className="space-y-1">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 whitespace-nowrap">Write</h3>
+                  <FeatureItem 
+                    icon={PaperIcon} 
+                    title="Resume"
+                    description="Craft tailored resumes that stand out"
+                    onClick={() => {
+                      navigate('/write/resume');
+                      setFeaturesMenuOpen(false);
+                    }}
+                  />
+                  <FeatureItem 
+                    icon={WriteIcon} 
+                    title="Cover Letter"
+                    description="Generate compelling letters for each role"
+                    onClick={() => {
+                      navigate('/write/cover-letter');
+                      setFeaturesMenuOpen(false);
+                    }}
+                  />
+                </div>
+                
+                {/* Column 4: Track */}
+                <div className="space-y-1">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 whitespace-nowrap">Track</h3>
+                  <FeatureItem 
+                    icon={MailIcon} 
+                    title="Email Outreach"
+                    description="Send personalized emails that get responses"
+                    onClick={() => {
+                      navigate('/outbox');
+                      setFeaturesMenuOpen(false);
+                    }}
+                  />
+                  <FeatureItemCalendar 
+                    title="Calendar"
+                    description="Never miss a deadline or follow-up"
+                    onClick={() => {
+                      navigate('/calendar');
+                      setFeaturesMenuOpen(false);
+                    }}
+                  />
+                  <FeatureItem 
+                    icon={PeopleIcon} 
+                    title="Networking"
+                    description="Manage all your professional connections"
+                    onClick={() => {
+                      navigate('/contact-directory');
+                      setFeaturesMenuOpen(false);
+                    }}
+                  />
+                  <FeatureItem 
+                    icon={FindUserIcon} 
+                    title="Hiring Managers"
+                    description="Track outreach to key decision makers"
+                    onClick={() => {
+                      navigate('/hiring-manager-tracker');
+                      setFeaturesMenuOpen(false);
+                    }}
+                  />
+                  <FeatureItem 
+                    icon={BuildingIcon2} 
+                    title="Companies"
+                    description="Monitor application status across all targets"
+                    onClick={() => {
+                      navigate('/company-tracker');
+                      setFeaturesMenuOpen(false);
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
             <button
               onClick={() => {
                 const element = document.getElementById('pricing');
@@ -203,7 +414,7 @@ const Index = () => {
                 }
                 setMobileMenuOpen(false);
               }}
-              className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors"
+              className="text-base font-medium text-slate-700 hover:text-blue-600 transition-colors"
             >
               Pricing
             </button>
@@ -215,7 +426,7 @@ const Index = () => {
                 }
                 setMobileMenuOpen(false);
               }}
-              className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors"
+              className="text-base font-medium text-slate-700 hover:text-blue-600 transition-colors"
             >
               About Us
             </button>
@@ -229,7 +440,7 @@ const Index = () => {
                 }
                 setMobileMenuOpen(false);
               }}
-              className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors"
+              className="text-base font-medium text-slate-700 hover:text-blue-600 transition-colors"
             >
               Privacy
             </button>
@@ -239,7 +450,7 @@ const Index = () => {
             {user ? (
               <button
                 onClick={() => navigate("/dashboard")}
-                className="btn-secondary-glass px-4 py-2 text-sm"
+                className="btn-secondary-glass px-4 py-2 text-sm font-bold"
               >
                 Go to Dashboard
               </button>
@@ -247,13 +458,13 @@ const Index = () => {
               <>
                 <button
                   onClick={() => navigate("/signin?mode=signin")}
-                  className="btn-secondary-glass px-4 py-2 text-sm"
+                  className="btn-secondary-glass px-4 py-2 text-sm font-bold"
                 >
                   Sign In
                 </button>
                 <button
                   onClick={() => navigate("/signin?mode=signup")}
-                  className="btn-primary-glass px-4 py-2 text-sm"
+                  className="btn-primary-glass px-4 py-2 text-sm font-bold"
                 >
                   Sign Up
                 </button>
@@ -336,7 +547,7 @@ const Index = () => {
                     navigate("/dashboard");
                     setMobileMenuOpen(false);
                   }}
-                  className="btn-secondary-glass px-4 py-2 text-sm w-full"
+                  className="btn-secondary-glass px-4 py-2 text-sm font-bold w-full"
                 >
                   Go to Dashboard
                 </button>
@@ -347,7 +558,7 @@ const Index = () => {
                       navigate("/signin?mode=signin");
                       setMobileMenuOpen(false);
                     }}
-                    className="btn-secondary-glass px-4 py-2 text-sm w-full"
+                    className="btn-secondary-glass px-4 py-2 text-sm font-bold w-full"
                   >
                     Sign In
                   </button>
@@ -356,7 +567,7 @@ const Index = () => {
                       navigate("/signin?mode=signup");
                       setMobileMenuOpen(false);
                     }}
-                    className="btn-primary-glass px-4 py-2 text-sm w-full"
+                    className="btn-primary-glass px-4 py-2 text-sm font-bold w-full"
                   >
                     Sign Up
                   </button>
@@ -374,37 +585,34 @@ const Index = () => {
         {/* Hero Section */}
         <section 
           ref={(el) => { sectionRefs.current[0] = el; }}
-          className="min-h-screen pt-20 md:pt-40 pb-12 md:pb-24 relative"
+          className="min-h-screen pt-12 md:pt-24 pb-12 md:pb-24 relative"
           data-scene="0"
           style={{ overflow: 'clip' }}
         >
           {/* Hero Text - Centered */}
           <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-12 mb-12 md:mb-20">
             <div className="max-w-5xl mx-auto text-center">
-              <h1 className="text-[70px] md:text-[84px] lg:text-[96px] font-bold mb-6" style={{ overflow: 'visible', lineHeight: '1.1', letterSpacing: '-0.02em' }}>
+              <h1 className="text-[70px] md:text-[84px] lg:text-[96px] font-bold mb-6 font-instrument" style={{ overflow: 'visible', lineHeight: '1.1', letterSpacing: '-0.02em' }}>
                 <span className="text-hero-primary tracking-tight">
                   Land Job Offers.
                   <br />
                   <span style={{ color: '#3B82F6' }}>No busywork.</span>
               </span>
             </h1>
-              <p className="text-lg md:text-xl text-black mb-12 max-w-3xl mx-auto leading-relaxed">
-                Offerloop helps early-career candidates automate personalized outreach, research, and interview prep, turning 1 hour of work into 10.
+              <p className="text-lg md:text-xl text-slate-500 font-semibold mb-12 max-w-3xl mx-auto leading-relaxed">
+                Stop wasting time scrolling LinkedIn, writing cover letters, finding contact information, writing emails, etc. Just use Offerloop.
             </p>
             <button
               onClick={() => navigate("/signin?mode=signup")}
-              className="btn-primary-glass px-6 md:px-12 py-3 md:py-5 text-base md:text-lg rounded-2xl pulse-glow inline-flex items-center gap-3"
+              className="btn-primary-glass px-10 md:px-16 py-3 md:py-4 text-base md:text-lg font-bold rounded-full pulse-glow inline-flex items-center gap-3"
             >
-              Try it out <ArrowRight className="h-4 w-4 md:h-5 md:w-5" />
+              Try it out <ArrowRight className="h-4 w-4 md:h-5 md:w-5 stroke-[3]" />
             </button>
             </div>
             
-            {/* 3D Rotating Image */}
-            <RotatingImage />
-            
             {/* Title section */}
             <div className="text-center mt-8 md:mt-16 mb-12 md:mb-16" style={{ marginTop: '60px' }}>
-              <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-bold mb-3 text-section-heading">
+              <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-bold mb-3 text-section-heading font-instrument">
                 The Entire Recruiting Process, <span style={{ color: '#3B82F6' }}>Automated</span>
               </h2>
               <p className="text-lg md:text-xl text-section-body max-w-2xl mx-auto">
@@ -421,7 +629,7 @@ const Index = () => {
 
           {/* Getting a Job doesn't have to mean Header */}
           <div className="text-center mt-16 mb-8">
-            <h2 className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold text-section-heading flex flex-col items-center justify-center">
+            <h2 className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold text-section-heading flex flex-col items-center justify-center font-instrument">
               <span>Getting a Job</span>
               <span className="flex items-baseline">
                 doesn't have to mean
@@ -537,36 +745,60 @@ const Index = () => {
           <ProductTour />
         </section>
 
-        {/* Works With Section */}
-        <section>
-          {/* Works With Header */}
-          <div className="text-center mt-16 mb-8">
-            <h2 className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold text-section-heading">
-              Works With
-            </h2>
-            <p className="text-lg md:text-xl text-section-body max-w-4xl mx-auto mt-6 px-4">
-              Our product seamlessly integrates with your existing workflow: connect with professionals on LinkedIn, manage outreach through Gmail or Outlook, organize data in Google Sheets or Excel, schedule meetings via Apple or Google Calendar, and connect on Zoom.
-            </p>
-          </div>
-
-          {/* Works With Logos - Pyramid Layout */}
-          <div className="max-w-6xl mx-auto px-4 mb-16">
-            {/* First Row - 5 Logos */}
-            <div className="flex flex-wrap justify-center items-center gap-8 md:gap-12 mb-6">
-              <img src={LinkedInLogo} alt="LinkedIn" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
-              <img src={GoogleLogo} alt="Google" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
-              <img src={ExcelLogo} alt="Excel" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
-              <img src={OutlookLogo} alt="Outlook" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
-              <img src={ZoomLogo} alt="Zoom" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
+        {/* Works With Section - White Background */}
+        <section className="relative">
+          {/* White background container */}
+          <div className="absolute inset-0 bg-white" style={{ top: '-50px', bottom: '-50px' }} />
+          
+          <div className="relative z-10 py-24">
+            {/* Works With Header */}
+            <div className="text-center mb-8">
+              <h2 className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold text-section-heading font-instrument">
+                Works With
+              </h2>
+              <p className="text-lg md:text-xl text-section-body max-w-4xl mx-auto mt-6 px-4">
+                Our product seamlessly integrates with your existing workflow: connect with professionals on LinkedIn, manage outreach through Gmail or Outlook, organize data in Google Sheets or Excel, schedule meetings via Apple or Google Calendar, and connect on Zoom.
+              </p>
             </div>
-            {/* Second Row - 6 Logos */}
-            <div className="flex flex-wrap justify-center items-center gap-8 md:gap-12">
-              <img src={AppleMailLogo} alt="Apple Mail" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
-              <img src={AppleNumbersLogo} alt="Apple Numbers" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
-              <img src={AppleCalendarLogo} alt="Apple Calendar" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
-              <img src={GoogleCalendarLogo} alt="Google Calendar" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
-              <img src={GmailLogo} alt="Gmail" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
-              <img src={GoogleSheetsLogo} alt="Google Sheets" className="h-16 md:h-24 lg:h-28 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity" />
+
+            {/* Works With Logos - Sliding Marquee */}
+            <div className="relative overflow-hidden">
+              {/* Left fade gradient */}
+              <div className="absolute left-0 top-0 bottom-0 w-32 bg-gradient-to-r from-white to-transparent z-10 pointer-events-none" />
+              {/* Right fade gradient */}
+              <div className="absolute right-0 top-0 bottom-0 w-32 bg-gradient-to-l from-white to-transparent z-10 pointer-events-none" />
+              
+              {/* Scrolling container */}
+              <div className="flex animate-marquee">
+                {/* First set of logos */}
+                <div className="flex items-center gap-12 px-6 shrink-0">
+                  <img src={LinkedInLogo} alt="LinkedIn" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={GoogleLogo} alt="Google" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={ExcelLogo} alt="Excel" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={OutlookLogo} alt="Outlook" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={ZoomLogo} alt="Zoom" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={AppleMailLogo} alt="Apple Mail" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={AppleNumbersLogo} alt="Apple Numbers" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={AppleCalendarLogo} alt="Apple Calendar" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={GoogleCalendarLogo} alt="Google Calendar" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={GmailLogo} alt="Gmail" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={GoogleSheetsLogo} alt="Google Sheets" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                </div>
+                {/* Duplicate set for seamless loop */}
+                <div className="flex items-center gap-12 px-6 shrink-0">
+                  <img src={LinkedInLogo} alt="LinkedIn" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={GoogleLogo} alt="Google" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={ExcelLogo} alt="Excel" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={OutlookLogo} alt="Outlook" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={ZoomLogo} alt="Zoom" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={AppleMailLogo} alt="Apple Mail" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={AppleNumbersLogo} alt="Apple Numbers" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={AppleCalendarLogo} alt="Apple Calendar" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={GoogleCalendarLogo} alt="Google Calendar" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={GmailLogo} alt="Gmail" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                  <img src={GoogleSheetsLogo} alt="Google Sheets" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -580,7 +812,7 @@ const Index = () => {
           style={{ marginTop: '-1px' }}
         >
           <div className="max-w-7xl mx-auto">
-            <h2 className="text-display-lg text-center mb-16 text-section-heading">
+            <h2 className="text-display-lg text-center mb-16 text-section-heading font-instrument">
               Start <span className="gradient-text-teal">Connecting</span> Today
             </h2>
 
@@ -716,7 +948,7 @@ const Index = () => {
             <div className="grid md:grid-cols-2 gap-16">
               {/* Mission */}
               <div className="glass-card p-10 rounded-3xl">
-                <h2 className="text-4xl font-bold mb-6 text-section-heading">
+                <h2 className="text-4xl font-bold mb-6 text-section-heading font-instrument">
                   Our <span className="gradient-text-teal">Mission</span>
                 </h2>
                 <p className="text-lg text-section-body leading-relaxed mb-6">
@@ -729,7 +961,7 @@ const Index = () => {
 
               {/* Story */}
               <div className="glass-card p-10 rounded-3xl">
-                <h3 className="text-3xl font-bold mb-6 text-section-heading">Our Story</h3>
+                <h3 className="text-3xl font-bold mb-6 text-section-heading font-instrument">Our Story</h3>
                 <div className="space-y-4 text-section-body leading-relaxed">
                   <p>
                     Offerloop is a platform built by students, for students and young professionals, with one goal: to make it easier to connect with professionals, stand out, and land great opportunities.
@@ -756,8 +988,7 @@ const Index = () => {
         <footer className="py-16 px-6 border-t border-white/5 border-slate-300/20">
           <div className="max-w-7xl mx-auto">
             <div className="grid md:grid-cols-4 gap-8 mb-12">
-              <div className="md:col-span-2" id="privacy-lock">
-                <ExpandablePrivacyLock />
+              <div className="md:col-span-2">
                 <div className="flex items-center gap-2 mb-6">
                   <span className="text-2xl font-bold text-section-heading">
                     offer<span className="gradient-text-teal">loop</span>
@@ -831,9 +1062,10 @@ const Index = () => {
           </div>
         </footer>
 
+        </div>
       </div>
     </div>
-      </div>
+    </GranolaBackground>
   );
 };
 

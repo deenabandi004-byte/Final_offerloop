@@ -7,7 +7,11 @@ import { CreditPill } from "@/components/credits";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { useScout } from "@/contexts/ScoutContext";
-import { Search, Download, Linkedin, Send, Loader2 } from "lucide-react";
+import { 
+  Search, Linkedin, Send, Loader2, Sparkles, ArrowRight,
+  Briefcase, Building2, MapPin, GraduationCap, User, Check, CheckCircle,
+  FileText, Upload, Mail, Inbox, AlertCircle
+} from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 // ScoutBubble removed - now using ScoutHeaderButton in PageHeaderActions
 import { Button } from "@/components/ui/button";
@@ -31,6 +35,23 @@ import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileType
 
 // Session storage key for Scout auto-populate
 const SCOUT_AUTO_POPULATE_KEY = 'scout_auto_populate';
+
+// Quick start templates for common searches
+const quickStartTemplates = [
+  { id: 1, label: 'IB Analyst in NYC', jobTitle: 'Investment Banking Analyst', location: 'New York, NY', company: '', college: '' },
+  { id: 2, label: 'PM at FAANG', jobTitle: 'Product Manager', company: 'Google, Meta, Apple, Amazon', location: 'San Francisco, CA', college: '' },
+  { id: 3, label: 'Consulting at MBB', jobTitle: 'Consultant', company: 'McKinsey, Bain, BCG', location: 'New York, NY', college: '' },
+  { id: 4, label: 'SWE in Bay Area', jobTitle: 'Software Engineer', location: 'San Francisco, CA', company: '', college: '' },
+];
+
+// Helper function for slider encouragement messages
+const getSliderMessage = (count: number): string => {
+  if (count === 1) return "Perfect for testing a specific target";
+  if (count <= 3) return "Great for focused outreach";
+  if (count <= 7) return "Good for exploring a company";
+  if (count <= 10) return "Solid networking foundation";
+  return "Maximum reach — highly recommended!";
+};
 
 // Stripe-style Tabs Component with animated underline
 interface StripeTabsProps {
@@ -1204,28 +1225,51 @@ const ContactSearchPage: React.FC = () => {
             onJobTitleSuggestion={handleJobTitleSuggestion}
           />
 
-          <main className="bg-white min-h-screen">
+          <main className="bg-gradient-to-b from-slate-50 via-white to-white min-h-screen">
             {/* Page Header Container */}
-            <div className="max-w-5xl mx-auto px-8 pt-10 pb-4">
-              <h1 className="text-[28px] font-semibold text-gray-900 mb-4">
-                Find People
-              </h1>
+            <div className="max-w-4xl mx-auto px-6 pt-10 pb-4">
+              
+              {/* Inspiring Header Section */}
+              <div className="text-center mb-8 animate-fadeInUp">
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                  Find Your Next Connection
+                </h1>
+                <p className="text-gray-600 text-lg mb-3">
+                  Discover professionals who can open doors at your target companies.
+                </p>
+                <p className="text-sm text-gray-500">
+                  Users who reach out to 10+ contacts are 3x more likely to land interviews
+                </p>
+              </div>
 
-              {/* Stripe-style Tabs */}
+              {/* Pill-style Tabs */}
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <StripeTabs 
-                  activeTab={activeTab} 
-                  onTabChange={setActiveTab}
-                  tabs={[
-                    { id: 'contact-search', label: 'Find People' },
-                    { id: 'import', label: 'Spreadsheet Upload' },
-                    { id: 'linkedin-email', label: 'LinkedIn Lookup' },
-                    { id: 'contact-library', label: 'Networking Tracker' },
-                  ]}
-                />
+                <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mx-auto mb-8 animate-fadeInUp" style={{ animationDelay: '100ms' }}>
+                  {[
+                    { id: 'contact-search', label: 'Find People', icon: Search },
+                    { id: 'import', label: 'Spreadsheet', icon: Upload },
+                    { id: 'linkedin-email', label: 'LinkedIn', icon: Linkedin },
+                    { id: 'contact-library', label: 'Tracker', icon: User },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`
+                        flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
+                        ${activeTab === tab.id 
+                          ? 'bg-white text-blue-600 shadow-sm' 
+                          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                        }
+                      `}
+                    >
+                      <tab.icon className="w-4 h-4" />
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
 
                 {/* Content area with proper spacing from divider */}
-                <div className="pb-8 pt-6">
+                <div className="pb-8">
                   <TabsContent value="contact-search" className="mt-0">
                   {/* Fit Context Indicator - Shows when emails will be targeted */}
                   {currentFitContext && currentFitContext.job_title && (
@@ -1278,107 +1322,213 @@ const ContactSearchPage: React.FC = () => {
                     disabled={isSearching || isUploadingResume}
                   />
 
-                  {/* Search Filters Section - Flat layout */}
-                  <div className="mb-6">
-                    <h2 className="text-xl font-semibold text-gray-900 mb-6">
-                      Who are you trying to find?
-                    </h2>
-                    
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-                      <div>
-                        <label className="block text-sm font-medium mb-2 text-gray-700">
-                          Job Title <span className="text-red-500">*</span>
-                        </label>
-                        <AutocompleteInput
-                          value={jobTitle}
-                          onChange={setJobTitle}
-                          placeholder="e.g. Analyst, unsure of exact title in company? Ask Scout"
-                          dataType="job_title"
-                          disabled={isSearching}
-                          className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 hover:border-gray-400 transition-colors"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium mb-2 text-gray-700">Company</label>
-                        <AutocompleteInput
-                          value={company}
-                          onChange={setCompany}
-                          placeholder="e.g. Google, Meta, or any preferred firm"
-                          dataType="company"
-                          disabled={isSearching}
-                          className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 hover:border-gray-400 transition-colors"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium mb-2 text-gray-700">
-                          Location <span className="text-red-500">*</span>
-                        </label>
-                        <AutocompleteInput
-                          value={location}
-                          onChange={setLocation}
-                          placeholder="e.g. Los Angeles, CA, New York, NY, city of office"
-                          dataType="location"
-                          disabled={isSearching}
-                          className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 hover:border-gray-400 transition-colors"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium mb-2 text-gray-700">
-                          College Alumni
-                        </label>
-                        <AutocompleteInput
-                          value={collegeAlumni}
-                          onChange={setCollegeAlumni}
-                          placeholder="e.g. Stanford, USC, preferred college they attended"
-                          dataType="school"
-                          disabled={isSearching}
-                          className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 hover:border-gray-400 transition-colors"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="col-span-1 lg:col-span-2 mt-6 mb-2">
-                      {/* Section Header */}
-                      <h2 className="text-lg font-semibold text-gray-900 mb-2">
-                        How many people do you want to find?
-                      </h2>
-                      <p className="text-sm text-gray-500 mb-6">
-                        We create an{' '}
-                        <a 
-                          href="https://mail.google.com/mail/u/0/#drafts" 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:text-blue-700 underline"
-                        >
-                          email draft
-                        </a>
-                        {' '}for each person and save them to your{' '}
+                  {/* Quick Start Templates */}
+                  <div className="mb-6 animate-fadeInUp" style={{ animationDelay: '200ms' }}>
+                    <p className="text-sm text-gray-500 mb-3 text-center">Quick Start — Popular Searches</p>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {quickStartTemplates.map((template) => (
                         <button
-                          type="button"
-                          onClick={() => setActiveTab('contact-library')}
-                          className="text-blue-600 hover:text-blue-700 underline"
+                          key={template.id}
+                          onClick={() => {
+                            setJobTitle(template.jobTitle);
+                            setCompany(template.company);
+                            setLocation(template.location);
+                            setCollegeAlumni(template.college);
+                          }}
+                          disabled={isSearching}
+                          className="px-4 py-2 bg-white border border-gray-200 rounded-full text-sm text-gray-700 
+                                     hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 
+                                     transition-all duration-200 shadow-sm hover:shadow disabled:opacity-50"
                         >
-                          Networking Tracker
+                          {template.label}
                         </button>
-                        .
-                      </p>
+                      ))}
+                    </div>
+                  </div>
 
-                      {/* Two-column layout: Slider (left) + Resume (right) */}
-                      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
-                        {/* Left column: Slider + Cost */}
-                        <div className="flex-1">
-                          {/* Slider Row: [ X ] ─────●───── [ max ] */}
-                          <div className="flex items-center gap-4 max-w-[400px]">
+                  {/* Elevated Resume Section */}
+                  <div className="mb-6 animate-fadeInUp" style={{ animationDelay: '300ms' }}>
+                    {savedResumeUrl && savedResumeFileName ? (
+                      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center">
+                            <FileText className="w-6 h-6 text-blue-600" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="font-semibold text-gray-900">Resume Connected</p>
+                              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                <CheckCircle className="w-3 h-3" />
+                                Improving matches
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-600">{savedResumeFileName}</p>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => document.getElementById('resume-upload')?.click()}
+                          disabled={isSearching || isUploadingResume}
+                          className="text-blue-600 text-sm font-medium hover:text-blue-800 hover:underline transition-colors disabled:opacity-50"
+                        >
+                          {isUploadingResume ? "Uploading..." : "Change"}
+                        </button>
+                      </div>
+                    ) : (
+                      <div 
+                        onClick={() => !isSearching && !isUploadingResume && document.getElementById('resume-upload')?.click()}
+                        className="bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-blue-400 hover:bg-blue-50/50 transition-all cursor-pointer"
+                      >
+                        <div className="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center mx-auto mb-3">
+                          <Upload className="w-6 h-6 text-gray-400" />
+                        </div>
+                        <p className="font-medium text-gray-700 mb-1">
+                          {isUploadingResume ? "Uploading..." : "Upload your resume"}
+                        </p>
+                        <p className="text-sm text-gray-500">Improves match quality and email personalization</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Main Search Card */}
+                  <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '400ms' }}>
+                    {/* Gradient accent at top */}
+                    <div className="h-1 bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600"></div>
+                    
+                    <div className="p-8">
+                      {/* Search Filters Section */}
+                      <div className="mb-6">
+                        <h2 className="text-xl font-semibold text-gray-900 mb-6">
+                          Who are you trying to find?
+                        </h2>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                          {/* Job Title - with icon */}
+                          <div className="md:col-span-1">
+                            <label className="block text-sm font-medium mb-2 text-gray-700">
+                              Job Title <span className="text-red-500">*</span>
+                            </label>
+                            <div className="relative">
+                              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <Briefcase className="h-5 w-5 text-gray-400" />
+                              </div>
+                              <AutocompleteInput
+                                value={jobTitle}
+                                onChange={setJobTitle}
+                                placeholder="e.g. Analyst, Associate, PM"
+                                dataType="job_title"
+                                disabled={isSearching}
+                                className="pl-10 bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors rounded-xl"
+                              />
+                              {jobTitle && (
+                                <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                  <CheckCircle className="h-5 w-5 text-green-500" />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Company - with icon */}
+                          <div>
+                            <label className="block text-sm font-medium mb-2 text-gray-700">Company</label>
+                            <div className="relative">
+                              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <Building2 className="h-5 w-5 text-gray-400" />
+                              </div>
+                              <AutocompleteInput
+                                value={company}
+                                onChange={setCompany}
+                                placeholder="e.g. Google, Goldman Sachs"
+                                dataType="company"
+                                disabled={isSearching}
+                                className="pl-10 bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors rounded-xl"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Location - with icon */}
+                          <div>
+                            <label className="block text-sm font-medium mb-2 text-gray-700">
+                              Location <span className="text-red-500">*</span>
+                            </label>
+                            <div className="relative">
+                              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <MapPin className="h-5 w-5 text-gray-400" />
+                              </div>
+                              <AutocompleteInput
+                                value={location}
+                                onChange={setLocation}
+                                placeholder="e.g. Los Angeles, CA"
+                                dataType="location"
+                                disabled={isSearching}
+                                className="pl-10 bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors rounded-xl"
+                              />
+                              {location && (
+                                <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                  <CheckCircle className="h-5 w-5 text-green-500" />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* College Alumni - with icon */}
+                          <div>
+                            <label className="block text-sm font-medium mb-2 text-gray-500">
+                              College Alumni
+                              <span className="ml-2 text-xs text-gray-400 font-normal">Optional</span>
+                            </label>
+                            <div className="relative">
+                              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <GraduationCap className="h-5 w-5 text-gray-400" />
+                              </div>
+                              <AutocompleteInput
+                                value={collegeAlumni}
+                                onChange={setCollegeAlumni}
+                                placeholder="e.g. Stanford, USC"
+                                dataType="school"
+                                disabled={isSearching}
+                                className="pl-10 bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white hover:border-gray-300 transition-all rounded-xl"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Excitement-Building Slider Section */}
+                      <div className="mt-8 pt-8 border-t border-gray-100">
+                        <h2 className="text-xl font-semibold text-gray-900 mb-2">
+                          How many connections do you want to discover?
+                        </h2>
+                        <p className="text-gray-600 mb-6">
+                          We create an{' '}
+                          <a 
+                            href="https://mail.google.com/mail/u/0/#drafts" 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline font-medium"
+                          >
+                            email draft
+                          </a>
+                          {' '}for each person and save them to your{' '}
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab('contact-library')}
+                            className="text-blue-600 hover:underline font-medium"
+                          >
+                            Networking Tracker
+                          </button>
+                          .
+                        </p>
+
+                        <div className="bg-gradient-to-r from-slate-50 to-blue-50 rounded-xl p-6">
+                          {/* Slider Row */}
+                          <div className="flex items-center gap-4 mb-4">
                             {/* Current value */}
-                            <div className="flex items-center justify-center w-12 h-10 border border-gray-300 rounded-md bg-white">
-                              <span className="text-base font-semibold text-blue-600">{batchSize}</span>
+                            <div className="w-16 h-10 bg-white border border-gray-200 rounded-lg flex items-center justify-center font-semibold text-gray-900">
+                              {batchSize}
                             </div>
 
                             {/* Slider */}
-                            <div className="flex-1">
+                            <div className="flex-1 relative">
                               <input
                                 type="range"
                                 min="1"
@@ -1388,112 +1538,125 @@ const ContactSearchPage: React.FC = () => {
                                 disabled={isSearching || maxBatchSize < 1}
                                 className="w-full h-2 bg-gray-200 rounded-full appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed 
                                   [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 
-                                  [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500
-                                  [&::-webkit-slider-thumb]:border-0
-                                  [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:duration-200
+                                  [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-600
+                                  [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer
+                                  [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:hover:scale-110
                                   [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 
-                                  [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-blue-500
+                                  [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-blue-600
                                   [&::-moz-range-thumb]:border-0"
                                 style={{
                                   background: `linear-gradient(to right, 
                                     rgb(59, 130, 246) 0%, 
-                                    rgb(59, 130, 246) ${((batchSize - 1) / (maxBatchSize - 1)) * 100}%, 
-                                    rgb(229, 231, 235) ${((batchSize - 1) / (maxBatchSize - 1)) * 100}%, 
+                                    rgb(59, 130, 246) ${((batchSize - 1) / Math.max(maxBatchSize - 1, 1)) * 100}%, 
+                                    rgb(229, 231, 235) ${((batchSize - 1) / Math.max(maxBatchSize - 1, 1)) * 100}%, 
                                     rgb(229, 231, 235) 100%)`
                                 }}
                               />
                             </div>
 
                             {/* Max value */}
-                            <div className="flex items-center justify-center w-12 h-10 border border-gray-300 rounded-md bg-white">
-                              <span className="text-base font-semibold text-gray-500">{maxBatchSize}</span>
+                            <div className="w-16 h-10 bg-white border border-gray-200 rounded-lg flex items-center justify-center font-semibold text-gray-400">
+                              {maxBatchSize}
                             </div>
                           </div>
 
-                          {/* Summary line */}
-                          <p className="text-sm text-gray-500 mt-3">
-                            This will find <span className="font-medium text-blue-600">{batchSize}</span> {batchSize === 1 ? 'person' : 'people'} • Cost: <span className="font-medium text-blue-600">{batchSize * 15}</span> credits
-                          </p>
+                          {/* Dynamic feedback */}
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-2xl">🎯</span>
+                              <span className="text-gray-900">
+                                Finding <span className="font-bold text-blue-600">{batchSize}</span> {batchSize === 1 ? 'person' : 'people'}
+                              </span>
+                              <span className="text-gray-400">•</span>
+                              <span className="text-gray-600">{batchSize * 15} credits</span>
+                            </div>
+                            
+                            {/* Dynamic encouragement message */}
+                            <p className="text-sm text-gray-500 italic">
+                              {getSliderMessage(batchSize)}
+                            </p>
+                          </div>
+
+                          {/* Visual people indicators */}
+                          <div className="flex items-center gap-1 mt-4">
+                            {[...Array(maxBatchSize)].map((_, i) => (
+                              <div
+                                key={i}
+                                className={`w-6 h-6 rounded-full flex items-center justify-center transition-all duration-200
+                                  ${i < batchSize 
+                                    ? 'bg-blue-500 text-white scale-100' 
+                                    : 'bg-gray-200 text-gray-400 scale-90'
+                                  }`}
+                              >
+                                <User className="w-3 h-3" />
+                              </div>
+                            ))}
+                          </div>
 
                           {maxBatchSize < (userTier === 'free' ? 3 : userTier === 'pro' ? 8 : 15) && (
-                            <p className="text-xs text-yellow-600 mt-2">
+                            <p className="text-xs text-yellow-600 mt-3">
                               Limited by available credits. Maximum: {maxBatchSize} contacts.
                             </p>
                           )}
                         </div>
+                      </div>
 
-                        {/* Right column: Resume */}
-                        <div className="lg:text-right">
-                          <span className="text-xs text-gray-400 uppercase tracking-wide">Resume</span>
-                          {savedResumeUrl && savedResumeFileName ? (
-                            <div className="mt-1">
-                              <div className="flex items-center lg:justify-end gap-2">
-                                <span className="text-sm text-gray-700">{savedResumeFileName}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const input = document.getElementById('resume-upload') as HTMLInputElement;
-                                    input?.click();
-                                  }}
-                                  disabled={isSearching || isUploadingResume}
-                                  className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                  {isUploadingResume ? "Uploading..." : "Change"}
-                                </button>
-                              </div>
-                              <p className="text-xs text-gray-400 mt-0.5">Used to improve match quality and email personalization</p>
-                            </div>
+                      {/* Enhanced CTA Button */}
+                      <div className="mt-8">
+                        <button
+                          onClick={handleSearch}
+                          disabled={
+                            !jobTitle.trim() ||
+                            !location.trim() ||
+                            isSearching ||
+                            ((userTier === "pro" || userTier === "elite") && !uploadedFile && !savedResumeUrl) ||
+                            (effectiveUser.credits ?? 0) < 15
+                          }
+                          className={`
+                            w-full md:w-auto px-8 py-4 rounded-full font-semibold text-lg
+                            flex items-center justify-center gap-3 mx-auto
+                            transition-all duration-200 transform
+                            ${(!jobTitle.trim() || !location.trim() || isSearching || (effectiveUser.credits ?? 0) < 15)
+                              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                              : 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 hover:scale-105 active:scale-100'
+                            }
+                          `}
+                        >
+                          {isSearching ? (
+                            <>
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                              Searching...
+                            </>
                           ) : (
-                            <div className="mt-1">
-                              <div className="flex items-center lg:justify-end gap-2">
-                                <span className="text-sm text-gray-500">No resume uploaded</span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const input = document.getElementById('resume-upload') as HTMLInputElement;
-                                    input?.click();
-                                  }}
-                                  disabled={isSearching || isUploadingResume}
-                                  className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                  {isUploadingResume ? "Uploading..." : "Upload"}
-                                </button>
-                              </div>
-                              <p className="text-xs text-gray-400 mt-0.5">Required for match quality and email personalization</p>
-                            </div>
+                            <>
+                              Discover Contacts
+                              <ArrowRight className="w-5 h-5" />
+                            </>
                           )}
-                        </div>
+                        </button>
                       </div>
-                    </div>
 
-                    <div className="space-y-4 mt-8">
-                      <Button
-                        onClick={handleSearch}
-                        disabled={
-                          !jobTitle.trim() ||
-                          !location.trim() ||
-                          isSearching ||
-                          ((userTier === "pro" || userTier === "elite") && !uploadedFile && !savedResumeUrl) ||
-                          (effectiveUser.credits ?? 0) < 15
-                        }
-                        size="lg"
-                        className="text-white font-medium px-8 transition-all hover:opacity-90"
-                        style={{ background: '#3B82F6' }}
-                      >
-                        {isSearching ? "Searching..." : "Find Contacts"}
-                      </Button>
-
-                      <div className="flex items-center gap-4 text-sm text-gray-500">
-                        <div className="flex items-center gap-2">
-                          <Download className="h-4 w-4 text-gray-400" />
-                          <span>Up to {currentTierConfig.maxContacts} contacts + emails</span>
-                        </div>
-                        <span>•</span>
-                        <span>Auto-saved to Networking Tracker</span>
+                      {/* Value Proposition Below CTA */}
+                      <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-gray-500">
+                        <span className="flex items-center gap-1.5">
+                          <Check className="w-4 h-4 text-green-500" />
+                          Verified work emails
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <Check className="w-4 h-4 text-green-500" />
+                          AI-personalized drafts
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <Check className="w-4 h-4 text-green-500" />
+                          Auto-saved to Tracker
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <Check className="w-4 h-4 text-green-500" />
+                          Up to {currentTierConfig.maxContacts} contacts
+                        </span>
                       </div>
-                    </div>
 
-                    {(isSearching || searchComplete) && (
+                      {(isSearching || searchComplete) && (
                       <div className="mt-6">
                         <div className="space-y-3">
                           <div className="flex items-center justify-between text-sm">
@@ -1574,6 +1737,7 @@ const ContactSearchPage: React.FC = () => {
                         </button>
                       </div>
                     )}
+                    </div>
                   </div>
                 </TabsContent>
                   
@@ -1582,70 +1746,176 @@ const ContactSearchPage: React.FC = () => {
                   </TabsContent>
 
                   <TabsContent value="import" className="mt-0">
-                    <div className="p-6">
-                      <ContactImport 
-                        onImportComplete={() => {
-                          // Switch to Networking Tracker tab and refresh
-                          setActiveTab('contact-library');
-                        }} 
-                      />
-                    </div>
+                    <ContactImport 
+                      onImportComplete={() => {
+                        // Switch to Networking Tracker tab and refresh
+                        setActiveTab('contact-library');
+                      }}
+                      onSwitchTab={(tab) => setActiveTab(tab)}
+                    />
                   </TabsContent>
 
                   <TabsContent value="linkedin-email" className="mt-0">
-                  <div className="p-6">
-                    <div className="flex items-center gap-2 mb-4">
-                      <Linkedin className="w-5 h-5 text-blue-600" />
-                      <h2 className="text-xl font-semibold text-gray-900">LinkedIn Lookup</h2>
-                    </div>
-                    <p className="text-sm text-gray-500 mb-4">
-                      Paste a LinkedIn profile URL to automatically find their email, generate a personalized message, and create a Gmail draft.
-                    </p>
-                    
-                    <div className="flex gap-3">
-                      <input
-                        type="url"
-                        value={linkedInUrl}
-                        onChange={(e) => setLinkedInUrl(e.target.value)}
-                        placeholder="https://www.linkedin.com/in/username"
-                        className="flex-1 px-4 py-3 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-500"
-                      />
-                      <button
-                        onClick={handleLinkedInImport}
-                        disabled={!linkedInUrl.trim() || linkedInLoading}
-                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                      >
-                        {linkedInLoading ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Processing...
-                          </>
-                        ) : (
-                          <>
-                            <Send className="w-4 h-4" />
-                            Import & Draft
-                          </>
+                    {/* Main LinkedIn Card */}
+                    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
+                      {/* Gradient accent at top */}
+                      <div className="h-1 bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600"></div>
+                      
+                      <div className="p-8">
+                        {/* Card Header with Icon */}
+                        <div className="text-center mb-8">
+                          <div className="w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                            <Linkedin className="w-7 h-7 text-blue-700" />
+                          </div>
+                          <h2 className="text-xl font-semibold text-gray-900 mb-2">LinkedIn Lookup</h2>
+                          <p className="text-gray-600 max-w-lg mx-auto">
+                            Paste a LinkedIn profile URL to automatically find their email, generate a personalized message, and create a Gmail draft.
+                          </p>
+                        </div>
+
+                        {/* Enhanced URL Input with Integrated Button */}
+                        <div className="max-w-2xl mx-auto">
+                          <div className="relative flex items-center">
+                            {/* LinkedIn icon inside input */}
+                            <div className="absolute left-4 pointer-events-none">
+                              <Linkedin className="w-5 h-5 text-gray-400" />
+                            </div>
+                            
+                            <input
+                              type="url"
+                              value={linkedInUrl}
+                              onChange={(e) => setLinkedInUrl(e.target.value)}
+                              placeholder="https://www.linkedin.com/in/username"
+                              className="w-full pl-12 pr-44 py-4 text-lg border-2 border-gray-200 rounded-full
+                                         text-gray-900 placeholder-gray-400
+                                         focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+                                         hover:border-gray-300 transition-all"
+                            />
+                            
+                            {/* Button inside input */}
+                            <button
+                              onClick={handleLinkedInImport}
+                              disabled={!linkedInUrl.trim() || linkedInLoading}
+                              className={`
+                                absolute right-2 px-6 py-2.5 rounded-full font-semibold text-sm
+                                flex items-center gap-2 transition-all duration-200
+                                ${linkedInUrl.trim() && !linkedInLoading
+                                  ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-md hover:shadow-lg hover:scale-105'
+                                  : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                                }
+                              `}
+                            >
+                              {linkedInLoading ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                  Processing...
+                                </>
+                              ) : (
+                                <>
+                                  <Send className="w-4 h-4" />
+                                  Import & Draft
+                                </>
+                              )}
+                            </button>
+                          </div>
+                          
+                          {/* Validation Feedback */}
+                          {linkedInUrl && !linkedInUrl.match(/^https?:\/\/(www\.)?linkedin\.com\/in\/[\w-]+\/?$/) && linkedInUrl.length > 10 && (
+                            <p className="text-center text-sm text-amber-600 mt-3 flex items-center justify-center gap-1">
+                              <AlertCircle className="w-4 h-4" />
+                              Please enter a valid LinkedIn profile URL (e.g., linkedin.com/in/username)
+                            </p>
+                          )}
+                          
+                          {linkedInUrl && linkedInUrl.match(/^https?:\/\/(www\.)?linkedin\.com\/in\/[\w-]+\/?$/) && (
+                            <p className="text-center text-sm text-green-600 mt-3 flex items-center justify-center gap-1">
+                              <CheckCircle className="w-4 h-4" />
+                              Valid LinkedIn URL — ready to import
+                            </p>
+                          )}
+                          
+                          {/* Helper text below input */}
+                          {!linkedInUrl && (
+                            <p className="text-center text-sm text-gray-500 mt-4">
+                              Uses <span className="font-medium">1 credit</span> per import • Email draft will be saved to your Gmail Drafts
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Error State */}
+                        {linkedInError && (
+                          <div className="mt-6 max-w-2xl mx-auto flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl">
+                            <AlertCircle className="h-5 w-5 flex-shrink-0" />
+                            <p>{linkedInError}</p>
+                          </div>
                         )}
-                      </button>
+
+                        {/* Success State */}
+                        {linkedInSuccess && (
+                          <div className="mt-6 max-w-2xl mx-auto flex items-center gap-2 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl">
+                            <CheckCircle className="h-5 w-5 flex-shrink-0" />
+                            <p>{linkedInSuccess}</p>
+                          </div>
+                        )}
+
+                        {/* What You'll Get Section */}
+                        <div className="mt-10 pt-8 border-t border-gray-100">
+                          <h3 className="text-center text-sm font-semibold text-gray-500 uppercase tracking-wide mb-6">What you'll get</h3>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-2xl mx-auto">
+                            <div className="text-center">
+                              <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+                                <Mail className="w-6 h-6 text-green-600" />
+                              </div>
+                              <p className="font-medium text-gray-900 text-sm">Verified Email</p>
+                              <p className="text-xs text-gray-500 mt-1">Professional work email</p>
+                            </div>
+                            
+                            <div className="text-center">
+                              <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+                                <Sparkles className="w-6 h-6 text-purple-600" />
+                              </div>
+                              <p className="font-medium text-gray-900 text-sm">AI-Personalized Draft</p>
+                              <p className="text-xs text-gray-500 mt-1">Based on their profile</p>
+                            </div>
+                            
+                            <div className="text-center">
+                              <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+                                <Inbox className="w-6 h-6 text-blue-600" />
+                              </div>
+                              <p className="font-medium text-gray-900 text-sm">Gmail Draft Created</p>
+                              <p className="text-xs text-gray-500 mt-1">Ready to review & send</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    
-                    {linkedInError && (
-                      <div className="mt-3 p-3 border border-red-300 rounded-lg text-red-600 text-sm bg-red-50/50">
-                        {linkedInError}
+
+                    {/* Quick Tips Section */}
+                    <div className="mt-8 text-center animate-fadeInUp" style={{ animationDelay: '300ms' }}>
+                      <p className="text-sm text-gray-500 mb-3">Want to find people a different way?</p>
+                      <div className="flex flex-wrap justify-center gap-3">
+                        <button 
+                          onClick={() => setActiveTab('contact-search')}
+                          className="px-4 py-2 bg-white border border-gray-200 rounded-full text-sm text-gray-700 
+                                     hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 
+                                     transition-all duration-200 shadow-sm hover:shadow flex items-center gap-2"
+                        >
+                          <Search className="w-4 h-4" />
+                          Search by criteria
+                        </button>
+                        <button 
+                          onClick={() => setActiveTab('import')}
+                          className="px-4 py-2 bg-white border border-gray-200 rounded-full text-sm text-gray-700 
+                                     hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 
+                                     transition-all duration-200 shadow-sm hover:shadow flex items-center gap-2"
+                        >
+                          <Upload className="w-4 h-4" />
+                          Upload spreadsheet
+                        </button>
                       </div>
-                    )}
-                    
-                    {linkedInSuccess && (
-                      <div className="mt-3 p-3 border border-green-300 rounded-lg text-green-600 text-sm bg-green-50/50">
-                        {linkedInSuccess}
-                      </div>
-                    )}
-                    
-                    <p className="text-xs text-gray-500 mt-3">
-                      Uses 1 credit per import • Email draft will be saved to your Gmail Drafts
-                    </p>
-                  </div>
-                </TabsContent>
+                    </div>
+                  </TabsContent>
                 </div>
               </Tabs>
             </div>

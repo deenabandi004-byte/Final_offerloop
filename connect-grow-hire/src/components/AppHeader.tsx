@@ -8,6 +8,8 @@ interface AppHeaderProps {
   title?: string;
   /** Optional icon to display next to the title */
   titleIcon?: React.ReactNode;
+  /** Optional content to display in the center of the header */
+  centerContent?: React.ReactNode;
   /** Callback when job title suggestion is received from Scout */
   onJobTitleSuggestion?: (title: string, company?: string, location?: string) => void;
 }
@@ -17,11 +19,13 @@ interface AppHeaderProps {
  * 
  * Layout:
  * - Left: Mobile menu button, notification icons, page title
+ * - Center: Optional custom content (e.g., stats for Dashboard)
  * - Right: Scout button
  */
 export function AppHeader({ 
   title, 
   titleIcon,
+  centerContent,
   onJobTitleSuggestion
 }: AppHeaderProps) {
   const navigate = useNavigate();
@@ -85,6 +89,13 @@ export function AppHeader({
           </h1>
         </div>
       </div>
+
+      {/* Center Section: Optional custom content */}
+      {centerContent && (
+        <div className="absolute left-1/2 -translate-x-1/2 hidden md:flex items-center">
+          {centerContent}
+        </div>
+      )}
 
       {/* Right Section: Scout button */}
       <div className="flex items-center gap-2 lg:gap-3">

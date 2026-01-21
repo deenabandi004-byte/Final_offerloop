@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -6,8 +6,10 @@ import { AppHeader } from "@/components/AppHeader";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { useScout } from "@/contexts/ScoutContext";
-import { History, Loader2, AlertCircle, ArrowUp, Download, Trash2 } from "lucide-react";
-// ScoutBubble removed - now using ScoutHeaderButton in PageHeaderActions
+import { 
+  History, Loader2, AlertCircle, ArrowUp, Download, Trash2, Building2, Search,
+  CheckCircle, Users, Globe, Bookmark, ArrowRight, X, ChevronRight, Check
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -27,75 +29,30 @@ import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
 
 // Example prompts to show users
-const EXAMPLE_PROMPTS = [
-  "Investment banks in New York focused on healthcare M&A",
-  "Mid-sized consulting firms in San Francisco",
-  "Venture capital firms in Boston focused on biotech",
-  "Large private equity firms in Chicago",
-  "Software companies in Austin with 50-200 employees"
+const EXAMPLE_SEARCHES = [
+  { id: 1, label: 'Tech startups in SF', query: 'Early-stage tech startups in San Francisco focused on AI/ML' },
+  { id: 2, label: 'Healthcare M&A banks', query: 'Mid-sized investment banks in New York focused on healthcare M&A' },
+  { id: 3, label: 'Consulting in Chicago', query: 'Management consulting firms in Chicago with 100-500 employees' },
+  { id: 4, label: 'Fintech in London', query: 'Series B+ fintech companies in London focused on payments' },
 ];
 
 // Session storage key for Scout auto-populate
 const SCOUT_AUTO_POPULATE_KEY = 'scout_auto_populate';
 
-// Stripe-style Tabs Component with animated underline
-interface StripeTabsProps {
-  activeTab: string;
-  onTabChange: (tab: string) => void;
-  tabs: { id: string; label: string }[];
-}
+// Batch options
+const BATCH_OPTIONS = [
+  { value: 5 },
+  { value: 10 },
+  { value: 20 },
+  { value: 40 },
+];
 
-const StripeTabs: React.FC<StripeTabsProps> = ({ activeTab, onTabChange, tabs }) => {
-  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
-
-  // Update indicator position when active tab changes
-  useLayoutEffect(() => {
-    const activeIndex = tabs.findIndex(tab => tab.id === activeTab);
-    const activeTabRef = tabRefs.current[activeIndex];
-    
-    if (activeTabRef) {
-      const { offsetLeft, offsetWidth } = activeTabRef;
-      setIndicatorStyle({ left: offsetLeft, width: offsetWidth });
-    }
-  }, [activeTab, tabs]);
-
-  return (
-    <div className="relative">
-      {/* Tab buttons */}
-      <div className="flex items-center gap-8">
-        {tabs.map((tab, index) => (
-          <button
-            key={tab.id}
-            ref={(el) => { tabRefs.current[index] = el; }}
-            onClick={() => onTabChange(tab.id)}
-            className={`
-              relative pb-3 text-sm font-medium transition-colors duration-150
-              focus:outline-none focus-visible:outline-none
-              ${activeTab === tab.id 
-                ? 'text-[#3B82F6]' 
-                : 'text-gray-500 hover:text-gray-700'
-              }
-            `}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-      
-      {/* Full-width divider line */}
-      <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gray-200" />
-      
-      {/* Animated underline indicator - sits on top of divider */}
-      <div
-        className="absolute bottom-0 h-[2px] bg-[#3B82F6] transition-all duration-200 ease-out"
-        style={{
-          left: indicatorStyle.left,
-          width: indicatorStyle.width,
-        }}
-      />
-    </div>
-  );
+// Helper for quantity messages
+const getQuantityMessage = (qty: number) => {
+  if (qty === 5) return "Perfect for focused targeting";
+  if (qty === 10) return "Great for exploring an industry";
+  if (qty === 20) return "Build a solid pipeline";
+  return "Maximum discovery — cast a wide net";
 };
 
 const FirmSearchPage: React.FC = () => {
@@ -118,6 +75,7 @@ const FirmSearchPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [searchProgress, setSearchProgress] = useState<{current: number, total: number, step: string} | null>(null);
+  const [searchComplete, setSearchComplete] = useState(false);
 
   // History state
   const [showHistory, setShowHistory] = useState(false);
@@ -141,8 +99,12 @@ const FirmSearchPage: React.FC = () => {
 
   // Credit system state
   const [batchSize, setBatchSize] = useState<number>(10);
-  const [batchOptions] = useState<number[]>([5, 10, 20, 40]);
   const [creditsPerFirm] = useState<number>(5);
+
+  // Validation
+  const hasIndustry = query.length > 10;
+  const hasLocation = /in\s+\w+|located|based in/i.test(query);
+  const isValidQuery = query.length > 20 && hasLocation;
 
   // Refresh credits when batch size changes to update UI warnings
   useEffect(() => {
@@ -164,27 +126,21 @@ const FirmSearchPage: React.FC = () => {
         if (stored) {
           const data = JSON.parse(stored);
           
-          // Handle both formats: search help format (nested) and chat format (flat)
           let populateData;
           if (data.search_type === 'firm') {
             if (data.auto_populate) {
-              // Search help format (nested)
               populateData = data.auto_populate;
             } else {
-              // Chat format (flat)
               populateData = data;
             }
             
             const { industry, location: autoLocation } = populateData;
-            // Build a new query from the suggestions
             let newQuery = '';
             if (industry) newQuery += industry;
             if (autoLocation) newQuery += (newQuery ? ' in ' : '') + autoLocation;
             
             if (newQuery) {
               setQuery(newQuery);
-              
-              // Clear the stored data
               sessionStorage.removeItem(SCOUT_AUTO_POPULATE_KEY);
               
               toast({
@@ -199,10 +155,7 @@ const FirmSearchPage: React.FC = () => {
       }
     };
 
-    // Run on mount
     handleAutoPopulate();
-
-    // Also listen for custom event (for when already on page)
     window.addEventListener('scout-auto-populate', handleAutoPopulate);
     return () => window.removeEventListener('scout-auto-populate', handleAutoPopulate);
   }, []);
@@ -211,62 +164,39 @@ const FirmSearchPage: React.FC = () => {
   const recentlyDeletedFirmIds = useRef<Set<string>>(new Set());
   
   // Load all saved firms from Firebase on mount
-  // OPTIMIZED: Only load recent searches, not all 50
   const loadAllSavedFirms = useCallback(async () => {
-    console.log('🚀 loadAllSavedFirms called', { hasUser: !!user, userId: user?.uid });
-    
     if (!user) {
-      console.log('❌ No user, skipping load');
       setLoadingSavedFirms(false);
       return;
     }
 
     setLoadingSavedFirms(true);
     try {
-      console.log('📥 Loading saved firms from Firebase...');
-      // Request history with firms included - use higher limit to get all searches
-      // This ensures we get all firms, not just from the last 10 searches
       const history = await apiService.getFirmSearchHistory(100, true);
-      console.log('📦 History received:', { historyLength: history.length, history });
 
-      // Extract all unique firms from recent searches
       const allFirms: Firm[] = [];
       const firmIds = new Set<string>();
-      const firmKeys = new Set<string>(); // Track both ID and name+location keys
+      const firmKeys = new Set<string>();
 
-      // Extract firms from history (now included in response)
-      history.forEach((historyItem: any, index: number) => {
-        console.log(`🔍 Processing history item ${index}:`, {
-          hasResults: !!historyItem.results,
-          resultsIsArray: Array.isArray(historyItem.results),
-          resultsLength: historyItem.results?.length || 0
-        });
-        
+      history.forEach((historyItem: any) => {
         if (historyItem.results && Array.isArray(historyItem.results)) {
           historyItem.results.forEach((firm: Firm) => {
-            // Skip if this firm was deleted (defensive check)
             if (firm.id && deletedFirmIds.current.has(firm.id)) {
-              console.log(`⏭️ Skipping deleted firm: ${firm.id} (${firm.name})`);
               return;
             }
             
-            // Skip if this firm was recently deleted (defensive check)
             if (firm.id && recentlyDeletedFirmIds.current.has(firm.id)) {
-              console.log(`⏭️ Skipping recently deleted firm: ${firm.id} (${firm.name})`);
               return;
             }
             
-            // Use ID as primary key if available, otherwise use name+location
             const firmKey = firm.id || `${firm.name}-${firm.location?.display}`;
             
-            // Deduplicate: prefer ID-based matching, but also check name+location
             if (firm.id) {
               if (!firmIds.has(firm.id)) {
                 firmIds.add(firm.id);
                 allFirms.push(firm);
               }
             } else {
-              // No ID - use name+location as key
               if (!firmKeys.has(firmKey)) {
                 firmKeys.add(firmKey);
                 allFirms.push(firm);
@@ -275,34 +205,22 @@ const FirmSearchPage: React.FC = () => {
           });
         }
       });
-
-      console.log(`✅ Loaded ${allFirms.length} unique firms from ${history.length} recent searches`);
       
-      // Filter out any firms that are marked as deleted (defensive check)
       const filteredFirms = allFirms.filter(firm => {
         if (firm.id && deletedFirmIds.current.has(firm.id)) {
-          console.log(`🚫 Filtering out deleted firm from results: ${firm.id} (${firm.name})`);
           return false;
         }
         return true;
       });
       
-      if (filteredFirms.length < allFirms.length) {
-        console.log(`🧹 Filtered out ${allFirms.length - filteredFirms.length} deleted firms from results`);
-      }
-      
-      // Clear recently deleted IDs after a successful reload (they should be gone from Firebase now)
       if (recentlyDeletedFirmIds.current.size > 0) {
-        console.log(`🧹 Clearing ${recentlyDeletedFirmIds.current.size} recently deleted firm IDs from tracking`);
         recentlyDeletedFirmIds.current.clear();
       }
       
       setResults(filteredFirms);
-      loadAttemptedRef.current = false; // Reset on success so we can reload if needed
+      loadAttemptedRef.current = false;
     } catch (err) {
-      console.error('❌ Failed to load saved firms:', err);
-      // Don't reset loadAttemptedRef on error - this prevents infinite retries
-      // User can manually refresh if needed
+      console.error('Failed to load saved firms:', err);
       toast({
         title: "Failed to load firms",
         description: err instanceof Error ? err.message : "Please check your connection and try refreshing.",
@@ -331,52 +249,27 @@ const FirmSearchPage: React.FC = () => {
   // Load history on mount
   useEffect(() => {
     loadHistory();
-    // Refresh credits on mount to ensure UI shows current balance
     if (checkCredits) {
       checkCredits();
     }
   }, [loadHistory, checkCredits]);
 
-
-  // Track if we've attempted to load (to prevent infinite retries on errors)
+  // Track if we've attempted to load
   const loadAttemptedRef = useRef(false);
   
-  // Load saved firms when switching to firm-library tab (only if results are empty)
-  // This prevents overwriting new search results, but loads library when needed
+  // Load saved firms when switching to firm-library tab
   useEffect(() => {
-    // Only proceed if we're on the firm-library tab
     if (activeTab !== 'firm-library') {
-      loadAttemptedRef.current = false; // Reset when switching away
+      loadAttemptedRef.current = false;
       return;
     }
 
-    // Must have a user to load saved firms
-    if (!user) {
-      console.log('⏭️ No user, cannot load saved firms');
-      return;
-    }
+    if (!user) return;
+    if (loadingSavedFirms) return;
+    if (loadAttemptedRef.current) return;
 
-    // Don't load if already loading
-    if (loadingSavedFirms) {
-      console.log('⏭️ Already loading saved firms, skipping');
-      return;
-    }
+    if (resultsRef.current.length > 0) return;
 
-    // Don't retry if we've already attempted and failed
-    if (loadAttemptedRef.current) {
-      console.log('⏭️ Load already attempted, skipping to prevent infinite retry');
-      return;
-    }
-
-    // Only load if results are empty (don't overwrite fresh search results)
-    // Since deletions persist to Firebase, we can safely reload and get the current state
-    if (resultsRef.current.length > 0) {
-      console.log('⏭️ Results already populated, skipping load to preserve search results');
-      return;
-    }
-
-    // All conditions met - load saved firms
-    console.log('📚 ✅ Loading saved firms for firm-library tab (all conditions met)');
     loadAttemptedRef.current = true;
     loadAllSavedFirms();
   }, [activeTab, user, loadAllSavedFirms, loadingSavedFirms]);
@@ -390,7 +283,6 @@ const FirmSearchPage: React.FC = () => {
       return;
     }
 
-    // Check if user is authenticated
     if (!user) {
       setError('Please sign in to search for firms');
       toast({
@@ -404,8 +296,8 @@ const FirmSearchPage: React.FC = () => {
     setIsSearching(true);
     setError(null);
     setHasSearched(true);
+    setSearchComplete(false);
     
-    // Estimate time: ~2s for ChatGPT name generation + ~2s per batch of 5 firms (parallel)
     const estimatedSeconds = 2 + Math.ceil(batchSize / 5) * 2;
     const estimatedTime = estimatedSeconds < 60 
       ? `${estimatedSeconds} seconds` 
@@ -416,7 +308,6 @@ const FirmSearchPage: React.FC = () => {
     try {
       const result: FirmSearchResult = await apiService.searchFirms(q, batchSize);
       
-      // Clear progress on success
       setSearchProgress(null);
 
       if (result.success) {
@@ -425,7 +316,6 @@ const FirmSearchPage: React.FC = () => {
         if (result.firms.length === 0) {
           setError('No firms found matching your criteria. Try broadening your search or adjusting the location/industry.');
           
-          // Trigger Scout to help with suggestions
           openPanelWithSearchHelp({
             searchType: 'firm',
             failedSearchParams: {
@@ -436,31 +326,20 @@ const FirmSearchPage: React.FC = () => {
             errorType: 'no_results',
           });
         } else {
-          // For new searches, replace results. For library view, merge with existing.
-          // Since we're on the search tab, replace the results to show only this search
           const newFirms = result.firms;
-          
-          // Replace results with new search results ONLY
-          // This ensures we show exactly what was requested, not accumulated history
           setResults(newFirms);
-
-          // Show toast with partial result message if applicable
-          const toastDescription = result.partialMessage 
-            ? `${result.partialMessage} Used ${result.creditsCharged || 0} credits.`
-            : `Found ${result.firms.length} firm${result.firms.length !== 1 ? 's' : ''}. Used ${result.creditsCharged || 0} credits.`;
+          setSearchComplete(true);
 
           toast({
             title: result.partialMessage ? "Partial Results" : "Search Complete!",
-            description: toastDescription,
-            variant: result.partialMessage ? "default" : "default",
+            description: result.partialMessage 
+              ? `${result.partialMessage} Used ${result.creditsCharged || 0} credits.`
+              : `Found ${result.firms.length} firm${result.firms.length !== 1 ? 's' : ''}. Used ${result.creditsCharged || 0} credits.`,
           });
 
           if (checkCredits) {
             await checkCredits();
           }
-
-          // Auto-switch to Firm Library tab when results come in
-          setActiveTab('firm-library');
         }
 
         loadHistory();
@@ -477,7 +356,6 @@ const FirmSearchPage: React.FC = () => {
     } catch (err: any) {
       console.error('Search error:', err);
       
-      // Handle authentication errors (401 status)
       if (err.status === 401 || err.message?.includes('Authentication required')) {
         setError('Authentication required. Please sign in again.');
         toast({
@@ -485,8 +363,6 @@ const FirmSearchPage: React.FC = () => {
           description: "Your session may have expired. Please sign in again.",
           variant: "destructive",
         });
-        // Optionally redirect to sign in
-        // navigate('/signin');
       } else if (err.status === 402 || err.error_code === 'INSUFFICIENT_CREDITS') {
         const creditsNeeded = err.creditsNeeded || err.required || (batchSize * creditsPerFirm);
         const currentCredits = err.currentCredits || err.available || effectiveUser.credits || 0;
@@ -498,12 +374,10 @@ const FirmSearchPage: React.FC = () => {
           variant: "destructive",
         });
         
-        // Refresh credits to update UI
         if (checkCredits) {
           await checkCredits();
         }
       } else if (err.status === 502 || err.error_code === 'EXTERNAL_API_ERROR') {
-        // Handle external API errors (service temporarily unavailable)
         const errorMessage = err.message || 'The search service is temporarily unavailable. Please try again in a few minutes.';
         setError(errorMessage);
         toast({
@@ -540,37 +414,6 @@ const FirmSearchPage: React.FC = () => {
     navigate(`/contact-search?${params.toString()}`);
   };
 
-  // Handler for applying refined query from Scout
-  const handleApplyQuery = (newQuery: string) => {
-    setQuery(newQuery);
-    toast({
-      title: "Query updated",
-      description: "Click Search to run the new query",
-    });
-  };
-
-  // Handler for finding contacts at a firm from Scout
-  const handleFindContactsFromScout = (firmName: string) => {
-    // Find the firm in results
-    const firm = results.find(f => f.name === firmName);
-    if (firm) {
-      handleViewContacts(firm);
-    } else {
-      toast({
-        title: "Firm not found",
-        description: `Couldn't find ${firmName} in your results`,
-        variant: "destructive",
-      });
-    }
-  };
-
-  // Build firm context for Scout
-  const firmContext = {
-    current_query: query,
-    current_results: results,
-    parsed_filters: parsedFilters,
-  };
-
   // Get unique firm key (helper function)
   const getFirmKey = (firm: Firm): string => {
     return firm.id || `${firm.name}-${firm.location?.display}`;
@@ -582,52 +425,31 @@ const FirmSearchPage: React.FC = () => {
     setDeletingFirmId(firmKey);
     
     try {
-      console.log('🗑️ Deleting firm:', { 
-        firmId: firm.id, 
-        firmName: firm.name, 
-        firmLocation: firm.location?.display,
-        firmKey 
-      });
-      
-      // Track this firm ID as deleted to prevent it from reappearing
       if (firm.id) {
         deletedFirmIds.current.add(firm.id);
         recentlyDeletedFirmIds.current.add(firm.id);
-        console.log(`📝 Tracking deleted firm ID: ${firm.id}`);
       }
       
-      // Remove from local state IMMEDIATELY for responsive UI (optimistic update)
       setResults((prev) => {
         const filtered = prev.filter((f) => {
-          // Match by ID if both have IDs, otherwise match by name+location
           if (firm.id && f.id) {
             return f.id !== firm.id;
           }
-          // Fallback to name+location matching
           const fKey = getFirmKey(f);
           return fKey !== firmKey;
         });
-        console.log(`🗑️ Removed firm from local state (optimistic): ${prev.length} -> ${filtered.length}`);
         return filtered;
       });
       
-      // Delete from Firebase
       const result = await apiService.deleteFirm(firm);
-      
-      console.log('🗑️ Delete result:', result);
       
       if (result.success) {
         if (result.deletedCount === 0) {
-          // No firms were actually deleted from Firebase
-          console.warn('⚠️ Delete API returned success but deletedCount is 0 - firm not found in Firebase!');
-          // Remove from tracking since it wasn't actually deleted
           if (firm.id) {
             deletedFirmIds.current.delete(firm.id);
             recentlyDeletedFirmIds.current.delete(firm.id);
           }
-          // Re-add to local state since it wasn't actually deleted
           setResults((prev) => {
-            // Check if firm is already in the list
             const exists = prev.some(f => {
               if (firm.id && f.id) {
                 return f.id === firm.id;
@@ -635,7 +457,6 @@ const FirmSearchPage: React.FC = () => {
               return getFirmKey(f) === firmKey;
             });
             if (!exists) {
-              console.log('🔄 Re-adding firm to local state (wasn\'t actually deleted)');
               return [...prev, firm];
             }
             return prev;
@@ -650,35 +471,26 @@ const FirmSearchPage: React.FC = () => {
         
         toast({
           title: "Firm deleted",
-          description: `Removed from your Firm Library (${result.deletedCount} occurrence${result.deletedCount > 1 ? 's' : ''} removed).`,
+          description: `Removed from your Firm Library.`,
         });
         
-        // Reload saved firms to ensure UI reflects Firebase state
-        // Use a longer delay to ensure Firebase has fully processed the deletion
         if (activeTab === 'firm-library') {
-          console.log('🔄 Reloading saved firms after deletion to sync with Firebase...');
-          // Try multiple reloads with increasing delays to handle eventual consistency
           const reloadAttempts = [1000, 2000, 3000];
           for (const delay of reloadAttempts) {
             setTimeout(async () => {
               try {
-                console.log(`🔄 Reload attempt after ${delay}ms...`);
                 await loadAllSavedFirms();
-                console.log(`✅ Reloaded saved firms after ${delay}ms`);
               } catch (reloadError) {
-                console.error(`❌ Error reloading firms after ${delay}ms:`, reloadError);
-                // Don't show error toast - deletion was successful, just reload failed
+                console.error('Error reloading firms:', reloadError);
               }
             }, delay);
           }
         }
       } else {
-        // Remove from tracking if deletion failed
         if (firm.id) {
           deletedFirmIds.current.delete(firm.id);
           recentlyDeletedFirmIds.current.delete(firm.id);
         }
-        // Re-add to local state since deletion failed
         setResults((prev) => {
           const exists = prev.some(f => {
             if (firm.id && f.id) {
@@ -687,7 +499,6 @@ const FirmSearchPage: React.FC = () => {
             return getFirmKey(f) === firmKey;
           });
           if (!exists) {
-            console.log('🔄 Re-adding firm to local state (deletion failed)');
             return [...prev, firm];
           }
           return prev;
@@ -695,13 +506,11 @@ const FirmSearchPage: React.FC = () => {
         throw new Error(result.error || 'Failed to delete firm');
       }
     } catch (error) {
-      console.error('❌ Delete firm error:', error);
-      // Remove from tracking if deletion failed
+      console.error('Delete firm error:', error);
       if (firm.id) {
         deletedFirmIds.current.delete(firm.id);
         recentlyDeletedFirmIds.current.delete(firm.id);
       }
-      // Re-add to local state since deletion failed
       setResults((prev) => {
         const exists = prev.some(f => {
           if (firm.id && f.id) {
@@ -710,7 +519,6 @@ const FirmSearchPage: React.FC = () => {
           return getFirmKey(f) === firmKey;
         });
         if (!exists) {
-          console.log('🔄 Re-adding firm to local state (error during deletion)');
           return [...prev, firm];
         }
         return prev;
@@ -731,8 +539,6 @@ const FirmSearchPage: React.FC = () => {
     setShowDeleteAllDialog(false);
     
     try {
-      // Delete each firm from Firebase
-      // Use Promise.allSettled to handle partial failures gracefully
       const deletePromises = results.map(firm => apiService.deleteFirm(firm));
       const results_array = await Promise.allSettled(deletePromises);
       
@@ -741,7 +547,6 @@ const FirmSearchPage: React.FC = () => {
       ).length;
       const failedCount = count - successCount;
       
-      // Clear local state immediately for responsive UI
       setResults([]);
       
       if (failedCount === 0) {
@@ -750,53 +555,47 @@ const FirmSearchPage: React.FC = () => {
           description: `Removed ${successCount} firm${successCount !== 1 ? 's' : ''} from your Firm Library.`,
         });
         
-        // Reload to ensure UI is in sync with Firebase (should result in empty array if all deleted)
         if (activeTab === 'firm-library') {
-          console.log('🔄 Reloading saved firms after delete all to verify Firebase state...');
           setTimeout(async () => {
             try {
               await loadAllSavedFirms();
-              console.log('✅ Reloaded saved firms after delete all');
             } catch (reloadError) {
-              console.error('❌ Error reloading firms after delete all:', reloadError);
+              console.error('Error reloading firms:', reloadError);
             }
           }, 1000);
         }
       } else {
         toast({
           title: "Partial deletion",
-          description: `Deleted ${successCount} of ${count} firms. ${failedCount} failed. Please refresh to see current state.`,
+          description: `Deleted ${successCount} of ${count} firms. ${failedCount} failed.`,
           variant: "default",
         });
         
-        // Still reload to get accurate state
         if (activeTab === 'firm-library') {
           setTimeout(async () => {
             try {
               await loadAllSavedFirms();
             } catch (reloadError) {
-              console.error('❌ Error reloading firms after partial delete:', reloadError);
+              console.error('Error reloading firms:', reloadError);
             }
           }, 1000);
         }
       }
     } catch (error) {
       console.error('Error deleting all firms:', error);
-      // Still clear local state even if some deletions failed
       setResults([]);
       toast({
         title: "Delete error",
-        description: "An error occurred while deleting firms. Please refresh the page to see the current state.",
+        description: "An error occurred while deleting firms.",
         variant: "destructive",
       });
       
-      // Try to reload to get accurate state
       if (activeTab === 'firm-library') {
         setTimeout(async () => {
           try {
             await loadAllSavedFirms();
           } catch (reloadError) {
-            console.error('❌ Error reloading firms after delete error:', reloadError);
+            console.error('Error reloading firms:', reloadError);
           }
         }, 1000);
       }
@@ -811,9 +610,8 @@ const FirmSearchPage: React.FC = () => {
   };
 
   // Handle example prompt click
-  const handleExampleClick = (prompt: string) => {
-    setQuery(prompt);
-    handleSearch(prompt);
+  const handleExampleClick = (searchQuery: string) => {
+    setQuery(searchQuery);
   };
 
   // Handle Enter key
@@ -824,9 +622,8 @@ const FirmSearchPage: React.FC = () => {
     }
   };
 
-  // CSV Export function - only for Pro and Elite tiers
+  // CSV Export function
   const handleExportCsv = () => {
-    // Check if user is on free tier
     if (effectiveUser.tier === 'free') {
       setShowUpgradeDialog(true);
       return;
@@ -836,14 +633,7 @@ const FirmSearchPage: React.FC = () => {
       return;
     }
 
-    const headers = [
-      'Company Name',
-      'Website',
-      'LinkedIn',
-      'Location',
-      'Industry'
-    ] as const;
-
+    const headers = ['Company Name', 'Website', 'LinkedIn', 'Location', 'Industry'] as const;
     const headerRow = headers.join(',');
 
     const rows = results.map((firm) => {
@@ -901,394 +691,558 @@ const FirmSearchPage: React.FC = () => {
         <MainContentWrapper>
           <AppHeader />
 
-          <main className="bg-white min-h-screen">
-            <div className="max-w-5xl mx-auto px-8 pt-8 pb-16">
-              {/* Page Title */}
-              <h1 className="text-2xl font-bold text-gray-900 mb-6">Find Companies</h1>
+          <main className="bg-gradient-to-b from-slate-50 via-white to-white min-h-screen">
+            <div className="max-w-4xl mx-auto px-6 pt-10 pb-8">
+              
+              {/* Inspiring Header Section */}
+              <div className="text-center mb-8 animate-fadeInUp">
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                  Find Companies
+                </h1>
+                <p className="text-gray-600 text-lg">
+                  Discover companies that match your target criteria and career goals.
+                </p>
+              </div>
 
+              {/* Pill-style Tabs */}
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <StripeTabs 
-                  activeTab={activeTab} 
-                  onTabChange={setActiveTab}
-                  tabs={[
-                    { id: 'firm-search', label: 'Find Companies' },
-                    { id: 'firm-library', label: `Company Tracker (${results.length})` },
-                  ]}
-                />
+                <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mx-auto mb-8 animate-fadeInUp" style={{ animationDelay: '100ms' }}>
+                  <button
+                    onClick={() => setActiveTab('firm-search')}
+                    className={`
+                      flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
+                      ${activeTab === 'firm-search' 
+                        ? 'bg-white text-indigo-600 shadow-sm' 
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                      }
+                    `}
+                  >
+                    <Search className="w-4 h-4" />
+                    Find Companies
+                  </button>
+                  
+                  <button
+                    onClick={() => setActiveTab('firm-library')}
+                    className={`
+                      flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
+                      ${activeTab === 'firm-library' 
+                        ? 'bg-white text-indigo-600 shadow-sm' 
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                      }
+                    `}
+                  >
+                    <Building2 className="w-4 h-4" />
+                    Company Tracker
+                    {results.length > 0 && (
+                      <span className="ml-1 px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-full">
+                        {results.length}
+                      </span>
+                    )}
+                  </button>
+                </div>
 
-                {/* Content area with proper spacing from divider */}
-                <div className="pb-8 pt-6">
-                {/* TAB 1: Firm Search */}
+                {/* TAB 1: Find Companies */}
                 <TabsContent value="firm-search" className="mt-0">
                   {/* Authentication Notice */}
                   {!user && (
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-8">
-                      <p className="text-sm text-yellow-700 flex items-start gap-2">
-                        <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                        <span>Please sign in to use Find Companies.</span>
-                      </p>
+                    <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3 animate-fadeInUp" style={{ animationDelay: '150ms' }}>
+                      <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                      <p className="text-sm text-amber-700">Please sign in to use Find Companies.</p>
                     </div>
                   )}
 
-                  {/* Search Filters Section */}
-                  <div className="mb-8">
-                    <div className="flex items-center justify-between mb-6">
-                      <h2 className="text-xl font-semibold text-gray-900">
-                        What type of companies are you looking for?
-                      </h2>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowHistory(!showHistory)}
-                        className="border-gray-300 text-gray-700 hover:bg-gray-50"
-                      >
-                        <History className="h-4 w-4 mr-2" />
-                        History
-                      </Button>
-                    </div>
-                    {/* Description Input */}
-                    <div className="relative mb-4">
-                      <textarea
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        placeholder="e.g., Mid-sized investment banks in New York focused on healthcare M&A..."
-                        rows={4}
-                        className="min-h-[120px] w-full rounded-lg bg-white border border-gray-300 px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none disabled:opacity-50"
-                        disabled={isSearching}
-                      />
-                      <button
-                        onClick={() => handleSearch()}
-                        disabled={isSearching || !query.trim() || !user}
-                        className="absolute bottom-3 right-3 p-2 bg-blue-600 rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-white"
-                      >
-                        {isSearching ? (
-                          <Loader2 className="h-5 w-5 animate-spin text-white" />
-                        ) : (
-                          <ArrowUp className="h-5 w-5 text-white" />
-                        )}
-                      </button>
-                    </div>
-
-                    <p className="text-xs text-gray-500 mb-8">
-                      Include <span className="text-red-500 font-medium">industry</span> (required), <span className="text-red-500 font-medium">location</span> (required), and optionally size, focus areas, and keywords.
-                    </p>
-                  </div>
-
-                  {/* Batch Size Section - Matching Find People pattern */}
-                  <div className="mb-10">
-                    <h2 className="text-lg font-semibold text-gray-900 mb-2">
-                      How many companies do you want to find?
-                    </h2>
-                    <p className="text-sm text-gray-500 mb-8">
-                      Companies are saved to your Company Tracker for easy access.
-                    </p>
-
-                    {/* Batch Size Selector Row */}
-                    <div className="flex items-center gap-4 max-w-[500px] mb-4">
-                      {/* Batch options */}
-                      <div className="inline-flex items-center gap-1 p-1 border border-gray-300 rounded-lg bg-white">
-                        {batchOptions.map((option) => (
-                          <button
-                            key={option}
-                            type="button"
-                            onClick={() => setBatchSize(option)}
-                            disabled={isSearching || option > maxBatchSize}
-                            className={`px-4 py-2 text-sm font-medium rounded-md transition ${
-                              batchSize === option
-                                ? 'bg-blue-600 text-white'
-                                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                            } disabled:opacity-50 disabled:cursor-not-allowed`}
-                          >
-                            {option}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Summary line */}
-                    <p className="text-sm text-gray-500">
-                      This will find <span className="font-medium text-blue-600">{batchSize}</span> {batchSize === 1 ? 'company' : 'companies'} • Cost: <span className="font-medium text-blue-600">{batchSize * creditsPerFirm}</span> credits
-                    </p>
-
-                    {/* Insufficient Credits Warning */}
-                    {effectiveUser.credits !== undefined && effectiveUser.credits < (batchSize * creditsPerFirm) && (
-                      <p className="text-xs text-yellow-600 mt-3">
-                        Insufficient credits. You need {batchSize * creditsPerFirm} credits but only have {effectiveUser.credits}.
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Search Button */}
-                  <div className="mb-10">
-                    <Button
-                      onClick={() => handleSearch()}
-                      disabled={isSearching || !query.trim() || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm)}
-                      size="lg"
-                      className="text-white font-medium px-8 transition-all hover:opacity-90"
-                      style={{ background: '#3B82F6' }}
-                    >
-                      {isSearching ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          {searchProgress?.step || 'Searching...'}
-                        </>
-                      ) : (
-                        'Find Companies'
-                      )}
-                    </Button>
-                  </div>
-
-                  {/* Examples Section */}
-                  {!hasSearched && (
-                    <div className="mb-8">
-                      <h3 className="text-sm font-medium text-gray-700 mb-2">
-                        Examples you can try
-                      </h3>
-                      <p className="text-xs text-gray-500 mb-3">
-                        Click an example to fill in the search.
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {EXAMPLE_PROMPTS.map((example, index) => (
-                          <button
-                            key={index}
-                            type="button"
-                            onClick={() => handleExampleClick(example)}
-                            className="whitespace-nowrap rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-colors"
-                          >
-                            {example}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                    {/* Error Message */}
-                    {error && (
-                      <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-3 mb-6">
-                        <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-red-700">{error}</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Parsed Filters Display */}
-                    {parsedFilters && hasSearched && !error && (
-                      <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg mb-6">
-                        <p className="text-sm text-blue-700">
-                          <span className="font-medium">Searching for:</span>{' '}
-                          {parsedFilters.size && parsedFilters.size !== 'none' && (
-                            <span className="capitalize">{parsedFilters.size}-sized </span>
-                          )}
-                          <span className="capitalize">{parsedFilters.industry}</span> firms in{' '}
-                          <span>{parsedFilters.location}</span>
-                          {parsedFilters.keywords?.length > 0 && (
-                            <span> focused on {parsedFilters.keywords.join(', ')}</span>
-                          )}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Loading State with Progress */}
-                    {isSearching && (
-                      <div className="space-y-4 mb-6">
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="text-gray-500">
-                              {searchProgress?.step || 'Searching...'}
-                            </span>
-                            {searchProgress && (
-                              <span className="text-gray-500">
-                                {searchProgress.current}/{searchProgress.total}
-                              </span>
-                            )}
+                  {/* Main Card */}
+                  <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
+                    {/* Indigo/purple gradient accent at top */}
+                    <div className="h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600"></div>
+                    
+                    <div className="p-8">
+                      {/* Card Header with History Button */}
+                      <div className="flex items-start justify-between mb-6">
+                        <div className="flex items-center gap-4">
+                          <div className="w-14 h-14 bg-indigo-100 rounded-2xl flex items-center justify-center">
+                            <Building2 className="w-7 h-7 text-indigo-600" />
                           </div>
-                          {searchProgress && (
-                            <div className="w-full bg-gray-200 rounded-full h-2">
-                              <div 
-                                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                                style={{ 
-                                  width: `${(searchProgress.current / searchProgress.total) * 100}%` 
-                                }}
+                          <div>
+                            <h2 className="text-xl font-semibold text-gray-900">What type of companies are you looking for?</h2>
+                            <p className="text-gray-600 mt-1">Describe your ideal companies in natural language</p>
+                          </div>
+                        </div>
+                        
+                        <button 
+                          onClick={() => setShowHistory(true)}
+                          className="flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100 hover:border-gray-300 transition-all"
+                        >
+                          <History className="w-4 h-4" />
+                          History
+                        </button>
+                      </div>
+
+                      {/* Quick Start Templates */}
+                      <div className="mb-6">
+                        <p className="text-sm text-gray-500 mb-3">Try an example or write your own</p>
+                        <div className="flex flex-wrap gap-2">
+                          {EXAMPLE_SEARCHES.map((example) => (
+                            <button
+                              key={example.id}
+                              onClick={() => handleExampleClick(example.query)}
+                              className="px-3 py-1.5 bg-indigo-50 border border-indigo-200 rounded-full text-sm text-indigo-700 
+                                         hover:bg-indigo-100 hover:border-indigo-300 transition-all"
+                            >
+                              {example.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Enhanced Textarea Input */}
+                      <div className="relative">
+                        <textarea
+                          value={query}
+                          onChange={(e) => setQuery(e.target.value)}
+                          onKeyDown={handleKeyDown}
+                          placeholder="e.g., Mid-sized investment banks in New York focused on healthcare M&A..."
+                          rows={4}
+                          disabled={isSearching || !user}
+                          className="w-full p-4 pr-14 text-base border-2 border-gray-200 rounded-2xl
+                                     text-gray-900 placeholder-gray-400 resize-none
+                                     focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500
+                                     hover:border-gray-300 transition-all disabled:opacity-50"
+                        />
+                        
+                        {/* Submit button inside textarea */}
+                        <button
+                          onClick={() => handleSearch()}
+                          disabled={!isValidQuery || isSearching || !user}
+                          className={`
+                            absolute bottom-4 right-4 w-10 h-10 rounded-full
+                            flex items-center justify-center transition-all duration-200
+                            ${isValidQuery && !isSearching && user
+                              ? 'bg-gradient-to-r from-indigo-600 to-purple-500 text-white shadow-md hover:shadow-lg hover:scale-110'
+                              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                            }
+                          `}
+                        >
+                          {isSearching ? (
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                          ) : (
+                            <ArrowUp className="w-5 h-5" />
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Requirements hint */}
+                      <div className="mt-3 flex flex-wrap items-center gap-x-1 text-sm">
+                        <span className="text-gray-500">Include</span>
+                        <span className={`font-medium ${hasIndustry ? 'text-green-600' : 'text-indigo-600'}`}>
+                          industry
+                          {hasIndustry && <Check className="w-3 h-3 inline ml-0.5" />}
+                        </span>
+                        <span className="text-gray-400">(required),</span>
+                        <span className={`font-medium ${hasLocation ? 'text-green-600' : 'text-indigo-600'}`}>
+                          location
+                          {hasLocation && <Check className="w-3 h-3 inline ml-0.5" />}
+                        </span>
+                        <span className="text-gray-400">(required),</span>
+                        <span className="text-gray-500">and optionally size, focus areas, and keywords.</span>
+                      </div>
+
+                      {/* Error Message */}
+                      {error && (
+                        <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+                          <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+                          <p className="text-red-700 text-sm">{error}</p>
+                        </div>
+                      )}
+
+                      {/* Quantity Selector - Enhanced */}
+                      <div className="mt-8 pt-8 border-t border-gray-100">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-2">How many companies do you want to find?</h3>
+                        <p className="text-gray-600 mb-5">Companies are saved to your Company Tracker for easy access.</p>
+                        
+                        <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-6">
+                          {/* Quantity buttons */}
+                          <div className="flex items-center gap-2 mb-4">
+                            {BATCH_OPTIONS.map((option) => (
+                              <button
+                                key={option.value}
+                                onClick={() => setBatchSize(option.value)}
+                                disabled={isSearching || option.value > maxBatchSize}
+                                className={`
+                                  px-5 py-3 rounded-xl font-semibold text-sm transition-all duration-200
+                                  ${batchSize === option.value
+                                    ? 'bg-gradient-to-r from-indigo-600 to-purple-500 text-white shadow-md'
+                                    : 'bg-white text-gray-700 border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50'
+                                  }
+                                  ${option.value > maxBatchSize ? 'opacity-50 cursor-not-allowed' : ''}
+                                `}
+                              >
+                                {option.value}
+                              </button>
+                            ))}
+                          </div>
+                          
+                          {/* Visual company indicators */}
+                          <div className="flex items-center gap-1 mb-4">
+                            {[...Array(40)].map((_, i) => (
+                              <div
+                                key={i}
+                                className={`
+                                  w-2 h-6 rounded-sm transition-all duration-200
+                                  ${i < batchSize 
+                                    ? 'bg-indigo-500' 
+                                    : 'bg-gray-200'
+                                  }
+                                `}
                               />
+                            ))}
+                          </div>
+                          
+                          {/* Summary */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-2xl">🏢</span>
+                              <span className="text-gray-900">
+                                Finding <span className="font-bold text-indigo-600">{batchSize}</span> companies
+                              </span>
+                              <span className="text-gray-400">•</span>
+                              <span className="text-gray-600">{batchSize * creditsPerFirm} credits</span>
                             </div>
+                            
+                            {/* Dynamic encouragement */}
+                            <p className="text-sm text-gray-500 italic hidden md:block">
+                              {getQuantityMessage(batchSize)}
+                            </p>
+                          </div>
+
+                          {/* Insufficient Credits Warning */}
+                          {effectiveUser.credits !== undefined && effectiveUser.credits < (batchSize * creditsPerFirm) && (
+                            <p className="text-xs text-amber-600 mt-3 flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3" />
+                              Insufficient credits. You need {batchSize * creditsPerFirm} but have {effectiveUser.credits}.
+                            </p>
                           )}
                         </div>
-                        <LoadingSkeleton variant="card" count={3} />
                       </div>
-                    )}
 
-                    {/* Success Message */}
-                    {hasSearched && !isSearching && results.length > 0 && (
-                      <div className="p-4 bg-green-50 border border-green-200 rounded-lg mb-6">
-                        <p className="text-green-700">
-                          <span className="font-medium">✓ Found {results.length} companies!</span>{' '}
-                          <button 
-                            onClick={() => setActiveTab('firm-library')}
-                            className="text-blue-600 hover:text-blue-700 underline"
-                          >
-                            View in Company Tracker
-                          </button>
-                        </p>
+                      {/* What You'll Get Section */}
+                      <div className="mt-8 pt-8 border-t border-gray-100">
+                        <h3 className="text-center text-sm font-semibold text-gray-500 uppercase tracking-wide mb-6">What you'll get for each company</h3>
+                        
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div className="text-center p-4">
+                            <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center mx-auto mb-2">
+                              <Building2 className="w-5 h-5 text-indigo-600" />
+                            </div>
+                            <p className="font-medium text-gray-900 text-sm">Company Profile</p>
+                            <p className="text-xs text-gray-500">Size, industry, HQ</p>
+                          </div>
+                          
+                          <div className="text-center p-4">
+                            <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center mx-auto mb-2">
+                              <Users className="w-5 h-5 text-purple-600" />
+                            </div>
+                            <p className="font-medium text-gray-900 text-sm">Key Contacts</p>
+                            <p className="text-xs text-gray-500">Hiring managers</p>
+                          </div>
+                          
+                          <div className="text-center p-4">
+                            <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-2">
+                              <Globe className="w-5 h-5 text-blue-600" />
+                            </div>
+                            <p className="font-medium text-gray-900 text-sm">Career Page</p>
+                            <p className="text-xs text-gray-500">Direct link to jobs</p>
+                          </div>
+                          
+                          <div className="text-center p-4">
+                            <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center mx-auto mb-2">
+                              <Bookmark className="w-5 h-5 text-green-600" />
+                            </div>
+                            <p className="font-medium text-gray-900 text-sm">Auto-Saved</p>
+                            <p className="text-xs text-gray-500">To Company Tracker</p>
+                          </div>
+                        </div>
                       </div>
-                    )}
+
+                      {/* CTA Button */}
+                      <div className="mt-8">
+                        <button
+                          onClick={() => handleSearch()}
+                          disabled={!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm)}
+                          className={`
+                            w-full md:w-auto px-8 py-4 rounded-full font-semibold text-lg
+                            flex items-center justify-center gap-3 mx-auto
+                            transition-all duration-200 transform
+                            ${(!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm))
+                              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                              : 'bg-gradient-to-r from-indigo-600 to-purple-500 text-white shadow-lg shadow-indigo-500/30 hover:shadow-xl hover:shadow-indigo-500/40 hover:scale-105 active:scale-100'
+                            }
+                          `}
+                        >
+                          {isSearching ? (
+                            <>
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                              Searching...
+                            </>
+                          ) : (
+                            <>
+                              Find Companies
+                              <ArrowRight className="w-5 h-5" />
+                            </>
+                          )}
+                        </button>
+                        
+                        {/* Validation feedback */}
+                        {query && !isValidQuery && (
+                          <p className="text-center text-sm text-amber-600 mt-4 flex items-center justify-center gap-1">
+                            <AlertCircle className="w-4 h-4" />
+                            Please include both an industry and location in your search
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Recent Searches */}
+                      {searchHistory.length > 0 && !hasSearched && (
+                        <div className="mt-10 pt-8 border-t border-gray-100">
+                          <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-sm font-semibold text-gray-700">Recent Searches</h3>
+                            <button 
+                              onClick={() => setShowHistory(true)}
+                              className="text-sm text-indigo-600 hover:underline"
+                            >
+                              View all
+                            </button>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            {searchHistory.slice(0, 3).map((search) => (
+                              <div 
+                                key={search.id}
+                                onClick={() => handleHistoryClick(search)}
+                                className="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-indigo-50 cursor-pointer transition-colors group"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-gray-200 group-hover:border-indigo-300">
+                                    <Search className="w-5 h-5 text-gray-400 group-hover:text-indigo-600" />
+                                  </div>
+                                  <div>
+                                    <p className="font-medium text-gray-900 text-sm line-clamp-1">{search.query}</p>
+                                    <p className="text-xs text-gray-500">
+                                      {search.resultsCount} companies • {new Date(search.createdAt).toLocaleDateString()}
+                                    </p>
+                                  </div>
+                                </div>
+                                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-indigo-600" />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </TabsContent>
 
                 {/* TAB 2: Company Tracker */}
                 <TabsContent value="firm-library" className="mt-0">
-                  <div className="space-y-6">
-                    {/* Export CSV and Delete All Buttons */}
-                    <div className="flex justify-between items-center py-4 border-b border-gray-200">
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">
-                          {results.length} {results.length === 1 ? 'company' : 'companies'} saved
-                        </p>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          Export your results to CSV for further analysis
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          onClick={() => {
-                            console.log('🔄 Manual refresh triggered');
-                            loadAttemptedRef.current = false; // Reset attempt flag for manual refresh
-                            loadAllSavedFirms();
-                          }}
-                          variant="outline"
-                          size="sm"
-                          className="gap-2 border-gray-300 text-gray-700 hover:bg-gray-50"
-                          disabled={loadingSavedFirms}
-                        >
-                          {loadingSavedFirms ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                            </svg>
+                  <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
+                    <div className="h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600"></div>
+                    
+                    <div className="p-8">
+                      {/* Header with actions */}
+                      <div className="flex justify-between items-center pb-6 border-b border-gray-100 mb-6">
+                        <div>
+                          <h2 className="text-xl font-semibold text-gray-900">
+                            {results.length} {results.length === 1 ? 'company' : 'companies'} saved
+                          </h2>
+                          <p className="text-sm text-gray-500 mt-1">
+                            Export your results to CSV for further analysis
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            onClick={() => {
+                              loadAttemptedRef.current = false;
+                              loadAllSavedFirms();
+                            }}
+                            variant="outline"
+                            size="sm"
+                            className="gap-2 border-gray-300 text-gray-700 hover:bg-gray-50"
+                            disabled={loadingSavedFirms}
+                          >
+                            {loadingSavedFirms ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                              </svg>
+                            )}
+                            Refresh
+                          </Button>
+                          {results.length > 0 && (
+                            <>
+                              <Button
+                                onClick={() => setShowDeleteAllDialog(true)}
+                                variant="outline"
+                                className="gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                Delete All
+                              </Button>
+                              <Button
+                                onClick={handleExportCsv}
+                                className={`gap-2 ${
+                                  effectiveUser.tier === 'free' 
+                                    ? 'bg-gray-400 hover:bg-gray-400 cursor-not-allowed opacity-60' 
+                                    : 'bg-indigo-600 hover:bg-indigo-700'
+                                }`}
+                                disabled={effectiveUser.tier === 'free'}
+                                title={effectiveUser.tier === 'free' ? 'Upgrade to Pro or Elite to export CSV' : 'Export firms to CSV'}
+                              >
+                                <Download className="h-4 w-4" />
+                                Export CSV
+                              </Button>
+                            </>
                           )}
-                          Refresh
-                        </Button>
-                        {results.length > 0 && (
-                          <>
-                            <Button
-                              onClick={() => setShowDeleteAllDialog(true)}
-                              variant="outline"
-                              className="gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                              Delete All
-                            </Button>
-                            <Button
-                              onClick={handleExportCsv}
-                              className={`gap-2 ${
-                                effectiveUser.tier === 'free' 
-                                  ? 'bg-gray-400 hover:bg-gray-400 cursor-not-allowed opacity-60' 
-                                  : 'bg-blue-600 hover:bg-blue-700'
-                              }`}
-                              disabled={effectiveUser.tier === 'free'}
-                              title={effectiveUser.tier === 'free' ? 'Upgrade to Pro or Elite to export CSV' : 'Export firms to CSV'}
-                            >
-                              <Download className="h-4 w-4" />
-                              Export CSV
-                            </Button>
-                          </>
-                        )}
+                        </div>
                       </div>
-                    </div>
 
-                    {/* Company Results */}
-                    {results.length > 0 ? (
-                      <FirmSearchResults
-                        firms={results}
-                        onViewContacts={handleViewContacts}
-                        onDelete={handleDeleteFirm}
-                        deletingId={deletingFirmId}
-                      />
-                    ) : (
-                      <div className="py-12 text-center">
-                        <svg className="h-10 w-10 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                        </svg>
-                        <p className="text-gray-900 mb-2">No companies to display yet</p>
-                        <p className="text-sm text-gray-500">
-                          Use the Find Companies tab to discover companies
-                        </p>
-                      </div>
-                    )}
+                      {/* Company Results */}
+                      {loadingSavedFirms ? (
+                        <LoadingSkeleton variant="card" count={3} />
+                      ) : results.length > 0 ? (
+                        <FirmSearchResults
+                          firms={results}
+                          onViewContacts={handleViewContacts}
+                          onDelete={handleDeleteFirm}
+                          deletingId={deletingFirmId}
+                        />
+                      ) : (
+                        <div className="py-12 text-center">
+                          <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <Building2 className="h-8 w-8 text-indigo-600" />
+                          </div>
+                          <h3 className="text-lg font-semibold text-gray-900 mb-2">No companies yet</h3>
+                          <p className="text-sm text-gray-500 mb-6">
+                            Use the Find Companies tab to discover companies
+                          </p>
+                          <button
+                            onClick={() => setActiveTab('firm-search')}
+                            className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-500 text-white font-semibold rounded-full hover:shadow-lg transition-all"
+                          >
+                            Find Companies
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </TabsContent>
-                </div>
               </Tabs>
             </div>
           </main>
         </MainContentWrapper>
 
-        {/* Search History Sidebar */}
+        {/* Search History Modal */}
         {showHistory && (
-          <>
-            <div className="fixed inset-y-0 right-0 w-96 bg-white shadow-xl border-l border-gray-200 z-50">
-              <div className="flex items-center justify-between p-4 border-b border-gray-200">
-                <h2 className="text-lg font-semibold text-gray-900">Search History</h2>
-                <button
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-2xl p-6 max-w-lg w-full mx-4 shadow-2xl max-h-[80vh] overflow-hidden flex flex-col animate-scaleIn">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Search History</h3>
+                <button 
                   onClick={() => setShowHistory(false)}
-                  className="p-2 text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100"
+                  className="p-2 hover:bg-gray-100 rounded-lg"
                 >
-                  ✕
+                  <X className="w-5 h-5 text-gray-500" />
                 </button>
               </div>
-
-              <div className="overflow-y-auto h-full pb-20">
+              
+              <div className="overflow-y-auto flex-1 space-y-2">
                 {loadingHistory ? (
-                  <div className="p-8 text-center">
+                  <div className="py-8 text-center">
                     <Loader2 className="h-6 w-6 text-gray-400 animate-spin mx-auto" />
                   </div>
                 ) : searchHistory.length === 0 ? (
-                  <div className="p-8 text-center text-gray-500">
+                  <div className="py-8 text-center text-gray-500">
                     <History className="h-8 w-8 mx-auto mb-2 opacity-50" />
                     <p>No search history yet</p>
                   </div>
                 ) : (
-                  <div className="divide-y divide-gray-200">
-                    {searchHistory.map((item) => (
-                      <button
-                        key={item.id}
-                        onClick={() => handleHistoryClick(item)}
-                        className="w-full p-4 text-left hover:bg-gray-50 transition-colors"
-                      >
-                        <p className="text-sm font-medium text-gray-900 line-clamp-2">
-                          {item.query}
+                  searchHistory.map((item) => (
+                    <div 
+                      key={item.id}
+                      onClick={() => handleHistoryClick(item)}
+                      className="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-indigo-50 cursor-pointer transition-colors"
+                    >
+                      <div>
+                        <p className="font-medium text-gray-900 text-sm line-clamp-2">{item.query}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {item.resultsCount} results • {new Date(item.createdAt).toLocaleDateString()}
                         </p>
-                        <div className="flex items-center justify-between mt-2">
-                          <span className="text-xs text-gray-500">
-                            {item.resultsCount} companies found
-                          </span>
-                          <span className="text-xs text-gray-500">
-                            {new Date(item.createdAt).toLocaleDateString()}
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-gray-400" />
+                    </div>
+                  ))
                 )}
               </div>
             </div>
+          </div>
+        )}
 
-            {/* Overlay for history sidebar */}
-            <div
-              className="fixed inset-0 bg-black bg-opacity-50 z-40"
-              onClick={() => setShowHistory(false)}
-            />
-          </>
+        {/* Loading Modal */}
+        {isSearching && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-2xl">
+              <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Building2 className="w-8 h-8 text-indigo-600 animate-pulse" />
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Searching for companies...</h3>
+              <p className="text-gray-600 mb-4">Finding {batchSize} companies matching your criteria</p>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-gradient-to-r from-indigo-500 to-purple-500 h-2 rounded-full transition-all duration-300" 
+                  style={{ width: searchProgress ? `${(searchProgress.current / searchProgress.total) * 100}%` : '10%' }}
+                ></div>
+              </div>
+              <p className="text-sm text-gray-500 mt-3">This usually takes 10-20 seconds</p>
+            </div>
+          </div>
+        )}
+
+        {/* Success Modal */}
+        {searchComplete && results.length > 0 && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-2xl animate-scaleIn">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle className="w-10 h-10 text-green-600" />
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-1">Found {results.length} companies!</h3>
+              <p className="text-gray-600 mb-2">Matching your criteria</p>
+              <p className="text-sm text-indigo-600 font-medium mb-6">Saved to your Company Tracker</p>
+              
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                <button 
+                  onClick={() => { setSearchComplete(false); setActiveTab('firm-library'); }}
+                  className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-500 text-white font-semibold rounded-full hover:shadow-lg transition-all"
+                >
+                  View Companies →
+                </button>
+                <button 
+                  onClick={() => { setSearchComplete(false); setQuery(''); setHasSearched(false); }}
+                  className="px-6 py-3 bg-gray-100 text-gray-700 font-semibold rounded-full hover:bg-gray-200 transition-colors"
+                >
+                  Search again
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Delete All Confirmation Dialog */}
         <AlertDialog open={showDeleteAllDialog} onOpenChange={setShowDeleteAllDialog}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Delete All Firms?</AlertDialogTitle>
+              <AlertDialogTitle>Delete All Companies?</AlertDialogTitle>
               <AlertDialogDescription>
-                This will permanently remove all {results.length} firm{results.length !== 1 ? 's' : ''} from your Firm Library. 
+                This will permanently remove all {results.length} {results.length === 1 ? 'company' : 'companies'} from your Company Tracker. 
                 This action cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
@@ -1310,14 +1264,14 @@ const FirmSearchPage: React.FC = () => {
             <AlertDialogHeader>
               <AlertDialogTitle>Upgrade to Export CSV</AlertDialogTitle>
               <AlertDialogDescription>
-                CSV export is available for Pro and Elite tier users. Upgrade your plan to export your firm search results to CSV for further analysis.
+                CSV export is available for Pro and Elite tier users. Upgrade your plan to export your company search results to CSV for further analysis.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction
                 onClick={handleUpgrade}
-                className="bg-blue-600 hover:bg-blue-700 focus:ring-blue-600"
+                className="bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-600"
               >
                 Upgrade to Pro/Elite
               </AlertDialogAction>

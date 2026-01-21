@@ -4,7 +4,7 @@
  * Route: /write/cover-letter, /write/cover-letter-library
  * Tabs: Cover Letter Generator, Cover Letter Library
  */
-import React, { useState, useRef, useLayoutEffect, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { AppSidebar } from '@/components/AppSidebar';
 import { SidebarProvider } from '@/components/ui/sidebar';
@@ -12,8 +12,6 @@ import { AppHeader } from '@/components/AppHeader';
 import { MainContentWrapper } from '@/components/MainContentWrapper';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { 
   Loader2, 
   AlertCircle, 
@@ -22,9 +20,15 @@ import {
   ChevronDown, 
   ChevronUp,
   Eye,
-  ArrowRight,
-  Sparkles,
-  FileText
+  FileText,
+  Link,
+  Building2,
+  Briefcase,
+  FolderOpen,
+  CheckCircle,
+  Copy,
+  X,
+  Check
 } from 'lucide-react';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -34,66 +38,6 @@ import {
   getLibraryEntry,
   type LibraryEntry
 } from '@/services/coverLetterWorkshop';
-
-// Stripe-style Tabs Component with animated underline (matches Find People page)
-interface StripeTabsProps {
-  activeTab: string;
-  onTabChange: (tab: string) => void;
-  tabs: { id: string; label: string }[];
-}
-
-const StripeTabs: React.FC<StripeTabsProps> = ({ activeTab, onTabChange, tabs }) => {
-  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
-
-  // Update indicator position when active tab changes
-  useLayoutEffect(() => {
-    const activeIndex = tabs.findIndex(tab => tab.id === activeTab);
-    const activeTabRef = tabRefs.current[activeIndex];
-    
-    if (activeTabRef) {
-      const { offsetLeft, offsetWidth } = activeTabRef;
-      setIndicatorStyle({ left: offsetLeft, width: offsetWidth });
-    }
-  }, [activeTab, tabs]);
-
-  return (
-    <div className="relative">
-      {/* Tab buttons */}
-      <div className="flex items-center gap-8">
-        {tabs.map((tab, index) => (
-          <button
-            key={tab.id}
-            ref={(el) => { tabRefs.current[index] = el; }}
-            onClick={() => onTabChange(tab.id)}
-            className={`
-              relative pb-3 text-sm font-medium transition-colors duration-150
-              focus:outline-none focus-visible:outline-none
-              ${activeTab === tab.id 
-                ? 'text-[#3B82F6]' 
-                : 'text-gray-500 hover:text-gray-700'
-              }
-            `}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-      
-      {/* Full-width divider line */}
-      <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gray-200" />
-      
-      {/* Animated underline indicator - sits on top of divider */}
-      <div
-        className="absolute bottom-0 h-[2px] bg-[#3B82F6] transition-all duration-200 ease-out"
-        style={{
-          left: indicatorStyle.left,
-          width: indicatorStyle.width,
-        }}
-      />
-    </div>
-  );
-};
 
 // PDF Preview Component
 interface PDFPreviewProps {
@@ -108,16 +52,11 @@ const PDFPreview: React.FC<PDFPreviewProps> = ({ pdfUrl, pdfBase64, title = 'PDF
     : pdfUrl || '';
   
   if (!src) {
-    return (
-      <div className="border border-gray-200 rounded-lg p-8 bg-gray-50 text-center">
-        <PenLine className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-        <p className="text-gray-500">No cover letter to preview</p>
-      </div>
-    );
+    return null;
   }
   
   return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
       <iframe
         src={src}
         className="w-full h-[500px]"
@@ -157,6 +96,10 @@ export default function CoverLetterPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedText, setGeneratedText] = useState<string | null>(null);
   const [generatedPdfBase64, setGeneratedPdfBase64] = useState<string | null>(null);
+  const [generatedCompany, setGeneratedCompany] = useState<string | null>(null);
+  const [generatedJobTitle, setGeneratedJobTitle] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
   
   // Library state
   const [libraryEntries, setLibraryEntries] = useState<LibraryEntry[]>([]);
@@ -166,6 +109,16 @@ export default function CoverLetterPage() {
   
   // Error state
   const [error, setError] = useState<string | null>(null);
+
+  // URL validation
+  const isValidUrl = (url: string) => {
+    try {
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
   // Load library
   const loadLibrary = useCallback(async () => {
@@ -198,10 +151,27 @@ export default function CoverLetterPage() {
     }
   }, [user, authLoading, navigate]);
 
+  // Progress simulation for loading state
+  useEffect(() => {
+    if (isGenerating) {
+      setProgress(0);
+      const interval = setInterval(() => {
+        setProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(interval);
+            return prev;
+          }
+          return prev + Math.random() * 15;
+        });
+      }, 500);
+      return () => clearInterval(interval);
+    }
+  }, [isGenerating]);
+
   // Check if we can generate
   const canGenerate = 
     jobUrl.trim() || 
-    (jobTitle.trim() && company.trim() && locationInput.trim() && jobDescription.trim());
+    (jobTitle.trim() && company.trim() && jobDescription.trim());
 
   // Handle Generate Cover Letter
   const handleGenerate = async () => {
@@ -267,8 +237,13 @@ export default function CoverLetterPage() {
       }
       
       // Success!
+      setProgress(100);
       setGeneratedText(result.cover_letter_text || null);
       setGeneratedPdfBase64(result.pdf_base64 || null);
+      
+      // Store the job details for display
+      setGeneratedJobTitle(result.parsed_job?.job_title || jobTitle || null);
+      setGeneratedCompany(result.parsed_job?.company || company || null);
       
       // Auto-fill fields from parsed job
       if (result.parsed_job) {
@@ -281,6 +256,10 @@ export default function CoverLetterPage() {
       if (result.credits_remaining !== undefined && updateCredits) {
         await updateCredits(result.credits_remaining);
       }
+      
+      // Show success toast
+      setShowSuccessToast(true);
+      setTimeout(() => setShowSuccessToast(false), 5000);
       
       toast({
         title: 'Cover Letter Generated',
@@ -299,13 +278,32 @@ export default function CoverLetterPage() {
     }
   };
 
+  // Handle Copy to Clipboard
+  const handleCopyToClipboard = async () => {
+    if (!generatedText) return;
+    
+    try {
+      await navigator.clipboard.writeText(generatedText);
+      toast({
+        title: 'Copied!',
+        description: 'Cover letter copied to clipboard.',
+      });
+    } catch (err) {
+      toast({
+        title: 'Error',
+        description: 'Failed to copy to clipboard.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   // Handle Download PDF
   const handleDownload = () => {
     if (!generatedPdfBase64) return;
     
     const link = document.createElement('a');
     link.href = `data:application/pdf;base64,${generatedPdfBase64}`;
-    link.download = `${jobTitle.replace(/\s+/g, '_') || 'cover'}_letter.pdf`;
+    link.download = `${(generatedJobTitle || jobTitle || 'cover').replace(/\s+/g, '_')}_letter.pdf`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -314,6 +312,29 @@ export default function CoverLetterPage() {
       title: 'Download Started',
       description: 'Your cover letter is being downloaded.',
     });
+  };
+
+  // Handle Regenerate
+  const handleRegenerate = () => {
+    setGeneratedText(null);
+    setGeneratedPdfBase64(null);
+    setGeneratedCompany(null);
+    setGeneratedJobTitle(null);
+    handleGenerate();
+  };
+
+  // Handle Clear / Start Over
+  const handleStartOver = () => {
+    setGeneratedText(null);
+    setGeneratedPdfBase64(null);
+    setGeneratedCompany(null);
+    setGeneratedJobTitle(null);
+    setJobUrl('');
+    setJobTitle('');
+    setCompany('');
+    setLocationInput('');
+    setJobDescription('');
+    setShowManualInputs(false);
   };
 
   // Handle View library entry
@@ -386,6 +407,39 @@ export default function CoverLetterPage() {
     });
   };
 
+  // Load cover letter into generator
+  const loadCoverLetter = async (entry: LibraryEntry) => {
+    // Switch to generator tab and load the entry
+    handleTabChange('cover-letter-generator');
+    
+    // Load full entry if needed
+    let fullEntry = entry;
+    if (!entry.pdf_base64) {
+      const result = await getLibraryEntry(entry.id);
+      if (result.status === 'ok' && result.entry) {
+        fullEntry = result.entry;
+      }
+    }
+    
+    setGeneratedText(fullEntry.cover_letter_text || null);
+    setGeneratedPdfBase64(fullEntry.pdf_base64 || null);
+    setGeneratedCompany(fullEntry.company);
+    setGeneratedJobTitle(fullEntry.job_title);
+  };
+
+  // Format time ago
+  const formatTimeAgo = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+    
+    if (diffInSeconds < 60) return 'just now';
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+    if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`;
+    return date.toLocaleDateString();
+  };
+
   if (authLoading) {
     return (
       <SidebarProvider>
@@ -393,10 +447,10 @@ export default function CoverLetterPage() {
           <AppSidebar />
           <MainContentWrapper>
             <AppHeader title="" />
-            <main className="bg-white min-h-screen">
-              <div className="max-w-5xl mx-auto px-8 pt-10 pb-4">
+            <main className="bg-gradient-to-b from-slate-50 via-white to-white min-h-screen">
+              <div className="max-w-7xl mx-auto px-6 pt-10 pb-4">
                 <div className="flex items-center justify-center py-16">
-                  <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+                  <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
                 </div>
               </div>
             </main>
@@ -410,6 +464,9 @@ export default function CoverLetterPage() {
     return null; // Will redirect via useEffect
   }
 
+  // Get recent cover letters (first 3)
+  const recentCoverLetters = libraryEntries.slice(0, 3);
+
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full text-foreground">
@@ -418,29 +475,63 @@ export default function CoverLetterPage() {
         <MainContentWrapper>
           <AppHeader title="" />
 
-          <main className="bg-white min-h-screen">
-            {/* Page Content Container - matches Find People page */}
-            <div className="max-w-5xl mx-auto px-8 pt-10 pb-4">
-              <h1 className="text-[28px] font-semibold text-gray-900 mb-4">
-                Write Cover Letters
-              </h1>
+          <main className="bg-gradient-to-b from-slate-50 via-white to-white min-h-screen">
+            <div className="max-w-7xl mx-auto px-6 pt-10 pb-8">
+              
+              {/* Inspiring Header Section */}
+              <div className="text-center mb-8 animate-fadeInUp">
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                  Write Cover Letters
+                </h1>
+                <p className="text-gray-600 text-lg mb-3">
+                  Generate personalized cover letters that make you stand out.
+                </p>
+                <p className="text-sm text-gray-500">
+                  Applications with tailored cover letters are 50% more likely to get interviews
+                </p>
+              </div>
 
-              {/* Stripe-style Tabs */}
+              {/* Pill-style Tabs */}
               <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-                <StripeTabs 
-                  activeTab={activeTab} 
-                  onTabChange={handleTabChange}
-                  tabs={[
-                    { id: 'cover-letter-generator', label: 'Cover Letter Generator' },
-                    { id: 'cover-letter-library', label: 'Cover Letter Library' },
-                  ]}
-                />
+                <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mx-auto mb-8 animate-fadeInUp" style={{ animationDelay: '100ms' }}>
+                  <button
+                    onClick={() => handleTabChange('cover-letter-generator')}
+                    className={`
+                      flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
+                      ${activeTab === 'cover-letter-generator' 
+                        ? 'bg-white text-violet-600 shadow-sm' 
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                      }
+                    `}
+                  >
+                    <PenLine className="w-4 h-4" />
+                    Cover Letter Generator
+                  </button>
+                  
+                  <button
+                    onClick={() => handleTabChange('cover-letter-library')}
+                    className={`
+                      flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
+                      ${activeTab === 'cover-letter-library' 
+                        ? 'bg-white text-violet-600 shadow-sm' 
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                      }
+                    `}
+                  >
+                    <FolderOpen className="w-4 h-4" />
+                    Cover Letter Library
+                    {libraryEntries.length > 0 && (
+                      <span className="ml-1 px-2 py-0.5 bg-violet-100 text-violet-700 text-xs font-semibold rounded-full">
+                        {libraryEntries.length}
+                      </span>
+                    )}
+                  </button>
+                </div>
 
-                {/* Content area with proper spacing from divider */}
-                <div className="pb-8 pt-6">
+                <div className="animate-fadeInUp" style={{ animationDelay: '200ms' }}>
                   {/* Error display */}
                   {error && (
-                    <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+                    <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
                       <AlertCircle className="text-red-600 flex-shrink-0 mt-0.5" size={20} />
                       <div className="flex-1">
                         <p className="text-sm text-red-700">{error}</p>
@@ -450,279 +541,506 @@ export default function CoverLetterPage() {
                   )}
 
                   <TabsContent value="cover-letter-generator" className="mt-0">
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      {/* Left Column - Job Context Form */}
-                      <div>
-                        <h2 className="text-lg font-semibold text-gray-900 mb-4">Job Details</h2>
-                        
-                        <div className="space-y-4">
-                          {/* Job URL Input */}
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                              Job Posting URL <span className="text-gray-400">(optional)</span>
-                            </label>
-                            <Input
-                              type="url"
-                              value={jobUrl}
-                              onChange={(e) => {
-                                setJobUrl(e.target.value);
-                                setJobUrlError(null);
-                              }}
-                              placeholder="https://linkedin.com/jobs/..."
-                              disabled={isGenerating}
-                            />
-                            {jobUrlError && (
-                              <p className="mt-1 text-sm text-amber-600">{jobUrlError}</p>
-                            )}
-                          </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                      {/* Left Column - Job Details Input */}
+                      <div className="space-y-6">
+                        {/* Job Details Card */}
+                        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden h-fit">
+                          {/* Gradient accent at top - violet for cover letters */}
+                          <div className="h-1 bg-gradient-to-r from-violet-500 via-purple-500 to-violet-600"></div>
                           
-                          {/* Toggle for manual inputs */}
-                          <button
-                            type="button"
-                            onClick={() => setShowManualInputs(!showManualInputs)}
-                            className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700"
-                            disabled={isGenerating}
-                          >
-                            {showManualInputs ? (
-                              <>
-                                <ChevronUp className="h-4 w-4" />
-                                Hide manual inputs
-                              </>
-                            ) : (
-                              <>
-                                <ChevronDown className="h-4 w-4" />
-                                Use manual inputs instead
-                              </>
-                            )}
-                          </button>
-                          
-                          {/* Manual Input Fields */}
-                          {showManualInputs && (
-                            <div className="space-y-4 pt-2 border-t border-gray-100">
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                  Job Title <span className="text-red-500">*</span>
-                                </label>
-                                <Input
-                                  type="text"
-                                  value={jobTitle}
-                                  onChange={(e) => setJobTitle(e.target.value)}
-                                  placeholder="e.g., Software Engineer"
-                                  disabled={isGenerating}
-                                />
+                          <div className="p-6">
+                            {/* Header */}
+                            <div className="flex items-center gap-3 mb-6">
+                              <div className="w-10 h-10 bg-violet-100 rounded-xl flex items-center justify-center">
+                                <Briefcase className="w-5 h-5 text-violet-600" />
                               </div>
-                              
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                  Company <span className="text-red-500">*</span>
-                                </label>
-                                <Input
-                                  type="text"
-                                  value={company}
-                                  onChange={(e) => setCompany(e.target.value)}
-                                  placeholder="e.g., Google"
-                                  disabled={isGenerating}
-                                />
-                              </div>
-                              
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                  Location <span className="text-red-500">*</span>
-                                </label>
-                                <Input
-                                  type="text"
-                                  value={locationInput}
-                                  onChange={(e) => setLocationInput(e.target.value)}
-                                  placeholder="e.g., San Francisco, CA"
-                                  disabled={isGenerating}
-                                />
-                              </div>
-                              
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                  Job Description <span className="text-red-500">*</span>
-                                </label>
-                                <Textarea
-                                  value={jobDescription}
-                                  onChange={(e) => setJobDescription(e.target.value)}
-                                  placeholder="Paste the full job description here..."
-                                  className="min-h-[150px]"
-                                  disabled={isGenerating}
-                                />
+                                <h2 className="font-semibold text-gray-900">Job Details</h2>
+                                <p className="text-sm text-gray-500">Tell us about the role you're applying for</p>
                               </div>
                             </div>
-                          )}
+                            
+                            {/* Job Posting URL Input */}
+                            <div className="mb-4">
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Job Posting URL <span className="text-gray-400 font-normal">(optional)</span>
+                              </label>
+                              <div className="relative">
+                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                  <Link className="h-4 w-4 text-gray-400" />
+                                </div>
+                                <input
+                                  type="url"
+                                  value={jobUrl}
+                                  onChange={(e) => {
+                                    setJobUrl(e.target.value);
+                                    setJobUrlError(null);
+                                  }}
+                                  placeholder="https://linkedin.com/jobs/..."
+                                  disabled={isGenerating}
+                                  className={`block w-full pl-10 pr-10 py-3 border rounded-xl
+                                             text-gray-900 placeholder-gray-400 text-sm
+                                             focus:ring-2 focus:ring-violet-500 focus:border-violet-500
+                                             hover:border-gray-300 transition-all disabled:opacity-50
+                                             ${jobUrlError ? 'border-red-300' : 'border-gray-200'}`}
+                                />
+                                {jobUrl && isValidUrl(jobUrl) && (
+                                  <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                                    <CheckCircle className="h-4 w-4 text-green-500" />
+                                  </div>
+                                )}
+                              </div>
+                              {jobUrlError && (
+                                <p className="text-sm text-amber-600 mt-1">{jobUrlError}</p>
+                              )}
+                              
+                              {/* Supported platforms hint */}
+                              {!jobUrl && (
+                                <p className="text-xs text-gray-400 mt-2">
+                                  Supports LinkedIn, Indeed, Greenhouse, Lever, and most career pages
+                                </p>
+                              )}
+                            </div>
+                            
+                            {/* Expandable Manual Entry */}
+                            <div className="border-t border-gray-100 pt-4 mb-6">
+                              <button
+                                onClick={() => setShowManualInputs(!showManualInputs)}
+                                className="flex items-center gap-2 text-sm text-violet-600 hover:text-violet-700 font-medium transition-colors"
+                                disabled={isGenerating}
+                              >
+                                {showManualInputs ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                Use manual inputs instead
+                              </button>
+                              
+                              {showManualInputs && (
+                                <div className={`mt-4 space-y-4 ${jobUrl ? 'opacity-50' : ''}`}>
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                      Company <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="relative">
+                                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <Building2 className="h-4 w-4 text-gray-400" />
+                                      </div>
+                                      <input
+                                        type="text"
+                                        value={company}
+                                        onChange={(e) => setCompany(e.target.value)}
+                                        placeholder="e.g. Google, Stripe"
+                                        disabled={!!jobUrl || isGenerating}
+                                        className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl
+                                                   text-gray-900 placeholder-gray-400 text-sm
+                                                   focus:ring-2 focus:ring-violet-500 focus:border-violet-500
+                                                   hover:border-gray-300 transition-all disabled:bg-gray-50 disabled:cursor-not-allowed"
+                                      />
+                                    </div>
+                                  </div>
+                                  
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                      Job Title <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="relative">
+                                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <Briefcase className="h-4 w-4 text-gray-400" />
+                                      </div>
+                                      <input
+                                        type="text"
+                                        value={jobTitle}
+                                        onChange={(e) => setJobTitle(e.target.value)}
+                                        placeholder="e.g. Product Manager, Software Engineer"
+                                        disabled={!!jobUrl || isGenerating}
+                                        className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl
+                                                   text-gray-900 placeholder-gray-400 text-sm
+                                                   focus:ring-2 focus:ring-violet-500 focus:border-violet-500
+                                                   hover:border-gray-300 transition-all disabled:bg-gray-50 disabled:cursor-not-allowed"
+                                      />
+                                    </div>
+                                  </div>
+                                  
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                      Job Description <span className="text-red-500">*</span>
+                                    </label>
+                                    <textarea
+                                      value={jobDescription}
+                                      onChange={(e) => setJobDescription(e.target.value)}
+                                      placeholder="Paste the job description or key requirements here..."
+                                      rows={5}
+                                      disabled={!!jobUrl || isGenerating}
+                                      className="block w-full px-4 py-3 border border-gray-200 rounded-xl
+                                                 text-gray-900 placeholder-gray-400 text-sm resize-none
+                                                 focus:ring-2 focus:ring-violet-500 focus:border-violet-500
+                                                 hover:border-gray-300 transition-all disabled:bg-gray-50 disabled:cursor-not-allowed"
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* Generate Button */}
+                            <button
+                              onClick={handleGenerate}
+                              disabled={!canGenerate || isGenerating}
+                              className={`
+                                w-full py-4 rounded-xl font-semibold text-base
+                                flex items-center justify-center gap-3
+                                transition-all duration-200 transform
+                                ${!canGenerate || isGenerating
+                                  ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                                  : 'bg-gradient-to-r from-violet-600 to-purple-500 text-white shadow-lg shadow-violet-500/30 hover:shadow-xl hover:shadow-violet-500/40 hover:scale-[1.02] active:scale-100'
+                                }
+                              `}
+                            >
+                              {isGenerating && (
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                              )}
+                              {isGenerating ? 'Generating...' : 'Generate Cover Letter'}
+                              {!isGenerating && <span className="text-violet-200 font-normal">(5 credits)</span>}
+                            </button>
+                            
+                            {/* Resume info */}
+                            <div className="mt-4 flex items-center gap-3 p-3 bg-violet-50 rounded-xl">
+                              <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center">
+                                <FileText className="w-4 h-4 text-violet-600" />
+                              </div>
+                              <p className="text-sm text-gray-600">
+                                Your resume from <button onClick={() => navigate('/account-settings')} className="text-violet-600 hover:underline font-medium">Account Settings</button> will be used to personalize the cover letter.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* What's Included Card */}
+                        <div className="bg-gradient-to-r from-violet-50 to-purple-50 rounded-2xl p-6 border border-violet-100">
+                          <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">What's included</h3>
                           
-                          {/* Generate Button */}
-                          <Button
-                            onClick={handleGenerate}
-                            disabled={!canGenerate || isGenerating}
-                            className="w-full bg-blue-600 hover:bg-blue-700"
-                          >
-                            {isGenerating ? (
-                              <>
-                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                Generating...
-                              </>
-                            ) : (
-                              <>
-                                <Sparkles className="h-4 w-4 mr-2" />
-                                Generate Cover Letter (5 credits)
-                              </>
-                            )}
-                          </Button>
-                          
-                          <p className="text-xs text-gray-500 text-center">
-                            Your resume from Account Settings will be used to personalize the cover letter.
-                          </p>
+                          <div className="space-y-3">
+                            <div className="flex items-start gap-3">
+                              <div className="w-6 h-6 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <Check className="w-3.5 h-3.5 text-violet-600" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-gray-900">Personalized opening</p>
+                                <p className="text-xs text-gray-500">Tailored to the company and role</p>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-start gap-3">
+                              <div className="w-6 h-6 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <Check className="w-3.5 h-3.5 text-violet-600" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-gray-900">Skills alignment</p>
+                                <p className="text-xs text-gray-500">Maps your experience to job requirements</p>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-start gap-3">
+                              <div className="w-6 h-6 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <Check className="w-3.5 h-3.5 text-violet-600" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-gray-900">Professional formatting</p>
+                                <p className="text-xs text-gray-500">Clean, ATS-friendly structure</p>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-start gap-3">
+                              <div className="w-6 h-6 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <Check className="w-3.5 h-3.5 text-violet-600" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-gray-900">Strong closing</p>
+                                <p className="text-xs text-gray-500">Compelling call to action</p>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       </div>
 
                       {/* Right Column - Preview */}
                       <div>
-                        <div className="flex items-center justify-between mb-4">
-                          <h2 className="text-lg font-semibold text-gray-900">Preview</h2>
-                          {generatedPdfBase64 && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={handleDownload}
-                            >
-                              <Download className="h-4 w-4 mr-2" />
-                              Download PDF
-                            </Button>
-                          )}
-                        </div>
-                        
-                        <PDFPreview
-                          pdfBase64={generatedPdfBase64}
-                          title="Generated Cover Letter"
-                        />
-                      </div>
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="cover-letter-library" className="mt-0">
-                    {isLoadingLibrary ? (
-                      <div className="flex items-center justify-center py-16">
-                        <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-                      </div>
-                    ) : libraryEntries.length === 0 ? (
-                      <div className="text-center py-16">
-                        <PenLine className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                        <h3 className="text-lg font-medium text-gray-900 mb-2">No Saved Cover Letters</h3>
-                        <p className="text-gray-500 max-w-md mx-auto mb-6">
-                          Your generated cover letters will appear here.
-                        </p>
-                        <Button
-                          onClick={() => handleTabChange('cover-letter-generator')}
-                          className="bg-blue-600 hover:bg-blue-700"
-                        >
-                          <ArrowRight className="h-4 w-4 mr-2" />
-                          Create a Cover Letter
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {/* Left Column - Library List */}
-                        <div className="space-y-4">
-                          <h2 className="text-lg font-semibold text-gray-900">
-                            Saved Cover Letters ({libraryEntries.length})
-                          </h2>
-                          
-                          {libraryEntries.map((entry) => (
-                            <div
-                              key={entry.id}
-                              className={`border rounded-lg p-4 bg-white transition-colors cursor-pointer ${
-                                previewEntry?.id === entry.id 
-                                  ? 'border-blue-500 ring-1 ring-blue-500' 
-                                  : 'border-gray-200 hover:border-gray-300'
-                              }`}
-                              onClick={() => handleViewEntry(entry)}
-                            >
-                              <div className="flex items-start justify-between gap-4">
-                                <div className="flex items-start gap-3">
-                                  <FileText className="h-8 w-8 text-blue-500 flex-shrink-0 mt-0.5" />
-                                  <div className="min-w-0">
-                                    <h4 className="font-medium text-gray-900 truncate">{entry.display_name}</h4>
-                                    <p className="text-sm text-gray-600 mt-0.5">
-                                      {entry.job_title} at {entry.company}
+                        {generatedPdfBase64 ? (
+                          /* Preview Card (With Content) */
+                          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden h-full min-h-[600px] flex flex-col">
+                            {/* Gradient accent at top */}
+                            <div className="h-1 bg-gradient-to-r from-violet-500 via-purple-500 to-violet-600"></div>
+                            
+                            {/* Header with actions */}
+                            <div className="p-6 border-b border-gray-100">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 bg-violet-100 rounded-xl flex items-center justify-center">
+                                    <FileText className="w-5 h-5 text-violet-600" />
+                                  </div>
+                                  <div>
+                                    <h2 className="font-semibold text-gray-900">Cover Letter</h2>
+                                    <p className="text-sm text-gray-500">
+                                      {generatedJobTitle} at {generatedCompany}
                                     </p>
-                                    {entry.location && (
-                                      <p className="text-sm text-gray-500">{entry.location}</p>
-                                    )}
-                                    <span className="text-xs text-gray-400 mt-2 block">
-                                      {new Date(entry.created_at).toLocaleDateString()}
-                                    </span>
                                   </div>
                                 </div>
                                 
-                                <div className="flex items-center gap-2 flex-shrink-0">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleViewEntry(entry);
-                                    }}
-                                    className="text-gray-600"
+                                {/* Action buttons */}
+                                <div className="flex items-center gap-2">
+                                  <button 
+                                    onClick={handleCopyToClipboard}
+                                    className="p-2 text-gray-500 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
+                                    title="Copy to clipboard"
                                   >
-                                    <Eye className="h-4 w-4" />
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleDownloadEntry(entry);
-                                    }}
-                                    className="text-gray-600"
+                                    <Copy className="w-5 h-5" />
+                                  </button>
+                                  <button 
+                                    onClick={handleDownload}
+                                    className="p-2 text-gray-500 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
+                                    title="Download PDF"
                                   >
-                                    <Download className="h-4 w-4" />
-                                  </Button>
+                                    <Download className="w-5 h-5" />
+                                  </button>
                                 </div>
                               </div>
                             </div>
-                          ))}
-                        </div>
-
-                        {/* Right Column - Preview Panel */}
-                        <div>
-                          <h2 className="text-lg font-semibold text-gray-900 mb-4">Preview</h2>
-                          
-                          {isLoadingPreview ? (
-                            <div className="border border-gray-200 rounded-lg p-8 bg-gray-50 text-center">
-                              <Loader2 className="h-8 w-8 animate-spin text-blue-500 mx-auto" />
-                              <p className="text-sm text-gray-500 mt-2">Loading preview...</p>
-                            </div>
-                          ) : previewEntry ? (
-                            <div className="space-y-4">
+                            
+                            {/* Cover Letter Content */}
+                            <div className="flex-1 overflow-auto p-6 bg-gray-50">
                               <PDFPreview
-                                pdfBase64={previewEntry.pdf_base64}
-                                title={previewEntry.display_name}
+                                pdfBase64={generatedPdfBase64}
+                                title="Generated Cover Letter"
                               />
-                              <div className="flex gap-2">
-                                <Button
-                                  onClick={() => handleDownloadEntry(previewEntry)}
-                                  className="flex-1"
-                                  variant="outline"
-                                >
-                                  <Download className="h-4 w-4 mr-2" />
-                                  Download PDF
-                                </Button>
+                            </div>
+                            
+                            {/* Footer with regenerate option */}
+                            <div className="p-4 border-t border-gray-100 bg-gray-50">
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm text-gray-500">
+                                  Not quite right? You can regenerate or start over.
+                                </p>
+                                <div className="flex items-center gap-3">
+                                  <button 
+                                    onClick={handleStartOver}
+                                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                                  >
+                                    Start Over
+                                  </button>
+                                  <button 
+                                    onClick={handleRegenerate}
+                                    disabled={isGenerating}
+                                    className="px-4 py-2 text-sm font-medium text-white bg-violet-600 rounded-lg hover:bg-violet-700 transition-colors disabled:opacity-50"
+                                  >
+                                    Regenerate
+                                  </button>
+                                </div>
                               </div>
                             </div>
-                          ) : (
-                            <div className="border border-gray-200 rounded-lg p-8 bg-gray-50 text-center">
-                              <Eye className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                              <p className="text-gray-500">
-                                Click on a cover letter to preview it
-                              </p>
+                          </div>
+                        ) : (
+                          /* Preview Card (Empty State) */
+                          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden h-full min-h-[600px] flex flex-col">
+                            {/* Gradient accent at top */}
+                            <div className="h-1 bg-gradient-to-r from-violet-500 via-purple-500 to-violet-600"></div>
+                            
+                            {/* Header */}
+                            <div className="p-6 border-b border-gray-100">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center">
+                                    <FileText className="w-5 h-5 text-gray-400" />
+                                  </div>
+                                  <div>
+                                    <h2 className="font-semibold text-gray-900">Preview</h2>
+                                    <p className="text-sm text-gray-500">Your generated cover letter</p>
+                                  </div>
+                                </div>
+                              </div>
                             </div>
-                          )}
+                            
+                            {/* Empty State Content */}
+                            <div className="flex-1 flex items-center justify-center p-8">
+                              <div className="text-center">
+                                <div className="w-20 h-20 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                                  <PenLine className="w-10 h-10 text-gray-300" />
+                                </div>
+                                <h3 className="text-lg font-medium text-gray-500 mb-2">No cover letter to preview</h3>
+                                <p className="text-sm text-gray-400 max-w-xs mx-auto">
+                                  Enter job details on the left and click "Generate Cover Letter" to create your personalized cover letter.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Recent Cover Letters Section */}
+                    {recentCoverLetters.length > 0 && !generatedPdfBase64 && (
+                      <div className="mt-10 pt-8 border-t border-gray-200">
+                        <div className="flex items-center justify-between mb-6">
+                          <h3 className="text-lg font-semibold text-gray-900">Recent Cover Letters</h3>
+                          <button 
+                            onClick={() => handleTabChange('cover-letter-library')}
+                            className="text-sm text-violet-600 hover:underline font-medium"
+                          >
+                            View all ({libraryEntries.length})
+                          </button>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          {recentCoverLetters.map((letter) => (
+                            <div 
+                              key={letter.id}
+                              onClick={() => loadCoverLetter(letter)}
+                              className="bg-white rounded-xl border border-gray-200 p-4 hover:border-violet-300 hover:shadow-md cursor-pointer transition-all group"
+                            >
+                              <div className="flex items-center gap-3 mb-3">
+                                <div className="w-10 h-10 bg-violet-50 rounded-lg flex items-center justify-center group-hover:bg-violet-100 transition-colors">
+                                  <FileText className="w-5 h-5 text-violet-600" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium text-gray-900 text-sm truncate">{letter.job_title}</p>
+                                  <p className="text-xs text-gray-500 truncate">{letter.company}</p>
+                                </div>
+                              </div>
+                              <p className="text-xs text-gray-400">Created {formatTimeAgo(letter.created_at)}</p>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     )}
+                  </TabsContent>
+
+                  <TabsContent value="cover-letter-library" className="mt-0">
+                    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+                      <div className="h-1 bg-gradient-to-r from-violet-500 via-purple-500 to-violet-600"></div>
+                      
+                      <div className="p-6">
+                        {isLoadingLibrary ? (
+                          <div className="flex items-center justify-center py-16">
+                            <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
+                          </div>
+                        ) : libraryEntries.length === 0 ? (
+                          <div className="text-center py-12">
+                            <div className="w-16 h-16 bg-violet-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                              <PenLine className="h-8 w-8 text-violet-600" />
+                            </div>
+                            <h3 className="text-lg font-semibold text-gray-900 mb-2">No Saved Cover Letters</h3>
+                            <p className="text-gray-500 max-w-md mx-auto mb-6">
+                              Your generated cover letters will appear here.
+                            </p>
+                            <button 
+                              onClick={() => handleTabChange('cover-letter-generator')}
+                              className="px-6 py-3 bg-gradient-to-r from-violet-600 to-purple-500 text-white font-semibold rounded-full hover:shadow-lg transition-all"
+                            >
+                              Create a Cover Letter
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            {/* Left Column - Library List */}
+                            <div className="space-y-4">
+                              <h2 className="text-lg font-semibold text-gray-900">
+                                Saved Cover Letters ({libraryEntries.length})
+                              </h2>
+                              
+                              {libraryEntries.map((entry) => (
+                                <div
+                                  key={entry.id}
+                                  className={`border rounded-xl p-4 bg-white transition-colors cursor-pointer ${
+                                    previewEntry?.id === entry.id 
+                                      ? 'border-violet-500 ring-1 ring-violet-500' 
+                                      : 'border-gray-200 hover:border-violet-300'
+                                  }`}
+                                  onClick={() => handleViewEntry(entry)}
+                                >
+                                  <div className="flex items-start justify-between gap-4">
+                                    <div className="flex items-start gap-3">
+                                      <div className="w-10 h-10 bg-violet-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                        <FileText className="h-5 w-5 text-violet-600" />
+                                      </div>
+                                      <div className="min-w-0">
+                                        <h4 className="font-medium text-gray-900 truncate">{entry.display_name}</h4>
+                                        <p className="text-sm text-gray-600 mt-0.5">
+                                          {entry.job_title} at {entry.company}
+                                        </p>
+                                        {entry.location && (
+                                          <p className="text-sm text-gray-500">{entry.location}</p>
+                                        )}
+                                        <span className="text-xs text-gray-400 mt-2 block">
+                                          {new Date(entry.created_at).toLocaleDateString()}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleViewEntry(entry);
+                                        }}
+                                        className="text-gray-600 rounded-lg"
+                                      >
+                                        <Eye className="h-4 w-4" />
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDownloadEntry(entry);
+                                        }}
+                                        className="text-gray-600 rounded-lg"
+                                      >
+                                        <Download className="h-4 w-4" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Right Column - Preview Panel */}
+                            <div>
+                              <h2 className="text-lg font-semibold text-gray-900 mb-4">Preview</h2>
+                              
+                              {isLoadingPreview ? (
+                                <div className="border border-gray-200 rounded-xl p-8 bg-gray-50 text-center">
+                                  <Loader2 className="h-8 w-8 animate-spin text-violet-500 mx-auto" />
+                                  <p className="text-sm text-gray-500 mt-2">Loading preview...</p>
+                                </div>
+                              ) : previewEntry ? (
+                                <div className="space-y-4">
+                                  <PDFPreview
+                                    pdfBase64={previewEntry.pdf_base64}
+                                    title={previewEntry.display_name}
+                                  />
+                                  <div className="flex gap-2">
+                                    <Button
+                                      onClick={() => handleDownloadEntry(previewEntry)}
+                                      className="flex-1 rounded-xl"
+                                      variant="outline"
+                                    >
+                                      <Download className="h-4 w-4 mr-2" />
+                                      Download PDF
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="border border-gray-200 rounded-xl p-8 bg-gray-50 text-center">
+                                  <Eye className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                                  <p className="text-gray-500">
+                                    Click on a cover letter to preview it
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </TabsContent>
                 </div>
               </Tabs>
@@ -730,6 +1048,52 @@ export default function CoverLetterPage() {
           </main>
         </MainContentWrapper>
       </div>
+
+      {/* Loading Modal */}
+      {isGenerating && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-2xl animate-scaleIn">
+            <div className="w-16 h-16 bg-violet-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <PenLine className="w-8 h-8 text-violet-600 animate-pulse" />
+            </div>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">Writing your cover letter...</h3>
+            <p className="text-gray-600 mb-4">
+              {jobUrl 
+                ? "Analyzing the job posting and crafting your letter"
+                : `Creating a personalized letter for ${jobTitle || 'this role'} at ${company || 'the company'}`
+              }
+            </p>
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div 
+                className="bg-gradient-to-r from-violet-500 to-purple-500 h-2 rounded-full transition-all duration-300" 
+                style={{ width: `${progress}%` }}
+              ></div>
+            </div>
+            <p className="text-sm text-gray-500 mt-3">This usually takes 15-20 seconds</p>
+          </div>
+        </div>
+      )}
+
+      {/* Success Toast */}
+      {showSuccessToast && (
+        <div className="fixed bottom-6 right-6 z-50 animate-fadeInUp">
+          <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-4 flex items-center gap-3">
+            <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+              <CheckCircle className="w-6 h-6 text-green-600" />
+            </div>
+            <div>
+              <p className="font-medium text-gray-900">Cover letter generated!</p>
+              <p className="text-sm text-gray-500">Saved to your Cover Letter Library</p>
+            </div>
+            <button 
+              onClick={() => setShowSuccessToast(false)}
+              className="p-1 hover:bg-gray-100 rounded-lg"
+            >
+              <X className="w-5 h-5 text-gray-400" />
+            </button>
+          </div>
+        </div>
+      )}
     </SidebarProvider>
   );
 }

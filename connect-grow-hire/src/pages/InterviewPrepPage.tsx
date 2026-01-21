@@ -1,81 +1,27 @@
-import React, { useEffect, useMemo, useState, useRef, useLayoutEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
-import { Briefcase, Download, Loader2, BadgeCheck, Calendar, CheckCircle, XCircle } from "lucide-react";
+import { 
+  Briefcase, Download, Loader2, BadgeCheck, Calendar, CheckCircle, XCircle,
+  Link, Building2, MessageSquare, Lightbulb, AlertTriangle, FileText,
+  ClipboardList, FolderOpen, ArrowRight, CreditCard
+} from "lucide-react";
 import { UpgradeBanner } from "@/components/UpgradeBanner";
 import { apiService } from "@/services/api";
 import type { InterviewPrep, InterviewPrepStatus } from "@/services/api";
 import { toast } from "@/hooks/use-toast";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { INTERVIEW_PREP_CREDITS } from "@/lib/constants";
 import { flushSync } from "react-dom";
 import { logActivity, generateInterviewPrepSummary } from "@/utils/activityLogger";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
-import { InlineLoadingBar, SteppedLoadingBar } from "@/components/ui/LoadingBar";
+import { SteppedLoadingBar } from "@/components/ui/LoadingBar";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { useSubscription } from "@/hooks/useSubscription";
 import { canUseFeature, getFeatureLimit } from "@/utils/featureAccess";
 import { trackFeatureActionCompleted, trackContentViewed, trackError } from "../lib/analytics";
-
-// Stripe-style Tabs Component with animated underline
-interface StripeTabsProps {
-  activeTab: string;
-  onTabChange: (tab: string) => void;
-  tabs: { id: string; label: string }[];
-}
-
-const StripeTabs: React.FC<StripeTabsProps> = ({ activeTab, onTabChange, tabs }) => {
-  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
-
-  useLayoutEffect(() => {
-    const activeIndex = tabs.findIndex(tab => tab.id === activeTab);
-    const activeTabRef = tabRefs.current[activeIndex];
-    
-    if (activeTabRef) {
-      const { offsetLeft, offsetWidth } = activeTabRef;
-      setIndicatorStyle({ left: offsetLeft, width: offsetWidth });
-    }
-  }, [activeTab, tabs]);
-
-  return (
-    <div className="relative">
-      <div className="flex items-center gap-8">
-        {tabs.map((tab, index) => (
-          <button
-            key={tab.id}
-            ref={(el) => { tabRefs.current[index] = el; }}
-            onClick={() => onTabChange(tab.id)}
-            className={`
-              relative pb-3 text-sm font-medium transition-colors duration-150
-              focus:outline-none focus-visible:outline-none
-              ${activeTab === tab.id 
-                ? 'text-[#3B82F6]' 
-                : 'text-gray-500 hover:text-gray-700'
-              }
-            `}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-      
-      <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gray-200" />
-      
-      <div
-        className="absolute bottom-0 h-[2px] bg-[#3B82F6] transition-all duration-200 ease-out"
-        style={{
-          left: indicatorStyle.left,
-          width: indicatorStyle.width,
-        }}
-      />
-    </div>
-  );
-};
 
 const InterviewPrepPage: React.FC = () => {
   const { user, checkCredits } = useFirebaseAuth();
@@ -98,12 +44,9 @@ const InterviewPrepPage: React.FC = () => {
         'interviewPreps',
         currentUsage
       )
-    : effectiveUser.tier === 'elite'; // Default to allowing if no subscription data yet
+    : effectiveUser.tier === 'elite';
   
-  // Also check if user has enough credits
   const hasEnoughCredits = (effectiveUser.credits ?? 0) >= INTERVIEW_PREP_CREDITS;
-  
-  // User has access only if they have both monthly limit AND credits
   const hasAccess = hasMonthlyAccess && hasEnoughCredits;
 
   // Tab state
@@ -122,7 +65,7 @@ const InterviewPrepPage: React.FC = () => {
   const [manualCompanyName, setManualCompanyName] = useState("");
   const [manualJobTitle, setManualJobTitle] = useState("");
 
-  // Interview Prep steps for SteppedLoadingBar - must match backend status updates exactly
+  // Interview Prep steps for SteppedLoadingBar
   const interviewPrepSteps = [
     { id: 'processing', label: 'Initializing...' },
     { id: 'parsing_job_posting', label: 'Parsing job posting...' },
@@ -136,13 +79,25 @@ const InterviewPrepPage: React.FC = () => {
   // Interview Library State
   const [preps, setPreps] = useState<InterviewPrep[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(true);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // URL validation
+  const isValidUrl = (url: string) => {
+    try {
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // Can generate check
+  const canGenerate = jobPostingUrl.trim() || (manualCompanyName.trim() && manualJobTitle.trim());
 
   // Load interview preps
   useEffect(() => {
     const loadPreps = async () => {
       try {
-        const result = await apiService.getInterviewPrepHistory(1000); // Large limit to get all
+        const result = await apiService.getInterviewPrepHistory(1000);
         if ("error" in result) {
           throw new Error(result.error);
         }
@@ -164,7 +119,6 @@ const InterviewPrepPage: React.FC = () => {
   // Refresh library when a new prep is completed
   useEffect(() => {
     if (interviewPrepStatus === 'completed') {
-      // Reload library after a short delay to ensure backend has saved
       setTimeout(() => {
         const loadPreps = async () => {
           try {
@@ -183,9 +137,6 @@ const InterviewPrepPage: React.FC = () => {
   }, [interviewPrepStatus]);
 
   const handleInterviewPrepSubmit = async () => {
-    console.log('🎬 handleInterviewPrepSubmit called');
-    
-    // Check if we have URL or manual input
     const hasUrl = jobPostingUrl.trim();
     const hasManualInput = manualCompanyName.trim() && manualJobTitle.trim();
     
@@ -207,7 +158,6 @@ const InterviewPrepPage: React.FC = () => {
       return;
     }
 
-    // Check credits
     if (effectiveUser.credits < INTERVIEW_PREP_CREDITS) {
       toast({
         title: "Insufficient Credits",
@@ -219,12 +169,11 @@ const InterviewPrepPage: React.FC = () => {
 
     setInterviewPrepLoading(true);
     setInterviewPrepStatus('processing');
-    setCurrentPrepStatus('processing'); // Start with 'processing' status to match backend initial status
+    setCurrentPrepStatus('processing');
     setInterviewPrepProgress('Initializing...');
     setInterviewPrepResult(null);
 
     try {
-      // Start the generation
       const request: any = {};
       if (jobPostingUrl.trim()) {
         request.job_posting_url = jobPostingUrl.trim();
@@ -242,16 +191,12 @@ const InterviewPrepPage: React.FC = () => {
       const prepId = result.id;
       setInterviewPrepId(prepId);
       
-      // Poll for status - allow more time for comprehensive generation
-      // Poll immediately first, then continue with interval
       let pollCount = 0;
-      const maxPolls = 120; // 6 minutes max (120 * 2s)
+      const maxPolls = 120;
       
-      // Helper to handle status updates
       const handleStatusUpdate = (statusResult: any) => {
         if ('status' in statusResult) {
           const status = statusResult.status;
-          console.log(`[InterviewPrep] Status update: ${status}`);
           setCurrentPrepStatus(status);
           
           const statusMessages: Record<string, string> = {
@@ -265,7 +210,6 @@ const InterviewPrepPage: React.FC = () => {
             'failed': 'Generation failed',
           };
           const progressMessage = statusMessages[status] || statusResult.progress || 'Processing...';
-          console.log(`[InterviewPrep] Setting progress: ${progressMessage}`);
           setInterviewPrepProgress(progressMessage);
           
           if (statusResult.jobDetails) {
@@ -274,7 +218,6 @@ const InterviewPrepPage: React.FC = () => {
         }
       };
       
-      // Helper to handle completion
       const handleCompletion = (statusResult: any) => {
         if (user?.uid && statusResult.jobDetails) {
           try {
@@ -315,20 +258,16 @@ const InterviewPrepPage: React.FC = () => {
         });
         
         if (checkCredits) {
-          checkCredits().then(() => {
-            console.log('✅ Interview Prep complete!');
-          });
+          checkCredits();
         }
       };
       
       const pollPromise = new Promise((resolve, reject) => {
-        // Poll immediately first
         (async () => {
           try {
             const statusResult = await apiService.getInterviewPrepStatus(prepId);
-            console.log(`[InterviewPrep] Initial poll result:`, statusResult);
             
-            if (statusResult.pdfUrl) {
+            if ('pdfUrl' in statusResult && statusResult.pdfUrl) {
               handleCompletion(statusResult);
               resolve(statusResult);
               return;
@@ -340,14 +279,11 @@ const InterviewPrepPage: React.FC = () => {
           }
         })();
         
-        // Then continue polling with interval
         const intervalId = setInterval(async () => {
           pollCount++;
-          console.log(`[InterviewPrep] Polling status (attempt ${pollCount}/${maxPolls})...`);
           
           try {
             const statusResult = await apiService.getInterviewPrepStatus(prepId);
-            console.log(`[InterviewPrep] Status result:`, statusResult);
             
             if ('error' in statusResult && !('status' in statusResult)) {
               clearInterval(intervalId);
@@ -355,15 +291,10 @@ const InterviewPrepPage: React.FC = () => {
               return;
             }
             
-            // Update progress based on status
             if ('status' in statusResult) {
               const status = statusResult.status;
-              console.log(`[InterviewPrep] Status update: ${status}`);
-              
-              // Update current prep status to trigger step progress update
               setCurrentPrepStatus(status);
               
-              // Update progress message based on status (must match interviewPrepSteps labels)
               const statusMessages: Record<string, string> = {
                 'processing': 'Initializing...',
                 'parsing_job_posting': 'Parsing job posting...',
@@ -375,19 +306,15 @@ const InterviewPrepPage: React.FC = () => {
                 'failed': 'Generation failed',
               };
               const progressMessage = statusMessages[status] || statusResult.progress || 'Processing...';
-              console.log(`[InterviewPrep] Setting progress: ${progressMessage}`);
               setInterviewPrepProgress(progressMessage);
               
-              // Update parsed job details if available
               if (statusResult.jobDetails) {
                 setParsedJobDetails(statusResult.jobDetails);
               }
             }
             
-            // Check if completed
-            if (statusResult.pdfUrl) {
+            if ('pdfUrl' in statusResult && statusResult.pdfUrl) {
               clearInterval(intervalId);
-              console.log('✅ Interview Prep completed! pdfUrl:', statusResult.pdfUrl);
               handleCompletion(statusResult);
               resolve(statusResult);
               return;
@@ -395,7 +322,6 @@ const InterviewPrepPage: React.FC = () => {
             
             handleStatusUpdate(statusResult);
             
-            // Check if failed or needs manual input
             if (statusResult.status === 'failed' || statusResult.status === 'parsing_failed') {
               clearInterval(intervalId);
               if (statusResult.needsManualInput || statusResult.status === 'parsing_failed') {
@@ -447,7 +373,7 @@ const InterviewPrepPage: React.FC = () => {
             clearInterval(intervalId);
             reject(error);
           }
-        }, 2000); // QUICK WIN: Poll every 2 seconds to catch status updates faster
+        }, 2000);
       });
       
       await pollPromise;
@@ -504,14 +430,13 @@ const InterviewPrepPage: React.FC = () => {
         throw new Error("PDF isn't ready yet. Please try again in a moment.");
       }
 
-      // Generate filename: Oloop_interviewprep_{Company_name}_{Role}.pdf
       const sanitizeForFilename = (str: string): string => {
         return str
-          .replace(/[^a-zA-Z0-9\s-]/g, '') // Remove special characters except spaces and hyphens
-          .replace(/\s+/g, '_') // Replace spaces with underscores
-          .replace(/_+/g, '_') // Replace multiple underscores with single
-          .replace(/^_+|_+$/g, '') // Remove leading/trailing underscores
-          .substring(0, 50); // Limit length
+          .replace(/[^a-zA-Z0-9\s-]/g, '')
+          .replace(/\s+/g, '_')
+          .replace(/_+/g, '_')
+          .replace(/^_+|_+$/g, '')
+          .substring(0, 50);
       };
 
       const company = companyName ? sanitizeForFilename(companyName) : 'Company';
@@ -520,7 +445,6 @@ const InterviewPrepPage: React.FC = () => {
 
       await new Promise(r => setTimeout(r, 500));
 
-      // Force download instead of opening in browser
       try {
         const response = await fetch(pdfUrl);
         if (!response.ok) {
@@ -542,7 +466,6 @@ const InterviewPrepPage: React.FC = () => {
           window.URL.revokeObjectURL(blobUrl);
         }, 100);
         
-        // Track PostHog event
         trackContentViewed('interview_prep', 'pdf', id);
         
         toast({
@@ -564,7 +487,6 @@ const InterviewPrepPage: React.FC = () => {
           document.body.removeChild(a);
         }, 100);
         
-        // Track PostHog event
         trackContentViewed('interview_prep', 'pdf', id);
         
         toast({
@@ -613,6 +535,10 @@ const InterviewPrepPage: React.FC = () => {
     return { completed, inProgress };
   }, [preps]);
 
+  const recentPreps = useMemo(() => {
+    return groupedPreps.completed.slice(0, 3);
+  }, [groupedPreps.completed]);
+
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full text-foreground">
@@ -621,106 +547,271 @@ const InterviewPrepPage: React.FC = () => {
         <MainContentWrapper>
           <AppHeader title="" />
 
-          <main className="bg-white min-h-screen">
-            <div className="max-w-5xl mx-auto px-8 pt-10 pb-4">
-              <h1 className="text-[28px] font-semibold text-gray-900 mb-4">
-                Interview Prep
-              </h1>
+          <main className="bg-gradient-to-b from-slate-50 via-white to-white min-h-screen">
+            <div className="max-w-4xl mx-auto px-6 pt-10 pb-8">
+              
+              {/* Inspiring Header Section */}
+              <div className="text-center mb-8 animate-fadeInUp">
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                  Interview Prep
+                </h1>
+                <p className="text-gray-600 text-lg">
+                  Go into every interview knowing exactly what to expect.
+                </p>
+              </div>
 
+              {/* Pill-style Tabs */}
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <StripeTabs 
-                  activeTab={activeTab} 
-                  onTabChange={setActiveTab}
-                  tabs={[
-                    { id: 'interview-prep', label: 'Interview Prep' },
-                    { id: 'interview-library', label: `Interview Library (${preps.length})` },
-                  ]}
-                />
-
-                <div className="pb-8 pt-6">
-                  <TabsContent value="interview-prep" className="mt-0">
-                    {!hasAccess && (
-                      <div className="mb-6">
-                        <UpgradeBanner
-                          hasExhaustedLimit={!hasMonthlyAccess}
-                          hasEnoughCredits={hasEnoughCredits}
-                          currentUsage={currentUsage}
-                          limit={limit}
-                          tier={tier}
-                          requiredCredits={INTERVIEW_PREP_CREDITS}
-                          currentCredits={effectiveUser.credits ?? 0}
-                          featureName="Interview Preps"
-                          nextTier={subscription?.tier === 'free' ? 'Pro' : 'Elite'}
-                          showUpgradeButton={!hasMonthlyAccess || !hasEnoughCredits}
-                        />
-                      </div>
+                <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mx-auto mb-8 animate-fadeInUp" style={{ animationDelay: '100ms' }}>
+                  <button
+                    onClick={() => setActiveTab('interview-prep')}
+                    className={`
+                      flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
+                      ${activeTab === 'interview-prep' 
+                        ? 'bg-white text-green-600 shadow-sm' 
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                      }
+                    `}
+                  >
+                    <Briefcase className="w-4 h-4" />
+                    Interview Prep
+                  </button>
+                  
+                  <button
+                    onClick={() => setActiveTab('interview-library')}
+                    className={`
+                      flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
+                      ${activeTab === 'interview-library' 
+                        ? 'bg-white text-green-600 shadow-sm' 
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                      }
+                    `}
+                  >
+                    <FolderOpen className="w-4 h-4" />
+                    Interview Library
+                    {preps.length > 0 && (
+                      <span className="ml-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full">
+                        {preps.length}
+                      </span>
                     )}
+                  </button>
+                </div>
 
-                    <div className="mb-6">
-                      <h2 className="text-xl font-semibold text-gray-900 mb-6">
-                        What role are you preparing for?
-                      </h2>
+                {/* INTERVIEW PREP TAB */}
+                <TabsContent value="interview-prep" className="mt-0">
+                  {!hasAccess && (
+                    <div className="mb-6 animate-fadeInUp" style={{ animationDelay: '150ms' }}>
+                      <UpgradeBanner
+                        hasExhaustedLimit={!hasMonthlyAccess}
+                        hasEnoughCredits={hasEnoughCredits}
+                        currentUsage={currentUsage}
+                        limit={limit}
+                        tier={tier}
+                        requiredCredits={INTERVIEW_PREP_CREDITS}
+                        currentCredits={effectiveUser.credits ?? 0}
+                        featureName="Interview Preps"
+                        nextTier={subscription?.tier === 'free' ? 'Pro' : 'Elite'}
+                        showUpgradeButton={!hasMonthlyAccess || !hasEnoughCredits}
+                      />
+                    </div>
+                  )}
 
+                  {/* Main Card */}
+                  <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
+                    {/* Green gradient accent at top */}
+                    <div className="h-1 bg-gradient-to-r from-green-500 via-emerald-500 to-teal-500"></div>
+                    
+                    <div className="p-8">
+                      {/* Card Header with Icon */}
+                      <div className="text-center mb-8">
+                        <div className="w-14 h-14 bg-green-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                          <Briefcase className="w-7 h-7 text-green-600" />
+                        </div>
+                        <h2 className="text-xl font-semibold text-gray-900 mb-2">What role are you preparing for?</h2>
+                        <p className="text-gray-600 max-w-lg mx-auto">
+                          Paste a job posting URL or enter the details manually to generate a comprehensive prep guide.
+                        </p>
+                      </div>
+
+                      {/* URL Input Section */}
                       <div className="space-y-6">
                         <div>
-                          <label className="block text-sm font-medium mb-2 text-gray-700">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
                             Job Posting URL <span className="text-red-500">*</span>
                           </label>
-                          <Input
-                            value={jobPostingUrl}
-                            onChange={(e) => {
-                              setJobPostingUrl(e.target.value);
-                              if (e.target.value.trim()) {
-                                setShowManualInput(false);
-                                setManualCompanyName("");
-                                setManualJobTitle("");
-                              }
-                            }}
-                            placeholder="Paste the job posting URL here..."
-                            className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 hover:border-gray-400 transition-colors"
-                            disabled={interviewPrepLoading || !hasAccess}
-                          />
-                          <p className="text-sm text-gray-500 mt-2">
-                            Supports LinkedIn, Indeed, Greenhouse, Lever, Workday, and most career pages.
-                          </p>
+                          
+                          <div className="relative">
+                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                              <Link className="h-5 w-5 text-gray-400" />
+                            </div>
+                            
+                            <input
+                              type="url"
+                              value={jobPostingUrl}
+                              onChange={(e) => {
+                                setJobPostingUrl(e.target.value);
+                                if (e.target.value.trim()) {
+                                  setShowManualInput(false);
+                                  setManualCompanyName("");
+                                  setManualJobTitle("");
+                                }
+                              }}
+                              placeholder="Paste the job posting URL here..."
+                              disabled={interviewPrepLoading || !hasAccess}
+                              className="block w-full pl-12 pr-12 py-4 text-base border-2 border-gray-200 rounded-xl
+                                         text-gray-900 placeholder-gray-400
+                                         focus:ring-2 focus:ring-green-500 focus:border-green-500
+                                         hover:border-gray-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            />
+                            
+                            {jobPostingUrl && isValidUrl(jobPostingUrl) && (
+                              <div className="absolute inset-y-0 right-0 pr-4 flex items-center">
+                                <CheckCircle className="h-5 w-5 text-green-500" />
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Supported platforms */}
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <span className="text-xs text-gray-500">Supports:</span>
+                            {['LinkedIn', 'Indeed', 'Greenhouse', 'Lever', 'Workday'].map((platform) => (
+                              <span 
+                                key={platform}
+                                className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full"
+                              >
+                                {platform}
+                              </span>
+                            ))}
+                            <span className="text-xs text-gray-500">+ most career pages</span>
+                          </div>
                         </div>
-                        
+
+                        {/* OR Divider */}
                         {!showManualInput && !jobPostingUrl.trim() && (
-                          <div className="space-y-4">
-                            <p className="text-sm text-gray-500">Or enter manually:</p>
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                              <div>
-                                <label className="block text-sm font-medium mb-2 text-gray-700">
-                                  Company Name
-                                </label>
-                                <Input
+                          <div className="relative py-4">
+                            <div className="absolute inset-0 flex items-center">
+                              <div className="w-full border-t border-gray-200"></div>
+                            </div>
+                            <div className="relative flex justify-center">
+                              <span className="px-4 bg-white text-sm text-gray-500">Or enter manually</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Manual Entry Fields */}
+                        {!showManualInput && !jobPostingUrl.trim() && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Company Name
+                              </label>
+                              <div className="relative">
+                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                  <Building2 className="h-5 w-5 text-gray-400" />
+                                </div>
+                                <input
+                                  type="text"
                                   value={manualCompanyName}
                                   onChange={(e) => setManualCompanyName(e.target.value)}
                                   placeholder="e.g., Google, Amazon, Meta"
-                                  className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 hover:border-gray-400 transition-colors"
                                   disabled={interviewPrepLoading || !hasAccess}
+                                  className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl
+                                             text-gray-900 placeholder-gray-400
+                                             focus:ring-2 focus:ring-green-500 focus:border-green-500
+                                             hover:border-gray-300 transition-all disabled:opacity-50"
                                 />
                               </div>
-                              
-                              <div>
-                                <label className="block text-sm font-medium mb-2 text-gray-700">
-                                  Job Title
-                                </label>
-                                <Input
+                            </div>
+                            
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Job Title
+                              </label>
+                              <div className="relative">
+                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                  <Briefcase className="h-5 w-5 text-gray-400" />
+                                </div>
+                                <input
+                                  type="text"
                                   value={manualJobTitle}
                                   onChange={(e) => setManualJobTitle(e.target.value)}
                                   placeholder="e.g., Software Engineer, Data Scientist"
-                                  className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 hover:border-gray-400 transition-colors"
                                   disabled={interviewPrepLoading || !hasAccess}
+                                  className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl
+                                             text-gray-900 placeholder-gray-400
+                                             focus:ring-2 focus:ring-green-500 focus:border-green-500
+                                             hover:border-gray-300 transition-all disabled:opacity-50"
                                 />
                               </div>
                             </div>
                           </div>
                         )}
-                        
+
+                        {/* Manual Input Required (fallback) */}
+                        {showManualInput && (
+                          <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 space-y-4">
+                            <div className="flex items-start gap-2">
+                              <XCircle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                              <div className="flex-1">
+                                <p className="text-sm font-semibold text-amber-800 mb-1">
+                                  URL Parsing Failed - Manual Input Required
+                                </p>
+                                <p className="text-xs text-amber-700">
+                                  We couldn't parse the job posting URL. Please enter the details manually below.
+                                </p>
+                              </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                  Company Name <span className="text-red-500">*</span>
+                                </label>
+                                <div className="relative">
+                                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <Building2 className="h-5 w-5 text-gray-400" />
+                                  </div>
+                                  <input
+                                    type="text"
+                                    value={manualCompanyName}
+                                    onChange={(e) => setManualCompanyName(e.target.value)}
+                                    placeholder="e.g., Google, Amazon, Meta"
+                                    disabled={interviewPrepLoading || !hasAccess}
+                                    className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl bg-white
+                                               text-gray-900 placeholder-gray-400
+                                               focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                  />
+                                </div>
+                              </div>
+                              
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                  Job Title <span className="text-red-500">*</span>
+                                </label>
+                                <div className="relative">
+                                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <Briefcase className="h-5 w-5 text-gray-400" />
+                                  </div>
+                                  <input
+                                    type="text"
+                                    value={manualJobTitle}
+                                    onChange={(e) => setManualJobTitle(e.target.value)}
+                                    placeholder="e.g., Software Engineer, Product Manager"
+                                    disabled={interviewPrepLoading || !hasAccess}
+                                    className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl bg-white
+                                               text-gray-900 placeholder-gray-400
+                                               focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Parsed Job Details Preview */}
                         {parsedJobDetails && (
-                          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-                            <p className="text-sm font-semibold text-gray-900 mb-3">Job Details Preview:</p>
+                          <div className="rounded-xl border border-green-200 bg-green-50 p-5">
+                            <p className="text-sm font-semibold text-green-700 mb-3">Job Details Preview:</p>
                             <div className="space-y-2 text-sm text-gray-700">
                               <div><span className="text-gray-500">Company:</span> {parsedJobDetails.company_name}</div>
                               <div><span className="text-gray-500">Role:</span> {parsedJobDetails.job_title}</div>
@@ -739,260 +830,227 @@ const InterviewPrepPage: React.FC = () => {
                             </div>
                           </div>
                         )}
-                        
-                        {showManualInput && (
-                          <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 space-y-4">
-                            <div className="flex items-start gap-2">
-                              <XCircle className="h-5 w-5 text-yellow-600 mt-0.5 flex-shrink-0" />
-                              <div className="flex-1">
-                                <p className="text-sm font-semibold text-yellow-800 mb-1">
-                                  URL Parsing Failed - Manual Input Required
-                                </p>
-                                <p className="text-xs text-yellow-700 mb-3">
-                                  We couldn't parse the job posting URL. Please enter the details manually below.
-                                </p>
-                              </div>
-                            </div>
-                            
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                              <div>
-                                <label className="block text-sm font-medium mb-2 text-gray-700">
-                                  Company Name <span className="text-red-500">*</span>
-                                </label>
-                                <Input
-                                  value={manualCompanyName}
-                                  onChange={(e) => setManualCompanyName(e.target.value)}
-                                  placeholder="e.g., Google, Amazon, Meta"
-                                  className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 hover:border-gray-400 transition-colors"
-                                  disabled={interviewPrepLoading || !hasAccess}
-                                />
-                              </div>
-                              
-                              <div>
-                                <label className="block text-sm font-medium mb-2 text-gray-700">
-                                  Job Title <span className="text-red-500">*</span>
-                                </label>
-                                <Input
-                                  value={manualJobTitle}
-                                  onChange={(e) => setManualJobTitle(e.target.value)}
-                                  placeholder="e.g., Software Engineer, Product Manager"
-                                  className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 hover:border-gray-400 transition-colors"
-                                  disabled={interviewPrepLoading || !hasAccess}
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-5 text-sm space-y-3">
-                          <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">
-                            What you'll receive
-                          </h3>
-                          <ul className="space-y-2 text-gray-700">
-                            <li className="flex items-start gap-2">
-                              <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                              Company-specific interview process overview
-                            </li>
-                            <li className="flex items-start gap-2">
-                              <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                              Common questions grouped by category (Behavioral, Technical, etc.)
-                            </li>
-                            <li className="flex items-start gap-2">
-                              <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                              Success tips from candidates who passed
-                            </li>
-                            <li className="flex items-start gap-2">
-                              <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                              Red flags and things to avoid
-                            </li>
-                            <li className="flex items-start gap-2">
-                              <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                              Culture insights and work environment details
-                            </li>
-                          </ul>
-                          <p className="text-sm text-gray-500 mt-3">
-                            Uses <span className="font-medium text-blue-600">{INTERVIEW_PREP_CREDITS}</span> credits • Generates a 5-6 page prep guide tailored to this specific role.
-                          </p>
-                        </div>
-
-                        <div className="space-y-4 mt-8">
-                          <Button
-                            onClick={handleInterviewPrepSubmit}
-                            disabled={
-                              interviewPrepLoading || 
-                              effectiveUser.credits < INTERVIEW_PREP_CREDITS ||
-                              (!jobPostingUrl.trim() && (!manualCompanyName.trim() || !manualJobTitle.trim())) ||
-                              !hasAccess
-                            }
-                            size="lg"
-                            className="text-white font-medium px-8 transition-all hover:opacity-90 relative overflow-hidden"
-                            style={{ background: '#3B82F6' }}
-                          >
-                            {interviewPrepLoading ? (
-                              'Generating...'
-                            ) : (
-                              'Generate Interview Prep'
-                            )}
-                            <InlineLoadingBar isLoading={interviewPrepLoading} />
-                          </Button>
-                        </div>
-
-                        {interviewPrepStatus !== 'idle' && (
-                          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
-                            {interviewPrepStatus === 'completed' ? (
-                              <div className="flex items-center gap-2">
-                                <CheckCircle className="h-4 w-4 text-green-600" />
-                                <span>{interviewPrepProgress}</span>
-                              </div>
-                            ) : interviewPrepStatus === 'failed' ? (
-                              <div className="flex items-center gap-2">
-                                <XCircle className="h-4 w-4 text-red-500" />
-                                <span>{interviewPrepProgress || 'Generation failed'}</span>
-                              </div>
-                            ) : (
-                              <div className="space-y-3">
-                                <div className="flex items-center gap-2">
-                                  <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                                  <span className="font-medium">{interviewPrepProgress}</span>
-                                </div>
-                                <SteppedLoadingBar 
-                                  steps={interviewPrepSteps} 
-                                  currentStepId={currentPrepStatus} 
-                                />
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {interviewPrepStatus === 'completed' && interviewPrepResult && (
-                          <div className="space-y-4">
-                            <div className="rounded-lg border border-green-200 bg-green-50 p-5 space-y-3">
-                              <div className="flex items-center justify-between">
-                                <h3 className="text-sm font-semibold text-green-700 uppercase tracking-wide">
-                                  {interviewPrepResult.jobDetails?.job_title || interviewPrepResult.jobDetails?.company_name || 'Interview Prep'} - {interviewPrepResult.jobDetails?.company_name || ''}
-                                </h3>
-                                <span className="text-xs text-green-600">
-                                  Ready to download
-                                </span>
-                              </div>
-                              
-                              {interviewPrepResult.insights && (
-                                <div className="space-y-3 text-sm text-gray-700">
-                                  {interviewPrepResult.insights.interview_process?.stages && interviewPrepResult.insights.interview_process.stages.length > 0 && (
-                                    <div>
-                                      <span className="text-gray-500">Interview Stages: </span>
-                                      {interviewPrepResult.insights.interview_process.stages
-                                        .map((stage: any) => typeof stage === 'string' ? stage : stage?.name || 'Stage')
-                                        .join(', ')}
-                                    </div>
-                                  )}
-                                  
-                                  {interviewPrepResult.insights.common_questions && (
-                                    <div>
-                                      <span className="text-gray-500">Question Categories: </span>
-                                      {(() => {
-                                        const commonQuestions = interviewPrepResult.insights.common_questions;
-                                        if (Array.isArray(commonQuestions)) {
-                                          return commonQuestions.map((q: any) => q.category).join(', ');
-                                        } else if (typeof commonQuestions === 'object' && commonQuestions !== null) {
-                                          const categories: string[] = [];
-                                          const questionsObj = commonQuestions as { behavioral?: any; technical?: any; company_specific?: any };
-                                          if (questionsObj.behavioral) categories.push('Behavioral');
-                                          if (questionsObj.technical) categories.push('Technical');
-                                          if (questionsObj.company_specific) categories.push('Company-Specific');
-                                          return categories.join(', ');
-                                        }
-                                        return '';
-                                      })()}
-                                      <div className="mt-2 text-xs text-gray-500">
-                                        Sample questions preview:
-                                        <ul className="list-disc list-inside mt-1 space-y-1">
-                                          {(() => {
-                                            const commonQuestions: any = interviewPrepResult.insights.common_questions;
-                                            const sampleQuestions: string[] = [];
-                                            
-                                            if (Array.isArray(commonQuestions)) {
-                                              commonQuestions.slice(0, 3).forEach((category: any) => {
-                                                if (category.questions) {
-                                                  category.questions.slice(0, 2).forEach((q: string) => {
-                                                    sampleQuestions.push(q);
-                                                  });
-                                                }
-                                              });
-                                            } else if (typeof commonQuestions === 'object' && commonQuestions !== null) {
-                                              const questionsObj = commonQuestions as { behavioral?: { questions?: any[] }; technical?: { questions?: any[] }; company_specific?: { questions?: any[] } };
-                                              if (questionsObj.behavioral?.questions) {
-                                                questionsObj.behavioral.questions.slice(0, 2).forEach((q: any) => {
-                                                  sampleQuestions.push(typeof q === 'string' ? q : q.question || '');
-                                                });
-                                              }
-                                              if (questionsObj.technical?.questions && sampleQuestions.length < 3) {
-                                                questionsObj.technical.questions.slice(0, 2).forEach((q: any) => {
-                                                  sampleQuestions.push(typeof q === 'string' ? q : q.question || '');
-                                                });
-                                              }
-                                            }
-                                            
-                                            return sampleQuestions.slice(0, 3).map((q, idx) => (
-                                              <li key={idx} className="text-gray-700">{q}</li>
-                                            ));
-                                          })()}
-                                        </ul>
-                                      </div>
-                                    </div>
-                                  )}
-                                  
-                                  {interviewPrepResult.insights.sources_count && (
-                                    <div>
-                                      <span className="text-gray-500">Sources: </span>
-                                      Analyzed {interviewPrepResult.insights.sources_count} Reddit posts
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-
-                            <Button
-                              onClick={() => downloadInterviewPrepPDF()}
-                              size="lg"
-                              className="text-white font-medium px-8 transition-all hover:opacity-90"
-                              style={{ background: '#3B82F6' }}
-                            >
-                              <Download className="h-5 w-5 mr-2" />
-                              Download Full PDF
-                            </Button>
-                          </div>
-                        )}
-
-                        {interviewPrepStatus === 'failed' && interviewPrepResult?.error && (
-                          <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-                            <p className="text-sm text-red-700">
-                              {interviewPrepResult.error}
-                            </p>
-                          </div>
-                        )}
                       </div>
-                    </div>
-                  </TabsContent>
 
-                  <TabsContent value="interview-library" className="mt-0">
-                    <div className="space-y-6">
+                      {/* What You'll Receive Section */}
+                      <div className="mt-8 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-6 border border-green-100">
+                        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-5">What you'll receive</h3>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          <div className="flex items-start gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
+                              <ClipboardList className="w-4 h-4 text-green-600" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">Interview Process</p>
+                              <p className="text-xs text-gray-500">Company-specific stages</p>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-start gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                              <MessageSquare className="w-4 h-4 text-blue-600" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">Common Questions</p>
+                              <p className="text-xs text-gray-500">Behavioral & Technical</p>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-start gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0">
+                              <Lightbulb className="w-4 h-4 text-purple-600" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">Success Tips</p>
+                              <p className="text-xs text-gray-500">From candidates who passed</p>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-start gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0">
+                              <AlertTriangle className="w-4 h-4 text-red-600" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">Red Flags to Avoid</p>
+                              <p className="text-xs text-gray-500">Common mistakes</p>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-start gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                              <Building2 className="w-4 h-4 text-amber-600" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">Culture Insights</p>
+                              <p className="text-xs text-gray-500">Work environment & values</p>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-start gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                              <FileText className="w-4 h-4 text-indigo-600" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">5-6 Page PDF Guide</p>
+                              <p className="text-xs text-gray-500">Tailored to this role</p>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Credits info */}
+                        <div className="mt-5 pt-4 border-t border-green-200 flex items-center justify-center gap-2 text-sm text-gray-600">
+                          <CreditCard className="w-4 h-4 text-green-600" />
+                          <span>Uses <span className="font-semibold">{INTERVIEW_PREP_CREDITS} credits</span> per prep guide</span>
+                        </div>
+                      </div>
+
+                      {/* CTA Button */}
+                      <div className="mt-8">
+                        <button
+                          onClick={handleInterviewPrepSubmit}
+                          disabled={
+                            interviewPrepLoading || 
+                            effectiveUser.credits < INTERVIEW_PREP_CREDITS ||
+                            !canGenerate ||
+                            !hasAccess
+                          }
+                          className={`
+                            w-full md:w-auto px-8 py-4 rounded-full font-semibold text-lg
+                            flex items-center justify-center gap-3 mx-auto
+                            transition-all duration-200 transform
+                            ${(!canGenerate || interviewPrepLoading || !hasAccess)
+                              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                              : 'bg-gradient-to-r from-green-600 to-emerald-500 text-white shadow-lg shadow-green-500/30 hover:shadow-xl hover:shadow-green-500/40 hover:scale-105 active:scale-100'
+                            }
+                          `}
+                        >
+                          {interviewPrepLoading ? (
+                            <>
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                              Generating...
+                            </>
+                          ) : (
+                            <>
+                              Generate Interview Prep
+                              <ArrowRight className="w-5 h-5" />
+                            </>
+                          )}
+                        </button>
+                        
+                        {/* Helper text */}
+                        <p className="text-center text-sm text-gray-500 mt-4">
+                          {jobPostingUrl 
+                            ? "We'll extract the role details from the job posting"
+                            : manualCompanyName && manualJobTitle 
+                              ? `Preparing guide for ${manualJobTitle} at ${manualCompanyName}`
+                              : "Enter a job URL or fill in the company and title"
+                          }
+                        </p>
+                      </div>
+
+                      {/* Progress/Status Display */}
+                      {interviewPrepStatus !== 'idle' && (
+                        <div className="mt-6">
+                          {interviewPrepStatus === 'completed' ? (
+                            <div className="flex flex-col items-center gap-4 p-6 bg-green-50 border border-green-200 rounded-xl">
+                              <div className="flex items-center gap-2 text-green-700">
+                                <CheckCircle className="h-5 w-5" />
+                                <span className="font-medium">{interviewPrepProgress}</span>
+                              </div>
+                              <button
+                                onClick={() => downloadInterviewPrepPDF()}
+                                className="px-6 py-3 bg-green-600 text-white font-semibold rounded-full hover:bg-green-700 transition-colors flex items-center gap-2"
+                              >
+                                <Download className="h-5 w-5" />
+                                Download Full PDF
+                              </button>
+                            </div>
+                          ) : interviewPrepStatus === 'failed' ? (
+                            <div className="flex items-center justify-center gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700">
+                              <XCircle className="h-5 w-5" />
+                              <span>{interviewPrepProgress || 'Generation failed'}</span>
+                            </div>
+                          ) : (
+                            <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
+                              <div className="flex items-center justify-center gap-2 mb-3">
+                                <Loader2 className="h-5 w-5 animate-spin text-green-600" />
+                                <span className="font-medium text-green-700">{interviewPrepProgress}</span>
+                              </div>
+                              <SteppedLoadingBar 
+                                steps={interviewPrepSteps} 
+                                currentStepId={currentPrepStatus} 
+                              />
+                              <p className="text-center text-xs text-gray-500 mt-3">This usually takes 15-30 seconds</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Recent Preps from Library */}
+                      {recentPreps.length > 0 && interviewPrepStatus !== 'completed' && (
+                        <div className="mt-10 pt-8 border-t border-gray-100">
+                          <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-sm font-semibold text-gray-700">Recent Prep Guides</h3>
+                            <button 
+                              onClick={() => setActiveTab('interview-library')}
+                              className="text-sm text-green-600 hover:underline"
+                            >
+                              View all ({preps.length})
+                            </button>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {recentPreps.map((prep) => (
+                              <div 
+                                key={prep.id}
+                                onClick={() => handleDownload(prep)}
+                                className="p-4 bg-gray-50 rounded-xl hover:bg-gray-100 cursor-pointer transition-colors group border border-transparent hover:border-green-200"
+                              >
+                                <div className="flex items-center gap-3 mb-2">
+                                  <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-gray-200 group-hover:border-green-300 transition-colors">
+                                    <Briefcase className="w-5 h-5 text-green-600" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="font-medium text-gray-900 text-sm truncate">{prep.jobTitle || 'Interview Prep'}</p>
+                                    <p className="text-xs text-gray-500 truncate">{prep.companyName}</p>
+                                  </div>
+                                </div>
+                                <p className="text-xs text-gray-400">
+                                  {prep.createdAt ? new Date(prep.createdAt).toLocaleDateString() : ''}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </TabsContent>
+
+                {/* INTERVIEW LIBRARY TAB */}
+                <TabsContent value="interview-library" className="mt-0">
+                  <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
+                    <div className="h-1 bg-gradient-to-r from-green-500 via-emerald-500 to-teal-500"></div>
+                    
+                    <div className="p-8">
                       {libraryLoading ? (
                         <LoadingSkeleton variant="card" count={3} />
                       ) : preps.length === 0 ? (
-                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-10 text-center space-y-4">
-                          <Briefcase className="h-10 w-10 mx-auto text-blue-600" />
-                          <h3 className="text-lg font-semibold text-gray-900">No preps yet</h3>
-                          <p className="text-sm text-gray-500">
+                        <div className="text-center py-12">
+                          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <Briefcase className="h-8 w-8 text-green-600" />
+                          </div>
+                          <h3 className="text-lg font-semibold text-gray-900 mb-2">No preps yet</h3>
+                          <p className="text-sm text-gray-500 mb-6">
                             Generate your first interview prep to see it appear here.
                           </p>
-                          <Button
+                          <button
                             onClick={() => setActiveTab('interview-prep')}
-                            variant="outline"
-                            className="border-blue-500 text-blue-600 hover:bg-blue-50"
+                            className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-500 text-white font-semibold rounded-full hover:shadow-lg transition-all"
                           >
                             Create Your First Prep
-                          </Button>
+                          </button>
                         </div>
                       ) : (
                         <div className="space-y-6">
@@ -1001,22 +1059,25 @@ const InterviewPrepPage: React.FC = () => {
                               <h3 className="text-sm font-semibold text-gray-500 uppercase mb-3">
                                 In Progress
                               </h3>
-                              <div className="grid gap-4">
+                              <div className="space-y-3">
                                 {groupedPreps.inProgress.map((prep) => (
                                   <div
                                     key={prep.id}
-                                    className="rounded-lg border border-yellow-200 bg-yellow-50 px-5 py-4 flex items-center justify-between"
+                                    className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between"
                                   >
                                     <div>
-                                      <p className="text-sm text-gray-900 font-medium">{prep.companyName}</p>
+                                      <p className="font-medium text-gray-900">{prep.companyName}</p>
                                       {prep.jobTitle && (
-                                        <p className="text-xs text-gray-500">{prep.jobTitle}</p>
+                                        <p className="text-sm text-gray-600">{prep.jobTitle}</p>
                                       )}
                                       <p className="text-xs text-gray-400 mt-1">
                                         Requested {prep.createdAt ? new Date(prep.createdAt).toLocaleString() : ""}
                                       </p>
                                     </div>
-                                    <div className="text-xs uppercase text-yellow-600 font-medium">Processing...</div>
+                                    <div className="flex items-center gap-2 text-amber-600">
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                      <span className="text-xs uppercase font-medium">Processing...</span>
+                                    </div>
                                   </div>
                                 ))}
                               </div>
@@ -1028,41 +1089,33 @@ const InterviewPrepPage: React.FC = () => {
                               <h3 className="text-sm font-semibold text-gray-500 uppercase">
                                 Completed ({groupedPreps.completed.length})
                               </h3>
-                              <div className="grid gap-4">
+                              <div className="space-y-3">
                                 {groupedPreps.completed.map((prep) => (
                                   <div
                                     key={prep.id}
-                                    className="rounded-lg border border-gray-200 bg-white p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4"
+                                    className="p-5 bg-white border border-gray-200 rounded-xl hover:shadow-md transition-shadow flex flex-col md:flex-row md:items-center md:justify-between gap-4"
                                   >
                                     <div className="space-y-2">
-                                      <div className="flex items-center gap-2 text-sm text-gray-900 font-medium">
-                                        <BadgeCheck className="h-4 w-4 text-blue-600" />
-                                        {prep.companyName}
+                                      <div className="flex items-center gap-2">
+                                        <BadgeCheck className="h-5 w-5 text-green-600" />
+                                        <span className="font-semibold text-gray-900">{prep.companyName}</span>
                                       </div>
                                       {prep.jobTitle && (
-                                        <div className="text-sm text-gray-700">
-                                          {prep.jobTitle}
-                                        </div>
+                                        <p className="text-sm text-gray-600">{prep.jobTitle}</p>
                                       )}
-                                      <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
-                                        <span className="flex items-center gap-1">
-                                          <Calendar className="h-3 w-3" />
-                                          {prep.createdAt ? new Date(prep.createdAt).toLocaleDateString() : "—"}
-                                        </span>
+                                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                                        <Calendar className="h-3 w-3" />
+                                        {prep.createdAt ? new Date(prep.createdAt).toLocaleDateString() : "—"}
                                       </div>
                                     </div>
 
-                                    <div className="flex items-center gap-3">
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="border-blue-500 text-blue-600 hover:bg-blue-50"
-                                        onClick={() => handleDownload(prep)}
-                                      >
-                                        <Download className="h-4 w-4 mr-2" />
-                                        PDF
-                                      </Button>
-                                    </div>
+                                    <button
+                                      onClick={() => handleDownload(prep)}
+                                      className="px-4 py-2 bg-green-100 text-green-700 rounded-full text-sm font-medium hover:bg-green-200 transition-colors flex items-center gap-2"
+                                    >
+                                      <Download className="h-4 w-4" />
+                                      PDF
+                                    </button>
                                   </div>
                                 ))}
                               </div>
@@ -1071,8 +1124,8 @@ const InterviewPrepPage: React.FC = () => {
                         </div>
                       )}
                     </div>
-                  </TabsContent>
-                </div>
+                  </div>
+                </TabsContent>
               </Tabs>
             </div>
           </main>
@@ -1083,4 +1136,3 @@ const InterviewPrepPage: React.FC = () => {
 };
 
 export default InterviewPrepPage;
-

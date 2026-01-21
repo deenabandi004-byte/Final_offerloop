@@ -1,12 +1,10 @@
 import { useState, useEffect } from "react";
-import { Check, ArrowLeft, Settings } from "lucide-react";
+import { Check, ArrowLeft, Settings, Sparkles, Shield, ChevronDown, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { loadStripe } from "@stripe/stripe-js";
 import { getAuth } from 'firebase/auth';
-import { PageWrapper } from "@/components/PageWrapper";
-import { GlassCard } from "@/components/GlassCard";
 import { trackUpgradeClick } from "../lib/analytics";
 
 const STRIPE_PUBLISHABLE_KEY = "pk_live_51S4BB8ERY2WrVHp1acXrKE6RBG7NBlfHcMZ2kf7XhCX2E5g8Lasedx6ntcaD1H4BsoUMBGYXIcKHcAB4JuohLa2B00j7jtmWnB";
@@ -23,6 +21,96 @@ interface SubscriptionStatus {
   currentPeriodEnd?: number;
   cancelAtPeriodEnd?: boolean;
 }
+
+// Feature Item Component
+interface FeatureItemProps {
+  children: React.ReactNode;
+  highlight?: boolean;
+  muted?: boolean;
+}
+
+const FeatureItem: React.FC<FeatureItemProps> = ({ children, highlight, muted }) => (
+  <div className="flex items-start gap-3">
+    <div className={`
+      w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5
+      ${highlight ? 'bg-cyan-100' : muted ? 'bg-gray-100' : 'bg-blue-50'}
+    `}>
+      <Check className={`
+        w-3 h-3
+        ${highlight ? 'text-cyan-600' : muted ? 'text-gray-400' : 'text-blue-500'}
+      `} />
+    </div>
+    <span className={`
+      text-sm
+      ${highlight ? 'font-semibold text-gray-900' : muted ? 'text-gray-400' : 'text-gray-600'}
+    `}>
+      {children}
+    </span>
+  </div>
+);
+
+// FAQ Item Component
+interface FAQItemProps {
+  question: string;
+  answer: string;
+}
+
+const FAQItem: React.FC<FAQItemProps> = ({ question, answer }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between p-5 text-left hover:bg-gray-50 transition-colors"
+      >
+        <span className="font-medium text-gray-900">{question}</span>
+        <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+      
+      {isOpen && (
+        <div className="px-5 pb-5 text-gray-600 animate-fadeInUp">
+          {answer}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Comparison Row Component
+interface ComparisonRowProps {
+  feature: string;
+  free: boolean | string;
+  pro: boolean | string;
+  elite: boolean | string;
+}
+
+const ComparisonRow: React.FC<ComparisonRowProps> = ({ feature, free, pro, elite }) => (
+  <tr className="hover:bg-gray-50">
+    <td className="py-4 px-6 text-gray-700">{feature}</td>
+    <td className="text-center py-4 px-6">
+      {typeof free === 'boolean' ? (
+        free ? <Check className="w-5 h-5 text-green-500 mx-auto" /> : <X className="w-5 h-5 text-gray-300 mx-auto" />
+      ) : (
+        <span className="text-gray-600">{free}</span>
+      )}
+    </td>
+    <td className="text-center py-4 px-6 bg-blue-50/30">
+      {typeof pro === 'boolean' ? (
+        pro ? <Check className="w-5 h-5 text-cyan-500 mx-auto" /> : <X className="w-5 h-5 text-gray-300 mx-auto" />
+      ) : (
+        <span className="font-medium text-gray-900">{pro}</span>
+      )}
+    </td>
+    <td className="text-center py-4 px-6">
+      {typeof elite === 'boolean' ? (
+        elite ? <Check className="w-5 h-5 text-green-500 mx-auto" /> : <X className="w-5 h-5 text-gray-300 mx-auto" />
+      ) : (
+        <span className="text-gray-600">{elite}</span>
+      )}
+    </td>
+  </tr>
+);
 
 const Pricing = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -260,160 +348,166 @@ const Pricing = () => {
   const hasActiveSubscription = isProUser || isEliteUser;
   const currentTier = subscriptionStatus?.tier || 'free';
 
-  return (
-    <PageWrapper>
-      <div className="container mx-auto px-6 py-6 max-w-7xl">
-        <Button
-          variant="ghost"
-          onClick={() => navigate("/dashboard")}
-          className="mb-8 text-slate-700 hover:text-slate-700 hover:bg-transparent hover:scale-105 transition-transform"
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Dashboard
-        </Button>
+  // Format renewal date
+  const renewalDate = subscriptionStatus?.currentPeriodEnd 
+    ? new Date(subscriptionStatus.currentPeriodEnd * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : null;
 
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-cyan-50 relative">
+      {/* Subtle dot pattern overlay */}
+      <div className="absolute inset-0 bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:20px_20px] opacity-30"></div>
+      
+      <div className="relative max-w-6xl mx-auto px-6 py-10">
+        
+        {/* Back Navigation */}
+        <div className="mb-8 animate-fadeInUp">
+          <button
+            onClick={() => navigate("/dashboard")}
+            className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors group"
+          >
+            <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+            <span className="font-medium">Back to Dashboard</span>
+          </button>
+        </div>
+
+        {/* Subscription Status Banner */}
         {hasActiveSubscription && (
-          <GlassCard className={`mb-8 p-4 rounded-xl flex items-center justify-between ${isEliteUser ? 'border-purple-500/30' : 'border-blue-500/30'}`}>
-            <div>
-              <p className={`font-semibold ${isEliteUser ? 'text-purple-400' : 'text-blue-400'}`}>
-                {isEliteUser ? 'Elite' : 'Pro'} Subscription Active
-              </p>
-              {subscriptionStatus?.cancelAtPeriodEnd && (
-                <p className="text-sm text-gray-400 text-slate-600">
-                  Cancels on {new Date(subscriptionStatus.currentPeriodEnd! * 1000).toLocaleDateString()}
-                </p>
-              )}
+          <div className="mb-10 bg-gradient-to-r from-blue-600 to-cyan-500 rounded-2xl p-[2px] animate-fadeInUp" style={{ animationDelay: '50ms' }}>
+            <div className="bg-white rounded-xl px-6 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center">
+                  <Sparkles className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-gray-900">{isEliteUser ? 'Elite' : 'Pro'} Subscription Active</h3>
+                    <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">Active</span>
+                  </div>
+                  <p className="text-sm text-gray-500">
+                    {user?.credits ?? 0} credits remaining
+                    {renewalDate && !subscriptionStatus?.cancelAtPeriodEnd && ` • Renews ${renewalDate}`}
+                    {subscriptionStatus?.cancelAtPeriodEnd && renewalDate && ` • Cancels ${renewalDate}`}
+                  </p>
+                </div>
+              </div>
+              
+              <button 
+                onClick={handleManageSubscription}
+                disabled={isLoading}
+                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-medium rounded-xl hover:shadow-lg hover:shadow-blue-500/30 transition-all disabled:opacity-50"
+              >
+                <Settings className="w-4 h-4" />
+                Manage Subscription
+              </button>
             </div>
-            <Button
-              onClick={handleManageSubscription}
-              disabled={isLoading}
-              className="btn-primary-glass"
-            >
-              <Settings className="mr-2 h-4 w-4" />
-              Manage Subscription
-            </Button>
-          </GlassCard>
+          </div>
         )}
 
-        <div className="text-center mb-16">
-          <h1 className="text-display-lg mb-6 text-white text-slate-900">
-            <span className="text-black">Choose</span> <span className="gradient-text-teal">your plan</span> <span className="text-black">today</span>
+        {/* Header Section */}
+        <div className="text-center mb-12 animate-fadeInUp" style={{ animationDelay: '100ms' }}>
+          <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
+            Choose <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-500 to-blue-600">your plan</span> today
           </h1>
-          <p className="text-gray-400 text-slate-600 text-lg mb-8">
+          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
             15 credits per contact. When you run out of credits, no more contacts.
           </p>
         </div>
 
-        <div className="flex justify-center">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-10 max-w-7xl w-full">
-            {/* Free Plan */}
-            <GlassCard className="rounded-2xl p-10 transform transition-all hover:scale-[1.02] hover:glow-teal">
-              <div className="text-center mb-8">
-                <h3 className="text-3xl font-bold mb-3 text-white text-slate-900">Free</h3>
-                <p className="text-gray-400 text-slate-600">Try it out for free</p>
+        {/* Pricing Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8 max-w-5xl mx-auto mb-16 animate-fadeInUp" style={{ animationDelay: '200ms' }}>
+          
+          {/* Free Plan Card */}
+          <div className="bg-white rounded-2xl border border-gray-200 p-8 flex flex-col h-full hover:border-gray-300 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
+            {/* Plan Header */}
+            <div className="text-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Free</h2>
+              <p className="text-gray-500">Try it out for free</p>
+            </div>
+            
+            {/* Price */}
+            <div className="text-center mb-6">
+              <div className="flex items-baseline justify-center gap-1">
+                <span className="text-4xl font-bold text-gray-900">$0</span>
+                <span className="text-gray-500">/month</span>
               </div>
+              <p className="text-sm text-gray-500 mt-2">300 credits (~20 contacts)</p>
+            </div>
+            
+            {/* Divider */}
+            <div className="border-t border-gray-100 my-6"></div>
+            
+            {/* Features */}
+            <div className="flex-1 space-y-4">
+              <FeatureItem>300 credits (~20 contacts)</FeatureItem>
+              <FeatureItem>Basic contact search + AI email drafts</FeatureItem>
+              <FeatureItem>Gmail integration</FeatureItem>
+              <FeatureItem>Directory saves all contacts</FeatureItem>
+              <FeatureItem>3 Coffee Chat Preps + 2 Interview Preps</FeatureItem>
+              <FeatureItem muted>Exports disabled</FeatureItem>
+            </div>
+            
+            {/* CTA Button */}
+            <div className="mt-8">
+              <button 
+                onClick={() => currentTier === 'free' ? handleResetCredits('free') : handleUpgrade('free', 'pricing_page')}
+                className="w-full py-3.5 px-6 rounded-xl font-semibold border-2 border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all"
+              >
+                {currentTier === 'free' ? 'Current Plan' : 'Start for Free'}
+              </button>
+            </div>
+          </div>
 
-              <div className="space-y-4 mb-8">
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">300 credits (~20 contacts)</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Basic contact search + AI email drafts</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Gmail integration</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Directory saves all contacts</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">3 Coffee Chat Preps + 2 Interview Preps</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Exports disabled</span>
-                </div>
+          {/* Pro Plan Card (Featured) */}
+          <div className="relative bg-gradient-to-b from-cyan-500 to-blue-600 rounded-2xl p-[2px] flex flex-col hover:shadow-xl hover:shadow-blue-500/20 transition-all duration-300 md:scale-105 z-10 hover:-translate-y-1">
+            {/* Most Popular Badge */}
+            <div className="absolute -top-4 left-1/2 -translate-x-1/2 z-20">
+              <span className="px-4 py-1.5 bg-gray-900 text-white text-sm font-semibold rounded-full shadow-lg">
+                {currentTier === 'pro' ? 'ACTIVE' : 'MOST POPULAR'}
+              </span>
+            </div>
+            
+            {/* Card Content */}
+            <div className="bg-white rounded-2xl p-8 flex flex-col h-full">
+              {/* Plan Header */}
+              <div className="text-center mb-6 pt-2">
+                <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-500 to-blue-600 mb-2">Pro</h2>
+                <p className="text-gray-500">Best for Students</p>
               </div>
-
-                <Button 
-                  className="btn-secondary-glass w-full py-4 px-6 font-semibold"
-                  onClick={() => currentTier === 'free' ? handleResetCredits('free') : handleUpgrade('free', 'pricing_page')}
-                >
-                  {currentTier === 'free' ? 'Current Plan' : 'Start for Free'}
-                </Button>
-            </GlassCard>
-
-            {/* Pro Plan - Emphasized */}
-            <div className="p-[3px] rounded-2xl bg-gradient-to-r from-blue-400 via-blue-600 to-cyan-400 shadow-[0_0_40px_rgba(59,130,246,0.5)] scale-105 z-10 transform transition-all hover:scale-[1.07]">
-              <GlassCard className="relative rounded-xl h-full p-10">
-                <div className="absolute top-4 right-4">
-                  <span className="px-3 py-1 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 text-xs font-medium">
-                    {currentTier === 'pro' ? 'ACTIVE' : 'MOST POPULAR'}
-                  </span>
+              
+              {/* Price */}
+              <div className="text-center mb-6">
+                <div className="flex items-baseline justify-center gap-2">
+                  <span className="text-lg text-gray-400 line-through">$19.99</span>
+                  <span className="text-4xl font-bold text-gray-900">$14.99</span>
+                  <span className="text-gray-500">/month</span>
                 </div>
-                
-                <div className="text-center mb-8">
-                  <h3 className="text-3xl font-bold mb-3 gradient-text-teal">Pro</h3>
-                  <p className="text-gray-400 text-slate-600 mb-3">Best for Students</p>
-                  <div className="mb-2">
-                    <span className="text-gray-400 text-slate-600 text-lg line-through mr-2">$19.99</span>
-                    <span className="text-4xl font-bold text-white text-slate-900">$14.99</span>
-                    <span className="text-gray-600 text-lg ml-1">/month</span>
-                  </div>
-                  <p className="text-gray-500">1,500 credits (~100 contacts)</p>
-                </div>
-
-                <div className="space-y-4 mb-8">
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300 text-slate-700">1,500 credits (~100 contacts)</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300 text-slate-700 font-bold">Everything in Free, plus:</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300 text-slate-700">Full Firm Search</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300 text-slate-700">Smart school/major/career filters</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300 text-slate-700">10 Coffee Chat Preps/month</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300 text-slate-700">5 Interview Preps/month</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300 text-slate-700">Unlimited directory saving</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300 text-slate-700">Bulk drafting + Export unlocked (CSV & Gmail)</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                    <span className="text-gray-300 text-slate-700">Estimated time saved: ~2,500 minutes/month</span>
-                  </div>
-                </div>
-
-                <Button 
-                  className="btn-primary-glass w-full py-6 px-6 text-lg font-semibold"
+                <p className="text-sm text-gray-500 mt-2">1,500 credits (~100 contacts)</p>
+              </div>
+              
+              {/* Divider */}
+              <div className="border-t border-gray-100 my-6"></div>
+              
+              {/* Features */}
+              <div className="flex-1 space-y-4">
+                <FeatureItem highlight>1,500 credits (~100 contacts)</FeatureItem>
+                <FeatureItem><span className="font-semibold">Everything in Free, plus:</span></FeatureItem>
+                <FeatureItem>Full Firm Search</FeatureItem>
+                <FeatureItem>Smart school/major/career filters</FeatureItem>
+                <FeatureItem>10 Coffee Chat Preps/month</FeatureItem>
+                <FeatureItem>5 Interview Preps/month</FeatureItem>
+                <FeatureItem>Unlimited directory saving</FeatureItem>
+                <FeatureItem>Bulk drafting + Export unlocked (CSV & Gmail)</FeatureItem>
+                <FeatureItem highlight>Estimated time saved: ~2,500 min/mo</FeatureItem>
+              </div>
+              
+              {/* CTA Button */}
+              <div className="mt-8">
+                <button 
                   onClick={
                     isLoading ? undefined :
                     currentTier === 'pro'
                       ? (e: React.MouseEvent) => {
-                          // If holding Shift key, reset credits instead of managing subscription
                           if (e.shiftKey) {
                             handleResetCredits('pro');
                           } else {
@@ -424,73 +518,68 @@ const Pricing = () => {
                   }
                   disabled={isLoading || currentTier === 'elite'}
                   title={currentTier === 'pro' ? 'Click to manage subscription. Hold Shift+Click to reset credits.' : currentTier === 'elite' ? 'You are on Elite plan' : undefined}
+                  className={`
+                    w-full py-3.5 px-6 rounded-xl font-semibold transition-all
+                    ${currentTier === 'elite' 
+                      ? 'bg-gray-100 text-gray-500 cursor-not-allowed' 
+                      : currentTier === 'pro'
+                        ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white'
+                        : 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg hover:shadow-blue-500/30 hover:scale-[1.02] active:scale-100'
+                    }
+                    disabled:opacity-50
+                  `}
                 >
                   {isLoading ? 'Processing...' : currentTier === 'pro' ? 'Manage Subscription' : currentTier === 'elite' ? 'On Elite Plan' : 'Upgrade to Pro'}
-                </Button>
-              </GlassCard>
+                </button>
+              </div>
             </div>
+          </div>
 
-            {/* Elite Plan */}
-            <GlassCard className={`rounded-2xl p-10 transform transition-all hover:scale-[1.02] hover:glow-teal relative ${currentTier === 'elite' ? 'border border-purple-500/50' : ''}`}>
-              {currentTier === 'elite' && (
-                <div className="absolute top-4 right-4">
-                  <span className="px-3 py-1 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30 text-xs font-medium">
-                    ACTIVE
-                  </span>
-                </div>
-              )}
-              <div className="text-center mb-8">
-                <h3 className="text-3xl font-bold mb-3 text-white text-slate-900">Elite</h3>
-                <p className="text-gray-400 text-slate-600">For serious recruiting season</p>
+          {/* Elite Plan Card */}
+          <div className={`relative bg-white rounded-2xl border p-8 flex flex-col h-full hover:shadow-lg transition-all duration-300 hover:-translate-y-1 ${currentTier === 'elite' ? 'border-purple-300' : 'border-gray-200 hover:border-gray-300'}`}>
+            {/* Active Badge if current plan */}
+            {currentTier === 'elite' && (
+              <div className="absolute -top-3 right-6">
+                <span className="px-3 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full border border-green-200">
+                  ACTIVE
+                </span>
               </div>
-
-              <div className="mb-2 text-center">
-                <span className="text-3xl font-bold text-white text-slate-900">$34.99</span>
-                <span className="text-gray-400 text-slate-600 text-lg ml-1">/month</span>
+            )}
+            
+            {/* Plan Header */}
+            <div className="text-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Elite</h2>
+              <p className="text-gray-500">For serious recruiting season</p>
+            </div>
+            
+            {/* Price */}
+            <div className="text-center mb-6">
+              <div className="flex items-baseline justify-center gap-1">
+                <span className="text-4xl font-bold text-gray-900">$34.99</span>
+                <span className="text-gray-500">/month</span>
               </div>
-              <p className="text-gray-300 text-slate-700 text-center mb-8">3,000 credits (~200 contacts)</p>
-
-              <div className="space-y-4 mb-8">
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">3,000 credits (~200 contacts)</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700 font-bold">Everything in Pro, plus:</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Unlimited Coffee Chat Prep</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Unlimited Interview Prep</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Priority queue for contact generation</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Personalized outreach templates (tailored to resume)</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Weekly personalized firm insights</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Early access to new AI tools</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                  <span className="text-gray-300 text-slate-700">Estimated time saved: ~5,000 minutes/month</span>
-                </div>
-              </div>
-
-              <Button 
-                className="btn-secondary-glass w-full py-4 px-6 font-semibold"
+              <p className="text-sm text-gray-500 mt-2">3,000 credits (~200 contacts)</p>
+            </div>
+            
+            {/* Divider */}
+            <div className="border-t border-gray-100 my-6"></div>
+            
+            {/* Features */}
+            <div className="flex-1 space-y-4">
+              <FeatureItem highlight>3,000 credits (~200 contacts)</FeatureItem>
+              <FeatureItem><span className="font-semibold">Everything in Pro, plus:</span></FeatureItem>
+              <FeatureItem>Unlimited Coffee Chat Prep</FeatureItem>
+              <FeatureItem>Unlimited Interview Prep</FeatureItem>
+              <FeatureItem>Priority queue for contact generation</FeatureItem>
+              <FeatureItem>Personalized outreach templates (tailored to resume)</FeatureItem>
+              <FeatureItem>Weekly personalized firm insights</FeatureItem>
+              <FeatureItem>Early access to new AI tools</FeatureItem>
+              <FeatureItem highlight>Estimated time saved: ~5,000 min/mo</FeatureItem>
+            </div>
+            
+            {/* CTA Button */}
+            <div className="mt-8">
+              <button 
                 onClick={
                   isLoading ? undefined :
                   currentTier === 'elite'
@@ -505,14 +594,98 @@ const Pricing = () => {
                 }
                 disabled={isLoading}
                 title={currentTier === 'elite' ? 'Click to manage subscription. Hold Shift+Click to reset credits.' : undefined}
+                className={`
+                  w-full py-3.5 px-6 rounded-xl font-semibold transition-all
+                  ${currentTier === 'elite' 
+                    ? 'border-2 border-blue-200 text-blue-600 hover:bg-blue-50' 
+                    : 'bg-gray-900 text-white hover:bg-gray-800 hover:shadow-lg'
+                  }
+                `}
               >
                 {isLoading ? 'Processing...' : currentTier === 'elite' ? 'Manage Subscription' : 'Go Elite'}
-              </Button>
-            </GlassCard>
+              </button>
+            </div>
           </div>
         </div>
+
+        {/* Money-Back Guarantee Banner */}
+        <div className="max-w-2xl mx-auto mb-16 animate-fadeInUp" style={{ animationDelay: '300ms' }}>
+          <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl p-6 border border-green-200 text-center">
+            <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+              <Shield className="w-6 h-6 text-green-600" />
+            </div>
+            <h3 className="font-semibold text-gray-900 mb-1">7-Day Money Back Guarantee</h3>
+            <p className="text-sm text-gray-600">
+              Not satisfied? Get a full refund within 7 days of your purchase. No questions asked.
+            </p>
+          </div>
+        </div>
+
+        {/* Comparison Table */}
+        <div className="mb-16 animate-fadeInUp" style={{ animationDelay: '400ms' }}>
+          <h2 className="text-2xl font-bold text-gray-900 text-center mb-8">Compare all features</h2>
+          
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden overflow-x-auto">
+            <table className="w-full min-w-[600px]">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-left py-4 px-6 font-semibold text-gray-900">Feature</th>
+                  <th className="text-center py-4 px-6 font-semibold text-gray-900">Free</th>
+                  <th className="text-center py-4 px-6 font-semibold text-transparent bg-clip-text bg-gradient-to-r from-cyan-500 to-blue-600">Pro</th>
+                  <th className="text-center py-4 px-6 font-semibold text-gray-900">Elite</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                <ComparisonRow feature="Monthly Credits" free="300" pro="1,500" elite="3,000" />
+                <ComparisonRow feature="Contact Search" free="Basic" pro="Full" elite="Full + Priority" />
+                <ComparisonRow feature="Firm Search" free={false} pro={true} elite={true} />
+                <ComparisonRow feature="Coffee Chat Prep" free="3/month" pro="10/month" elite="Unlimited" />
+                <ComparisonRow feature="Interview Prep" free="2/month" pro="5/month" elite="Unlimited" />
+                <ComparisonRow feature="Export to CSV" free={false} pro={true} elite={true} />
+                <ComparisonRow feature="Gmail Integration" free={true} pro={true} elite={true} />
+                <ComparisonRow feature="Bulk Drafting" free={false} pro={true} elite={true} />
+                <ComparisonRow feature="Personalized Templates" free={false} pro={false} elite={true} />
+                <ComparisonRow feature="Priority Support" free={false} pro={false} elite={true} />
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* FAQ Section */}
+        <div className="max-w-3xl mx-auto mb-16 animate-fadeInUp" style={{ animationDelay: '500ms' }}>
+          <h2 className="text-2xl font-bold text-gray-900 text-center mb-8">Frequently Asked Questions</h2>
+          
+          <div className="space-y-4">
+            <FAQItem 
+              question="What happens when I run out of credits?"
+              answer="When your credits are depleted, you won't be able to search for new contacts until your plan renews or you upgrade. Your existing saved contacts and drafts remain accessible."
+            />
+            <FAQItem 
+              question="Can I upgrade or downgrade at any time?"
+              answer="Yes! You can change your plan at any time. When upgrading, you'll get immediate access to new features. When downgrading, the change takes effect at your next billing cycle."
+            />
+            <FAQItem 
+              question="Do unused credits roll over?"
+              answer="Credits reset at the beginning of each billing cycle and do not roll over. We recommend using your credits before they expire!"
+            />
+            <FAQItem 
+              question="Is there a student discount?"
+              answer="Our Pro plan is already priced for students at $14.99/month (25% off the regular price). Just sign up with your .edu email!"
+            />
+            <FAQItem 
+              question="How do I cancel my subscription?"
+              answer="You can cancel anytime from your subscription management page. Your access continues until the end of your billing period."
+            />
+          </div>
+        </div>
+
+        {/* Footer Note */}
+        <div className="text-center text-sm text-gray-500 pb-8 animate-fadeInUp" style={{ animationDelay: '600ms' }}>
+          <p>Have questions? <button onClick={() => window.open('mailto:support@offerloop.ai', '_blank')} className="text-blue-600 hover:underline font-medium">Contact our support team</button></p>
+        </div>
+        
       </div>
-    </PageWrapper>
+    </div>
   );
 };
 

@@ -214,10 +214,13 @@ export const ProductTour: React.FC = () => {
           </div>
         </motion.div>
 
-        {/* Testimonials Section */}
+      </div>
+      {/* End max-w-7xl container */}
+
+      {/* Testimonials Section - Full Width */}
+      <div className="bg-white" style={{ marginTop: '20px', marginBottom: '20px', paddingTop: '20px', paddingBottom: '20px', marginLeft: '-50px', marginRight: '-50px', paddingLeft: '50px', paddingRight: '50px', width: 'calc(100% + 100px)' }}>
         <section 
-          className="py-24 px-6 overflow-hidden relative"
-          style={{ marginTop: '-1px' }}
+          className="py-24 px-6 overflow-hidden"
         >
           <div className="max-w-full mx-auto">
             <div className="text-center mb-16">
@@ -233,7 +236,7 @@ export const ProductTour: React.FC = () => {
             <div className="mb-16">
               <Marquee 
                 gradient={true} 
-                gradientColor="hsl(var(--background))" 
+                gradientColor="#ffffff" 
                 gradientWidth={200} 
                 speed={50} 
                 direction="right"
@@ -259,7 +262,7 @@ export const ProductTour: React.FC = () => {
             {/* Reviews */}
             <Marquee 
               gradient={true} 
-              gradientColor="hsl(var(--background))" 
+              gradientColor="#ffffff" 
               gradientWidth={300} 
               speed={80} 
               pauseOnHover={true}
@@ -316,7 +319,10 @@ export const ProductTour: React.FC = () => {
             </Marquee>
           </div>
         </section>
+      </div>
 
+      {/* Reopen max-w-7xl container for Scout section */}
+      <div className="max-w-7xl mx-auto">
         {/* Scout - Enhanced with Video and Speech Bubble */}
         <motion.div
           variants={cardVariants}

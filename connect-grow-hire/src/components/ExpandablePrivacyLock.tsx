@@ -167,72 +167,74 @@ export function ExpandablePrivacyLock() {
         ) : null}
       </AnimatePresence>
 
-      {/* Wiggling Lock Icon (Footer trigger) */}
-      <motion.div
-        ref={lockRef}
-        layoutId={`privacy-card-${id}`}
-        onClick={() => setActive(true)}
-        className="inline-flex items-center gap-3 cursor-pointer group mb-4"
-        initial={{ scale: 0, opacity: 0 }}
-        animate={{ 
-          scale: 1, 
-          opacity: 1,
-          transition: { type: "spring", stiffness: 260, damping: 20 }
-        }}
-      >
+      {/* Fixed Floating Lock Icon (Bottom Left) */}
+      <div className="fixed bottom-6 left-6 z-50">
         <motion.div
-          className="relative"
-          animate={{
-            rotate: [0, -6, 6, -6, 6, 0],
-            transition: {
-              repeat: Infinity,
-              repeatDelay: 10,
-              duration: 0.8,
-              ease: "easeInOut"
-            }
+          ref={lockRef}
+          layoutId={`privacy-card-${id}`}
+          onClick={() => setActive(true)}
+          className="inline-flex items-center gap-3 cursor-pointer group"
+          initial={{ scale: 0, opacity: 0 }}
+          animate={{ 
+            scale: 1, 
+            opacity: 1,
+            transition: { type: "spring", stiffness: 260, damping: 20, delay: 0.5 }
           }}
         >
           <motion.div
-            layoutId={`privacy-icon-${id}`}
-            className="w-16 h-16 glass-card rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-lg shadow-blue-500/10"
-            whileHover={{ 
-              boxShadow: "0 0 25px rgba(59, 130, 246, 0.25)",
-              scale: 1.06
+            className="relative"
+            animate={{
+              rotate: [0, -6, 6, -6, 6, 0],
+              transition: {
+                repeat: Infinity,
+                repeatDelay: 10,
+                duration: 0.8,
+                ease: "easeInOut"
+              }
             }}
           >
-            <img
-              src={lockImg}
-              alt="Privacy Lock"
-              className="w-10 h-10 object-contain"
+            <motion.div
+              layoutId={`privacy-icon-${id}`}
+              className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-lg"
+              whileHover={{ 
+                boxShadow: "0 8px 30px rgba(0, 0, 0, 0.15)",
+                scale: 1.06
+              }}
+            >
+              <img
+                src={lockImg}
+                alt="Privacy Lock"
+                className="w-10 h-10 object-contain"
+              />
+            </motion.div>
+            
+            {/* Pulsing ring effect */}
+            <motion.div
+              className="absolute inset-0 rounded-2xl border border-blue-400/30"
+              animate={{
+                scale: [1, 1.12, 1],
+                opacity: [0.35, 0, 0.35],
+              }}
+              transition={{
+                repeat: Infinity,
+                duration: 3,
+                ease: "easeInOut"
+              }}
             />
           </motion.div>
           
-          {/* Pulsing ring effect */}
+          {/* Tooltip */}
           <motion.div
-            className="absolute inset-0 rounded-2xl border border-blue-400/30"
-            animate={{
-              scale: [1, 1.12, 1],
-              opacity: [0.35, 0, 0.35],
-            }}
-            transition={{
-              repeat: Infinity,
-              duration: 3,
-              ease: "easeInOut"
-            }}
-          />
+            className="absolute bottom-full left-0 mb-2 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+            initial={{ y: 10, opacity: 0 }}
+            whileHover={{ y: 0, opacity: 1 }}
+          >
+            <div className="bg-white px-3 py-2 rounded-lg text-sm text-slate-700 shadow-lg">
+              Your data is secure
+            </div>
+          </motion.div>
         </motion.div>
-        
-        {/* Tooltip */}
-        <motion.div
-          className="absolute bottom-full right-0 mb-2 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
-          initial={{ y: 10, opacity: 0 }}
-          whileHover={{ y: 0, opacity: 1 }}
-        >
-          <div className="glass-card px-3 py-2 rounded-lg text-sm text-blue-300">
-            Your Privacy
-          </div>
-        </motion.div>
-      </motion.div>
+      </div>
     </>
   );
 }

@@ -17,8 +17,9 @@ export default {
 			}
 		},
 		fontFamily: {
-			// Standardize font-family globally - matching sidebar (source of truth)
-			sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+			// Standardize font-family globally - VanquishBold everywhere
+			sans: ['VanquishBold', 'serif'],
+			serif: ['VanquishBold', 'serif'],
 		},
 		extend: {
 			colors: {
