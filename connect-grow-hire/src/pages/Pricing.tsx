@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Check, ArrowLeft, CreditCard, Settings } from "lucide-react";
+import { Check, ArrowLeft, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
@@ -266,7 +266,7 @@ const Pricing = () => {
         <Button
           variant="ghost"
           onClick={() => navigate("/dashboard")}
-          className="mb-8 text-gray-300 text-slate-700 hover:text-blue-400"
+          className="mb-8 text-slate-700 hover:text-slate-700 hover:bg-transparent hover:scale-105 transition-transform"
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Dashboard
@@ -296,12 +296,6 @@ const Pricing = () => {
         )}
 
         <div className="text-center mb-16">
-          <div className="flex items-center justify-center gap-2 mb-6">
-            <div className="flex items-center gap-2 bg-blue-500/20 px-3 py-1 rounded-full border border-blue-500/30">
-              <CreditCard className="h-4 w-4 text-blue-400" />
-              <span className="text-sm font-medium text-blue-400 uppercase tracking-wide">Our Pricing</span>
-            </div>
-          </div>
           <h1 className="text-display-lg mb-6 text-white text-slate-900">
             <span className="text-black">Choose</span> <span className="gradient-text-teal">your plan</span> <span className="text-black">today</span>
           </h1>

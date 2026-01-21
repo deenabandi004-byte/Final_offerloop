@@ -205,8 +205,8 @@ const navigationSections = [
       { title: "Track Email Outreach", url: "/outbox", icon: EmailOutreachIcon },
       { title: "Calendar", url: "/calendar", icon: CalendarIcon },
       { title: "Networking", url: "/contact-directory", icon: NetworkingIcon },
-      { title: "Hiring Managers", url: "/recruiter-spreadsheet", icon: FindHiringManagersIcon },
-      { title: "Companies", url: "/firm-search?view=saved", icon: TrackCompaniesIcon },
+      { title: "Hiring Managers", url: "/hiring-manager-tracker", icon: FindHiringManagersIcon },
+      { title: "Companies", url: "/company-tracker", icon: TrackCompaniesIcon },
     ],
   },
 ];

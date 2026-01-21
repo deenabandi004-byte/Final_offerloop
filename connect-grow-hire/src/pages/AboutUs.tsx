@@ -1,104 +1,119 @@
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
-import { PageWrapper } from "@/components/PageWrapper";
-import { GlassCard } from "@/components/GlassCard";
-import { Button } from "@/components/ui/button";
-import { Link } from "react-router-dom";
+import { AppSidebar } from "@/components/AppSidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { MainContentWrapper } from "@/components/MainContentWrapper";
+import { AppHeader } from "@/components/AppHeader";
+import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Users, Lightbulb, Heart } from "lucide-react";
 
 const AboutUs = () => {
+  const navigate = useNavigate();
+
   return (
-    <PageWrapper>
-      <Header />
-      
-      <main className="container mx-auto px-6 py-16">
-        <div className="max-w-4xl mx-auto space-y-12">
-          {/* Back Button */}
-          <div className="flex justify-start">
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/dashboard" className="flex items-center gap-2 text-gray-300 text-slate-700 hover:text-blue-400">
+    <SidebarProvider>
+      <div className="flex min-h-screen w-full text-foreground">
+        <AppSidebar />
+        <MainContentWrapper>
+          <AppHeader title="" />
+          
+          <main className="bg-white min-h-screen">
+            <div className="max-w-3xl mx-auto px-8 pt-10 pb-8">
+              {/* Back button - neutral styling */}
+              <button
+                onClick={() => navigate('/dashboard')}
+                className="flex items-center gap-2 text-gray-600 text-sm mb-6 hover:scale-105 transition-transform"
+              >
                 <ArrowLeft className="h-4 w-4" />
                 Back to Dashboard
-              </Link>
-            </Button>
-          </div>
-          {/* Hero Section */}
-          <div className="text-center space-y-6">
-            <h1 className="text-display-lg text-white text-slate-900">
-              About <span className="gradient-text-teal">Offerloop</span>
-            </h1>
-          </div>
+              </button>
 
-          {/* Mission Section */}
-          <GlassCard className="p-8 rounded-2xl">
-            <h2 className="text-2xl font-semibold mb-4 text-center text-white text-slate-900">Our Mission</h2>
-            <p className="text-gray-300 text-slate-700 leading-relaxed text-center">
-              To make it easier for students and young professionals to connect, stand out and land better opportunities. By cutting down the time to send emails and prep for calls by <strong>90%</strong>, we save our users hundreds of hours of work and stress, giving them back time to focus on what matters: learning, growing and enjoying your best years.
-            </p>
-          </GlassCard>
+              {/* Page Title */}
+              <h1 className="text-[28px] font-semibold text-gray-900 mb-8">
+                About Offerloop
+              </h1>
 
-          {/* Values Grid */}
-          <div className="grid md:grid-cols-3 gap-6">
-            {/* High-Impact Connections */}
-            <GlassCard className="text-center p-8 rounded-2xl hover:glow-teal transition-all duration-300">
-              <div className="w-14 h-14 bg-blue-500/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-6 border border-blue-500/30">
-                <Users className="h-7 w-7 text-blue-400" strokeWidth={2} />
-              </div>
-              <h3 className="font-bold text-xl mb-3 text-white text-slate-900">High-Impact Connections</h3>
-              <p className="text-sm text-gray-300 text-slate-700 leading-relaxed">
-                We make it easier to reach the people that can move you forward.
-              </p>
-            </GlassCard>
+              {/* Mission Section */}
+              <section className="mb-10">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">
+                  Our Mission
+                </h2>
+                <p className="text-gray-600 leading-relaxed">
+                  To make it easier for students and young professionals to connect, stand out and land better opportunities. By cutting down the time to send emails and prep for calls by <strong className="text-gray-900">90%</strong>, we save our users hundreds of hours of work and stress, giving them back time to focus on what matters: learning, growing and enjoying your best years.
+                </p>
+              </section>
 
-            {/* Innovation First */}
-            <GlassCard className="text-center p-8 rounded-2xl hover:glow-teal transition-all duration-300">
-              <div className="w-14 h-14 bg-blue-500/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-6 border border-blue-500/30">
-                <Lightbulb className="h-7 w-7 text-blue-500" strokeWidth={2} />
-              </div>
-              <h3 className="font-bold text-xl mb-3 text-white text-slate-900">Innovation First</h3>
-              <p className="text-sm text-gray-300 text-slate-700 leading-relaxed">
-                We're constantly building and refining Offerloop with feedback from students and recruiters to make networking faster, smarter, and more personal.
-              </p>
-            </GlassCard>
+              {/* Values Grid */}
+              <section className="mb-10">
+                <h2 className="text-lg font-semibold text-gray-900 mb-6 pb-2 border-b border-gray-200">
+                  Our Values
+                </h2>
+                <div className="grid md:grid-cols-3 gap-6">
+                  {/* High-Impact Connections */}
+                  <div className="text-center p-6 border border-gray-200 rounded-lg">
+                    <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <Users className="h-6 w-6 text-blue-500" strokeWidth={2} />
+                    </div>
+                    <h3 className="font-semibold text-gray-900 mb-2">High-Impact Connections</h3>
+                    <p className="text-sm text-gray-600 leading-relaxed">
+                      We make it easier to reach the people that can move you forward.
+                    </p>
+                  </div>
 
-            {/* Human Connection */}
-            <GlassCard className="text-center p-8 rounded-2xl hover:glow-teal transition-all duration-300">
-              <div className="w-14 h-14 bg-indigo-500/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-6 border border-indigo-500/30">
-                <Heart className="h-7 w-7 text-indigo-500" strokeWidth={2} />
-              </div>
-              <h3 className="font-bold text-xl mb-3 text-white text-slate-900">Human Connection</h3>
-              <p className="text-sm text-gray-300 text-slate-700 leading-relaxed">
-                AI makes things easier, but people make them meaningful. We keep human connection at the center of everything we create.
-              </p>
-            </GlassCard>
-          </div>
+                  {/* Innovation First */}
+                  <div className="text-center p-6 border border-gray-200 rounded-lg">
+                    <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <Lightbulb className="h-6 w-6 text-blue-500" strokeWidth={2} />
+                    </div>
+                    <h3 className="font-semibold text-gray-900 mb-2">Innovation First</h3>
+                    <p className="text-sm text-gray-600 leading-relaxed">
+                      We're constantly building and refining Offerloop with feedback from students and recruiters to make networking faster, smarter, and more personal.
+                    </p>
+                  </div>
 
-          {/* Story Section */}
-          <GlassCard className="p-8 rounded-2xl space-y-4">
-              <h2 className="text-2xl font-semibold text-center mb-6 text-white text-slate-900">Our Story</h2>
-              <p className="text-gray-300 text-slate-700 leading-relaxed">
-                Offerloop is a platform built by students, for students and young professionals with one goal: to make it easier to connect with professionals, stand out, and land great opportunities.
-              </p>
-              <p className="text-gray-300 text-slate-700 leading-relaxed">
-                At USC, we saw countless students spending hours filling out spreadsheets and sending emails, and we went through the same thing ourselves. With so many applicants for every competitive role, networking is essential but the process is slow, stressful, and exhausting. Worst of all it takes away from what’s supposed to be the most exciting time of your life.
-              </p>
-              <p className="text-gray-300 text-slate-700 leading-relaxed">
-                We built Offerloop to fix that. Our platform automates the outreach process, helping students spend less time on tedious work and more time building real connections and preparing for what truly matters in their careers.
-              </p>
-          </GlassCard>
+                  {/* Human Connection */}
+                  <div className="text-center p-6 border border-gray-200 rounded-lg">
+                    <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <Heart className="h-6 w-6 text-indigo-500" strokeWidth={2} />
+                    </div>
+                    <h3 className="font-semibold text-gray-900 mb-2">Human Connection</h3>
+                    <p className="text-sm text-gray-600 leading-relaxed">
+                      AI makes things easier, but people make them meaningful. We keep human connection at the center of everything we create.
+                    </p>
+                  </div>
+                </div>
+              </section>
 
-          {/* CTA Section */}
-          <div className="text-center space-y-4">
-            <h2 className="text-2xl font-semibold text-white text-slate-900">Ready to Transform Your Recruiting Journey?</h2>
-            <p className="text-gray-400 text-slate-600">
-              Join thousands of aspiring professionals in discovering their dream opportunities through Offerloop.ai
-            </p>
-          </div>
-        </div>
-      </main>
+              {/* Story Section */}
+              <section className="mb-10">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">
+                  Our Story
+                </h2>
+                <div className="space-y-4 text-gray-600 leading-relaxed">
+                  <p>
+                    Offerloop is a platform built by students, for students and young professionals with one goal: to make it easier to connect with professionals, stand out, and land great opportunities.
+                  </p>
+                  <p>
+                    At USC, we saw countless students spending hours filling out spreadsheets and sending emails, and we went through the same thing ourselves. With so many applicants for every competitive role, networking is essential but the process is slow, stressful, and exhausting. Worst of all it takes away from what's supposed to be the most exciting time of your life.
+                  </p>
+                  <p>
+                    We built Offerloop to fix that. Our platform automates the outreach process, helping students spend less time on tedious work and more time building real connections and preparing for what truly matters in their careers.
+                  </p>
+                </div>
+              </section>
 
-      <Footer />
-    </PageWrapper>
+              {/* CTA Section */}
+              <section className="text-center py-8 border-t border-gray-200">
+                <h2 className="text-lg font-semibold text-gray-900 mb-2">
+                  Ready to Transform Your Recruiting Journey?
+                </h2>
+                <p className="text-gray-500 text-sm">
+                  Join thousands of aspiring professionals in discovering their dream opportunities through Offerloop.
+                </p>
+              </section>
+            </div>
+          </main>
+        </MainContentWrapper>
+      </div>
+    </SidebarProvider>
   );
 };
 

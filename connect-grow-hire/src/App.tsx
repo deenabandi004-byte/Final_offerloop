@@ -35,6 +35,8 @@ const Pricing = React.lazy(() => import("./pages/Pricing"));
 const DashboardPage = React.lazy(() => import("./pages/DashboardPage"));
 const JobBoardPage = React.lazy(() => import("./pages/JobBoardPage"));
 const RecruiterSpreadsheetPage = React.lazy(() => import("./pages/RecruiterSpreadsheetPage"));
+const HiringManagerTrackerPage = React.lazy(() => import("./pages/HiringManagerTrackerPage"));
+const CompanyTrackerPage = React.lazy(() => import("./pages/CompanyTrackerPage"));
 const NotFound = React.lazy(() => import("./pages/NotFound"));
 const PaymentSuccess = React.lazy(() => import("./pages/PaymentSuccess"));
 // Feature Pages - These are the largest, most important to lazy load
@@ -225,6 +227,8 @@ const AppRoutes: React.FC = () => {
       <Route path="/firm-search" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><FirmSearchPage /></Suspense></ProtectedRoute>} />
       <Route path="/job-board" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><JobBoardPage /></Suspense></ProtectedRoute>} />
       <Route path="/recruiter-spreadsheet" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><RecruiterSpreadsheetPage /></Suspense></ProtectedRoute>} />
+      <Route path="/hiring-manager-tracker" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><HiringManagerTrackerPage /></Suspense></ProtectedRoute>} />
+      <Route path="/company-tracker" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CompanyTrackerPage /></Suspense></ProtectedRoute>} />
       <Route path="/scout" element={<ProtectedRoute><ScoutRedirect /></ProtectedRoute>} />
       <Route path="/application-lab" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ApplicationLabPage /></Suspense></ProtectedRoute>} />
       

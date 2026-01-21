@@ -1,4 +1,4 @@
-import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText, Save } from "lucide-react";
+import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -9,14 +9,15 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
-import { GlassCard } from "@/components/GlassCard";
-import { PageWrapper } from "@/components/PageWrapper";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { AppSidebar } from "@/components/AppSidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { MainContentWrapper } from "@/components/MainContentWrapper";
+import { AppHeader } from "@/components/AppHeader";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { db, storage, auth } from '@/lib/firebase';
 import { signOut as firebaseSignOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Check, ChevronsUpDown } from "lucide-react";
@@ -710,200 +711,178 @@ export default function AccountSettings() {
   };
 
   return (
-    <PageWrapper>
-      {/* Header */}
-      <div className="border-b border-white/10 glass-nav">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => navigate('/')}
-                className="gap-2 text-gray-300 text-slate-700 hover:text-blue-400"
+    <SidebarProvider>
+      <div className="flex min-h-screen w-full text-foreground">
+        <AppSidebar />
+        <MainContentWrapper>
+          <AppHeader title="" />
+          
+          <main className="bg-white min-h-screen">
+            <div className="max-w-3xl mx-auto px-8 pt-10 pb-8">
+              {/* Back button - neutral styling */}
+              <button
+                onClick={() => navigate('/dashboard')}
+                className="flex items-center gap-2 text-gray-600 text-sm mb-6 hover:scale-105 transition-transform"
               >
                 <ArrowLeft className="h-4 w-4" />
-                Back
-              </Button>
-              <div>
-                <h1 className="text-2xl font-semibold text-slate-900">Account Settings</h1>
-                <p className="text-sm text-gray-400 text-slate-600">Manage your account and preferences</p>
-              </div>
-            </div>
-            <Avatar className="h-12 w-12">
-              <AvatarFallback className="bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                {personalInfo.firstName && personalInfo.lastName
-                  ? `${personalInfo.firstName[0]}${personalInfo.lastName[0]}`
-                  : user?.email?.[0]?.toUpperCase() || "U"}
-              </AvatarFallback>
-            </Avatar>
-          </div>
-        </div>
-      </div>
+                Back to Dashboard
+              </button>
 
-      {/* Main Content */}
-      <div className="container mx-auto px-4 py-8">
-        <div className="max-w-4xl mx-auto space-y-6">
-          {/* Career & Profile Info Card */}
-          <GlassCard className="p-6 rounded-2xl">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-white text-slate-900">Career & Profile Info</h2>
-              <Button
-                onClick={handleSaveOnboardingData}
-                disabled={isSaving}
-                className="relative overflow-hidden gap-2"
-                style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
-              >
-                {isSaving ? (
-                  'Saving...'
-                ) : (
-                  <>
-                    <Save className="h-4 w-4" />
-                    Save changes
-                  </>
-                )}
-                <InlineLoadingBar isLoading={isSaving} />
-              </Button>
-            </div>
-            {saveSuccess && (
-              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                <p className="text-sm text-green-700">✓ Changes saved successfully!</p>
-              </div>
-            )}
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-semibold mb-4 text-white text-slate-900">Personal Information</h3>
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="firstName" className="text-gray-300 text-slate-700">First Name</Label>
-                  <Input
-                    id="firstName"
-                    value={personalInfo.firstName}
-                    onChange={(e) => setPersonalInfo({ ...personalInfo, firstName: e.target.value })}
-                    className="bg-white/5 border border-white/10 focus:border-blue-400/50"
-                  />
+              {/* Page Title */}
+              <h1 className="text-[28px] font-semibold text-gray-900 mb-2">
+                Account Settings
+              </h1>
+              <p className="text-gray-500 text-sm mb-8">
+                Manage your account and preferences
+              </p>
+
+              {saveSuccess && (
+                <div className="mb-6 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <p className="text-sm text-green-700">Changes saved successfully!</p>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="lastName">Last Name</Label>
-                  <Input
-                    id="lastName"
-                    value={personalInfo.lastName}
-                    onChange={(e) => setPersonalInfo({ ...personalInfo, lastName: e.target.value })}
-                    className="bg-white/5 border border-white/10 focus:border-blue-400/50"
-                  />
+              )}
+
+              {/* Personal Information Section */}
+              <section className="mb-10">
+                <h2 className="text-lg font-semibold text-gray-900 mb-6 pb-2 border-b border-gray-200">
+                  Personal Information
+                </h2>
+                <div className="space-y-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="firstName" className="text-sm text-gray-700">First Name</Label>
+                      <Input
+                        id="firstName"
+                        value={personalInfo.firstName}
+                        onChange={(e) => setPersonalInfo({ ...personalInfo, firstName: e.target.value })}
+                        className="border-gray-300"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="lastName" className="text-sm text-gray-700">Last Name</Label>
+                      <Input
+                        id="lastName"
+                        value={personalInfo.lastName}
+                        onChange={(e) => setPersonalInfo({ ...personalInfo, lastName: e.target.value })}
+                        className="border-gray-300"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="email" className="text-sm text-gray-700">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={personalInfo.email}
+                      readOnly
+                      className="bg-gray-50 border-gray-300 text-gray-500"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="university" className="text-sm text-gray-700">University</Label>
+                    <Input
+                      id="university"
+                      value={personalInfo.university}
+                      onChange={(e) => setPersonalInfo({ ...personalInfo, university: e.target.value })}
+                      className="border-gray-300"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="phone" className="text-sm text-gray-700">Phone</Label>
+                    <Input
+                      id="phone"
+                      type="tel"
+                      value={personalInfo.phone}
+                      onChange={(e) => setPersonalInfo({ ...personalInfo, phone: e.target.value })}
+                      className="border-gray-300"
+                      placeholder="(555) 123-4567"
+                    />
+                  </div>
                 </div>
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={personalInfo.email}
-                  readOnly
-                  className="bg-muted/30"
-                />
-              </div>
+              </section>
 
-              <div className="space-y-2">
-                <Label htmlFor="university">University</Label>
-                <Input
-                  id="university"
-                  value={personalInfo.university}
-                  onChange={(e) => setPersonalInfo({ ...personalInfo, university: e.target.value })}
-                  className="bg-muted/30"
-                />
-              </div>
+              {/* Academic Information Section */}
+              <section className="mb-10">
+                <h2 className="text-lg font-semibold text-gray-900 mb-6 pb-2 border-b border-gray-200">
+                  Academic Information
+                </h2>
+                <div className="space-y-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="graduationMonth" className="text-sm text-gray-700">Graduation Month</Label>
+                      <Select
+                        value={academicInfo.graduationMonth}
+                        onValueChange={(value) => setAcademicInfo({ ...academicInfo, graduationMonth: value })}
+                      >
+                        <SelectTrigger className="border-gray-300">
+                          <SelectValue placeholder="Select month" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {months.map((month) => (
+                            <SelectItem key={month} value={month}>
+                              {month}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="graduationYear" className="text-sm text-gray-700">Graduation Year</Label>
+                      <Input
+                        id="graduationYear"
+                        type="number"
+                        value={academicInfo.graduationYear}
+                        onChange={(e) => setAcademicInfo({ ...academicInfo, graduationYear: e.target.value })}
+                        className="border-gray-300"
+                        placeholder="2024"
+                      />
+                    </div>
+                  </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone</Label>
-                <Input
-                  id="phone"
-                  type="tel"
-                  value={personalInfo.phone}
-                  onChange={(e) => setPersonalInfo({ ...personalInfo, phone: e.target.value })}
-                  className="bg-muted/30"
-                  placeholder="(555) 123-4567"
-                />
-              </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="fieldOfStudy" className="text-sm text-gray-700">Field of Study</Label>
+                    <Input
+                      id="fieldOfStudy"
+                      value={academicInfo.fieldOfStudy}
+                      onChange={(e) => setAcademicInfo({ ...academicInfo, fieldOfStudy: e.target.value })}
+                      className="border-gray-300"
+                      placeholder="e.g. Computer Science, Business Administration"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="currentDegree" className="text-sm text-gray-700">Current Degree</Label>
+                    <Select
+                      value={academicInfo.currentDegree}
+                      onValueChange={(value) => setAcademicInfo({ ...academicInfo, currentDegree: value })}
+                    >
+                      <SelectTrigger className="border-gray-300">
+                        <SelectValue placeholder="Select degree" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {degrees.map((degree) => (
+                          <SelectItem key={degree} value={degree}>
+                            {degree}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-              </div>
+              </section>
 
-              <div>
-                <h3 className="text-lg font-semibold mb-4 text-white text-slate-900">Academic Information</h3>
+              {/* Professional Profile Section */}
+              <section className="mb-10">
+                <h2 className="text-lg font-semibold text-gray-900 mb-6 pb-2 border-b border-gray-200">
+                  Professional Profile
+                </h2>
                 <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="graduationMonth">Graduation Month</Label>
-                  <Select
-                    value={academicInfo.graduationMonth}
-                    onValueChange={(value) => setAcademicInfo({ ...academicInfo, graduationMonth: value })}
-                  >
-                    <SelectTrigger className="bg-white/5 border border-white/10 focus:border-blue-400/50">
-                      <SelectValue placeholder="Select month" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {months.map((month) => (
-                        <SelectItem key={month} value={month}>
-                          {month}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="graduationYear">Graduation Year</Label>
-                  <Input
-                    id="graduationYear"
-                    type="number"
-                    value={academicInfo.graduationYear}
-                    onChange={(e) => setAcademicInfo({ ...academicInfo, graduationYear: e.target.value })}
-                    className="bg-white/5 border border-white/10 focus:border-blue-400/50"
-                    placeholder="2024"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="fieldOfStudy">Field of Study</Label>
-                <Input
-                  id="fieldOfStudy"
-                  value={academicInfo.fieldOfStudy}
-                  onChange={(e) => setAcademicInfo({ ...academicInfo, fieldOfStudy: e.target.value })}
-                  className="bg-muted/30"
-                  placeholder="e.g. Computer Science, Business Administration"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="currentDegree">Current Degree</Label>
-                <Select
-                  value={academicInfo.currentDegree}
-                  onValueChange={(value) => setAcademicInfo({ ...academicInfo, currentDegree: value })}
-                >
-                  <SelectTrigger className="bg-muted/30">
-                    <SelectValue placeholder="Select degree" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {degrees.map((degree) => (
-                      <SelectItem key={degree} value={degree}>
-                        {degree}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold mb-4 text-white text-slate-900">Professional Profile</h3>
-                <div className="space-y-6">
-              <div className="space-y-4">
-                {/* Resume Upload Section */}
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium text-white text-slate-900">Resume</Label>
+                  {/* Resume Upload Section */}
+                  <div className="space-y-2">
+                    <Label className="text-sm text-gray-700">Resume</Label>
                   {(() => {
                     if (resumeData) {
                       return (
@@ -1048,20 +1027,20 @@ export default function AccountSettings() {
                   })()}
                 </div>
 
-                {/* Career Interests Section */}
-                <div className="space-y-4">
-                  <Label className="text-sm font-medium text-foreground">Career Interests</Label>
-                  
+                  {/* Career Interests Section */}
                   <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium text-muted-foreground">Industries of Interest</Label>
-                      <Popover open={industriesOpen} onOpenChange={setIndustriesOpen}>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="outline"
-                            role="combobox"
-                            className="w-full justify-between bg-muted/30"
-                          >
+                    <Label className="text-sm text-gray-700 font-medium">Career Interests</Label>
+                    
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label className="text-sm text-gray-600">Industries of Interest</Label>
+                        <Popover open={industriesOpen} onOpenChange={setIndustriesOpen}>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              role="combobox"
+                              className="w-full justify-between border-gray-300"
+                            >
                             {careerInfo.industriesOfInterest.length > 0
                               ? `${careerInfo.industriesOfInterest.length} selected`
                               : "Select industries..."}
@@ -1126,25 +1105,25 @@ export default function AccountSettings() {
                       )}
                     </div>
                     
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium text-muted-foreground">Preferred Job Roles/Titles</Label>
-                      <Input
-                        value={careerInfo.preferredJobRole}
-                        onChange={(e) => setCareerInfo({ ...careerInfo, preferredJobRole: e.target.value })}
-                        className="bg-muted/30"
-                        placeholder="e.g. Investment Banking Analyst, Software Engineer"
-                      />
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium text-muted-foreground">Preferred Locations</Label>
-                      <Popover open={locationsOpen} onOpenChange={setLocationsOpen}>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="outline"
-                            role="combobox"
-                            className="w-full justify-between bg-muted/30"
-                          >
+                      <div className="space-y-2">
+                        <Label className="text-sm text-gray-600">Preferred Job Roles/Titles</Label>
+                        <Input
+                          value={careerInfo.preferredJobRole}
+                          onChange={(e) => setCareerInfo({ ...careerInfo, preferredJobRole: e.target.value })}
+                          className="border-gray-300"
+                          placeholder="e.g. Investment Banking Analyst, Software Engineer"
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label className="text-sm text-gray-600">Preferred Locations</Label>
+                        <Popover open={locationsOpen} onOpenChange={setLocationsOpen}>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              role="combobox"
+                              className="w-full justify-between border-gray-300"
+                            >
                             {careerInfo.preferredLocations.length > 0
                               ? `${careerInfo.preferredLocations.length} selected`
                               : "Select locations..."}
@@ -1209,110 +1188,123 @@ export default function AccountSettings() {
                       )}
                     </div>
                     
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium text-muted-foreground">Job Type(s) Interested in</Label>
                       <div className="space-y-2">
-                        {jobTypesOptions.map((jobType) => (
-                          <div key={jobType} className="flex items-center space-x-2">
-                            <Checkbox
-                              id={`jobType-${jobType}`}
-                              checked={careerInfo.jobTypes.includes(jobType)}
-                              onCheckedChange={(checked) => {
-                                if (checked) {
-                                  setCareerInfo({
-                                    ...careerInfo,
-                                    jobTypes: [...careerInfo.jobTypes, jobType]
-                                  });
-                                } else {
-                                  setCareerInfo({
-                                    ...careerInfo,
-                                    jobTypes: careerInfo.jobTypes.filter(type => type !== jobType)
-                                  });
-                                }
-                              }}
-                            />
-                            <Label htmlFor={`jobType-${jobType}`} className="text-sm font-normal cursor-pointer">
-                              {jobType}
-                            </Label>
-                          </div>
-                        ))}
+                        <Label className="text-sm text-gray-600">Job Type(s) Interested in</Label>
+                        <div className="space-y-2">
+                          {jobTypesOptions.map((jobType) => (
+                            <div key={jobType} className="flex items-center space-x-2">
+                              <Checkbox
+                                id={`jobType-${jobType}`}
+                                checked={careerInfo.jobTypes.includes(jobType)}
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    setCareerInfo({
+                                      ...careerInfo,
+                                      jobTypes: [...careerInfo.jobTypes, jobType]
+                                    });
+                                  } else {
+                                    setCareerInfo({
+                                      ...careerInfo,
+                                      jobTypes: careerInfo.jobTypes.filter(type => type !== jobType)
+                                    });
+                                  }
+                                }}
+                              />
+                              <Label htmlFor={`jobType-${jobType}`} className="text-sm font-normal cursor-pointer text-gray-700">
+                                {jobType}
+                              </Label>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-                </div>
-              </div>
-            </div>
-            </div>
-          </GlassCard>
-          
-          {/* Account Management Section */}
-          <GlassCard className="p-6 rounded-2xl">
-            <h2 className="text-xl font-semibold mb-6 text-white text-slate-900">Account Management</h2>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg border">
-                <div>
-                  <h4 className="font-medium text-foreground mb-1">Subscription</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Manage your subscription plan and billing settings
-                  </p>
-                  {user?.tier && (
-                    <p className="text-xs text-muted-foreground mt-1 capitalize">
-                      Current: {user.tier} tier
-                    </p>
-                  )}
-                </div>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={handleManageSubscription}
-                  className="flex items-center gap-2"
-                >
-                  <CreditCard className="h-4 w-4" />
-                  Manage Subscription
-                </Button>
-              </div>
-              
-              <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg border">
-                <div>
-                  <h4 className="font-medium text-foreground mb-1">Sign Out</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Sign out of your account on this device
-                  </p>
-                </div>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={handleSignOut}
-                  className="flex items-center gap-2"
-                >
-                  <LogOut className="h-4 w-4" />
-                  Sign Out
-                </Button>
-              </div>
-            </div>
-          </GlassCard>
+              </section>
 
-          {/* Danger Zone */}
-          <GlassCard className="p-6 rounded-2xl border-red-500/30">
-            <h2 className="text-xl font-semibold mb-6 text-red-400">Danger zone</h2>
-            <div>
-              <div className="flex items-center justify-between p-4 bg-destructive/5 rounded-lg border border-destructive/20">
-                <div>
-                  <h4 className="font-medium text-destructive mb-1">Delete your account</h4>
-                  <p className="text-sm text-muted-foreground">
-                    This will permanently delete your account and all your data. This action cannot be undone.
-                  </p>
-                </div>
-                <Button variant="destructive" size="sm" className="flex items-center gap-2">
-                  <Trash2 className="h-4 w-4" />
-                  Delete account
+              {/* Save Button - Bottom of Form */}
+              <div className="flex justify-end pt-6 border-t border-gray-200 mb-10">
+                <Button
+                  onClick={handleSaveOnboardingData}
+                  disabled={isSaving}
+                  className="bg-blue-600 hover:bg-blue-700 text-white relative overflow-hidden"
+                >
+                  {isSaving ? 'Saving...' : 'Save changes'}
+                  <InlineLoadingBar isLoading={isSaving} />
                 </Button>
               </div>
+
+              {/* Account Management Section */}
+              <section className="mb-10">
+                <h2 className="text-lg font-semibold text-gray-900 mb-6 pb-2 border-b border-gray-200">
+                  Account Management
+                </h2>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between py-4 border-b border-gray-100">
+                    <div>
+                      <h4 className="font-medium text-gray-900 mb-1">Subscription</h4>
+                      <p className="text-sm text-gray-500">
+                        Manage your subscription plan and billing settings
+                      </p>
+                      {user?.tier && (
+                        <p className="text-xs text-gray-400 mt-1 capitalize">
+                          Current: {user.tier} tier
+                        </p>
+                      )}
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={handleManageSubscription}
+                      className="flex items-center gap-2 border-gray-300"
+                    >
+                      <CreditCard className="h-4 w-4" />
+                      Manage Subscription
+                    </Button>
+                  </div>
+                  
+                  <div className="flex items-center justify-between py-4 border-b border-gray-100">
+                    <div>
+                      <h4 className="font-medium text-gray-900 mb-1">Sign Out</h4>
+                      <p className="text-sm text-gray-500">
+                        Sign out of your account on this device
+                      </p>
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={handleSignOut}
+                      className="flex items-center gap-2 border-gray-300"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Sign Out
+                    </Button>
+                  </div>
+                </div>
+              </section>
+
+              {/* Danger Zone Section */}
+              <section className="mb-10">
+                <h2 className="text-lg font-semibold text-red-600 mb-6 pb-2 border-b border-red-200">
+                  Danger Zone
+                </h2>
+                <div className="flex items-center justify-between py-4">
+                  <div>
+                    <h4 className="font-medium text-red-600 mb-1">Delete your account</h4>
+                    <p className="text-sm text-gray-500">
+                      This will permanently delete your account and all your data. This action cannot be undone.
+                    </p>
+                  </div>
+                  <Button variant="destructive" size="sm" className="flex items-center gap-2">
+                    <Trash2 className="h-4 w-4" />
+                    Delete account
+                  </Button>
+                </div>
+              </section>
             </div>
-          </GlassCard>
-        </div>
+          </main>
+        </MainContentWrapper>
       </div>
-    </PageWrapper>
+    </SidebarProvider>
   );
 }

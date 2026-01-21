@@ -1,5 +1,5 @@
 // src/pages/RecruiterSpreadsheetPage.tsx
-import React, { useState, useRef, useLayoutEffect, useCallback, useEffect } from 'react';
+import { useState, useRef, useLayoutEffect, useCallback, useEffect } from 'react';
 import RecruiterSpreadsheet from '@/components/RecruiterSpreadsheet';
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -69,7 +69,7 @@ const StripeTabs: React.FC<StripeTabsProps> = ({ activeTab, onTabChange, tabs })
   );
 };
 
-const RecruiterSpreadsheetPage: React.FC = () => {
+const RecruiterSpreadsheetPage = () => {
   const { user } = useFirebaseAuth();
   const [activeTab, setActiveTab] = useState('find-hiring-managers');
   
@@ -85,7 +85,7 @@ const RecruiterSpreadsheetPage: React.FC = () => {
   const [location, setLocation] = useState('');
   const [jobDescription, setJobDescription] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const [estimatedManagers, setEstimatedManagers] = useState(2);
+  const [estimatedManagers] = useState(2);
 
   // Load saved resume from Firestore
   const loadSavedResume = useCallback(async () => {
@@ -114,8 +114,6 @@ const RecruiterSpreadsheetPage: React.FC = () => {
     }
     setIsUploadingResume(true);
     try {
-      const formData = new FormData();
-      formData.append('resume', file);
       const storageRef = ref(storage, `resumes/${user.uid}/${file.name}`);
       await uploadBytes(storageRef, file);
       const downloadUrl = await getDownloadURL(storageRef);
@@ -180,7 +178,6 @@ const RecruiterSpreadsheetPage: React.FC = () => {
     if (!canSearch) return;
     setIsSearching(true);
     // TODO: Call backend workflow
-    // For now, just show a toast
     toast({
       title: "Finding hiring managers...",
       description: "This feature will connect to the backend workflow.",
@@ -197,12 +194,14 @@ const RecruiterSpreadsheetPage: React.FC = () => {
         <AppSidebar />
 
         <MainContentWrapper>
-          <AppHeader />
+          <AppHeader title="" />
 
           <main className="bg-white min-h-screen">
-            <div className="max-w-5xl mx-auto px-8 pt-8 pb-16">
+            <div className="max-w-5xl mx-auto px-8 pt-10 pb-16">
               {/* Page Title */}
-              <h1 className="text-2xl font-bold text-gray-900 mb-6">Find Hiring Managers</h1>
+              <h1 className="text-[28px] font-semibold text-gray-900 mb-4">
+                Find Hiring Managers
+              </h1>
 
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <StripeTabs 
@@ -321,8 +320,7 @@ const RecruiterSpreadsheetPage: React.FC = () => {
                         onClick={handleFindHiringManagers}
                         disabled={!canSearch}
                         size="lg"
-                        className="text-white font-medium px-8 transition-all hover:opacity-90"
-                        style={{ background: '#3B82F6' }}
+                        className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-8"
                       >
                         {isSearching ? "Finding..." : "Find Hiring Managers"}
                       </Button>
@@ -406,4 +404,3 @@ const RecruiterSpreadsheetPage: React.FC = () => {
 };
 
 export default RecruiterSpreadsheetPage;
-
