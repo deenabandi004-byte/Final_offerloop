@@ -27,28 +27,30 @@ import {
   Briefcase,
   Building2,
   MapPin,
+  Wrench,
   Sparkles,
+  BarChart3,
   FolderOpen,
-  CheckCircle,
-  Copy,
-  Check,
-  Wrench
+  CheckCircle
 } from 'lucide-react';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 import { toast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { 
+  fixResume,
+  scoreResume,
   tailorResume,
+  applyRecommendation,
+  replaceMainResume,
   getResumeLibrary,
   getLibraryEntry,
   deleteLibraryEntry,
-  type TailorResult,
-  type SuggestionItem,
-  type ExperienceSuggestion,
-  type SkillsSuggestion,
-  type KeywordSuggestion,
-  type LibraryEntry
+  type Recommendation,
+  type ScoreCategory,
+  type JobContext,
+  type LibraryEntry,
+  type TailorResult
 } from '@/services/resumeWorkshop';
 
 // PDF Preview Component
@@ -131,7 +133,7 @@ const PDFPreview: React.FC<PDFPreviewProps> = ({ pdfUrl, pdfBase64, title = 'PDF
     if (isLoadingBlob && pdfUrl) {
       return (
         <div className="border border-gray-200 rounded-xl p-8 bg-gray-50 text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-500 mx-auto mb-4" />
+          <Loader2 className="h-8 w-8 animate-spin text-cyan-500 mx-auto mb-4" />
           <p className="text-gray-500">Loading PDF preview...</p>
         </div>
       );
@@ -155,58 +157,126 @@ const PDFPreview: React.FC<PDFPreviewProps> = ({ pdfUrl, pdfBase64, title = 'PDF
   );
 };
 
-// Suggestion Card Component
-interface SuggestionCardProps {
-  current: string;
-  suggested: string;
-  why: string;
+// Confirmation Modal Component
+interface ConfirmModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  isLoading?: boolean;
 }
 
-const SuggestionCard: React.FC<SuggestionCardProps> = ({ current, suggested, why }) => {
-  const [copied, setCopied] = useState(false);
-  
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(suggested);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+const ReplaceResumeModal: React.FC<ConfirmModalProps> = ({ isOpen, onClose, onConfirm, isLoading }) => {
+  if (!isOpen) return null;
   
   return (
-    <div className="border border-gray-200 rounded-lg p-4 bg-white space-y-3">
-      <div>
-        <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Current</p>
-        <p className="text-sm text-gray-500">{current}</p>
-      </div>
-      
-      <div>
-        <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Suggested</p>
-        <p className="text-sm text-gray-900">{suggested}</p>
-      </div>
-      
-      <div className="flex items-end justify-between pt-3 border-t border-gray-100">
-        <p className="text-xs text-gray-400 flex-1 pr-4">{why}</p>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleCopy}
-          className="rounded-lg"
-        >
-          {copied ? (
-            <>
-              <Check className="h-4 w-4 mr-1" />
-              Copied
-            </>
-          ) : (
-            <>
-              <Copy className="h-4 w-4 mr-1" />
-              Copy
-            </>
-          )}
-        </Button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6 animate-scaleIn">
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+          <X className="h-5 w-5" />
+        </button>
+        
+        <div className="w-14 h-14 bg-cyan-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <FileText className="w-7 h-7 text-cyan-600" />
+        </div>
+        
+        <h2 className="text-xl font-semibold text-gray-900 mb-3 text-center">
+          Replace resume in account settings?
+        </h2>
+        <p className="text-gray-600 mb-6 text-center">
+          This will replace your current resume across Offerloop.
+        </p>
+        
+        <div className="flex gap-3 justify-center">
+          <Button variant="outline" onClick={onClose} disabled={isLoading} className="rounded-full px-6">
+            Cancel
+          </Button>
+          <Button 
+            onClick={onConfirm} 
+            disabled={isLoading}
+            className="bg-gradient-to-r from-cyan-600 to-teal-500 hover:shadow-lg rounded-full px-6"
+          >
+            {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            Replace Resume
+          </Button>
+        </div>
       </div>
     </div>
   );
 };
+
+// Helper function to convert TailorResult sections to Recommendations
+function convertSectionsToRecommendations(tailorResult: TailorResult): Recommendation[] {
+  const recommendations: Recommendation[] = [];
+  let idCounter = 1;
+
+  // Summary recommendation
+  if (tailorResult.sections.summary) {
+    recommendations.push({
+      id: `summary-${idCounter++}`,
+      title: 'Update Professional Summary',
+      explanation: tailorResult.sections.summary.why,
+      section: 'Summary',
+      current_text: tailorResult.sections.summary.current,
+      suggested_text: tailorResult.sections.summary.suggested,
+      impact: 'high'
+    });
+  }
+
+  // Experience recommendations
+  if (tailorResult.sections.experience) {
+    tailorResult.sections.experience.forEach((exp, expIndex) => {
+      exp.bullets.forEach((bullet, bulletIndex) => {
+        recommendations.push({
+          id: `exp-${expIndex}-${bulletIndex}-${idCounter++}`,
+          title: `Improve ${exp.role} @ ${exp.company}`,
+          explanation: bullet.why,
+          section: 'Experience',
+          current_text: bullet.current,
+          suggested_text: bullet.suggested,
+          impact: 'medium'
+        });
+      });
+    });
+  }
+
+  // Skills recommendations
+  if (tailorResult.sections.skills) {
+    tailorResult.sections.skills.add.forEach((skill) => {
+      recommendations.push({
+        id: `skill-add-${idCounter++}`,
+        title: `Add Skill: ${skill.skill}`,
+        explanation: skill.reason,
+        section: 'Skills',
+        impact: 'medium'
+      });
+    });
+    tailorResult.sections.skills.remove.forEach((skill) => {
+      recommendations.push({
+        id: `skill-remove-${idCounter++}`,
+        title: `Consider Removing: ${skill.skill}`,
+        explanation: skill.reason,
+        section: 'Skills',
+        impact: 'low'
+      });
+    });
+  }
+
+  // Keywords recommendations
+  if (tailorResult.sections.keywords) {
+    tailorResult.sections.keywords.forEach((kw) => {
+      recommendations.push({
+        id: `keyword-${idCounter++}`,
+        title: `Add Keyword: ${kw.keyword}`,
+        explanation: `Add to ${kw.where_to_add}`,
+        section: kw.where_to_add,
+        impact: 'high'
+      });
+    });
+  }
+
+  return recommendations;
+}
 
 // Main Component
 export default function ResumeWorkshopPage() {
@@ -229,18 +299,41 @@ export default function ResumeWorkshopPage() {
   const [resumeFileName, setResumeFileName] = useState<string | null>(null);
   const [isLoadingResume, setIsLoadingResume] = useState(true);
   
-  // Job context inputs
+  // Score state (inline display)
+  const [resumeScore, setResumeScore] = useState<number | null>(null);
+  const [isScoring, setIsScoring] = useState(false);
+  const [scoreData, setScoreData] = useState<{ score: number; score_label: string; categories: any[]; summary: string; cached?: boolean } | null>(null);
+  const [showScoreDetails, setShowScoreDetails] = useState(false);
+  
+  // Job context state
   const [jobUrl, setJobUrl] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [company, setCompany] = useState('');
-  const [jobLocation, setJobLocation] = useState('');
+  const [locationInput, setLocationInput] = useState('');
   const [jobDescription, setJobDescription] = useState('');
   const [showManualInputs, setShowManualInputs] = useState(false);
-  const [urlParseError, setUrlParseError] = useState<string | null>(null);
+  const [jobUrlError, setJobUrlError] = useState<string | null>(null);
   
-  // Tailor results - section-by-section suggestions
-  const [tailorResults, setTailorResults] = useState<TailorResult | null>(null);
+  // Fix state
+  const [isFixing, setIsFixing] = useState(false);
+  const [fixedPdfBase64, setFixedPdfBase64] = useState<string | null>(null);
+  const [fixedResumeText, setFixedResumeText] = useState<string | null>(null);
+  const [showReplaceModal, setShowReplaceModal] = useState(false);
+  const [isReplacing, setIsReplacing] = useState(false);
+  
+  // Tailor state
   const [isTailoring, setIsTailoring] = useState(false);
+  const [tailoredPdfBase64, setTailoredPdfBase64] = useState<string | null>(null);
+  const [tailoredResumeText, setTailoredResumeText] = useState<string | null>(null);
+  const [tailorScore, setTailorScore] = useState<number | null>(null);
+  const [tailorScoreLabel, setTailorScoreLabel] = useState('');
+  const [tailorCategories, setTailorCategories] = useState<ScoreCategory[]>([]);
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [tailorJobContext, setTailorJobContext] = useState<JobContext | null>(null);
+  const [applyingId, setApplyingId] = useState<string | null>(null);
+  
+  // Results mode
+  const [showResults, setShowResults] = useState<'none' | 'fix' | 'tailor'>('none');
   
   // Library state
   const [libraryEntries, setLibraryEntries] = useState<LibraryEntry[]>([]);
@@ -291,16 +384,8 @@ export default function ResumeWorkshopPage() {
 
   // Check if job context is provided
   const hasJobUrl = jobUrl.trim().length > 0;
-  const hasJobDescription = jobDescription.trim().length > 0;
-  const hasManualFields = hasJobDescription; // Only job description is required for manual entry
+  const hasManualFields = jobTitle.trim() && company.trim() && locationInput.trim() && jobDescription.trim();
   const hasJobContext = hasJobUrl || hasManualFields;
-  
-  // Helper to get missing fields message
-  const getMissingFieldsMessage = () => {
-    if (hasJobUrl) return null;
-    if (!hasJobDescription) return 'Missing: Job Description';
-    return null;
-  };
 
   // URL validation
   const isValidUrl = (url: string) => {
@@ -312,85 +397,265 @@ export default function ResumeWorkshopPage() {
     }
   };
 
-  // Handle Tailor Resume
-  const handleTailor = async () => {
-    if (!user) return;
+  // Handle Score Resume (inline)
+  const handleScore = async () => {
+    if (!resumeUrl) return;
     
-    // Validate job context - only job description is required for manual entry
-    if (!jobUrl && !jobDescription.trim()) {
-      toast({
-        title: "Missing job details",
-        description: "Please enter a job URL or provide a job description.",
-        variant: "destructive",
-      });
+    setIsScoring(true);
+    try {
+      const result = await scoreResume();
+      if (result.status === 'ok' && result.score !== undefined) {
+        setResumeScore(result.score);
+        setScoreData({
+          score: result.score,
+          score_label: result.score_label || '',
+          categories: result.categories || [],
+          summary: result.summary || '',
+          cached: result.cached || false
+        });
+        
+        // Show cached indicator if applicable
+        if (result.cached) {
+          toast({ 
+            title: 'Score Retrieved', 
+            description: 'Retrieved from recent score (no credits charged)',
+            variant: 'default'
+          });
+        }
+      } else if (result.status === 'error') {
+        // Handle specific error codes
+        let errorTitle = 'Error';
+        let errorDescription = result.message || 'Failed to score resume';
+        
+        switch (result.error_code) {
+          case 'INSUFFICIENT_CREDITS':
+            errorTitle = 'Insufficient Credits';
+            errorDescription = 'You need at least 5 credits to score your resume. Upgrade your plan or purchase credits.';
+            break;
+          case 'RESUME_TOO_SHORT':
+            errorTitle = 'Resume Too Short';
+            errorDescription = 'Your resume needs more content before scoring. Please add more details.';
+            break;
+          case 'RESUME_NOT_FOUND':
+            errorTitle = 'Resume Not Found';
+            errorDescription = 'Please upload your resume in Account Settings first.';
+            break;
+          case 'AI_TIMEOUT':
+            errorTitle = 'Scoring Timed Out';
+            errorDescription = 'Scoring timed out. Your credits were refunded. Please try again.';
+            break;
+          case 'AI_ERROR':
+            errorTitle = 'Scoring Error';
+            errorDescription = 'Something went wrong. Credits refunded. Please try again.';
+            break;
+          default:
+            errorDescription = result.message || 'Failed to score resume';
+        }
+        
+        toast({ title: errorTitle, description: errorDescription, variant: 'destructive' });
+      }
+      
+      if (result.credits_remaining !== undefined && updateCredits) {
+        await updateCredits(result.credits_remaining);
+      }
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message || 'Network error occurred', variant: 'destructive' });
+    } finally {
+      setIsScoring(false);
+    }
+  };
+
+  // Handle Fix Resume
+  const handleFix = async () => {
+    setError(null);
+    if (!resumeUrl) {
+      setError('Please upload your resume in Account Settings first.');
       return;
     }
     
-    setIsTailoring(true);
-    setTailorResults(null);
-    setUrlParseError(null);
-    setError(null);
+    if ((user?.credits ?? 0) < 5) {
+      setError('Insufficient credits. You need at least 5 credits.');
+      toast({ title: 'Insufficient Credits', description: 'Upgrade your plan for more credits.', variant: 'destructive' });
+      return;
+    }
+
+    setIsFixing(true);
     
     try {
-      const result = await tailorResume({
-        job_url: jobUrl || undefined,
-        job_title: jobTitle || undefined,
-        company: company || undefined,
-        location: jobLocation || undefined,
-        job_description: jobDescription || undefined,
-      });
+      const result = await fixResume();
       
       if (result.status === 'error') {
-        const message = result.message || 'Failed to analyze resume';
-        toast({
-          title: "Error",
-          description: message,
-          variant: "destructive",
-        });
-        
-        if (message.includes("URL") || message.includes("parse")) {
-          setUrlParseError(message);
-        }
+        setError(result.message || 'Fix failed.');
+        toast({ title: 'Error', description: result.message, variant: 'destructive' });
         return;
       }
       
-      setTailorResults(result);
+      setFixedPdfBase64(result.pdf_base64 || null);
+      setFixedResumeText(result.improved_resume_text || null);
+      setShowResults('fix');
       
       if (result.credits_remaining !== undefined && updateCredits) {
         await updateCredits(result.credits_remaining);
       }
       
-      toast({
-        title: "Analysis complete!",
-        description: `Your resume scored ${result.score}/100 for this role.`,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to analyze resume";
-      toast({
-        title: "Error",
-        description: message,
-        variant: "destructive",
+      toast({ title: 'Resume Fixed', description: 'Review your improved resume below.' });
+    } catch (err: any) {
+      setError(err.message || 'An error occurred.');
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setIsFixing(false);
+    }
+  };
+
+  // Handle Save Fixed Resume
+  const handleSaveFixed = async () => {
+    if (!fixedPdfBase64 || !fixedResumeText) return;
+    
+    setIsReplacing(true);
+    try {
+      const result = await replaceMainResume({
+        pdf_base64: fixedPdfBase64,
+        resume_text: fixedResumeText,
       });
       
-      if (message.includes("URL") || message.includes("parse")) {
-        setUrlParseError(message);
+      if (result.status === 'error') {
+        toast({ title: 'Error', description: result.message, variant: 'destructive' });
+        return;
       }
+      
+      await loadResume();
+      setShowReplaceModal(false);
+      setShowResults('none');
+      setFixedPdfBase64(null);
+      setFixedResumeText(null);
+      
+      toast({ title: 'Resume Replaced', description: 'Your main resume has been updated.' });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setIsReplacing(false);
+    }
+  };
+
+  // Handle Tailor Resume
+  const handleTailor = async () => {
+    setError(null);
+    setJobUrlError(null);
+    
+    if (!resumeUrl) {
+      setError('Please upload your resume in Account Settings first.');
+      return;
+    }
+    
+    if (!hasJobContext) {
+      setError('Please provide a job description URL or fill in the manual fields.');
+      return;
+    }
+    
+    if ((user?.credits ?? 0) < 5) {
+      setError('Insufficient credits. You need at least 5 credits.');
+      toast({ title: 'Insufficient Credits', description: 'Upgrade your plan for more credits.', variant: 'destructive' });
+      return;
+    }
+
+    setIsTailoring(true);
+    
+    try {
+      const result = await tailorResume({
+        job_url: hasJobUrl ? jobUrl.trim() : undefined,
+        job_title: jobTitle.trim() || undefined,
+        company: company.trim() || undefined,
+        location: locationInput.trim() || undefined,
+        job_description: jobDescription.trim() || undefined,
+      });
+      
+      if (result.status === 'error') {
+        if (result.error_code === 'URL_PARSE_FAILED') {
+          setJobUrlError('Could not read job URL. Please use manual inputs.');
+          setShowManualInputs(true);
+        } else {
+          setError(result.message || 'Tailoring failed.');
+          toast({ title: 'Error', description: result.message, variant: 'destructive' });
+        }
+        return;
+      }
+      
+      setTailorScore(result.score ?? null);
+      setTailorScoreLabel(result.score_label || '');
+      setTailorCategories(result.categories || []);
+      
+      // Convert sections to recommendations if needed
+      const recs = convertSectionsToRecommendations(result);
+      setRecommendations(recs);
+      
+      setTailorJobContext(result.job_context || null);
+      setShowResults('tailor');
+      
+      // Auto-fill from parsed job (if backend supports it)
+      // Note: Current backend might not return parsed_job, but we'll handle it if it does
+      
+      if (result.credits_remaining !== undefined && updateCredits) {
+        await updateCredits(result.credits_remaining);
+      }
+      
+      toast({ title: 'Analysis Complete', description: `Your resume scored ${result.score}/100 for this role.` });
+    } catch (err: any) {
+      setError(err.message || 'An error occurred.');
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
     } finally {
       setIsTailoring(false);
     }
   };
 
-  const handleStartOver = () => {
-    setTailorResults(null);
-    setJobUrl('');
-    setJobTitle('');
-    setCompany('');
-    setJobLocation('');
-    setJobDescription('');
-    setUrlParseError(null);
-    setError(null);
+  // Handle Apply Recommendation
+  const handleApplyRecommendation = async (rec: Recommendation) => {
+    if (!tailorJobContext) return;
+    
+    if ((user?.credits ?? 0) < 5) {
+      toast({ title: 'Insufficient Credits', description: 'You need at least 5 credits.', variant: 'destructive' });
+      return;
+    }
+    
+    setApplyingId(rec.id);
+    try {
+      const result = await applyRecommendation({
+        recommendation: rec,
+        job_context: tailorJobContext,
+        current_working_resume_text: tailoredResumeText || undefined,
+        score: tailorScore || undefined,
+      });
+      
+      if (result.status === 'error') {
+        toast({ title: 'Error', description: result.message, variant: 'destructive' });
+        return;
+      }
+      
+      setTailoredPdfBase64(result.updated_resume_pdf_base64 || null);
+      setTailoredResumeText(result.updated_resume_text || null);
+      setRecommendations(prev => prev.filter(r => r.id !== rec.id));
+      
+      if (result.credits_remaining !== undefined && updateCredits) {
+        await updateCredits(result.credits_remaining);
+      }
+      
+      toast({ title: 'Applied', description: 'Recommendation applied and saved to library.' });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setApplyingId(null);
+    }
   };
 
+  // Handle Download
+  const handleDownload = (pdfBase64: string, filename: string) => {
+    const link = document.createElement('a');
+    link.href = `data:application/pdf;base64,${pdfBase64}`;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast({ title: 'Download Started', description: 'Your resume is being downloaded.' });
+  };
 
   // Library handlers
   const handleViewEntry = async (entry: LibraryEntry) => {
@@ -412,15 +677,7 @@ export default function ResumeWorkshopPage() {
       const result = await getLibraryEntry(entry.id);
       if (result.status === 'ok' && result.entry?.pdf_base64) pdfBase64 = result.entry.pdf_base64;
     }
-    if (pdfBase64) {
-      const link = document.createElement('a');
-      link.href = `data:application/pdf;base64,${pdfBase64}`;
-      link.download = `${entry.display_name}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      toast({ title: 'Download Started', description: 'Your resume is being downloaded.' });
-    }
+    if (pdfBase64) handleDownload(pdfBase64, `${entry.display_name}.pdf`);
   };
 
   const handleDeleteEntry = async (entryId: string) => {
@@ -432,6 +689,17 @@ export default function ResumeWorkshopPage() {
     } catch (err) {
       toast({ title: 'Error', description: 'Failed to delete.', variant: 'destructive' });
     }
+  };
+
+  // Back to form
+  const handleBackToForm = () => {
+    setShowResults('none');
+    setFixedPdfBase64(null);
+    setFixedResumeText(null);
+    setTailoredPdfBase64(null);
+    setTailoredResumeText(null);
+    setTailorScore(null);
+    setRecommendations([]);
   };
 
   // Score helpers
@@ -475,6 +743,8 @@ export default function ResumeWorkshopPage() {
   }
 
   if (!user) return null;
+
+  const isProcessing = isTailoring;
 
   return (
     <SidebarProvider>
@@ -542,9 +812,11 @@ export default function ResumeWorkshopPage() {
                   )}
 
                   <TabsContent value="resume-workshop" className="mt-0">
-                    <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-                      {/* Left Column - Resume Preview (3/5 width) */}
-                      <div className="lg:col-span-3">
+                    {/* Show results or form */}
+                    {showResults === 'none' ? (
+                      <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                        {/* Left Column - Resume Preview (3/5 width) */}
+                        <div className="lg:col-span-3">
                           <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
                             <div className="h-1 bg-gradient-to-r from-cyan-500 via-teal-500 to-cyan-600"></div>
                             
@@ -596,12 +868,137 @@ export default function ResumeWorkshopPage() {
                           </div>
                         </div>
 
-                      {/* Right Column - Job Inputs or Results (2/5 width) */}
-                      <div className="lg:col-span-2 space-y-6">
-                        {!tailorResults ? (
-                          <>
-                            {/* Job Description Card */}
-                            {resumeUrl && (
+                        {/* Right Column - Actions (2/5 width) */}
+                        <div className="lg:col-span-2 space-y-6">
+                          {/* Resume Score Card */}
+                          {resumeUrl && (
+                            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+                              <div className="h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600"></div>
+                              
+                              <div className="p-6">
+                                <div className="flex items-start justify-between mb-4">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center">
+                                      <BarChart3 className="w-5 h-5 text-amber-600" />
+                                    </div>
+                                    <div>
+                                      <h3 className="font-semibold text-gray-900">Resume Score</h3>
+                                      {resumeScore !== null ? (
+                                        <div className="flex items-center gap-2 mt-1">
+                                          <span className={`text-2xl font-bold ${getScoreColor(resumeScore)}`}>
+                                            {resumeScore}/100
+                                          </span>
+                                          <span className={`text-xs px-2 py-0.5 rounded-full ${getScoreBadgeStyles(resumeScore)}`}>
+                                            {getScoreLabel(resumeScore)}
+                                          </span>
+                                          {scoreData?.cached && (
+                                            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                                              Cached
+                                            </span>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <p className="text-sm text-gray-500">Not scored yet</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                <p className="text-sm text-gray-600 mb-4">
+                                  Overall resume strength based on clarity, impact, structure, and ATS readiness.
+                                </p>
+                                
+                                <button 
+                                  onClick={handleScore}
+                                  disabled={isScoring || !resumeUrl}
+                                  className={`w-full py-2.5 text-sm font-semibold rounded-xl transition-all ${
+                                    resumeScore !== null
+                                      ? 'text-amber-600 bg-amber-50 hover:bg-amber-100'
+                                      : 'text-white bg-gradient-to-r from-amber-500 to-orange-500 hover:shadow-lg hover:shadow-amber-500/30'
+                                  }`}
+                                >
+                                  {isScoring ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : (resumeScore !== null ? 'Rescore Resume' : 'Score Resume')}
+                                </button>
+                                
+                                {/* Score Details Section */}
+                                {scoreData && resumeScore !== null && (
+                                  <div className="mt-4 pt-4 border-t border-gray-100">
+                                    <button
+                                      onClick={() => setShowScoreDetails(!showScoreDetails)}
+                                      className="flex items-center justify-between w-full text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                                    >
+                                      <span className="font-medium">View Score Details</span>
+                                      {showScoreDetails ? (
+                                        <ChevronUp className="w-4 h-4" />
+                                      ) : (
+                                        <ChevronDown className="w-4 h-4" />
+                                      )}
+                                    </button>
+                                    
+                                    {showScoreDetails && (
+                                      <div className="mt-4 space-y-4 animate-fadeIn">
+                                        {/* Overall Score Summary */}
+                                        <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl p-4 border border-amber-200">
+                                          <div className="flex items-baseline gap-2 mb-2">
+                                            <span className={`text-3xl font-bold ${getScoreColor(scoreData.score)}`}>
+                                              {scoreData.score}
+                                            </span>
+                                            <span className="text-gray-500">/ 100</span>
+                                            <span className={`text-sm px-2 py-0.5 rounded-full ${getScoreBadgeStyles(scoreData.score)}`}>
+                                              {scoreData.score_label}
+                                            </span>
+                                          </div>
+                                          {scoreData.summary && (
+                                            <p className="text-sm text-gray-700">{scoreData.summary}</p>
+                                          )}
+                                        </div>
+                                        
+                                        {/* Category Breakdown */}
+                                        {scoreData.categories && scoreData.categories.length > 0 && (
+                                          <div className="space-y-3">
+                                            <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
+                                              Category Breakdown
+                                            </h4>
+                                            {scoreData.categories.map((category: any, index: number) => (
+                                              <div key={index} className="border border-gray-200 rounded-xl p-4 bg-white">
+                                                <div className="flex items-start justify-between mb-2">
+                                                  <h5 className="font-medium text-gray-900 text-sm">{category.name}</h5>
+                                                  <span className={`text-lg font-bold ${getScoreColor(category.score)}`}>
+                                                    {category.score}
+                                                  </span>
+                                                </div>
+                                                {category.explanation && (
+                                                  <p className="text-xs text-gray-600 mb-3">{category.explanation}</p>
+                                                )}
+                                                {category.suggestions && category.suggestions.length > 0 && (
+                                                  <div className="space-y-2">
+                                                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                                                      Suggestions
+                                                    </p>
+                                                    <ul className="space-y-1">
+                                                      {category.suggestions.map((suggestion: string, sugIndex: number) => (
+                                                        <li key={sugIndex} className="text-xs text-gray-700 flex items-start gap-2">
+                                                          <span className="text-amber-600 mt-1">•</span>
+                                                          <span>{suggestion}</span>
+                                                        </li>
+                                                      ))}
+                                                    </ul>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Job Description Card */}
+                          {resumeUrl && (
                             <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
                               <div className="h-1 bg-gradient-to-r from-cyan-500 via-teal-500 to-cyan-600"></div>
                               
@@ -630,14 +1027,14 @@ export default function ResumeWorkshopPage() {
                                     <input
                                       type="url"
                                       value={jobUrl}
-                                      onChange={(e) => { setJobUrl(e.target.value); setUrlParseError(null); }}
+                                      onChange={(e) => { setJobUrl(e.target.value); setJobUrlError(null); }}
                                       placeholder="https://linkedin.com/jobs/..."
-                                      disabled={isTailoring}
+                                      disabled={isProcessing}
                                       className={`block w-full pl-9 pr-10 py-3 border rounded-xl
                                                  text-gray-900 placeholder-gray-400 text-sm
                                                  focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500
                                                  hover:border-gray-300 transition-all disabled:opacity-50
-                                                 ${urlParseError ? 'border-red-300' : 'border-gray-200'}`}
+                                                 ${jobUrlError ? 'border-red-300' : 'border-gray-200'}`}
                                     />
                                     {jobUrl && isValidUrl(jobUrl) && (
                                       <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
@@ -645,7 +1042,7 @@ export default function ResumeWorkshopPage() {
                                       </div>
                                     )}
                                   </div>
-                                  {urlParseError && <p className="text-sm text-red-600 mt-1">{urlParseError}</p>}
+                                  {jobUrlError && <p className="text-sm text-red-600 mt-1">{jobUrlError}</p>}
                                 </div>
                                 
                                 {/* Expandable Manual Entry */}
@@ -653,21 +1050,14 @@ export default function ResumeWorkshopPage() {
                                   <button
                                     onClick={() => setShowManualInputs(!showManualInputs)}
                                     className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                                    disabled={isTailoring}
+                                    disabled={isProcessing}
                                   >
                                     {showManualInputs ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                                     Or enter job details manually
                                   </button>
                                   
                                   {showManualInputs && (
-                                    <div className="mt-4 space-y-4">
-                                      {hasJobUrl && (
-                                        <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded-lg">
-                                          <p className="text-xs text-blue-700">
-                                            💡 Job URL detected. You can still edit the fields below or leave them to use the parsed values.
-                                          </p>
-                                        </div>
-                                      )}
+                                    <div className={`mt-4 space-y-4 ${hasJobUrl ? 'opacity-50' : ''}`}>
                                       <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-2">Company</label>
                                         <div className="relative">
@@ -679,7 +1069,7 @@ export default function ResumeWorkshopPage() {
                                             value={company}
                                             onChange={(e) => setCompany(e.target.value)}
                                             placeholder="e.g. Google"
-                                            disabled={isTailoring}
+                                            disabled={!!jobUrl || isProcessing}
                                             className="block w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm
                                                        focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 disabled:bg-gray-50"
                                           />
@@ -697,7 +1087,7 @@ export default function ResumeWorkshopPage() {
                                             value={jobTitle}
                                             onChange={(e) => setJobTitle(e.target.value)}
                                             placeholder="e.g. Product Manager"
-                                            disabled={isTailoring}
+                                            disabled={!!jobUrl || isProcessing}
                                             className="block w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm
                                                        focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 disabled:bg-gray-50"
                                           />
@@ -712,10 +1102,10 @@ export default function ResumeWorkshopPage() {
                                           </div>
                                           <input
                                             type="text"
-                                            value={jobLocation}
-                                            onChange={(e) => setJobLocation(e.target.value)}
+                                            value={locationInput}
+                                            onChange={(e) => setLocationInput(e.target.value)}
                                             placeholder="e.g. San Francisco, CA"
-                                            disabled={isTailoring}
+                                            disabled={!!jobUrl || isProcessing}
                                             className="block w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm
                                                        focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 disabled:bg-gray-50"
                                           />
@@ -729,7 +1119,7 @@ export default function ResumeWorkshopPage() {
                                           onChange={(e) => setJobDescription(e.target.value)}
                                           placeholder="Paste the job description here..."
                                           rows={4}
-                                          disabled={isTailoring}
+                                          disabled={!!jobUrl || isProcessing}
                                           className="block w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm resize-none
                                                      focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 disabled:bg-gray-50"
                                         />
@@ -744,7 +1134,7 @@ export default function ResumeWorkshopPage() {
                           {/* Action Buttons Card */}
                           {resumeUrl && (
                             <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-                              <div className="h-1 bg-gradient-to-r from-purple-500 via-indigo-500 to-purple-600"></div>
+                              <div className="h-1 bg-gradient-to-r from-cyan-500 via-teal-500 to-cyan-600"></div>
                               
                               <div className="p-6">
                                 <h3 className="font-semibold text-gray-900 mb-4">Resume Actions</h3>
@@ -753,173 +1143,159 @@ export default function ResumeWorkshopPage() {
                                   {/* Tailor Resume Button */}
                                   <button
                                     onClick={handleTailor}
-                                    disabled={isTailoring || !resumeUrl || !hasJobContext}
+                                    disabled={isProcessing || !resumeUrl || !hasJobContext}
                                     className={`
                                       w-full py-4 px-6 rounded-xl font-semibold transition-all duration-200
                                       flex items-center justify-center gap-3
-                                      ${hasJobContext && !isTailoring
+                                      ${hasJobContext && !isProcessing
                                         ? 'text-white bg-gradient-to-r from-purple-600 to-indigo-500 shadow-lg shadow-purple-500/30 hover:shadow-xl hover:shadow-purple-500/40 hover:scale-[1.02] active:scale-100'
                                         : 'text-gray-400 bg-gray-100 cursor-not-allowed'
                                       }
                                     `}
                                   >
-                                    {isTailoring ? (
+                                    {isTailoring && (
                                       <Loader2 className="w-5 h-5 animate-spin" />
-                                    ) : (
-                                      <Sparkles className="w-5 h-5" />
                                     )}
-                                    {isTailoring ? 'Analyzing...' : 'Tailor Resume (5 credits)'}
+                                    Tailor Resume
                                   </button>
                                   
                                   {!hasJobContext && (
-                                    <div className="text-xs text-gray-500 text-center space-y-1">
-                                      <p>Requires a job description to tailor your resume</p>
-                                      {getMissingFieldsMessage() && (
-                                        <p className="text-amber-600 font-medium">
-                                          {getMissingFieldsMessage()}
-                                        </p>
-                                      )}
-                                    </div>
+                                    <p className="text-xs text-gray-500 text-center">
+                                      Requires a job description to tailor your resume
+                                    </p>
                                   )}
                                 </div>
                                 
                                 {/* Cost info */}
                                 <div className="mt-4 pt-4 border-t border-gray-100 text-center">
                                   <p className="text-sm text-gray-500">
-                                    Costs <span className="font-semibold text-gray-700">5 credits</span>
+                                    Each action costs <span className="font-semibold text-gray-700">5 credits</span>
                                   </p>
                                 </div>
                               </div>
                             </div>
                           )}
-                          </>
-                        ) : (
-                          <>
-                            {/* Results Section */}
-                            <div className="space-y-6">
-                              {/* Score Card */}
-                              <div className="flex items-center justify-between py-4 border-b border-gray-200">
-                                <div>
-                                  <p className="text-sm text-gray-500">Match Score for</p>
-                                  <p className="font-medium text-gray-900">
-                                    {tailorResults.job_context.job_title} at {tailorResults.job_context.company}
-                                  </p>
+
+                          {/* What Each Action Does */}
+                          {resumeUrl && (
+                            <div className="bg-gradient-to-r from-slate-50 to-purple-50 rounded-2xl p-6 border border-gray-100">
+                              <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">What this action does</h3>
+                              
+                              <div className="flex items-start gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0">
+                                  <Sparkles className="w-4 h-4 text-purple-600" />
                                 </div>
-                                <div className="text-right">
-                                  <span className={`text-3xl font-semibold ${getScoreColor(tailorResults.score)}`}>
-                                    {tailorResults.score}
-                                  </span>
-                                  <span className="text-gray-400">/100</span>
+                                <div>
+                                  <p className="text-sm font-medium text-gray-900">Tailor Resume</p>
+                                  <p className="text-xs text-gray-500">Customizes your resume to match the job description, highlighting relevant skills.</p>
                                 </div>
                               </div>
-                              
-                              {/* Instructions */}
-                              <p className="text-sm text-gray-500">
-                                Copy the suggestions below into your resume. Each is tailored for this role.
-                              </p>
-                              
-                              {/* Section-by-section suggestions */}
-                              <div className="space-y-6">
-                                {/* Summary Section */}
-                                {tailorResults.sections.summary && (
-                                  <div>
-                                    <h3 className="text-sm font-medium text-gray-700 mb-3">Professional Summary</h3>
-                                    <SuggestionCard
-                                      current={tailorResults.sections.summary.current}
-                                      suggested={tailorResults.sections.summary.suggested}
-                                      why={tailorResults.sections.summary.why}
-                                    />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : showResults === 'tailor' ? (
+                      /* Tailor Results */
+                      <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+                        <div className="h-1 bg-gradient-to-r from-purple-500 via-indigo-500 to-purple-600"></div>
+                        
+                        <div className="p-6">
+                          <div className="flex items-center justify-between mb-6">
+                            <h2 className="text-xl font-semibold text-gray-900">
+                              Tailored for: {tailorJobContext?.job_title} at {tailorJobContext?.company}
+                            </h2>
+                            <Button variant="ghost" onClick={handleBackToForm} className="text-gray-500">
+                              ← Back
+                            </Button>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            {/* Left - Score & Recommendations */}
+                            <div className="space-y-6">
+                              {/* Score Card */}
+                              {tailorScore !== null && (
+                                <div className={`rounded-xl border p-4 ${
+                                  tailorScore >= 80 ? 'bg-green-50 border-green-200' :
+                                  tailorScore >= 60 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'
+                                }`}>
+                                  <div className="flex items-baseline gap-2">
+                                    <span className={`text-3xl font-bold ${getScoreColor(tailorScore)}`}>{tailorScore}</span>
+                                    <span className="text-gray-500">/ 100</span>
+                                    <span className="text-sm text-gray-600 ml-2">{tailorScoreLabel}</span>
                                   </div>
-                                )}
-                                
-                                {/* Experience Section */}
-                                {tailorResults.sections.experience && tailorResults.sections.experience.length > 0 && (
-                                  <div className="space-y-4">
-                                    <h3 className="text-sm font-medium text-gray-700">Experience</h3>
-                                    {tailorResults.sections.experience.map((exp, index) => (
-                                      <div key={index} className="space-y-3">
-                                        <p className="text-sm text-gray-600">{exp.role} @ {exp.company}</p>
-                                        {exp.bullets.map((bullet, bulletIndex) => (
-                                          <SuggestionCard
-                                            key={bulletIndex}
-                                            current={bullet.current}
-                                            suggested={bullet.suggested}
-                                            why={bullet.why}
-                                          />
-                                        ))}
+                                  <p className="text-sm text-gray-600 mt-2">Job fit score for this role</p>
+                                </div>
+                              )}
+                              
+                              {/* Recommendations */}
+                              {recommendations.length > 0 && (
+                                <div>
+                                  <h3 className="text-md font-semibold text-gray-900 mb-3">
+                                    Recommendations ({recommendations.length})
+                                  </h3>
+                                  <p className="text-sm text-gray-500 mb-3">
+                                    Apply to generate a tailored version. Each costs 5 credits.
+                                  </p>
+                                  <div className="space-y-3">
+                                    {recommendations.map(rec => (
+                                      <div key={rec.id} className="border border-gray-200 rounded-xl p-4 bg-white">
+                                        <div className="flex items-start justify-between gap-3">
+                                          <div className="min-w-0">
+                                            <h4 className="font-medium text-gray-900 text-sm">{rec.title}</h4>
+                                            <p className="text-sm text-gray-600 mt-1">{rec.explanation}</p>
+                                            <span className="text-xs text-gray-400">{rec.section}</span>
+                                          </div>
+                                          <Button
+                                            size="sm"
+                                            onClick={() => handleApplyRecommendation(rec)}
+                                            disabled={applyingId !== null}
+                                            className="bg-gradient-to-r from-purple-600 to-indigo-500 hover:shadow-lg flex-shrink-0 rounded-lg"
+                                          >
+                                            {applyingId === rec.id ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply'}
+                                          </Button>
+                                        </div>
                                       </div>
                                     ))}
                                   </div>
-                                )}
-                                
-                                {/* Skills Section */}
-                                {tailorResults.sections.skills && (
-                                  <div>
-                                    <h3 className="text-sm font-medium text-gray-700 mb-3">Skills</h3>
-                                    <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                                      {tailorResults.sections.skills.add.length > 0 && (
-                                        <div className="mb-4">
-                                          <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Add</p>
-                                          <div className="space-y-2">
-                                            {tailorResults.sections.skills.add.map((item, i) => (
-                                              <div key={i} className="flex items-start gap-2 text-sm">
-                                                <span className="text-blue-500">+</span>
-                                                <span className="font-medium text-gray-900">{item.skill}</span>
-                                                <span className="text-gray-500">— {item.reason}</span>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      )}
-                                      {tailorResults.sections.skills.remove.length > 0 && (
-                                        <div>
-                                          <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Consider Removing</p>
-                                          <div className="space-y-2">
-                                            {tailorResults.sections.skills.remove.map((item, i) => (
-                                              <div key={i} className="flex items-start gap-2 text-sm">
-                                                <span className="text-gray-400">−</span>
-                                                <span className="text-gray-600">{item.skill}</span>
-                                                <span className="text-gray-400">— {item.reason}</span>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-                                
-                                {/* Keywords Section */}
-                                {tailorResults.sections.keywords && tailorResults.sections.keywords.length > 0 && (
-                                  <div>
-                                    <h3 className="text-sm font-medium text-gray-700 mb-3">Missing Keywords</h3>
-                                    <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                                      <div className="space-y-2">
-                                        {tailorResults.sections.keywords.map((kw, i) => (
-                                          <div key={i} className="flex items-start gap-3 text-sm">
-                                            <code className="text-gray-900 bg-gray-100 px-1.5 py-0.5 rounded text-xs">{kw.keyword}</code>
-                                            <span className="text-gray-500">{kw.where_to_add}</span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
+                                </div>
+                              )}
                               
-                              {/* Start Over button */}
-                              <Button
-                                variant="outline"
-                                onClick={handleStartOver}
-                                className="w-full rounded-xl"
-                              >
-                                Tailor for a Different Job
-                              </Button>
+                              {recommendations.length === 0 && tailoredPdfBase64 && (
+                                <div className="text-center py-6 text-gray-500 bg-green-50 rounded-xl border border-green-200">
+                                  <CheckCircle className="w-8 h-8 text-green-600 mx-auto mb-2" />
+                                  <p className="font-medium text-green-700">All recommendations applied!</p>
+                                </div>
+                              )}
                             </div>
-                          </>
-                        )}
+                            
+                            {/* Right - Preview */}
+                            <div>
+                              <h3 className="text-sm font-medium text-gray-700 mb-2">
+                                {tailoredPdfBase64 ? 'Tailored Resume' : 'Original Resume'}
+                              </h3>
+                              <PDFPreview
+                                pdfUrl={tailoredPdfBase64 ? undefined : resumeUrl}
+                                pdfBase64={tailoredPdfBase64}
+                                title={tailoredPdfBase64 ? 'Tailored Resume' : 'Original Resume'}
+                              />
+                              {tailoredPdfBase64 && (
+                                <Button 
+                                  variant="outline" 
+                                  className="mt-4 w-full rounded-xl"
+                                  onClick={() => handleDownload(
+                                    tailoredPdfBase64, 
+                                    `${tailorJobContext?.job_title?.replace(/\s+/g, '_') || 'tailored'}_resume.pdf`
+                                  )}
+                                >
+                                  <Download className="h-4 w-4 mr-2" />
+                                  Download Tailored Resume
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    ) : null}
                   </TabsContent>
 
                   <TabsContent value="resume-library" className="mt-0">
@@ -1024,6 +1400,36 @@ export default function ResumeWorkshopPage() {
         </MainContentWrapper>
       </div>
       
+      <ReplaceResumeModal
+        isOpen={showReplaceModal}
+        onClose={() => setShowReplaceModal(false)}
+        onConfirm={handleSaveFixed}
+        isLoading={isReplacing}
+      />
+
+      {/* Loading Modal */}
+      {isProcessing && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-2xl">
+            <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Sparkles className="w-8 h-8 text-purple-600 animate-pulse" />
+            </div>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">
+              Tailoring your resume...
+            </h3>
+            <p className="text-gray-600 mb-4">
+              Customizing for {jobTitle || 'this role'} at {company || 'the company'}
+            </p>
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div 
+                className="h-2 rounded-full transition-all duration-300 bg-gradient-to-r from-purple-500 to-indigo-500"
+                style={{ width: '60%' }}
+              ></div>
+            </div>
+            <p className="text-sm text-gray-500 mt-3">This usually takes 20-30 seconds</p>
+          </div>
+        </div>
+      )}
     </SidebarProvider>
   );
 }

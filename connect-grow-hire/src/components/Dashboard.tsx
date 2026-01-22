@@ -348,19 +348,26 @@ export function Dashboard() {
       try {
         const history = await apiService.getFirmSearchHistory(50);
         const firmIds = new Set<string>();
-        for (const historyItem of history) {
-          try {
-            const searchData = await apiService.getFirmSearchById(historyItem.id);
-            if (searchData && searchData.firms) {
-              searchData.firms.forEach((firm: Firm) => {
-                const firmKey = firm.id || `${firm.name}-${firm.location?.display}`;
-                firmIds.add(firmKey);
-              });
-            }
-          } catch (err) {
+        
+        // Fetch all searches in parallel instead of sequentially
+        const searchPromises = history.map(historyItem =>
+          apiService.getFirmSearchById(historyItem.id).catch(err => {
             console.error(`Failed to load search ${historyItem.id}:`, err);
+            return null;
+          })
+        );
+        
+        const searchResults = await Promise.all(searchPromises);
+        
+        searchResults.forEach(searchData => {
+          if (searchData && searchData.firms) {
+            searchData.firms.forEach((firm: Firm) => {
+              const firmKey = firm.id || `${firm.name}-${firm.location?.display}`;
+              firmIds.add(firmKey);
+            });
           }
-        }
+        });
+        
         setFirmCount(firmIds.size);
       } catch (error) {
         console.error('Failed to fetch firms:', error);
@@ -569,51 +576,46 @@ export function Dashboard() {
           <div className="animate-fadeInUp" style={{ animationDelay: '300ms' }}>
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Wins</h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {/* Show loading state while fetching outbox data */}
-              {outboxLoading ? (
-                <div className="col-span-full text-center py-8 text-gray-500 text-sm">
-                  Loading quick wins...
+              {/* Show cards immediately, with loading state for outbox */}
+              <div 
+                onClick={() => navigate('/outbox')}
+                className={`bg-green-50 border border-green-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.emailsReady === 0 ? 'opacity-50' : ''}`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-2xl">📤</span>
+                  <span className="text-xs bg-green-200 text-green-800 px-2 py-0.5 rounded-full">2 min</span>
                 </div>
-              ) : (
-                <>
-                  {/* Show cards when data is loaded */}
-                  <div 
-                    onClick={() => navigate('/outbox')}
-                    className={`bg-green-50 border border-green-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.emailsReady === 0 ? 'opacity-50' : ''}`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-2xl">📤</span>
-                      <span className="text-xs bg-green-200 text-green-800 px-2 py-0.5 rounded-full">2 min</span>
-                    </div>
-                    <p className="font-semibold text-gray-900">{quickWins.emailsReady} emails ready</p>
-                    <p className="text-sm text-gray-600">Review and send with one click</p>
-                  </div>
+                <p className="font-semibold text-gray-900">
+                  {outboxLoading ? '...' : `${quickWins.emailsReady} emails ready`}
+                </p>
+                <p className="text-sm text-gray-600">Review and send with one click</p>
+              </div>
               
-                  <div 
-                    onClick={() => navigate('/coffee-chat-prep')}
-                    className={`bg-purple-50 border border-purple-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.coffeeChatsNeedPrep === 0 ? 'opacity-50' : ''}`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-2xl">☕</span>
-                      <span className="text-xs bg-purple-200 text-purple-800 px-2 py-0.5 rounded-full">5 min</span>
-                    </div>
-                    <p className="font-semibold text-gray-900">{quickWins.coffeeChatsNeedPrep} coffee chats</p>
-                    <p className="text-sm text-gray-600">Need quick prep before calls</p>
-                  </div>
-              
-                  <div 
-                    onClick={() => navigate('/firm-search')}
-                    className={`bg-blue-50 border border-blue-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.newMatches === 0 ? 'opacity-50' : ''}`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-2xl">🎯</span>
-                      <span className="text-xs bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full">New</span>
-                    </div>
-                    <p className="font-semibold text-gray-900">{quickWins.newMatches} companies</p>
-                    <p className="text-sm text-gray-600">Match your search criteria</p>
-                  </div>
+              <div 
+                onClick={() => navigate('/coffee-chat-prep')}
+                className={`bg-purple-50 border border-purple-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.coffeeChatsNeedPrep === 0 ? 'opacity-50' : ''}`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-2xl">☕</span>
+                  <span className="text-xs bg-purple-200 text-purple-800 px-2 py-0.5 rounded-full">5 min</span>
+                </div>
+                <p className="font-semibold text-gray-900">{quickWins.coffeeChatsNeedPrep} coffee chats</p>
+                <p className="text-sm text-gray-600">Need quick prep before calls</p>
+              </div>
+          
+              <div 
+                onClick={() => navigate('/firm-search')}
+                className={`bg-blue-50 border border-blue-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.newMatches === 0 ? 'opacity-50' : ''}`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-2xl">🎯</span>
+                  <span className="text-xs bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full">New</span>
+                </div>
+                <p className="font-semibold text-gray-900">{quickWins.newMatches} companies</p>
+                <p className="text-sm text-gray-600">Match your search criteria</p>
+              </div>
 
-                  {quickWins.emailsReady === 0 && quickWins.coffeeChatsNeedPrep === 0 && quickWins.newMatches === 0 && (
+              {quickWins.emailsReady === 0 && quickWins.coffeeChatsNeedPrep === 0 && quickWins.newMatches === 0 && (
                     <div 
                       onClick={() => navigate('/contact-search')}
                       className="bg-gray-50 border border-gray-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer col-span-full"
@@ -625,10 +627,7 @@ export function Dashboard() {
                       <p className="font-semibold text-gray-900">Find your first contacts</p>
                       <p className="text-sm text-gray-600">Search for people at companies you're targeting</p>
                     </div>
-                  )}
-                </>
               )}
-              
             </div>
           </div>
 

@@ -94,6 +94,7 @@ export interface ScoreResponse {
   credits_remaining?: number;
   message?: string;
   error_code?: string;
+  cached?: boolean;
 }
 
 export interface TailorResponse {

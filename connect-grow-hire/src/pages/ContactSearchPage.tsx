@@ -39,8 +39,8 @@ const SCOUT_AUTO_POPULATE_KEY = 'scout_auto_populate';
 // Quick start templates for common searches
 const quickStartTemplates = [
   { id: 1, label: 'IB Analyst in NYC', jobTitle: 'Investment Banking Analyst', location: 'New York, NY', company: '', college: '' },
-  { id: 2, label: 'PM at FAANG', jobTitle: 'Product Manager', company: 'Google, Meta, Apple, Amazon', location: 'San Francisco, CA', college: '' },
-  { id: 3, label: 'Consulting at MBB', jobTitle: 'Consultant', company: 'McKinsey, Bain, BCG', location: 'New York, NY', college: '' },
+  { id: 2, label: 'PM at Google', jobTitle: 'Product Manager', company: 'Google', location: 'San Francisco, CA', college: '' },
+  { id: 3, label: 'Consulting at McKinsey', jobTitle: 'Consultant', company: 'McKinsey', location: 'New York, NY', college: '' },
   { id: 4, label: 'SWE in Bay Area', jobTitle: 'Software Engineer', location: 'San Francisco, CA', company: '', college: '' },
 ];
 

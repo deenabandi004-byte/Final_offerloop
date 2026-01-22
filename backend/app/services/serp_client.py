@@ -13,7 +13,7 @@ SERPAPI_BASE_URL = "https://serpapi.com/search"
 # Configuration for iterative fetching
 OVERFETCH_MULTIPLIER = float(os.getenv('FIRM_SEARCH_OVERFETCH_MULTIPLIER', '2.5'))  # Initial multiplier
 RETRY_MULTIPLIER = float(os.getenv('FIRM_SEARCH_RETRY_MULTIPLIER', '3.0'))  # Multiplier for retries
-MAX_ITERATIONS = int(os.getenv('FIRM_SEARCH_MAX_ITERATIONS', '3'))  # Maximum retry attempts
+MAX_ITERATIONS = int(os.getenv('FIRM_SEARCH_MAX_ITERATIONS', '2'))  # Maximum retry attempts (reduced from 3 for speed)
 MAX_TOTAL_FIRMS_MULTIPLIER = float(os.getenv('FIRM_SEARCH_MAX_TOTAL_MULTIPLIER', '5.0'))  # limit × this = absolute cap
 MIN_BATCH_BUFFER = 5  # Always generate at least needed + this many firms per iteration
 
@@ -300,7 +300,7 @@ def search_companies_with_serp(
             firms_data = get_firm_details_batch(
                 new_firm_names,
                 location,
-                max_workers=10,  # OPTIMIZED: Increased from 5 to 10 for faster processing
+                max_workers=15,  # OPTIMIZED: Increased for faster processing (batch extraction reduces rate limit issues)
                 progress_callback=progress_callback,
                 max_results=None  # Don't limit here - we'll filter and limit later
             )

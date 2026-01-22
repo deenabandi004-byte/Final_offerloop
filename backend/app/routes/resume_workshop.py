@@ -7,7 +7,8 @@ import logging
 import json
 import uuid
 import base64
-from datetime import datetime
+import hashlib
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 
 from flask import Blueprint, jsonify, request
@@ -883,7 +884,7 @@ def fix_resume():
 def score_resume():
     """
     Score resume and provide improvement suggestions (without job tailoring).
-    Costs 5 credits.
+    Costs 5 credits (unless cached result found).
     
     Response:
     {
@@ -892,14 +893,16 @@ def score_resume():
         "score_label": "Good",
         "categories": [...],
         "summary": "...",
-        "credits_remaining": 123
+        "credits_remaining": 123,
+        "cached": true  // if returned from cache
     }
     """
     user_id = request.firebase_user.get('uid') if hasattr(request, 'firebase_user') else None
     if not user_id:
         return jsonify({
             "status": "error",
-            "message": "User not authenticated"
+            "message": "User not authenticated",
+            "error_code": "NOT_AUTHENTICATED"
         }), 401
     
     try:
@@ -907,21 +910,96 @@ def score_resume():
         resume_data = _fetch_user_resume_data(user_id)
         resume_text = resume_data.get('resume_text', '')
         
-        if not resume_text or len(resume_text) < 100:
+        if not resume_text:
             return jsonify({
                 "status": "error",
                 "message": "No resume found. Please upload your resume in Account Settings first.",
-                "error_code": "NO_RESUME"
+                "error_code": "RESUME_NOT_FOUND"
             }), 400
         
-        # Check credits before operation
+        if len(resume_text) < 100:
+            return jsonify({
+                "status": "error",
+                "message": "Your resume needs more content before scoring. Please add more details.",
+                "error_code": "RESUME_TOO_SHORT"
+            }), 400
+        
+        # Generate MD5 hash of resume text for caching
+        resume_hash = hashlib.md5(resume_text.encode('utf-8')).hexdigest()
+        
+        # Check for cached score (within last 24 hours)
         db = get_db()
+        if db:
+            scores_ref = db.collection('users').document(user_id).collection('resume_scores')
+            # Query for scores with matching hash created within last 24 hours
+            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
+            
+            cached_scores = scores_ref.where('resume_hash', '==', resume_hash).order_by('created_at', direction='DESCENDING').limit(1).get()
+            
+            for cached_doc in cached_scores:
+                cached_data = cached_doc.to_dict()
+                created_at = cached_data.get('created_at')
+                
+                # Check if created_at is a timestamp and within 24 hours
+                if created_at:
+                    try:
+                        # Handle Firestore timestamp
+                        if hasattr(created_at, 'timestamp'):
+                            # Firestore Timestamp object
+                            cache_time = datetime.fromtimestamp(created_at.timestamp(), tz=timezone.utc)
+                        elif isinstance(created_at, datetime):
+                            # Already a datetime
+                            cache_time = created_at
+                            if cache_time.tzinfo is None:
+                                cache_time = cache_time.replace(tzinfo=timezone.utc)
+                        else:
+                            # Try to parse as ISO string
+                            if isinstance(created_at, str):
+                                cache_time = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                            else:
+                                continue
+                        
+                        # Check if within 24 hours
+                        now = datetime.now(timezone.utc)
+                        time_diff = now - cache_time
+                        if time_diff < timedelta(hours=24) and time_diff.total_seconds() >= 0:
+                            # Return cached result (no credit charge)
+                            logger.info(f"[ResumeWorkshop] Returning cached score for user {user_id[:8]}... (age: {time_diff})")
+                            
+                            # Get current credits (no deduction needed)
+                            user_ref = db.collection('users').document(user_id)
+                            user_doc = user_ref.get()
+                            current_credits = user_doc.to_dict().get('credits', 0) if user_doc.exists else 0
+                            
+                            return jsonify({
+                                "status": "ok",
+                                "score": cached_data.get('score'),
+                                "score_label": cached_data.get('score_label'),
+                                "categories": cached_data.get('categories', []),
+                                "summary": cached_data.get('summary', ''),
+                                "credits_remaining": current_credits,
+                                "cached": True
+                            })
+                    except Exception as cache_error:
+                        logger.warning(f"[ResumeWorkshop] Error checking cache timestamp: {cache_error}")
+                        continue
+        
+        # No cached result found - proceed with new scoring
+        # Check credits before operation
+        if not db:
+            return jsonify({
+                "status": "error",
+                "message": "Database not available",
+                "error_code": "DATABASE_ERROR"
+            }), 500
+        
         user_ref = db.collection('users').document(user_id)
         user_doc = user_ref.get()
         if not user_doc.exists:
             return jsonify({
                 "status": "error",
-                "message": "User not found"
+                "message": "User not found",
+                "error_code": "USER_NOT_FOUND"
             }), 404
         
         current_credits = user_doc.to_dict().get('credits', 0)
@@ -949,6 +1027,7 @@ def score_resume():
                 return jsonify({
                     "status": "error",
                     "message": "AI service unavailable",
+                    "error_code": "AI_ERROR",
                     "credits_refunded": True
                 }), 503
             
@@ -958,10 +1037,39 @@ def score_resume():
             )
         except TimeoutError:
             refund_credits_atomic(user_id, 5, "resume_workshop_score_timeout")
-            raise
+            return jsonify({
+                "status": "error",
+                "message": "Scoring timed out. Your credits have been refunded. Please try again.",
+                "error_code": "AI_TIMEOUT",
+                "credits_refunded": True
+            }), 504
         except Exception as e:
             refund_credits_atomic(user_id, 5, "resume_workshop_score_error")
-            raise
+            logger.error(f"[ResumeWorkshop] AI error during scoring: {e}")
+            return jsonify({
+                "status": "error",
+                "message": "Something went wrong during scoring. Credits refunded. Please try again.",
+                "error_code": "AI_ERROR",
+                "credits_refunded": True
+            }), 500
+        
+        # Store result in cache
+        if db:
+            try:
+                from firebase_admin import firestore
+                scores_ref = db.collection('users').document(user_id).collection('resume_scores')
+                cache_data = {
+                    "score": result.get('score'),
+                    "score_label": result.get('score_label'),
+                    "categories": result.get('categories', []),
+                    "summary": result.get('summary', ''),
+                    "resume_hash": resume_hash,
+                    "created_at": firestore.SERVER_TIMESTAMP
+                }
+                scores_ref.add(cache_data)
+                logger.info(f"[ResumeWorkshop] Cached score for user {user_id[:8]}...")
+            except Exception as cache_error:
+                logger.warning(f"[ResumeWorkshop] Failed to cache score: {cache_error}")
         
         return jsonify({
             "status": "ok",
@@ -969,7 +1077,8 @@ def score_resume():
             "score_label": result.get('score_label'),
             "categories": result.get('categories', []),
             "summary": result.get('summary', ''),
-            "credits_remaining": new_credits
+            "credits_remaining": new_credits,
+            "cached": False
         })
         
     except ValueError as exc:
@@ -981,15 +1090,9 @@ def score_resume():
             }), 402
         return jsonify({
             "status": "error",
-            "message": str(exc)
+            "message": str(exc),
+            "error_code": "VALIDATION_ERROR"
         }), 400
-    except TimeoutError:
-        logger.error(f"[ResumeWorkshop] Score timed out for user {user_id[:8]}...")
-        return jsonify({
-            "status": "error",
-            "message": "Scoring timed out. Your credits have been refunded. Please try again.",
-            "credits_refunded": True
-        }), 504
     except Exception as exc:
         logger.error(f"[ResumeWorkshop] Score failed: {type(exc).__name__}: {exc}")
         import traceback
@@ -1003,6 +1106,7 @@ def score_resume():
         return jsonify({
             "status": "error",
             "message": f"Scoring failed: {str(exc)}",
+            "error_code": "UNKNOWN_ERROR",
             "credits_refunded": credits_refunded
         }), 500
 

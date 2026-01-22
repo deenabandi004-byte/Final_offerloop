@@ -25,7 +25,7 @@ _firm_cache = {}
 _cache_ttl = 3600  # 1 hour cache TTL
 
 
-def _search_linkedin_url(firm_name: str, location: Dict[str, Optional[str]] = None, timeout: int = 8) -> Optional[str]:
+def _search_linkedin_url(firm_name: str, location: Dict[str, Optional[str]] = None, timeout: int = 5) -> Optional[str]:
     """
     Perform a specific search for LinkedIn company page.
     This is a fallback if LinkedIn isn't found in the main search.
@@ -99,10 +99,294 @@ def _set_cached_firm(cache_key: str, firm_data: Dict[str, Any]):
     _firm_cache[cache_key] = (firm_data, time.time())
 
 
+def _fetch_serp_results_only(
+    firm_name: str,
+    location: Dict[str, Optional[str]] = None,
+    timeout: int = 8
+) -> Optional[Dict[str, Any]]:
+    """
+    Fetch SERP API results only (no ChatGPT extraction).
+    Returns raw SERP data for batch processing.
+    """
+    if not SERPAPI_KEY:
+        return None
+    
+    query = f"{firm_name} company"
+    if location:
+        if location.get("locality"):
+            query += f" {location['locality']}"
+        if location.get("region"):
+            query += f" {location['region']}"
+    
+    params = {
+        "q": query,
+        "api_key": SERPAPI_KEY,
+        "engine": "google",
+        "num": 20,
+        "hl": "en",
+        "gl": "us"
+    }
+    
+    try:
+        with _serp_session_lock:
+            response = _serp_session.get(SERPAPI_BASE_URL, params=params, timeout=timeout)
+        
+        if response.status_code != 200:
+            return None
+        
+        data = response.json()
+        return {
+            "firm_name": firm_name,
+            "location": location,
+            "knowledge_graph": data.get("knowledge_graph"),
+            "organic_results": data.get("organic_results", [])
+        }
+    except Exception as e:
+        print(f"⚠️ Error fetching SERP for {firm_name}: {e}")
+        return None
+
+
+def _extract_firms_batch_with_chatgpt(
+    serp_data_list: List[Dict[str, Any]],
+    location: Dict[str, Optional[str]] = None
+) -> List[Dict[str, Any]]:
+    """
+    Extract multiple firms from SERP results in a single ChatGPT call.
+    This is much faster than individual extractions.
+    """
+    if not serp_data_list:
+        return []
+    
+    client = get_openai_client()
+    if not client:
+        return []
+    
+    # Prepare batch context
+    location_str = ""
+    if location:
+        location_parts = [v for v in [
+            location.get("locality"),
+            location.get("region"),
+            location.get("country")
+        ] if v]
+        location_str = ", ".join(location_parts)
+    
+    # Build context for all firms
+    firms_context = []
+    for serp_data in serp_data_list:
+        firm_name = serp_data["firm_name"]
+        knowledge_graph = serp_data.get("knowledge_graph")
+        organic_results = serp_data.get("organic_results", [])
+        
+        firm_context = f"\n=== FIRM: {firm_name} ===\n"
+        
+        if knowledge_graph:
+            kg_display = {
+                "title": knowledge_graph.get("title"),
+                "name": knowledge_graph.get("name"),
+                "website": knowledge_graph.get("website") or knowledge_graph.get("official_website"),
+                "description": knowledge_graph.get("description") or knowledge_graph.get("about"),
+                "employees": knowledge_graph.get("employees") or knowledge_graph.get("number_of_employees"),
+                "headquarters": knowledge_graph.get("headquarters"),
+                "industry": knowledge_graph.get("industry") or knowledge_graph.get("sector"),
+                "founded": knowledge_graph.get("founded")
+            }
+            firm_context += f"Knowledge Graph:\n{json.dumps(kg_display, indent=2)}\n"
+        
+        # Add top organic results
+        for i, result in enumerate(organic_results[:5], 1):
+            firm_context += f"Result {i}:\n  Title: {result.get('title', '')}\n  Link: {result.get('link', '')}\n  Snippet: {result.get('snippet', '')}\n"
+        
+        firms_context.append(firm_context)
+    
+    combined_context = "\n".join(firms_context)
+    
+    system_prompt = """You are an expert at extracting company information from Google search results.
+Extract information for MULTIPLE companies in one response.
+Return a JSON array with one object per company.
+Prioritize Knowledge Graph data - it's the most reliable source."""
+
+    user_prompt = f"""Requested Location: {location_str if location_str else 'Not specified'}
+
+Search Results for {len(serp_data_list)} companies (in order):
+{combined_context}
+
+Extract comprehensive information for each company. Return a JSON array with one object per company.
+IMPORTANT: Return companies in the SAME ORDER as listed above (FIRM 1, FIRM 2, etc.).
+
+For each company, extract:
+- name: Official company name
+- website: Official website URL
+- linkedinUrl: LinkedIn company page URL (format: https://linkedin.com/company/company-name)
+- location: {{"city": string or null, "state": string or null, "country": string or null}}
+- industry: Primary industry/sector
+- employeeCount: Number of employees (integer or null)
+- sizeBucket: "small" (1-50), "mid" (51-500), "large" (500+), or null
+- founded: Year founded (4-digit integer or null)
+
+Return ONLY a JSON array (no markdown, no explanations):
+[
+  {{
+    "name": "Company 1",
+    "website": "...",
+    "linkedinUrl": "...",
+    "location": {{"city": "...", "state": "...", "country": "..."}},
+    "industry": "...",
+    "employeeCount": 10000,
+    "sizeBucket": "large",
+    "founded": 2010
+  }},
+  ...
+]"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.1,
+            max_tokens=2000  # More tokens for batch extraction
+        )
+        
+        result_text = response.choices[0].message.content.strip()
+        
+        # Clean up response
+        if result_text.startswith("```"):
+            result_text = result_text.split("```")[1]
+            if result_text.startswith("json"):
+                result_text = result_text[4:]
+        result_text = result_text.strip()
+        
+        try:
+            companies_data = json.loads(result_text)
+            if not isinstance(companies_data, list):
+                companies_data = [companies_data]
+            
+            # Match extracted companies back to firm names
+            # ChatGPT should return companies in the same order as requested
+            extracted_firms = []
+            used_indices = set()
+            
+            for i, serp_data in enumerate(serp_data_list):
+                firm_name = serp_data["firm_name"]
+                knowledge_graph = serp_data.get("knowledge_graph")
+                
+                # Try to find matching company data
+                company_data = None
+                
+                # First, try exact order match (ChatGPT usually follows order)
+                if i < len(companies_data) and i not in used_indices:
+                    candidate = companies_data[i]
+                    # Verify it's a reasonable match
+                    if candidate.get("name") and (
+                        firm_name.lower() in candidate.get("name", "").lower() or
+                        candidate.get("name", "").lower() in firm_name.lower()
+                    ):
+                        company_data = candidate
+                        used_indices.add(i)
+                
+                # If no order match, try name similarity
+                if not company_data:
+                    for j, cd in enumerate(companies_data):
+                        if j in used_indices:
+                            continue
+                        if cd.get("name") and (
+                            firm_name.lower() in cd.get("name", "").lower() or
+                            cd.get("name", "").lower() in firm_name.lower()
+                        ):
+                            company_data = cd
+                            used_indices.add(j)
+                            break
+                
+                # If still no match, use first unused company
+                if not company_data and companies_data:
+                    for j, cd in enumerate(companies_data):
+                        if j not in used_indices:
+                            company_data = cd
+                            used_indices.add(j)
+                            break
+                
+                if not company_data:
+                    # Fallback: create minimal data from Knowledge Graph
+                    if knowledge_graph:
+                        kg_name = knowledge_graph.get("title") or knowledge_graph.get("name") or firm_name
+                        company_data = {"name": kg_name}
+                    else:
+                        company_data = {"name": firm_name}
+                
+                # Enhance with Knowledge Graph data
+                if knowledge_graph:
+                    kg_website = knowledge_graph.get("website") or knowledge_graph.get("official_website")
+                    if kg_website:
+                        company_data["website"] = kg_website
+                    
+                    kg_employees = knowledge_graph.get("employees") or knowledge_graph.get("number_of_employees")
+                    if kg_employees:
+                        if isinstance(kg_employees, (int, float)):
+                            company_data["employeeCount"] = int(kg_employees)
+                        elif isinstance(kg_employees, str):
+                            numbers = re.findall(r'[\d,]+', kg_employees.replace(',', ''))
+                            if numbers:
+                                try:
+                                    company_data["employeeCount"] = int(numbers[0].replace(',', ''))
+                                except:
+                                    pass
+                    
+                    kg_founded = knowledge_graph.get("founded")
+                    if kg_founded:
+                        company_data["founded"] = kg_founded
+                    
+                    kg_industry = knowledge_graph.get("industry") or knowledge_graph.get("sector")
+                    if kg_industry:
+                        company_data["industry"] = kg_industry
+                
+                # Extract LinkedIn URL from organic results
+                organic_results = serp_data.get("organic_results", [])
+                for result in organic_results:
+                    link = result.get('link', '').lower()
+                    if 'linkedin.com/company' in link:
+                        company_data["linkedinUrl"] = result.get('link', '')
+                        if not company_data["linkedinUrl"].startswith('http'):
+                            company_data["linkedinUrl"] = f"https://{company_data['linkedinUrl']}"
+                        break
+                
+                # Calculate sizeBucket
+                if not company_data.get("sizeBucket") and company_data.get("employeeCount"):
+                    emp = company_data["employeeCount"]
+                    if emp <= 50:
+                        company_data["sizeBucket"] = "small"
+                    elif emp <= 500:
+                        company_data["sizeBucket"] = "mid"
+                    else:
+                        company_data["sizeBucket"] = "large"
+                
+                # Normalize location
+                if not isinstance(company_data.get("location"), dict):
+                    company_data["location"] = {}
+                
+                # Normalize URLs
+                if company_data.get("website") and not company_data["website"].startswith("http"):
+                    company_data["website"] = f"https://{company_data['website']}"
+                
+                extracted_firms.append(company_data)
+            
+            return extracted_firms
+            
+        except json.JSONDecodeError as e:
+            print(f"⚠️ Failed to parse batch extraction JSON: {e}")
+            return []
+            
+    except Exception as e:
+        print(f"❌ Error in batch extraction: {e}")
+        return []
+
+
 def search_firm_details_with_serp(
     firm_name: str, 
     location: Dict[str, Optional[str]] = None,
-    timeout: int = 12
+    timeout: int = 8
 ) -> Optional[Dict[str, Any]]:
     """
     Search for a specific firm using SERP API and extract its details.
@@ -214,7 +498,7 @@ def search_firm_details_with_serp(
         
         # If no LinkedIn found, try a specific LinkedIn search
         if not linkedin_url:
-            linkedin_url = _search_linkedin_url(firm_name, location, timeout=8)
+            linkedin_url = _search_linkedin_url(firm_name, location, timeout=5)
         
         # Use ChatGPT to extract structured data from SERP results
         client = get_openai_client()
@@ -490,7 +774,7 @@ def get_firm_details_batch(
 ) -> List[Dict[str, Any]]:
     """
     Get details for multiple firms in batch using parallel processing.
-    OPTIMIZED: Parallel execution, deduplication, timeout handling.
+    OPTIMIZED: Batch ChatGPT extraction for 5-10x speedup.
     
     Args:
         firm_names: List of firm names to search for
@@ -519,45 +803,87 @@ def get_firm_details_batch(
         unique_names = unique_names[:max_results]
         print(f"🔍 Limited to {max_results} firm names (requested limit)")
     
-    firms = []
-    total = len(unique_names)
+    # Check cache first for all firms
+    cached_firms = []
+    uncached_names = []
+    for name in unique_names:
+        cache_key = _get_cache_key(name, location)
+        cached_result = _get_cached_firm(cache_key)
+        if cached_result:
+            cached_firms.append(cached_result)
+        else:
+            uncached_names.append(name)
+    
+    if cached_firms:
+        print(f"✅ Cache hit for {len(cached_firms)}/{len(unique_names)} firms")
+    
+    if not uncached_names:
+        # All cached!
+        if max_results is not None and len(cached_firms) > max_results:
+            cached_firms = cached_firms[:max_results]
+        return cached_firms
+    
+    # Phase 1: Fetch all SERP results in parallel (fast)
+    print(f"🔍 Fetching SERP results for {len(uncached_names)} firms (parallel)...")
+    serp_results = []
+    total = len(uncached_names)
     completed = 0
     
-    # Use ThreadPoolExecutor for parallel processing
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all tasks
         future_to_name = {
-            executor.submit(search_firm_details_with_serp, name, location): name
-            for name in unique_names
+            executor.submit(_fetch_serp_results_only, name, location): name
+            for name in uncached_names
         }
         
-        # Process completed tasks
         for future in as_completed(future_to_name):
             firm_name = future_to_name[future]
             completed += 1
             
             try:
-                # Use timeout for individual future (additional safety)
-                details = future.result(timeout=15)
-                if details:
-                    firms.append(details)
+                serp_data = future.result(timeout=10)
+                if serp_data:
+                    serp_results.append(serp_data)
                 
-                # Progress callback
                 if progress_callback:
                     progress_callback(completed, total)
-                
             except FutureTimeoutError:
-                print(f"⏰ Timeout getting details for {firm_name}")
+                print(f"⏰ Timeout fetching SERP for {firm_name}")
             except Exception as e:
-                print(f"❌ Error getting details for {firm_name}: {e}")
+                print(f"❌ Error fetching SERP for {firm_name}: {e}")
+    
+    if not serp_results:
+        print(f"⚠️ No SERP results retrieved")
+        return cached_firms
+    
+    # Phase 2: Batch extract with ChatGPT (much faster than individual calls)
+    print(f"🤖 Batch extracting {len(serp_results)} firms with ChatGPT...")
+    BATCH_SIZE = 8  # Extract 8 firms per ChatGPT call
+    
+    extracted_firms = []
+    for i in range(0, len(serp_results), BATCH_SIZE):
+        batch = serp_results[i:i + BATCH_SIZE]
+        batch_firms = _extract_firms_batch_with_chatgpt(batch, location)
+        
+        # Cache each extracted firm
+        for firm_data in batch_firms:
+            firm_name = firm_data.get("name", "")
+            if firm_name:
+                cache_key = _get_cache_key(firm_name, location)
+                _set_cached_firm(cache_key, firm_data)
+            extracted_firms.append(firm_data)
+        
+        print(f"✅ Extracted batch {i // BATCH_SIZE + 1} ({len(batch_firms)} firms)")
+    
+    # Combine cached and extracted firms
+    all_firms = cached_firms + extracted_firms
     
     # STRICT LIMIT ENFORCEMENT: Apply max_results limit if provided
     if max_results is not None:
-        if len(firms) > max_results:
-            firms = firms[:max_results]
+        if len(all_firms) > max_results:
+            all_firms = all_firms[:max_results]
             print(f"🔍 Limited results to {max_results} firms (requested limit)")
-        elif len(firms) < max_results:
-            print(f"⚠️ Only retrieved {len(firms)}/{max_results} firms (some may have failed)")
+        elif len(all_firms) < max_results:
+            print(f"⚠️ Only retrieved {len(all_firms)}/{max_results} firms (some may have failed)")
     
-    print(f"✅ Retrieved details for {len(firms)}/{total} firms (limit: {max_results})")
-    return firms
+    print(f"✅ Retrieved details for {len(all_firms)}/{len(unique_names)} firms (limit: {max_results})")
+    return all_firms
