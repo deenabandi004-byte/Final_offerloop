@@ -7,12 +7,15 @@ import json
 import hashlib
 import time
 import re
+import logging
 from typing import List, Dict, Any, Optional, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FutureTimeoutError
 from functools import lru_cache
 from threading import Lock
 from app.config import SERPAPI_KEY
 from app.services.openai_client import get_openai_client
+
+logger = logging.getLogger(__name__)
 
 SERPAPI_BASE_URL = "https://serpapi.com/search"
 
@@ -102,12 +105,15 @@ def _set_cached_firm(cache_key: str, firm_data: Dict[str, Any]):
 def _fetch_serp_results_only(
     firm_name: str,
     location: Dict[str, Optional[str]] = None,
-    timeout: int = 8
+    timeout: int = 8,
+    search_id: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
     """
     Fetch SERP API results only (no ChatGPT extraction).
     Returns raw SERP data for batch processing.
     """
+    start_time = time.time()
+    
     if not SERPAPI_KEY:
         return None
     
@@ -131,19 +137,194 @@ def _fetch_serp_results_only(
         with _serp_session_lock:
             response = _serp_session.get(SERPAPI_BASE_URL, params=params, timeout=timeout)
         
+        duration = time.time() - start_time
+        
         if response.status_code != 200:
+            logger.debug("serp_single_fetch", extra={
+                "search_id": search_id,
+                "firm": firm_name,
+                "duration_seconds": round(duration, 2),
+                "success": False,
+                "status_code": response.status_code
+            })
             return None
         
         data = response.json()
-        return {
+        result = {
             "firm_name": firm_name,
             "location": location,
             "knowledge_graph": data.get("knowledge_graph"),
             "organic_results": data.get("organic_results", [])
         }
-    except Exception as e:
-        print(f"⚠️ Error fetching SERP for {firm_name}: {e}")
+        
+        logger.debug("serp_single_fetch", extra={
+            "search_id": search_id,
+            "firm": firm_name,
+            "duration_seconds": round(duration, 2),
+            "success": True,
+            "has_knowledge_graph": bool(data.get("knowledge_graph")),
+            "organic_results_count": len(data.get("organic_results", []))
+        })
+        
+        return result
+    except requests.exceptions.Timeout:
+        duration = time.time() - start_time
+        logger.warning("serp_single_fetch_failed", extra={
+            "search_id": search_id,
+            "firm": firm_name,
+            "duration_seconds": round(duration, 2),
+            "error": "timeout",
+            "timeout_seconds": timeout
+        })
         return None
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.warning("serp_single_fetch_failed", extra={
+            "search_id": search_id,
+            "firm": firm_name,
+            "duration_seconds": round(duration, 2),
+            "error": str(e)
+        })
+        return None
+
+
+def _extract_single_batch(
+    batch: List[Dict[str, Any]],
+    batch_idx: int,
+    location: Dict[str, Optional[str]],
+    search_id: Optional[str]
+) -> tuple:
+    """
+    Extract a single batch and return (firms, duration).
+    
+    Args:
+        batch: List of SERP data for firms in this batch
+        batch_idx: Index of this batch (0-based)
+        location: Location dict for context
+        search_id: Search ID for logging
+        
+    Returns:
+        Tuple of (extracted_firms_list, duration_seconds)
+    """
+    start = time.time()
+    
+    try:
+        # Call existing extraction function
+        firms = _extract_firms_batch_with_chatgpt(batch, location)
+        duration = time.time() - start
+        
+        logger.debug("chatgpt_batch_complete", extra={
+            "search_id": search_id,
+            "batch": batch_idx + 1,
+            "firms_in_batch": len(batch),
+            "firms_extracted": len(firms),
+            "duration_seconds": round(duration, 2)
+        })
+        
+        return firms, duration
+        
+    except Exception as e:
+        duration = time.time() - start
+        logger.error("chatgpt_batch_error", extra={
+            "search_id": search_id,
+            "batch": batch_idx + 1,
+            "error": str(e),
+            "duration_seconds": round(duration, 2)
+        })
+        return [], duration
+
+
+def _extract_all_firms_parallel(
+    serp_results: List[Dict[str, Any]],
+    location: Dict[str, Optional[str]] = None,
+    search_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Extract firm details from SERP results using parallel ChatGPT batches.
+    
+    Args:
+        serp_results: List of SERP data dictionaries
+        location: Location dict for context
+        search_id: Search ID for logging correlation
+        
+    Returns:
+        List of extracted firm dictionaries
+    """
+    if not serp_results:
+        return []
+    
+    BATCH_SIZE = 8  # Extract 8 firms per ChatGPT call
+    MAX_PARALLEL_BATCHES = 3  # Limit concurrent ChatGPT calls to avoid rate limits
+    
+    # Split into batches
+    batches = []
+    for i in range(0, len(serp_results), BATCH_SIZE):
+        batches.append(serp_results[i:i + BATCH_SIZE])
+    
+    logger.info("chatgpt_parallel_extraction_started", extra={
+        "search_id": search_id,
+        "total_firms": len(serp_results),
+        "batch_count": len(batches),
+        "batch_size": BATCH_SIZE,
+        "max_parallel": MAX_PARALLEL_BATCHES
+    })
+    
+    extracted_firms = []
+    batch_times = []
+    
+    start_time = time.time()
+    
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_BATCHES) as executor:
+        # Submit all batches with small stagger to avoid rate limits
+        future_to_batch = {}
+        for batch_idx, batch in enumerate(batches):
+            # Small stagger to avoid hitting rate limits all at once
+            if batch_idx > 0:
+                time.sleep(0.5)  # 500ms between submissions
+            
+            future = executor.submit(
+                _extract_single_batch,
+                batch,
+                batch_idx,
+                location,
+                search_id
+            )
+            future_to_batch[future] = batch_idx
+        
+        # Collect results as they complete
+        for future in as_completed(future_to_batch):
+            batch_idx = future_to_batch[future]
+            try:
+                firms, duration = future.result()
+                extracted_firms.extend(firms)
+                batch_times.append({
+                    "batch": batch_idx + 1,
+                    "seconds": round(duration, 2),
+                    "firms": len(firms)
+                })
+            except Exception as e:
+                logger.error("chatgpt_batch_failed", extra={
+                    "search_id": search_id,
+                    "batch": batch_idx + 1,
+                    "error": str(e)
+                })
+    
+    total_duration = time.time() - start_time
+    
+    # Sort batch_times for consistent logging
+    batch_times.sort(key=lambda x: x["batch"])
+    
+    slowest_batch = max(batch_times, key=lambda x: x["seconds"])["seconds"] if batch_times else 0
+    
+    logger.info("chatgpt_parallel_extraction_complete", extra={
+        "search_id": search_id,
+        "total_duration_seconds": round(total_duration, 2),
+        "firms_extracted": len(extracted_firms),
+        "batch_times": batch_times,
+        "slowest_batch_seconds": round(slowest_batch, 2)
+    })
+    
+    return extracted_firms
 
 
 def _extract_firms_batch_with_chatgpt(
@@ -770,7 +951,8 @@ def get_firm_details_batch(
     location: Dict[str, Optional[str]] = None,
     max_workers: int = 5,
     progress_callback: Optional[Callable[[int, int], None]] = None,
-    max_results: Optional[int] = None
+    max_results: Optional[int] = None,
+    search_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Get details for multiple firms in batch using parallel processing.
@@ -782,10 +964,19 @@ def get_firm_details_batch(
         max_workers: Maximum number of parallel workers (default: 5)
         progress_callback: Optional callback function(current, total) for progress updates
         max_results: Optional maximum number of results to return (enforces strict limit)
+        search_id: Optional search ID for logging correlation
     
     Returns:
         List of firm detail dictionaries (limited to max_results if provided)
     """
+    total_start = time.time()
+    
+    logger.info("serp_fetch_started", extra={
+        "search_id": search_id,
+        "firm_count": len(firm_names),
+        "firms": firm_names[:5]  # Log first 5 to avoid huge logs
+    })
+    
     # Deduplicate firm names (case-insensitive)
     seen_names = set()
     unique_names = []
@@ -796,12 +987,19 @@ def get_firm_details_batch(
             unique_names.append(name)
     
     if len(unique_names) < len(firm_names):
-        print(f"🔍 Deduplicated {len(firm_names)} -> {len(unique_names)} unique firm names")
+        logger.debug("serp_fetch_deduplicated", extra={
+            "search_id": search_id,
+            "original_count": len(firm_names),
+            "unique_count": len(unique_names)
+        })
     
     # Apply max_results limit if provided
     if max_results is not None and len(unique_names) > max_results:
         unique_names = unique_names[:max_results]
-        print(f"🔍 Limited to {max_results} firm names (requested limit)")
+        logger.debug("serp_fetch_limited", extra={
+            "search_id": search_id,
+            "limited_to": max_results
+        })
     
     # Check cache first for all firms
     cached_firms = []
@@ -815,64 +1013,135 @@ def get_firm_details_batch(
             uncached_names.append(name)
     
     if cached_firms:
-        print(f"✅ Cache hit for {len(cached_firms)}/{len(unique_names)} firms")
+        logger.debug("serp_fetch_cache_hits", extra={
+            "search_id": search_id,
+            "cached_count": len(cached_firms),
+            "total_count": len(unique_names)
+        })
     
     if not uncached_names:
         # All cached!
         if max_results is not None and len(cached_firms) > max_results:
             cached_firms = cached_firms[:max_results]
+        total_duration = time.time() - total_start
+        logger.info("serp_fetch_completed", extra={
+            "search_id": search_id,
+            "total_duration_seconds": round(total_duration, 2),
+            "serp_api_seconds": 0,
+            "extraction_seconds": 0,
+            "all_cached": True
+        })
         return cached_firms
     
     # Phase 1: Fetch all SERP results in parallel (fast)
-    print(f"🔍 Fetching SERP results for {len(uncached_names)} firms (parallel)...")
+    serp_start = time.time()
+    logger.info("serp_fetch_api_started", extra={
+        "search_id": search_id,
+        "firms_to_fetch": len(uncached_names),
+        "max_workers": max_workers
+    })
+    
     serp_results = []
     total = len(uncached_names)
     completed = 0
+    request_times = []  # Track individual request times
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_name = {
-            executor.submit(_fetch_serp_results_only, name, location): name
+            executor.submit(_fetch_serp_results_only, name, location, 8, search_id): name
             for name in uncached_names
         }
         
         for future in as_completed(future_to_name):
             firm_name = future_to_name[future]
             completed += 1
+            request_start = time.time()
             
             try:
                 serp_data = future.result(timeout=10)
+                request_duration = time.time() - request_start
+                request_times.append((firm_name, request_duration))
+                
                 if serp_data:
                     serp_results.append(serp_data)
                 
                 if progress_callback:
                     progress_callback(completed, total)
             except FutureTimeoutError:
-                print(f"⏰ Timeout fetching SERP for {firm_name}")
+                request_duration = time.time() - request_start
+                request_times.append((firm_name, request_duration))
+                logger.warning("serp_fetch_timeout", extra={
+                    "search_id": search_id,
+                    "firm": firm_name,
+                    "duration_seconds": round(request_duration, 2)
+                })
             except Exception as e:
-                print(f"❌ Error fetching SERP for {firm_name}: {e}")
+                request_duration = time.time() - request_start
+                request_times.append((firm_name, request_duration))
+                logger.warning("serp_fetch_error", extra={
+                    "search_id": search_id,
+                    "firm": firm_name,
+                    "duration_seconds": round(request_duration, 2),
+                    "error": str(e)
+                })
+    
+    serp_duration = time.time() - serp_start
+    
+    # Log slowest requests
+    if request_times:
+        slowest = sorted(request_times, key=lambda x: x[1], reverse=True)[:5]
+        avg_seconds = sum(d for _, d in request_times) / len(request_times)
+        max_seconds = max(d for _, d in request_times)
+        
+        logger.info("serp_fetch_slowest", extra={
+            "search_id": search_id,
+            "slowest_requests": [{"firm": f, "seconds": round(d, 2)} for f, d in slowest],
+            "avg_seconds": round(avg_seconds, 2),
+            "max_seconds": round(max_seconds, 2),
+            "total_requests": len(request_times)
+        })
+    
+    logger.info("serp_fetch_api_complete", extra={
+        "search_id": search_id,
+        "duration_seconds": round(serp_duration, 2),
+        "results_count": len(serp_results),
+        "success_rate": round(len(serp_results) / len(uncached_names), 2) if uncached_names else 0
+    })
     
     if not serp_results:
-        print(f"⚠️ No SERP results retrieved")
+        logger.warning("serp_fetch_no_results", extra={
+            "search_id": search_id
+        })
         return cached_firms
     
-    # Phase 2: Batch extract with ChatGPT (much faster than individual calls)
-    print(f"🤖 Batch extracting {len(serp_results)} firms with ChatGPT...")
-    BATCH_SIZE = 8  # Extract 8 firms per ChatGPT call
+    # Phase 2: Batch extract with ChatGPT (parallel batches for faster processing)
+    extraction_start = time.time()
+    logger.info("serp_fetch_extraction_started", extra={
+        "search_id": search_id,
+        "firms_to_extract": len(serp_results)
+    })
     
-    extracted_firms = []
-    for i in range(0, len(serp_results), BATCH_SIZE):
-        batch = serp_results[i:i + BATCH_SIZE]
-        batch_firms = _extract_firms_batch_with_chatgpt(batch, location)
-        
-        # Cache each extracted firm
-        for firm_data in batch_firms:
-            firm_name = firm_data.get("name", "")
-            if firm_name:
-                cache_key = _get_cache_key(firm_name, location)
-                _set_cached_firm(cache_key, firm_data)
-            extracted_firms.append(firm_data)
-        
-        print(f"✅ Extracted batch {i // BATCH_SIZE + 1} ({len(batch_firms)} firms)")
+    # Use parallel batch extraction instead of sequential
+    extracted_firms = _extract_all_firms_parallel(
+        serp_results=serp_results,
+        location=location,
+        search_id=search_id
+    )
+    
+    # Cache each extracted firm
+    for firm_data in extracted_firms:
+        firm_name = firm_data.get("name", "")
+        if firm_name:
+            cache_key = _get_cache_key(firm_name, location)
+            _set_cached_firm(cache_key, firm_data)
+    
+    extraction_duration = time.time() - extraction_start
+    
+    logger.info("serp_fetch_extraction_complete", extra={
+        "search_id": search_id,
+        "duration_seconds": round(extraction_duration, 2),
+        "firms_extracted": len(extracted_firms)
+    })
     
     # Combine cached and extracted firms
     all_firms = cached_firms + extracted_firms
@@ -881,9 +1150,27 @@ def get_firm_details_batch(
     if max_results is not None:
         if len(all_firms) > max_results:
             all_firms = all_firms[:max_results]
-            print(f"🔍 Limited results to {max_results} firms (requested limit)")
+            logger.debug("serp_fetch_results_limited", extra={
+                "search_id": search_id,
+                "limited_to": max_results
+            })
         elif len(all_firms) < max_results:
-            print(f"⚠️ Only retrieved {len(all_firms)}/{max_results} firms (some may have failed)")
+            logger.warning("serp_fetch_partial_results", extra={
+                "search_id": search_id,
+                "retrieved": len(all_firms),
+                "requested": max_results
+            })
     
-    print(f"✅ Retrieved details for {len(all_firms)}/{len(unique_names)} firms (limit: {max_results})")
+    total_duration = time.time() - total_start
+    
+    logger.info("serp_fetch_completed", extra={
+        "search_id": search_id,
+        "total_duration_seconds": round(total_duration, 2),
+        "serp_api_seconds": round(serp_duration, 2),
+        "extraction_seconds": round(extraction_duration, 2),
+        "cached_count": len(cached_firms),
+        "extracted_count": len(extracted_firms),
+        "total_firms": len(all_firms)
+    })
+    
     return all_firms

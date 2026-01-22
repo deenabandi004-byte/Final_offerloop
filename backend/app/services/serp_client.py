@@ -5,8 +5,13 @@ Replaces PDL Company Search with SERP API + ChatGPT extraction
 import requests
 import json
 import os
+import time
+import uuid
+import logging
 from typing import Optional, List, Dict, Any
 from app.config import SERPAPI_KEY
+
+logger = logging.getLogger(__name__)
 
 SERPAPI_BASE_URL = "https://serpapi.com/search"
 
@@ -19,6 +24,31 @@ MIN_BATCH_BUFFER = 5  # Always generate at least needed + this many firms per it
 
 # Filtering success rate tracking for adaptive multipliers (in-memory)
 _filter_stats = {}  # {(industry, location_key): {"success_rate": float, "iterations": int}}
+
+# Search metrics tracking
+_search_metrics = {
+    "total_searches": 0,
+    "single_iteration": 0,
+    "double_iteration": 0,
+    "total_rejections": 0
+}
+
+
+def get_search_metrics() -> Dict[str, Any]:
+    """
+    Get aggregate search metrics.
+    
+    Returns:
+        Dictionary with search statistics including double iteration rate
+    """
+    total = _search_metrics["total_searches"]
+    return {
+        **_search_metrics,
+        "double_iteration_rate": round(
+            _search_metrics["double_iteration"] / max(1, total),
+            2
+        ) if total > 0 else 0
+    }
 
 
 def _normalize_location_for_stats(location: Dict[str, Optional[str]]) -> str:
@@ -49,7 +79,12 @@ def _calculate_adaptive_multiplier(industry: str, location: Dict[str, Optional[s
         calculated_mult = 1.0 / success_rate
         # Cap between 2.0x and 6.0x for safety
         adaptive_mult = max(2.0, min(6.0, calculated_mult))
-        print(f"📊 Using adaptive multiplier {adaptive_mult:.2f}x (based on {success_rate*100:.1f}% success rate)")
+        logger.debug("Using adaptive multiplier", extra={
+            "multiplier": round(adaptive_mult, 2),
+            "success_rate": round(success_rate * 100, 1),
+            "industry": industry,
+            "location_key": location_key
+        })
         return adaptive_mult
     
     # Use defaults for first iteration or unknown patterns
@@ -78,7 +113,12 @@ def _update_filter_stats(industry: str, location: Dict[str, Optional[str]], adde
             "iterations": 1
         }
     
-    print(f"📊 Updated filter stats for {industry}@{location_key}: {_filter_stats[stats_key]['success_rate']*100:.1f}% success rate")
+    logger.debug("Updated filter stats", extra={
+        "industry": industry,
+        "location_key": location_key,
+        "success_rate": round(_filter_stats[stats_key]['success_rate'] * 100, 1),
+        "iterations": _filter_stats[stats_key]['iterations']
+    })
 
 
 def _extract_domain(url: Optional[str]) -> str:
@@ -221,6 +261,10 @@ def search_companies_with_serp(
         from app.services.firm_details_extraction import get_firm_details_batch
         from app.services.company_search import transform_serp_company_to_firm, firm_location_matches
         
+        # Generate search ID for end-to-end tracing
+        search_id = str(uuid.uuid4())[:8]  # Short ID for readability
+        start_time = time.time()
+        
         # Track firms collected across iterations
         firms_collected = []
         seen_domains = set()
@@ -228,14 +272,33 @@ def search_companies_with_serp(
         max_total_firms = int(limit * MAX_TOTAL_FIRMS_MULTIPLIER)  # Absolute cap
         iterations_completed = 0
         
-        print(f"🔍 Starting iterative firm search (requested: {limit}, max total: {max_total_firms})")
+        # Calculate initial multiplier for logging
+        initial_multiplier = _calculate_adaptive_multiplier(industry, location, 0)
+        
+        logger.info("company_search_started", extra={
+            "search_id": search_id,
+            "industry": industry,
+            "location": str(location),
+            "size": size,
+            "keywords": keywords,
+            "limit": limit,
+            "max_total_firms": max_total_firms,
+            "initial_multiplier": round(initial_multiplier, 2),
+            "original_query": original_query[:100] if original_query else None  # Truncate for logging
+        })
         
         # Iterative fetching loop
         for iteration in range(MAX_ITERATIONS):
             iterations_completed = iteration + 1
             needed = limit - len(firms_collected)
             if needed <= 0:
-                print(f"✅ Have enough firms ({len(firms_collected)}/{limit}), stopping iterations")
+                logger.info("company_search_early_stop", extra={
+                    "search_id": search_id,
+                    "reason": "enough_firms",
+                    "firms_collected": len(firms_collected),
+                    "limit": limit,
+                    "iteration": iteration + 1
+                })
                 break
             
             # Calculate batch size for this iteration
@@ -246,12 +309,27 @@ def search_companies_with_serp(
             # Check absolute cap
             remaining_quota = max_total_firms - len(firm_names_tried)
             if remaining_quota <= 0:
-                print(f"⚠️ Hit absolute cap ({max_total_firms} firms), stopping iterations")
+                logger.warning("company_search_early_stop", extra={
+                    "search_id": search_id,
+                    "reason": "absolute_cap",
+                    "max_total_firms": max_total_firms,
+                    "firms_tried": len(firm_names_tried),
+                    "iteration": iteration + 1
+                })
                 break
             
             batch_size = min(batch_size, remaining_quota)
             
-            print(f"🔄 Iteration {iteration + 1}/{MAX_ITERATIONS}: Need {needed} more firms, generating {batch_size} (multiplier: {multiplier}x)")
+            logger.info("company_search_iteration_start", extra={
+                "search_id": search_id,
+                "iteration": iteration + 1,
+                "max_iterations": MAX_ITERATIONS,
+                "firms_needed": needed,
+                "batch_size": batch_size,
+                "multiplier": round(multiplier, 2),
+                "firms_collected_so_far": len(firms_collected),
+                "firms_tried_so_far": len(firm_names_tried)
+            })
             
             # Generate firm names (avoid duplicates)
             firm_names = generate_firm_names_with_chatgpt(
@@ -266,28 +344,52 @@ def search_companies_with_serp(
             )
             
             if not firm_names:
-                print(f"⚠️ Could not generate firm names in iteration {iteration + 1}")
+                logger.warning("company_search_no_firm_names", extra={
+                    "search_id": search_id,
+                    "iteration": iteration + 1
+                })
                 break
             
             # Note if ChatGPT returned fewer than requested (common behavior)
             if len(firm_names) < batch_size:
-                print(f"ℹ️ ChatGPT returned {len(firm_names)}/{batch_size} firm names (this is normal)")
+                logger.debug("company_search_fewer_firm_names", extra={
+                    "search_id": search_id,
+                    "iteration": iteration + 1,
+                    "requested": batch_size,
+                    "received": len(firm_names)
+                })
             
             # Filter out firm names we've already tried
             new_firm_names = [n for n in firm_names if n.lower().strip() not in firm_names_tried]
             firm_names_tried.update(n.lower().strip() for n in new_firm_names)
             
             if not new_firm_names:
-                print(f"⚠️ All generated firm names were duplicates in iteration {iteration + 1}")
+                logger.warning("company_search_all_duplicates", extra={
+                    "search_id": search_id,
+                    "iteration": iteration + 1
+                })
                 break
             
             if len(new_firm_names) < len(firm_names):
-                print(f"ℹ️ Filtered out {len(firm_names) - len(new_firm_names)} duplicate firm names")
+                logger.debug("company_search_duplicates_filtered", extra={
+                    "search_id": search_id,
+                    "iteration": iteration + 1,
+                    "duplicates_filtered": len(firm_names) - len(new_firm_names)
+                })
             
-            print(f"✅ Generated {len(new_firm_names)} new firm names (total tried: {len(firm_names_tried)})")
+            logger.debug("company_search_firm_names_generated", extra={
+                "search_id": search_id,
+                "iteration": iteration + 1,
+                "new_firm_names": len(new_firm_names),
+                "total_tried": len(firm_names_tried)
+            })
             
             # Get details for firms using SERP API (parallel processing)
-            print(f"🔍 Fetching details for {len(new_firm_names)} firms via SERP API (parallel)...")
+            logger.debug("company_search_fetching_details", extra={
+                "search_id": search_id,
+                "iteration": iteration + 1,
+                "firms_to_fetch": len(new_firm_names)
+            })
             
             # Progress tracking
             progress_data = {"completed": 0, "total": len(new_firm_names)}
@@ -295,18 +397,28 @@ def search_companies_with_serp(
             def progress_callback(current, total):
                 progress_data["completed"] = current
                 if current % max(1, total // 5) == 0 or current == total:
-                    print(f"📊 Progress: {current}/{total} firms ({int(current/total*100)}%)")
+                    logger.debug("company_search_progress", extra={
+                        "search_id": search_id,
+                        "iteration": iteration + 1,
+                        "completed": current,
+                        "total": total,
+                        "percent": int(current/total*100)
+                    })
             
             firms_data = get_firm_details_batch(
                 new_firm_names,
                 location,
                 max_workers=15,  # OPTIMIZED: Increased for faster processing (batch extraction reduces rate limit issues)
                 progress_callback=progress_callback,
-                max_results=None  # Don't limit here - we'll filter and limit later
+                max_results=None,  # Don't limit here - we'll filter and limit later
+                search_id=search_id  # Pass search_id for logging correlation
             )
             
             if not firms_data:
-                print(f"⚠️ No firm details retrieved in iteration {iteration + 1}")
+                logger.warning("company_search_no_firm_details", extra={
+                    "search_id": search_id,
+                    "iteration": iteration + 1
+                })
                 continue
             
             # Transform to Firm format and filter by location
@@ -325,17 +437,37 @@ def search_companies_with_serp(
                 if firm:
                     # Filter by location
                     firm_location = firm.get("location", {})
-                    if firm_location_matches(firm_location, location):
+                    if firm_location_matches(firm_location, location, search_id=search_id):
                         firms_collected.append(firm)
                         added_count += 1
                         if domain:
                             seen_domains.add(domain)
                     else:
                         filtered_count += 1
-                        print(f"🚫 Filtered out firm '{firm.get('name')}' - location mismatch: {firm_location.get('display', 'Unknown')} vs requested {location}")
+                        _search_metrics["total_rejections"] += 1
+                        # Log individual firm rejection
+                        from app.services.company_search import _get_rejection_reason
+                        rejection_reason = _get_rejection_reason(firm_location, location)
+                        logger.debug("company_search_firm_rejected", extra={
+                            "search_id": search_id,
+                            "firm_name": firm.get("name"),
+                            "firm_location": firm_location.get("display", str(firm_location)),
+                            "requested_location": str(location),
+                            "rejection_reason": rejection_reason
+                        })
             
-            print(f"📍 Iteration {iteration + 1} results: {added_count} added, {filtered_count} filtered out")
-            print(f"📊 Total collected so far: {len(firms_collected)}/{limit}")
+            total_tried_in_iteration = added_count + filtered_count
+            filter_rate = round(filtered_count / total_tried_in_iteration, 2) if total_tried_in_iteration > 0 else 0
+            
+            logger.info("company_search_iteration_complete", extra={
+                "search_id": search_id,
+                "iteration": iteration + 1,
+                "firms_added": added_count,
+                "firms_filtered": filtered_count,
+                "filter_rate": filter_rate,
+                "total_collected": len(firms_collected),
+                "still_needed": max(0, limit - len(firms_collected))
+            })
             
             # Update filtering statistics for adaptive multipliers
             total_tried_in_iteration = added_count + filtered_count
@@ -345,12 +477,22 @@ def search_companies_with_serp(
             # OPTIMIZATION: Early stopping - if no firms matched after first iteration, stop
             # (First iteration failure might be normal, but subsequent failures suggest tight filtering)
             if added_count == 0 and iteration > 0:
-                print(f"⚠️ No firms matched location filter in iteration {iteration + 1}, stopping early to save API calls")
+                logger.warning("company_search_early_stop", extra={
+                    "search_id": search_id,
+                    "reason": "no_firms_matched",
+                    "iteration": iteration + 1
+                })
                 break
             
             # Check if we have enough
             if len(firms_collected) >= limit:
-                print(f"✅ Collected enough firms ({len(firms_collected)}/{limit}), stopping iterations")
+                logger.info("company_search_early_stop", extra={
+                    "search_id": search_id,
+                    "reason": "enough_firms",
+                    "firms_collected": len(firms_collected),
+                    "limit": limit,
+                    "iteration": iteration + 1
+                })
                 break
         
         # Sort firms by employee count in DESCENDING order (largest first)
@@ -360,9 +502,27 @@ def search_companies_with_serp(
         # Return exactly the requested number
         firms = firms_collected[:limit]
         
+        # Calculate duration
+        duration_seconds = round(time.time() - start_time, 2)
+        
+        # Update metrics
+        _search_metrics["total_searches"] += 1
+        if iterations_completed == 1:
+            _search_metrics["single_iteration"] += 1
+        else:
+            _search_metrics["double_iteration"] += 1
+        
         # Return results
         if len(firms) > 0:
-            print(f"✅ Successfully retrieved {len(firms)} firms (requested: {limit}, iterations: {iterations_completed})")
+            logger.info("company_search_completed", extra={
+                "search_id": search_id,
+                "iterations_used": iterations_completed,
+                "firms_requested": limit,
+                "firms_found": len(firms),
+                "success": len(firms) >= limit,
+                "partial": 0 < len(firms) < limit,
+                "duration_seconds": duration_seconds
+            })
             
             # If we got fewer firms than requested, include a note
             error_msg = None
@@ -379,7 +539,15 @@ def search_companies_with_serp(
             }
         else:
             # No firms found at all
-            print(f"❌ No firms found after {iterations_completed} iterations")
+            logger.warning("company_search_completed", extra={
+                "search_id": search_id,
+                "iterations_used": iterations_completed,
+                "firms_requested": limit,
+                "firms_found": 0,
+                "success": False,
+                "partial": False,
+                "duration_seconds": duration_seconds
+            })
             return {
                 "success": False,
                 "firms": [],
@@ -389,9 +557,12 @@ def search_companies_with_serp(
             }
         
     except Exception as e:
-        print(f"❌ Error in search_companies_with_serp: {e}")
-        import traceback
-        traceback.print_exc()
+        duration_seconds = round(time.time() - start_time, 2) if 'start_time' in locals() else 0
+        logger.error("company_search_error", extra={
+            "search_id": search_id if 'search_id' in locals() else None,
+            "error": str(e),
+            "duration_seconds": duration_seconds
+        }, exc_info=True)
         return {
             "success": False,
             "firms": [],

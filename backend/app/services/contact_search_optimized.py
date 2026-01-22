@@ -5,9 +5,11 @@ This service implements an optimized contact search flow that:
 1. Gets PDL results (single API call)
 2. Quick extraction WITHOUT email verification
 3. Scores and ranks candidates
-4. Verifies emails one-by-one until we have enough (stops early)
+4. Verifies emails in parallel until we have enough (stops early)
 """
 import time
+import concurrent.futures
+import threading
 from app.services.pdl_client import search_contacts_with_smart_location_strategy
 from app.services.hunter import (
     verify_email_hunter, 
@@ -29,6 +31,141 @@ _timing_stats = {
     'openai_domain_lookup': 0.0,
     'total': 0.0
 }
+
+# Parallel verification configuration
+MAX_VERIFICATION_WORKERS = 4  # Process 4 candidates simultaneously
+
+
+def verify_contacts_parallel(candidates, max_contacts, company):
+    """
+    Verify multiple candidates in parallel, stopping when we have enough verified contacts.
+    
+    Args:
+        candidates: List of candidate dicts to verify
+        max_contacts: Target number of verified contacts needed
+        company: Target company name for domain matching
+    
+    Returns:
+        Tuple of (verified_results, unverified_results, no_email_candidates)
+        Each result contains: candidate, email, is_verified
+    """
+    verified_results = []
+    unverified_results = []
+    no_email_candidates = []
+    verified_lock = threading.Lock()
+    enough_verified = threading.Event()
+    
+    print(f"[ContactSearch] 🚀 Starting parallel verification with {MAX_VERIFICATION_WORKERS} workers")
+    print(f"[ContactSearch] Processing {len(candidates)} candidates, target: {max_contacts} verified")
+    
+    start_time = time.time()
+    
+    def verify_single_candidate(candidate, candidate_idx):
+        """Verify a single candidate and return result."""
+        # Check if we already have enough (early stopping)
+        if enough_verified.is_set():
+            return None
+        
+        candidate_start = time.time()
+        candidate_name = f"{candidate.get('first_name', '')} {candidate.get('last_name', '')}".strip()
+        
+        try:
+            print(f"[ContactSearch] ⏱️  [Worker] Starting candidate {candidate_idx+1}: {candidate_name} @ {candidate.get('company', '')}")
+            
+            email, is_verified = get_verified_email_for_contact_search(
+                candidate, target_company=company
+            )
+            
+            duration = time.time() - candidate_start
+            
+            # Check again if we have enough before processing result
+            if enough_verified.is_set():
+                return None
+            
+            if email:
+                result = {
+                    'candidate': candidate,
+                    'email': email,
+                    'is_verified': is_verified,
+                    'duration': duration,
+                    'candidate_idx': candidate_idx
+                }
+                
+                with verified_lock:
+                    if is_verified:
+                        verified_results.append(result)
+                        current_verified = len(verified_results)
+                        print(f"[ContactSearch] ✅ [Worker] VERIFIED ({duration:.2f}s): {email} - {candidate_name} (verified: {current_verified}/{max_contacts})")
+                        
+                        if current_verified >= max_contacts:
+                            enough_verified.set()
+                            print(f"[ContactSearch] ⚡ [Worker] Reached target of {max_contacts} verified contacts!")
+                    else:
+                        unverified_results.append(result)
+                        print(f"[ContactSearch] ⚠️ [Worker] UNVERIFIED ({duration:.2f}s): {email} - {candidate_name}")
+                
+                return result
+            else:
+                with verified_lock:
+                    no_email_candidates.append(candidate)
+                print(f"[ContactSearch] ❌ [Worker] No email found ({duration:.2f}s): {candidate_name}")
+                return None
+                
+        except Exception as e:
+            duration = time.time() - candidate_start
+            print(f"[ContactSearch] ⚠️ [Worker] Error verifying candidate {candidate_idx+1} ({duration:.2f}s): {str(e)}")
+            with verified_lock:
+                no_email_candidates.append(candidate)
+            return None
+    
+    # Process candidates in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_VERIFICATION_WORKERS) as executor:
+        # Submit all candidates
+        future_to_candidate = {
+            executor.submit(verify_single_candidate, candidate, idx): (candidate, idx)
+            for idx, candidate in enumerate(candidates)
+        }
+        
+        # Collect results as they complete
+        completed = 0
+        for future in concurrent.futures.as_completed(future_to_candidate):
+            candidate, idx = future_to_candidate[future]
+            completed += 1
+            
+            try:
+                result = future.result()
+                # Result is already added to lists in the worker function
+                
+                # Check if we should stop early
+                with verified_lock:
+                    current_verified = len(verified_results)
+                    if current_verified >= max_contacts and not enough_verified.is_set():
+                        enough_verified.set()
+                        print(f"[ContactSearch] ⚡ Early stopping: {current_verified} verified contacts (target: {max_contacts})")
+                        # Cancel remaining futures
+                        for f in future_to_candidate:
+                            if not f.done():
+                                f.cancel()
+                        break
+                        
+            except Exception as e:
+                print(f"[ContactSearch] ⚠️ Error processing future for candidate {idx+1}: {str(e)}")
+                with verified_lock:
+                    if candidate not in no_email_candidates:
+                        no_email_candidates.append(candidate)
+    
+    total_duration = time.time() - start_time
+    verified_count = len(verified_results)
+    unverified_count = len(unverified_results)
+    no_email_count = len(no_email_candidates)
+    
+    print(f"\n[ContactSearch] ⏱️  Parallel verification complete: {total_duration:.2f}s")
+    print(f"[ContactSearch] 📊 Results: {verified_count} verified, {unverified_count} unverified, {no_email_count} no email")
+    if verified_count > 0:
+        avg_time = total_duration / verified_count
+        print(f"[ContactSearch] 📊 Average time per verified contact: {avg_time:.2f}s")
+    
+    return verified_results, unverified_results, no_email_candidates
 
 
 def contact_search_optimized(job_title, location, max_contacts=3, user_data=None, company=None, college_alumni=None, exclude_keys=None):
@@ -72,10 +209,25 @@ def contact_search_optimized(job_title, location, max_contacts=3, user_data=None
     print(f"[ContactSearch] ========================================\n")
     
     pdl_start = time.time()
+    # Calculate smarter fetch size
+    # Use 2.5x multiplier, with min of 10 and max of 25
+    fetch_multiplier = 2.5
+    min_fetch = 10
+    max_fetch = 25
+    
+    fetch_size = min(max(int(max_contacts * fetch_multiplier), min_fetch), max_fetch)
+    
+    print(f"[ContactSearch] 📊 Fetch size calculation:")
+    print(f"[ContactSearch]   ├── Requested contacts: {max_contacts}")
+    print(f"[ContactSearch]   ├── Multiplier: {fetch_multiplier}x")
+    print(f"[ContactSearch]   ├── Calculated: {int(max_contacts * fetch_multiplier)}")
+    print(f"[ContactSearch]   ├── After min/max: {fetch_size}")
+    print(f"[ContactSearch]   └── Savings: {40 - fetch_size} fewer contacts fetched")
+    
     # Get more results than needed (we'll rank and filter)
     pdl_contacts = search_contacts_with_smart_location_strategy(
         job_title, company, location, 
-        max_contacts=40,  # Get 40 to have enough to rank
+        max_contacts=fetch_size,  # Dynamic, not hardcoded 40
         college_alumni=college_alumni,
         exclude_keys=exclude_keys
     )
@@ -111,62 +263,60 @@ def contact_search_optimized(job_title, location, max_contacts=3, user_data=None
     for i, c in enumerate(candidates[:5]):
         print(f"  {i+1}. {c['name']} - {c['title']} @ {c['company']} (score: {c.get('_score', 0)})")
     
-    # Step 4: Two-pass verification
+    # Step 4: Parallel verification
     verify_start = time.time()
-    print(f"\n[ContactSearch] ⏱️  === PASS 1: Verifying emails ===")
+    print(f"\n[ContactSearch] ⏱️  === PASS 1: Verifying emails (parallel) ===")
+    
+    max_attempts = min(len(candidates), max_contacts * 5)  # Try up to 5x what we need
+    
+    # Verify candidates in parallel
+    verified_results, unverified_results, no_email_candidates = verify_contacts_parallel(
+        candidates=candidates[:max_attempts],
+        max_contacts=max_contacts,
+        company=company
+    )
+    
+    # Convert results to standard contact format
+    # Sort by candidate_idx to maintain original ranking order
+    verified_results.sort(key=lambda r: r.get('candidate_idx', 0))
+    unverified_results.sort(key=lambda r: r.get('candidate_idx', 0))
     
     verified_contacts = []
     unverified_contacts = []
     no_email_contacts = []
-    max_attempts = min(len(candidates), max_contacts * 5)  # Try up to 5x what we need
     
-    for i, candidate in enumerate(candidates[:max_attempts]):
-        # Early stop if we have enough verified contacts
-        if len(verified_contacts) >= max_contacts:
-            print(f"[ContactSearch] ⚡ Early stopping: Already have {len(verified_contacts)} verified contacts (target: {max_contacts})")
-            break
-            
-        candidate_start = time.time()
-        print(f"\n[ContactSearch] ⏱️  --- Candidate {i+1}/{max_attempts} ({candidate['name']} @ {candidate['company']}) ---")
+    def convert_result_to_contact(result):
+        """Convert a verification result to standard contact format."""
+        candidate = result['candidate']
+        email = result['email']
+        is_verified = result['is_verified']
         
-        # Pass target_company so we use the right domain
-        email, is_verified = get_verified_email_for_contact_search(
-            candidate, 
-            target_company=company  # This is the company user searched for
-        )
-        
-        candidate_time = time.time() - candidate_start
-        print(f"[ContactSearch] ⏱️  Candidate {i+1} verification: {candidate_time:.2f}s")
-        
-        if email:
-            candidate['email'] = email
-            candidate['is_verified_email'] = is_verified
-            # Convert to standard format
-            contact = {
-                'FirstName': candidate.get('first_name', ''),
-                'LastName': candidate.get('last_name', ''),
-                'Email': email,
-                'Title': candidate.get('title', ''),
-                'Company': candidate.get('company', ''),
-                'LinkedIn': candidate.get('linkedin_url', ''),
-                'City': candidate.get('location', '').split(',')[0] if candidate.get('location') else '',
-                'State': candidate.get('location', '').split(',')[1].strip() if ',' in (candidate.get('location') or '') else '',
-                'WorkEmail': email if is_verified or not is_personal_email_domain(email.split('@')[1] if '@' in email else '') else '',
-                'PersonalEmail': email if not is_verified and is_personal_email_domain(email.split('@')[1] if '@' in email else '') else '',
-                'EmailSource': 'pdl' if candidate.get('_pdl_work_email') == email else 'hunter.io',
-                'EmailVerified': is_verified,
-                'is_verified_email': is_verified  # Add explicit flag
-            }
-            
-            if is_verified:
-                verified_contacts.append(contact)
-                print(f"[ContactSearch] ✅ VERIFIED: {email}")
-            else:
-                unverified_contacts.append(contact)
-                print(f"[ContactSearch] ⚠️ UNVERIFIED (saved for fallback): {email}")
-        else:
-            no_email_contacts.append(candidate)
-            print(f"[ContactSearch] ❌ No email found")
+        return {
+            'FirstName': candidate.get('first_name', ''),
+            'LastName': candidate.get('last_name', ''),
+            'Email': email,
+            'Title': candidate.get('title', ''),
+            'Company': candidate.get('company', ''),
+            'LinkedIn': candidate.get('linkedin_url', ''),
+            'City': candidate.get('location', '').split(',')[0] if candidate.get('location') else '',
+            'State': candidate.get('location', '').split(',')[1].strip() if ',' in (candidate.get('location') or '') else '',
+            'WorkEmail': email if is_verified or not is_personal_email_domain(email.split('@')[1] if '@' in email else '') else '',
+            'PersonalEmail': email if not is_verified and is_personal_email_domain(email.split('@')[1] if '@' in email else '') else '',
+            'EmailSource': 'pdl' if candidate.get('_pdl_work_email') == email else 'hunter.io',
+            'EmailVerified': is_verified,
+            'is_verified_email': is_verified  # Add explicit flag
+        }
+    
+    # Convert verified results
+    for result in verified_results:
+        verified_contacts.append(convert_result_to_contact(result))
+    
+    # Convert unverified results
+    for result in unverified_results:
+        unverified_contacts.append(convert_result_to_contact(result))
+    
+    # No email candidates are already in the right format
+    no_email_contacts = no_email_candidates
     
     verify_time = time.time() - verify_start
     _timing_stats['email_verification_total'] = verify_time

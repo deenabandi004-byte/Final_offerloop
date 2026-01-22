@@ -709,6 +709,18 @@ export interface DirectEditResult {
 
 export type OptimizationResult = SuggestionsResult | TemplateRebuildResult;
 
+/**
+ * Normalize URL - adds https:// if protocol is missing
+ */
+const normalizeUrl = (url: string | undefined): string | undefined => {
+  if (!url) return url;
+  url = url.trim();
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return `https://${url}`;
+  }
+  return url;
+};
+
 // ================================
 // ApiService
 // ================================
@@ -1682,7 +1694,10 @@ async regenerateOutboxReply(
       {
         method: 'POST',
         headers,
-        body: JSON.stringify(params),
+        body: JSON.stringify({
+          ...params,
+          url: normalizeUrl(params.url),
+        }),
       }
     );
   }
@@ -1704,7 +1719,10 @@ async regenerateOutboxReply(
       {
         method: 'POST',
         headers,
-        body: JSON.stringify(params),
+        body: JSON.stringify({
+          ...params,
+          jobUrl: normalizeUrl(params.jobUrl),
+        }),
       }
     );
   }
@@ -1716,7 +1734,10 @@ async regenerateOutboxReply(
       {
         method: 'POST',
         headers,
-        body: JSON.stringify(params),
+        body: JSON.stringify({
+          ...params,
+          jobUrl: normalizeUrl(params.jobUrl),
+        }),
       }
     );
   }
@@ -1730,7 +1751,10 @@ async regenerateOutboxReply(
           ...await this.getAuthHeaders(),
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(params),
+        body: JSON.stringify({
+          ...params,
+          jobUrl: normalizeUrl(params.jobUrl),
+        }),
       }
     );
     return response;

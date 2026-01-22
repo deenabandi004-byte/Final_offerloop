@@ -1,5 +1,9 @@
 from flask import Flask
 
+# Configure logging BEFORE creating the app
+from .logging_config import configure_logging
+configure_logging()
+
 def create_app():
     app = Flask(__name__, static_folder="../../connect-grow-hire/dist", static_url_path="")
     

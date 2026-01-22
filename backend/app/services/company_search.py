@@ -7,12 +7,15 @@ BULLETPROOF VERSION - Multiple fallback levels to always return results
 import requests
 import json
 import hashlib
+import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from functools import lru_cache
 
 from app.config import PEOPLE_DATA_LABS_API_KEY, PDL_BASE_URL
 from app.services.openai_client import get_openai_client
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -372,6 +375,169 @@ MAJOR_CITY_TO_METRO = {
     "dc": "washington dc metro"
 }
 
+# Location normalization aliases for better matching
+CITY_ALIASES = {
+    # New York
+    "nyc": "new york",
+    "new york city": "new york",
+    "manhattan": "new york",
+    "brooklyn": "new york",
+    
+    # San Francisco
+    "sf": "san francisco",
+    "san fran": "san francisco",
+    
+    # Los Angeles
+    "la": "los angeles",
+    
+    # Other major cities
+    "dc": "washington",
+    "washington dc": "washington",
+    "washington d.c.": "washington",
+    "philly": "philadelphia",
+    "vegas": "las vegas",
+    "nola": "new orleans",
+    
+    # Saint/St variations
+    "st louis": "saint louis",
+    "st. louis": "saint louis",
+    "st paul": "saint paul",
+    "st. paul": "saint paul",
+}
+
+STATE_ALIASES = {
+    "al": "alabama", "ak": "alaska", "az": "arizona", "ar": "arkansas",
+    "ca": "california", "co": "colorado", "ct": "connecticut", "de": "delaware",
+    "fl": "florida", "ga": "georgia", "hi": "hawaii", "id": "idaho",
+    "il": "illinois", "in": "indiana", "ia": "iowa", "ks": "kansas",
+    "ky": "kentucky", "la": "louisiana", "me": "maine", "md": "maryland",
+    "ma": "massachusetts", "mi": "michigan", "mn": "minnesota", "ms": "mississippi",
+    "mo": "missouri", "mt": "montana", "ne": "nebraska", "nv": "nevada",
+    "nh": "new hampshire", "nj": "new jersey", "nm": "new mexico", "ny": "new york",
+    "nc": "north carolina", "nd": "north dakota", "oh": "ohio", "ok": "oklahoma",
+    "or": "oregon", "pa": "pennsylvania", "ri": "rhode island", "sc": "south carolina",
+    "sd": "south dakota", "tn": "tennessee", "tx": "texas", "ut": "utah",
+    "vt": "vermont", "va": "virginia", "wa": "washington", "wv": "west virginia",
+    "wi": "wisconsin", "wy": "wyoming",
+}
+
+COUNTRY_ALIASES = {
+    "usa": "united states",
+    "us": "united states",
+    "u.s.": "united states",
+    "u.s.a.": "united states",
+    "america": "united states",
+    "united states of america": "united states",
+    "uk": "united kingdom",
+    "u.k.": "united kingdom",
+    "great britain": "united kingdom",
+    "britain": "united kingdom",
+    "england": "united kingdom",  # Not technically correct but common usage
+    "gb": "united kingdom",
+}
+
+# Statistics tracking for normalization improvements
+_normalization_stats = {"matches_saved": 0, "aliases_used": {}}
+
+
+def get_normalization_stats() -> Dict[str, Any]:
+    """
+    Get statistics about location normalization improvements.
+    
+    Returns:
+        Dictionary with matches_saved count and aliases_used frequency
+    """
+    return {
+        "matches_saved": _normalization_stats["matches_saved"],
+        "aliases_used": dict(_normalization_stats["aliases_used"]),
+        "top_aliases": sorted(
+            _normalization_stats["aliases_used"].items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:10]  # Top 10 most used aliases
+    }
+
+
+def normalize_location_string(location_str: str) -> str:
+    """
+    Normalize location string for comparison using aliases.
+    
+    Args:
+        location_str: Location string to normalize
+        
+    Returns:
+        Normalized location string
+    """
+    if not location_str:
+        return ""
+    
+    normalized = location_str.lower().strip()
+    original = normalized
+    
+    # Check city aliases first
+    if normalized in CITY_ALIASES:
+        normalized = CITY_ALIASES[normalized]
+        alias_key = f"city:{original}"
+        _normalization_stats["aliases_used"][alias_key] = _normalization_stats["aliases_used"].get(alias_key, 0) + 1
+        return normalized
+    
+    # Check state aliases
+    if normalized in STATE_ALIASES:
+        normalized = STATE_ALIASES[normalized]
+        alias_key = f"state:{original}"
+        _normalization_stats["aliases_used"][alias_key] = _normalization_stats["aliases_used"].get(alias_key, 0) + 1
+        return normalized
+    
+    # Check country aliases
+    if normalized in COUNTRY_ALIASES:
+        normalized = COUNTRY_ALIASES[normalized]
+        alias_key = f"country:{original}"
+        _normalization_stats["aliases_used"][alias_key] = _normalization_stats["aliases_used"].get(alias_key, 0) + 1
+        return normalized
+    
+    return normalized
+
+
+def locations_match(location1: str, location2: str) -> bool:
+    """
+    Check if two location strings refer to the same place using normalization.
+    
+    Args:
+        location1: First location string
+        location2: Second location string
+        
+    Returns:
+        True if locations match after normalization, False otherwise
+    """
+    if not location1 or not location2:
+        return False
+    
+    norm1 = normalize_location_string(location1)
+    norm2 = normalize_location_string(location2)
+    
+    if not norm1 or not norm2:
+        return False
+    
+    # Track if normalization enabled a match that would have failed
+    original_match = (location1.lower().strip() == location2.lower().strip() or
+                     location1.lower().strip() in location2.lower().strip() or
+                     location2.lower().strip() in location1.lower().strip())
+    
+    # Exact match after normalization
+    if norm1 == norm2:
+        if not original_match:
+            _normalization_stats["matches_saved"] += 1
+        return True
+    
+    # Partial match (one contains the other) after normalization
+    if norm1 in norm2 or norm2 in norm1:
+        if not original_match:
+            _normalization_stats["matches_saved"] += 1
+        return True
+    
+    return False
+
+
 # Metro area to cities mapping (used for location matching)
 METRO_CITIES_MAP = {
     "san francisco bay area": ["san francisco", "palo alto", "mountain view", "sunnyvale", "san jose", "fremont", "oakland", "redwood city", "menlo park"],
@@ -504,9 +670,54 @@ def normalize_location(location_input: str) -> Dict[str, Optional[str]]:
     return result
 
 
-def firm_location_matches(firm_location: Dict[str, Any], requested_location: Dict[str, Optional[str]]) -> bool:
+def _get_rejection_reason(firm_location: Dict[str, Any], requested_location: Dict[str, Optional[str]]) -> str:
+    """
+    Categorize why a location match failed.
+    
+    Args:
+        firm_location: Firm's location dict
+        requested_location: Requested location dict
+        
+    Returns:
+        String describing the rejection reason
+    """
+    if not firm_location:
+        return "missing_firm_location"
+    
+    if not firm_location.get("city") and not firm_location.get("state"):
+        return "incomplete_firm_location"
+    
+    if not firm_location.get("country") and requested_location.get("country"):
+        return "missing_country"
+    
+    # Check specific mismatches
+    firm_country = normalize_location_string(firm_location.get("country") or "")
+    req_country = normalize_location_string(requested_location.get("country") or "")
+    if req_country and firm_country and firm_country != req_country:
+        return "country_mismatch"
+    
+    if requested_location.get("metro"):
+        return "metro_mismatch"
+    
+    if requested_location.get("region"):
+        firm_state = normalize_location_string(firm_location.get("state") or "")
+        req_region = normalize_location_string(requested_location.get("region") or "")
+        if req_region and firm_state and not locations_match(firm_state, req_region):
+            return "state_mismatch"
+    
+    if requested_location.get("locality"):
+        firm_city = normalize_location_string(firm_location.get("city") or "")
+        req_city = normalize_location_string(requested_location.get("locality") or "")
+        if req_city and firm_city and not locations_match(firm_city, req_city):
+            return "city_mismatch"
+    
+    return "location_mismatch"
+
+
+def firm_location_matches(firm_location: Dict[str, Any], requested_location: Dict[str, Optional[str]], search_id: Optional[str] = None) -> bool:
     """
     Check if a firm's location matches the requested location criteria.
+    Uses normalization to handle abbreviations and variations.
     
     Args:
         firm_location: Firm's location dict with keys: city, state, country
@@ -518,95 +729,110 @@ def firm_location_matches(firm_location: Dict[str, Any], requested_location: Dic
     if not firm_location or not requested_location:
         # If no location data available, be lenient (don't filter out)
         if not firm_location:
-            print(f"⚠️ No firm location data available, allowing firm")
+            logger.debug("company_search_no_firm_location", extra={
+                "search_id": search_id,
+                "action": "allowing_firm"
+            })
             return True
         return False
     
-    firm_city = (firm_location.get("city") or "").lower().strip()
-    firm_state = (firm_location.get("state") or "").lower().strip()
-    firm_country = (firm_location.get("country") or "").lower().strip()
+    firm_city = firm_location.get("city") or ""
+    firm_state = firm_location.get("state") or ""
+    firm_country = firm_location.get("country") or ""
     
-    # Normalize country names
-    country_normalizations = {
-        "united states": ["usa", "us", "u.s.", "u.s.a.", "united states", "united states of america"],
-        "united kingdom": ["uk", "u.k.", "united kingdom", "great britain", "gb"],
-    }
-    
-    def normalize_country(country_str):
-        if not country_str:
-            return None
-        country_lower = country_str.lower().strip()
-        for normalized, variants in country_normalizations.items():
-            if country_lower in variants or country_lower == normalized:
-                return normalized
-        return country_lower
-    
-    firm_country_norm = normalize_country(firm_country)
-    req_country_norm = normalize_country(requested_location.get("country"))
+    # Normalize country names using the new normalization helper
+    firm_country_norm = normalize_location_string(firm_country) if firm_country else ""
+    req_country = requested_location.get("country") or ""
+    req_country_norm = normalize_location_string(req_country) if req_country else ""
     
     # Check country match first (required if country is specified)
     if req_country_norm:
         if not firm_country_norm:
             # If firm has no country but we require one, fail
             return False
+        # Use normalized comparison
         if firm_country_norm != req_country_norm:
             # Country mismatch
             return False
     
     # Check metro area match (most flexible)
     if requested_location.get("metro"):
-        metro_lower = requested_location["metro"].lower()
-        # For metro areas, we're more lenient - check if city/state is in the metro
+        metro = requested_location["metro"] or ""
+        metro_normalized = normalize_location_string(metro)
+        metro_lower = metro.lower().strip()
+        
+        # Try both original and normalized metro name
         metro_cities_list = METRO_CITIES_MAP.get(metro_lower, [])
+        if not metro_cities_list and metro_normalized != metro_lower:
+            metro_cities_list = METRO_CITIES_MAP.get(metro_normalized, [])
+        
         if metro_cities_list:
-            firm_location_str = f"{firm_city} {firm_state}".lower()
-            if any(city in firm_location_str for city in metro_cities_list):
-                return True
+            # Normalize firm city and state for better matching
+            firm_city_normalized = normalize_location_string(firm_city) if firm_city else ""
+            firm_state_normalized = normalize_location_string(firm_state) if firm_state else ""
+            firm_location_str = f"{firm_city_normalized} {firm_state_normalized}".lower()
+            
+            # Check if any metro city matches (including normalized versions)
+            for metro_city in metro_cities_list:
+                metro_city_normalized = normalize_location_string(metro_city)
+                if (metro_city in firm_location_str or 
+                    metro_city_normalized in firm_location_str or
+                    locations_match(firm_city, metro_city)):
+                    return True
             # If no match found for metro, fail
             return False
     
     # If no metro is set but locality is a major city, check if firm is in that metro area
     if requested_location.get("locality") and not requested_location.get("metro"):
-        req_locality = requested_location["locality"].lower().strip()
-        # Check if this locality is a major city that maps to a metro
-        if req_locality in MAJOR_CITY_TO_METRO:
-            metro_name = MAJOR_CITY_TO_METRO[req_locality]
+        req_locality = requested_location["locality"] or ""
+        req_locality_normalized = normalize_location_string(req_locality)
+        
+        # Check if this locality is a major city that maps to a metro (try both original and normalized)
+        metro_name = None
+        if req_locality.lower().strip() in MAJOR_CITY_TO_METRO:
+            metro_name = MAJOR_CITY_TO_METRO[req_locality.lower().strip()]
+        elif req_locality_normalized in MAJOR_CITY_TO_METRO:
+            metro_name = MAJOR_CITY_TO_METRO[req_locality_normalized]
+        
+        if metro_name:
             metro_cities_list = METRO_CITIES_MAP.get(metro_name, [])
             if metro_cities_list:
-                firm_location_str = f"{firm_city} {firm_state}".lower()
-                # Check if firm city is in the metro area
-                if any(city in firm_location_str for city in metro_cities_list):
-                    return True
-                # Also check exact match with the requested city
-                if req_locality in firm_city or firm_city in req_locality:
+                firm_city_normalized = normalize_location_string(firm_city) if firm_city else ""
+                firm_location_str = f"{firm_city_normalized} {normalize_location_string(firm_state) if firm_state else ''}".lower()
+                # Check if firm city is in the metro area (check normalized city names too)
+                for metro_city in metro_cities_list:
+                    if metro_city in firm_location_str or locations_match(firm_city, metro_city):
+                        return True
+                # Also check exact match with the requested city using normalization
+                if locations_match(firm_city, req_locality):
                     return True
     
     # Check region/state match
     if requested_location.get("region"):
-        req_region = requested_location["region"].lower().strip()
-        # Check if it's a US state abbreviation
-        if req_region in US_STATES:
-            req_region_full = US_STATES[req_region].lower()
-        else:
-            req_region_full = req_region
+        req_region = requested_location["region"] or ""
         
-        # Check state match
-        if firm_state:
-            # Direct match
-            if firm_state == req_region_full or firm_state == req_region:
+        # Normalize both sides using the new helper
+        firm_state_norm = normalize_location_string(firm_state) if firm_state else ""
+        req_region_norm = normalize_location_string(req_region) if req_region else ""
+        
+        # Also check if it's a US state abbreviation (for backward compatibility)
+        req_region_lower = req_region.lower().strip()
+        if req_region_lower in US_STATES:
+            req_region_full = US_STATES[req_region_lower].lower()
+        else:
+            req_region_full = req_region_norm
+        
+        # Check state match using normalized values
+        if firm_state_norm:
+            # Direct match after normalization
+            if firm_state_norm == req_region_norm or firm_state_norm == req_region_full:
                 return True
             # Partial match (e.g., "new york" matches "new york state")
-            if req_region_full in firm_state or firm_state in req_region_full:
+            if req_region_full in firm_state_norm or firm_state_norm in req_region_full:
                 return True
-            # Check abbreviation match
-            if req_region in US_STATES:
-                if firm_state == req_region:
-                    return True
-            # Check if firm_state is abbreviation for requested state
-            if req_region_full in US_STATES.values():
-                for abbrev, full_name in US_STATES.items():
-                    if full_name == req_region_full and firm_state == abbrev:
-                        return True
+            # Also try using locations_match helper for fuzzy matching
+            if locations_match(firm_state, req_region):
+                return True
         
         # If we have a region requirement but no match, fail
         # Exception: if we also have a city requirement, city match might override
@@ -615,14 +841,24 @@ def firm_location_matches(firm_location: Dict[str, Any], requested_location: Dic
     
     # Check locality/city match
     if requested_location.get("locality"):
-        req_city = requested_location["locality"].lower().strip()
-        if firm_city:
+        req_city = requested_location["locality"] or ""
+        
+        # Use the locations_match helper for better normalization
+        if firm_city and req_city:
+            if locations_match(firm_city, req_city):
+                return True
+        
+        # Fallback to original logic for edge cases
+        if firm_city and req_city:
+            firm_city_lower = firm_city.lower().strip()
+            req_city_lower = req_city.lower().strip()
             # Direct match
-            if firm_city == req_city:
+            if firm_city_lower == req_city_lower:
                 return True
             # Partial match (e.g., "new york" matches "new york city")
-            if req_city in firm_city or firm_city in req_city:
+            if req_city_lower in firm_city_lower or firm_city_lower in req_city_lower:
                 return True
+        
         # If we have a city requirement but no match, fail
         return False
     

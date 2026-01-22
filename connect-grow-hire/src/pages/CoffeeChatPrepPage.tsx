@@ -335,6 +335,7 @@ const CoffeeChatPrepPage: React.FC = () => {
       const MAX_TRIES = 20;
       const DELAY_MS = 1000;
       let pdfUrl: string | undefined;
+      let contactName: string | undefined;
 
       toast({
         title: "Preparing PDF",
@@ -360,27 +361,77 @@ const CoffeeChatPrepPage: React.FC = () => {
         throw new Error("PDF isn't ready yet. Please try again in a moment.");
       }
 
+      // Get contact name from result if available, or from coffeeChatResult
+      if (coffeeChatResult?.contactData) {
+        const firstName = coffeeChatResult.contactData.firstName || '';
+        const lastName = coffeeChatResult.contactData.lastName || '';
+        contactName = `${firstName} ${lastName}`.trim() || undefined;
+      }
+
+      const sanitizeForFilename = (str: string): string => {
+        return str
+          .replace(/[^a-zA-Z0-9\s-]/g, '')
+          .replace(/\s+/g, '_')
+          .replace(/_+/g, '_')
+          .replace(/^_+|_+$/g, '')
+          .substring(0, 50);
+      };
+
+      const name = contactName ? sanitizeForFilename(contactName) : 'Contact';
+      const filename = `Oloop_coffeechat_${name}.pdf`;
+
       await new Promise(r => setTimeout(r, 500));
 
-      const tab = window.open(pdfUrl, "_blank", "noopener,noreferrer");
-      
-      if (!tab) {
+      try {
+        const response = await fetch(pdfUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch PDF: ${response.status}`);
+        }
+        
+        const blob = await response.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+        
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = filename;
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        
+        setTimeout(() => {
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(blobUrl);
+        }, 100);
+        
+        trackContentViewed('coffee_chat_prep', 'pdf', id);
+        
+        toast({
+          title: "PDF Downloaded",
+          description: "Your Coffee Chat Prep PDF has been downloaded.",
+          duration: 3000,
+        });
+      } catch (fetchError) {
+        console.warn("Blob download failed, trying direct link:", fetchError);
         const a = document.createElement("a");
         a.href = pdfUrl;
+        a.download = filename;
         a.target = "_blank";
         a.rel = "noopener noreferrer";
         a.style.display = "none";
         document.body.appendChild(a);
         a.click();
-        document.body.removeChild(a);
+        setTimeout(() => {
+          document.body.removeChild(a);
+        }, 100);
+        
+        trackContentViewed('coffee_chat_prep', 'pdf', id);
+        
+        toast({
+          title: "PDF Download Started",
+          description: "Your Coffee Chat Prep PDF download has started.",
+          duration: 3000,
+        });
       }
-
-      trackContentViewed('coffee_chat_prep', 'pdf');
-
-      toast({
-        title: "PDF Ready",
-        description: "Opened your Coffee Chat one-pager in a new tab.",
-      });
     } catch (err) {
       trackError('coffee_chat_prep', 'download', 'network_error', err instanceof Error ? err.message : undefined);
       toast({
@@ -393,23 +444,80 @@ const CoffeeChatPrepPage: React.FC = () => {
 
   const handleLibraryDownload = async (prep: CoffeeChatPrep) => {
     try {
-      if (prep.pdfUrl) {
-        window.open(prep.pdfUrl, "_blank", "noopener");
-        trackContentViewed('coffee_chat_prep', 'pdf', prep.id);
-        return;
-      }
-      const { pdfUrl } = await apiService.downloadCoffeeChatPDF(prep.id);
-      if (pdfUrl) {
-        window.open(pdfUrl, "_blank", "noopener");
-        trackContentViewed('coffee_chat_prep', 'pdf', prep.id);
-      } else {
+      const pdfUrl = prep.pdfUrl || (await apiService.downloadCoffeeChatPDF(prep.id)).pdfUrl;
+      
+      if (!pdfUrl) {
         throw new Error("PDF URL not available yet");
+      }
+
+      const sanitizeForFilename = (str: string): string => {
+        return str
+          .replace(/[^a-zA-Z0-9\s-]/g, '')
+          .replace(/\s+/g, '_')
+          .replace(/_+/g, '_')
+          .replace(/^_+|_+$/g, '')
+          .substring(0, 50);
+      };
+
+      const contactName = prep.contactName || 'Contact';
+      const name = sanitizeForFilename(contactName);
+      const filename = `Oloop_coffeechat_${name}.pdf`;
+
+      try {
+        const response = await fetch(pdfUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch PDF: ${response.status}`);
+        }
+        
+        const blob = await response.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+        
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = filename;
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        
+        setTimeout(() => {
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(blobUrl);
+        }, 100);
+        
+        trackContentViewed('coffee_chat_prep', 'pdf', prep.id);
+        
+        toast({
+          title: "PDF Downloaded",
+          description: "Your Coffee Chat Prep PDF has been downloaded.",
+          duration: 3000,
+        });
+      } catch (fetchError) {
+        console.warn("Blob download failed, trying direct link:", fetchError);
+        const a = document.createElement("a");
+        a.href = pdfUrl;
+        a.download = filename;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+        }, 100);
+        
+        trackContentViewed('coffee_chat_prep', 'pdf', prep.id);
+        
+        toast({
+          title: "PDF Download Started",
+          description: "Your Coffee Chat Prep PDF download has started.",
+          duration: 3000,
+        });
       }
     } catch (error) {
       trackError('coffee_chat_prep', 'download', 'network_error', error instanceof Error ? error.message : undefined);
       toast({
         title: "Download failed",
-        description: "Could not open the PDF. Please try again.",
+        description: error instanceof Error ? error.message : "Could not download the PDF. Please try again.",
         variant: "destructive",
       });
     }
@@ -623,7 +731,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                                 className="ml-4 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-full hover:bg-green-700 transition-colors flex items-center gap-2"
                               >
                                 <Download className="h-4 w-4" />
-                                View PDF
+                                Download PDF
                               </button>
                             </div>
                           ) : coffeeChatStatus === 'failed' ? (

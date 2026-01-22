@@ -11,7 +11,7 @@ import threading
 HUNTER_API_KEY = os.getenv('HUNTER_API_KEY')
 
 # Rate limiting configuration
-HUNTER_RATE_LIMIT_DELAY = 0.5  # 500ms delay between API calls to avoid rate limits
+# Note: No preemptive delays - only sleep when actually rate limited (429 status)
 MAX_CONSECUTIVE_FAILURES = 3  # Stop after 3 consecutive API failures (likely rate limit)
 
 # Domain pattern cache - stores email patterns for each domain
@@ -522,68 +522,94 @@ def find_email_with_hunter(first_name: str, last_name: str, domain: str, api_key
         print(f"[Hunter Email Finder] ⚠️ Missing required parameters: first={bool(first_name)}, last={bool(last_name)}, domain={bool(domain)}")
         return None, 0
     
-    try:
-        print(f"[Hunter Email Finder] Making API request...")
-        api_start = time.time()
-        response = requests.get(
-            "https://api.hunter.io/v2/email-finder",
-            params={
-                "domain": domain,
-                "first_name": first_name.strip(),
-                "last_name": last_name.strip(),
-                "api_key": api_key
-            },
-            timeout=10
-        )
-        api_time = time.time() - api_start
-        total_time = time.time() - finder_start
-        
-        print(f"[Hunter Email Finder] ⏱️  Response status: {response.status_code} (total: {total_time:.2f}s, API: {api_time:.2f}s)")
-        
-        if response.status_code == 429:
-            print(f"[Hunter Email Finder] ⚠️ Rate limited (429)")
-            time.sleep(2)
-            return None, 0
-        
-        if response.status_code != 200:
-            print(f"[Hunter Email Finder] ⚠️ Error response: {response.status_code}")
-            print(f"[Hunter Email Finder] Response body: {response.text[:200]}")
-            return None, 0
-        
-        data = response.json()
-        print(f"[Hunter Email Finder] Response data: {json.dumps(data, indent=2)}")
-        
-        email_data = data.get("data", {})
-        email = email_data.get("email")
-        score = email_data.get("score", 0)
-        position = email_data.get("position", "Unknown")
-        company = email_data.get("company", "Unknown")
-        
-        print(f"[Hunter Email Finder] Parsed - email: {email}, score: {score}, position: {position}, company: {company}")
-        
-        if email and score >= 70:
-            print(f"[Hunter Email Finder] ✅ Found valid email: {email} (score: {score})")
-            return email, score
-        elif email:
-            print(f"[Hunter Email Finder] ⚠️ Found email but low confidence: {email} (score: {score})")
-            return None, score
-        else:
-            print(f"[Hunter Email Finder] ❌ No email found for {first_name} {last_name} @ {domain}")
-            return None, 0
+    url = "https://api.hunter.io/v2/email-finder"
+    params = {
+        "domain": domain,
+        "first_name": first_name.strip(),
+        "last_name": last_name.strip(),
+        "api_key": api_key
+    }
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            print(f"[Hunter Email Finder] Making API request (attempt {attempt + 1}/{max_retries})...")
+            api_start = time.time()
+            response = requests.get(url, params=params, timeout=10)
+            api_time = time.time() - api_start
+            total_time = time.time() - finder_start
             
-    except requests.exceptions.RequestException as e:
-        print(f"[Hunter Email Finder] ❌ Request exception: {str(e)}")
-        return None, 0
-    except json.JSONDecodeError as e:
-        print(f"[Hunter Email Finder] ❌ JSON decode error: {str(e)}")
-        if 'response' in locals():
-            print(f"[Hunter Email Finder] Raw response: {response.text[:200]}")
-        return None, 0
-    except Exception as e:
-        print(f"[Hunter Email Finder] ❌ Unexpected exception: {str(e)}")
-        import traceback
-        print(f"[Hunter Email Finder] Traceback: {traceback.format_exc()}")
-        return None, 0
+            print(f"[Hunter Email Finder] ⏱️  Response status: {response.status_code} (total: {total_time:.2f}s, API: {api_time:.2f}s)")
+            
+            # Handle rate limit (429) with exponential backoff - only sleep when actually rate limited
+            if response.status_code == 429:
+                wait_time = min((2 ** attempt) * 1, 8)  # 1s, 2s, 4s, max 8s
+                print(f"[Hunter Email Finder] ⚠️ Rate limited (429), waiting {wait_time}s before retry {attempt + 1}/{max_retries}...")
+                if attempt < max_retries - 1:
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    print(f"[Hunter Email Finder] ❌ Rate limited after {max_retries} attempts")
+                    return None, 0
+            
+            if response.status_code != 200:
+                print(f"[Hunter Email Finder] ⚠️ Error response: {response.status_code}")
+                print(f"[Hunter Email Finder] Response body: {response.text[:200]}")
+                return None, 0
+            
+            data = response.json()
+            print(f"[Hunter Email Finder] Response data: {json.dumps(data, indent=2)}")
+            
+            email_data = data.get("data", {})
+            email = email_data.get("email")
+            score = email_data.get("score", 0)
+            position = email_data.get("position", "Unknown")
+            company = email_data.get("company", "Unknown")
+            
+            print(f"[Hunter Email Finder] Parsed - email: {email}, score: {score}, position: {position}, company: {company}")
+            
+            if email and score >= 70:
+                print(f"[Hunter Email Finder] ✅ Found valid email: {email} (score: {score})")
+                return email, score
+            elif email:
+                print(f"[Hunter Email Finder] ⚠️ Found email but low confidence: {email} (score: {score})")
+                return None, score
+            else:
+                print(f"[Hunter Email Finder] ❌ No email found for {first_name} {last_name} @ {domain}")
+                return None, 0
+                
+        except requests.exceptions.Timeout:
+            print(f"[Hunter Email Finder] ⚠️ Request timeout")
+            if attempt < max_retries - 1:
+                wait_time = (2 ** attempt) * 1
+                time.sleep(wait_time)
+                continue
+            return None, 0
+        except requests.exceptions.RequestException as e:
+            print(f"[Hunter Email Finder] ❌ Request exception: {str(e)}")
+            if attempt < max_retries - 1:
+                wait_time = (2 ** attempt) * 1
+                time.sleep(wait_time)
+                continue
+            return None, 0
+        except json.JSONDecodeError as e:
+            print(f"[Hunter Email Finder] ❌ JSON decode error: {str(e)}")
+            if 'response' in locals():
+                print(f"[Hunter Email Finder] Raw response: {response.text[:200]}")
+            return None, 0
+        except Exception as e:
+            print(f"[Hunter Email Finder] ❌ Unexpected exception: {str(e)}")
+            import traceback
+            print(f"[Hunter Email Finder] Traceback: {traceback.format_exc()}")
+            if attempt < max_retries - 1:
+                wait_time = (2 ** attempt) * 1
+                time.sleep(wait_time)
+                continue
+            return None, 0
+    
+    # All retries exhausted
+    print(f"[Hunter Email Finder] ❌ All retry attempts exhausted")
+    return None, 0
 
 
 def find_email_hunter(first_name: str, last_name: str, company: str, api_key: str = None) -> dict:
@@ -663,15 +689,12 @@ def get_domain_pattern(domain: str, api_key: str = None) -> str:
             print(f"📦 ⏱️  Using cached email pattern ({cache_time*1000:.0f}ms) for {domain}: {pattern}")
             return pattern
     
-    # Fetch pattern from Hunter with rate limiting and retry logic
+    # Fetch pattern from Hunter with retry logic (only sleeps on actual 429 rate limits)
     url = "https://api.hunter.io/v2/domain-search"
     params = {
         'domain': domain,
         'api_key': api_key
     }
-    
-    # Rate limiting: Add delay before API call
-    time.sleep(HUNTER_RATE_LIMIT_DELAY)
     
     max_retries = 3
     for attempt in range(max_retries):
@@ -989,10 +1012,7 @@ def enrich_contacts_with_hunter(contacts: list, api_key: str = None, max_enrichm
             results["no_email"] += 1
             print(f"❌ No email found for {name}")
         
-        # Add small delay between requests to avoid rate limits (if not rate limited yet)
-        # Delay after each request (not just successful ones) to be respectful of rate limits
-        if not rate_limited:
-            time.sleep(0.5)  # 500ms delay between requests to avoid hitting rate limits
+        # No preemptive delay - only sleep when actually rate limited (429)
     
     # === PASS 2: Combine results - verified first, then unverified ===
     print(f"\n[BatchProcess] === PASS 2: Combining results ===")
@@ -1062,9 +1082,7 @@ def verify_email_hunter(email: str, api_key: str = None, use_cache: bool = True)
                 print(f"📦 ⏱️  Using cached verification ({cache_time*1000:.0f}ms) for {email}: score={cached_result.get('score', 'N/A')}")
                 return cached_result
     
-    # Rate limiting: Add delay before API call
-    time.sleep(HUNTER_RATE_LIMIT_DELAY)
-    
+    # Only sleep when actually rate limited (429), not preemptively
     url = "https://api.hunter.io/v2/email-verifier"
     params = {
         'email': email,

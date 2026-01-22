@@ -43,6 +43,26 @@ const RecruiterSpreadsheetPage = () => {
 
   // Tracker count (would come from API in real implementation)
   const [trackerCount, setTrackerCount] = useState(0);
+  // Refresh key to force RecruiterSpreadsheet to reload when changed
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // Validate parsed job title - reject common error messages from JS-required pages
+  const isValidJobTitle = (title: string | undefined | null): boolean => {
+    if (!title || title.trim().length === 0) return false;
+    
+    const invalidPatterns = [
+      'javascript is disabled',
+      'javascript is required',
+      'enable javascript',
+      'please enable javascript',
+      'browser not supported',
+      'loading...',
+      'please wait',
+    ];
+    
+    const lowerTitle = title.toLowerCase().trim();
+    return !invalidPatterns.some(pattern => lowerTitle.includes(pattern));
+  };
 
   // URL validation
   const isValidUrl = (url: string) => {
@@ -171,8 +191,9 @@ const RecruiterSpreadsheetPage = () => {
             if (parseResponse.job.company && !companyName) {
               companyName = parseResponse.job.company;
             }
-            if (parseResponse.job.title && !jobTitleValue) {
-              jobTitleValue = parseResponse.job.title;
+            const parsedTitle = parseResponse.job.title;
+            if (parsedTitle && !jobTitleValue && isValidJobTitle(parsedTitle)) {
+              jobTitleValue = parsedTitle;
             }
             if (parseResponse.job.location && !locationValue) {
               locationValue = parseResponse.job.location;
@@ -217,6 +238,10 @@ const RecruiterSpreadsheetPage = () => {
         createDrafts: true,
       });
 
+      console.log('🔍 API Response:', JSON.stringify(response, null, 2));
+      console.log('🔍 Hiring managers found:', response.hiringManagers?.length);
+      console.log('🔍 First manager raw:', response.hiringManagers?.[0]);
+
       clearInterval(progressInterval);
       setProgress(100);
 
@@ -234,22 +259,39 @@ const RecruiterSpreadsheetPage = () => {
       if (response.hiringManagers && response.hiringManagers.length > 0) {
         try {
           // Convert API format to Firebase format
-          const firebaseRecruiters: Omit<FirebaseRecruiter, 'id'>[] = response.hiringManagers.map((manager) => ({
-            firstName: manager.FirstName || '',
-            lastName: manager.LastName || '',
-            linkedinUrl: manager.LinkedIn || '',
-            email: manager.Email || manager.WorkEmail || '',
-            company: manager.Company || companyName,
-            jobTitle: manager.Title || '',
-            location: `${manager.City || ''}${manager.City && manager.State ? ', ' : ''}${manager.State || ''}`.trim() || undefined,
-            phone: manager.Phone,
-            workEmail: manager.WorkEmail,
-            personalEmail: manager.PersonalEmail,
-            associatedJobTitle: jobTitleValue || undefined,
-            associatedJobUrl: jobPostingUrl || undefined,
-            dateAdded: new Date().toISOString(),
-            status: 'Not Contacted',
-          }));
+          const firebaseRecruiters: Omit<FirebaseRecruiter, 'id'>[] = response.hiringManagers.map((manager: any) => {
+            // Build base object with required fields
+            const recruiter: Omit<FirebaseRecruiter, 'id'> = {
+              firstName: manager.FirstName || manager.firstName || manager.first_name || '',
+              lastName: manager.LastName || manager.lastName || manager.last_name || '',
+              linkedinUrl: manager.LinkedIn || manager.linkedin || manager.linkedinUrl || manager.linkedin_url || '',
+              email: manager.Email || manager.email || manager.WorkEmail || manager.work_email || '',
+              company: manager.Company || manager.company || companyName,
+              jobTitle: manager.Title || manager.title || manager.jobTitle || manager.job_title || '',
+              location: `${manager.City || manager.city || ''}${(manager.City || manager.city) && (manager.State || manager.state) ? ', ' : ''}${manager.State || manager.state || ''}`.trim() || '',
+              dateAdded: new Date().toISOString(),
+              status: 'Not Contacted',
+            };
+
+            // Only add optional fields if they have values (Firestore rejects undefined)
+            const phone = manager.Phone || manager.phone;
+            const workEmail = manager.WorkEmail || manager.work_email || manager.workEmail;
+            const personalEmail = manager.PersonalEmail || manager.personal_email || manager.personalEmail;
+            const associatedJobTitle = jobTitleValue;
+            const associatedJobUrl = jobPostingUrl;
+
+            if (phone) recruiter.phone = phone;
+            if (workEmail) recruiter.workEmail = workEmail;
+            if (personalEmail) recruiter.personalEmail = personalEmail;
+            if (associatedJobTitle && isValidJobTitle(associatedJobTitle)) {
+              recruiter.associatedJobTitle = associatedJobTitle;
+            }
+            if (associatedJobUrl) recruiter.associatedJobUrl = associatedJobUrl;
+
+            return recruiter;
+          });
+
+          console.log('📋 Converted to Firebase format:', JSON.stringify(firebaseRecruiters, null, 2));
 
           // Check for duplicates before saving
           const existingRecruiters = await firebaseApi.getRecruiters(user.uid);
@@ -262,26 +304,52 @@ const RecruiterSpreadsheetPage = () => {
             return !hasEmail && !hasLinkedIn;
           });
 
+          console.log('💾 About to save these recruiters:', newRecruiters.length, JSON.stringify(newRecruiters, null, 2));
+
           if (newRecruiters.length > 0) {
             await firebaseApi.bulkCreateRecruiters(user.uid, newRecruiters);
             setTrackerCount(prev => prev + newRecruiters.length);
             console.log(`✅ Saved ${newRecruiters.length} hiring manager(s) to tracker`);
+            
+            // Trigger refresh of RecruiterSpreadsheet component
+            setRefreshKey(prev => prev + 1);
+            
+            // Switch to tracker tab to show the saved hiring managers
+            setActiveTab('hiring-manager-tracker');
+          } else {
+            console.log('⚠️ All hiring managers were duplicates, nothing saved');
           }
         } catch (error) {
           console.error('Error saving hiring managers to tracker:', error);
-          // Don't fail the whole operation if saving fails
+          toast({
+            title: "Error saving to tracker",
+            description: "Hiring managers were found but couldn't be saved. Please try again.",
+            variant: "destructive",
+          });
         }
+      } else {
+        console.log('⚠️ No hiring managers in response to save');
       }
 
       // Show success message
       const foundCount = response.hiringManagers?.length || 0;
+      const savedCount = response.hiringManagers?.length || 0;
       setManagersFound(foundCount);
-      toast({
-        title: `Found ${foundCount} hiring manager${foundCount !== 1 ? 's' : ''}!`,
-        description: response.draftsCreated && response.draftsCreated.length > 0
-          ? `Draft emails saved to your Gmail`
-          : "Hiring managers saved to tracker",
-      });
+      
+      if (foundCount > 0) {
+        toast({
+          title: `Found ${foundCount} hiring manager${foundCount !== 1 ? 's' : ''}!`,
+          description: response.draftsCreated && response.draftsCreated.length > 0
+            ? `${savedCount} saved to tracker. Draft emails saved to your Gmail.`
+            : `${savedCount} saved to tracker.`,
+        });
+      } else {
+        toast({
+          title: "No hiring managers found",
+          description: "Try adjusting your search criteria or company name.",
+          variant: "default",
+        });
+      }
 
       setIsSearching(false);
       setSearchComplete(true);
@@ -719,7 +787,7 @@ const RecruiterSpreadsheetPage = () => {
                     <div className="h-1 bg-gradient-to-r from-rose-500 via-pink-500 to-rose-600"></div>
                     
                     <div className="p-8">
-                      <RecruiterSpreadsheet />
+                      <RecruiterSpreadsheet key={refreshKey} />
                     </div>
                   </div>
                 </TabsContent>

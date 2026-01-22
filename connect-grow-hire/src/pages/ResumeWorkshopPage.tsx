@@ -31,7 +31,8 @@ import {
   Sparkles,
   BarChart3,
   FolderOpen,
-  CheckCircle
+  CheckCircle,
+  Copy
 } from 'lucide-react';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -41,12 +42,10 @@ import {
   fixResume,
   scoreResume,
   tailorResume,
-  applyRecommendation,
   replaceMainResume,
   getResumeLibrary,
   getLibraryEntry,
   deleteLibraryEntry,
-  type Recommendation,
   type ScoreCategory,
   type JobContext,
   type LibraryEntry,
@@ -205,78 +204,166 @@ const ReplaceResumeModal: React.FC<ConfirmModalProps> = ({ isOpen, onClose, onCo
   );
 };
 
+// Updated Recommendation interface for before/after display
+interface Recommendation {
+  id: string;
+  title: string;
+  description: string;
+  category: 'Summary' | 'Experience' | 'Skills' | 'Keywords';
+  current: string;
+  suggested: string;
+  why?: string;
+}
+
 // Helper function to convert TailorResult sections to Recommendations
 function convertSectionsToRecommendations(tailorResult: TailorResult): Recommendation[] {
   const recommendations: Recommendation[] = [];
-  let idCounter = 1;
 
   // Summary recommendation
-  if (tailorResult.sections.summary) {
+  if (tailorResult.sections.summary?.suggested && tailorResult.sections.summary?.current !== tailorResult.sections.summary?.suggested) {
     recommendations.push({
-      id: `summary-${idCounter++}`,
+      id: 'summary',
       title: 'Update Professional Summary',
-      explanation: tailorResult.sections.summary.why,
-      section: 'Summary',
-      current_text: tailorResult.sections.summary.current,
-      suggested_text: tailorResult.sections.summary.suggested,
-      impact: 'high'
+      description: tailorResult.sections.summary.why || 'Tailor your summary to highlight relevant experience.',
+      category: 'Summary',
+      current: tailorResult.sections.summary.current || 'No summary found',
+      suggested: tailorResult.sections.summary.suggested,
+      why: tailorResult.sections.summary.why,
     });
   }
 
-  // Experience recommendations
-  if (tailorResult.sections.experience) {
-    tailorResult.sections.experience.forEach((exp, expIndex) => {
-      exp.bullets.forEach((bullet, bulletIndex) => {
+  // Experience bullet recommendations
+  tailorResult.sections.experience?.forEach((exp, expIndex) => {
+    exp.bullets?.forEach((bullet, bulletIndex) => {
+      if (bullet.suggested && bullet.current !== bullet.suggested) {
         recommendations.push({
-          id: `exp-${expIndex}-${bulletIndex}-${idCounter++}`,
+          id: `exp-${expIndex}-${bulletIndex}`,
           title: `Improve ${exp.role} @ ${exp.company}`,
-          explanation: bullet.why,
-          section: 'Experience',
-          current_text: bullet.current,
-          suggested_text: bullet.suggested,
-          impact: 'medium'
+          description: bullet.why || 'Strengthen this bullet point.',
+          category: 'Experience',
+          current: bullet.current,
+          suggested: bullet.suggested,
+          why: bullet.why,
         });
-      });
+      }
     });
-  }
+  });
 
-  // Skills recommendations
-  if (tailorResult.sections.skills) {
-    tailorResult.sections.skills.add.forEach((skill) => {
-      recommendations.push({
-        id: `skill-add-${idCounter++}`,
-        title: `Add Skill: ${skill.skill}`,
-        explanation: skill.reason,
-        section: 'Skills',
-        impact: 'medium'
-      });
+  // Skills to add
+  tailorResult.sections.skills?.add?.forEach((skill, index) => {
+    recommendations.push({
+      id: `skill-add-${index}`,
+      title: `Add Skill: ${skill.skill}`,
+      description: skill.reason,
+      category: 'Skills',
+      current: '', // No current text for new skills
+      suggested: skill.skill,
+      why: skill.reason,
     });
-    tailorResult.sections.skills.remove.forEach((skill) => {
-      recommendations.push({
-        id: `skill-remove-${idCounter++}`,
-        title: `Consider Removing: ${skill.skill}`,
-        explanation: skill.reason,
-        section: 'Skills',
-        impact: 'low'
-      });
-    });
-  }
+  });
 
-  // Keywords recommendations
-  if (tailorResult.sections.keywords) {
-    tailorResult.sections.keywords.forEach((kw) => {
-      recommendations.push({
-        id: `keyword-${idCounter++}`,
-        title: `Add Keyword: ${kw.keyword}`,
-        explanation: `Add to ${kw.where_to_add}`,
-        section: kw.where_to_add,
-        impact: 'high'
-      });
+  // Skills to remove
+  tailorResult.sections.skills?.remove?.forEach((skill, index) => {
+    recommendations.push({
+      id: `skill-remove-${index}`,
+      title: `Consider Removing: ${skill.skill}`,
+      description: skill.reason,
+      category: 'Skills',
+      current: skill.skill,
+      suggested: '', // Suggesting removal
+      why: skill.reason,
     });
-  }
+  });
+
+  // Keywords to add
+  tailorResult.sections.keywords?.forEach((kw, index) => {
+    recommendations.push({
+      id: `keyword-${index}`,
+      title: `Add Keyword: ${kw.keyword}`,
+      description: kw.where_to_add,
+      category: 'Keywords',
+      current: '',
+      suggested: kw.keyword,
+      why: kw.where_to_add,
+    });
+  });
 
   return recommendations;
 }
+
+// Recommendation Card Component
+const RecommendationCard: React.FC<{ rec: Recommendation }> = ({ rec }) => {
+  const [expanded, setExpanded] = useState(false);
+  
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({ title: "Copied to clipboard!", duration: 2000 });
+  };
+  
+  return (
+    <div className="border border-gray-200 rounded-xl p-4 bg-white hover:shadow-md transition-shadow">
+      <div 
+        className="flex justify-between items-start cursor-pointer"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex-1 min-w-0">
+          <h4 className="font-medium text-gray-900 text-sm">{rec.title}</h4>
+          <p className="text-sm text-gray-600 mt-1">{rec.description}</p>
+          <span className="text-xs text-gray-400 mt-1 inline-block">{rec.category}</span>
+        </div>
+        <ChevronDown 
+          className={`w-5 h-5 text-gray-400 transition-transform flex-shrink-0 ml-2 ${expanded ? 'rotate-180' : ''}`}
+        />
+      </div>
+      
+      {expanded && (
+        <div className="mt-4 space-y-3">
+          {/* Current/Before */}
+          {rec.current && (
+            <div className="bg-gray-50 rounded-lg p-3">
+              <div className="text-xs font-medium text-gray-500 mb-1">Current</div>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{rec.current}</p>
+            </div>
+          )}
+          
+          {/* Suggested/After */}
+          {rec.suggested && (
+            <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-xs font-medium text-purple-600">
+                  {rec.current ? 'Suggested' : 'Add This'}
+                </span>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    copyToClipboard(rec.suggested);
+                  }}
+                  className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1 transition-colors"
+                >
+                  <Copy size={12} />
+                  Copy
+                </button>
+              </div>
+              <p className="text-sm text-gray-800 whitespace-pre-wrap">{rec.suggested}</p>
+            </div>
+          )}
+          
+          {/* For removals */}
+          {rec.current && !rec.suggested && (
+            <div className="bg-red-50 rounded-lg p-3 border border-red-200">
+              <span className="text-xs font-medium text-red-600">Consider removing this</span>
+            </div>
+          )}
+          
+          {/* Why this change */}
+          {rec.why && (
+            <p className="text-xs text-gray-500 italic">{rec.why}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // Main Component
 export default function ResumeWorkshopPage() {
@@ -323,14 +410,11 @@ export default function ResumeWorkshopPage() {
   
   // Tailor state
   const [isTailoring, setIsTailoring] = useState(false);
-  const [tailoredPdfBase64, setTailoredPdfBase64] = useState<string | null>(null);
-  const [tailoredResumeText, setTailoredResumeText] = useState<string | null>(null);
   const [tailorScore, setTailorScore] = useState<number | null>(null);
   const [tailorScoreLabel, setTailorScoreLabel] = useState('');
   const [tailorCategories, setTailorCategories] = useState<ScoreCategory[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [tailorJobContext, setTailorJobContext] = useState<JobContext | null>(null);
-  const [applyingId, setApplyingId] = useState<string | null>(null);
   
   // Results mode
   const [showResults, setShowResults] = useState<'none' | 'fix' | 'tailor'>('none');
@@ -607,44 +691,7 @@ export default function ResumeWorkshopPage() {
     }
   };
 
-  // Handle Apply Recommendation
-  const handleApplyRecommendation = async (rec: Recommendation) => {
-    if (!tailorJobContext) return;
-    
-    if ((user?.credits ?? 0) < 5) {
-      toast({ title: 'Insufficient Credits', description: 'You need at least 5 credits.', variant: 'destructive' });
-      return;
-    }
-    
-    setApplyingId(rec.id);
-    try {
-      const result = await applyRecommendation({
-        recommendation: rec,
-        job_context: tailorJobContext,
-        current_working_resume_text: tailoredResumeText || undefined,
-        score: tailorScore || undefined,
-      });
-      
-      if (result.status === 'error') {
-        toast({ title: 'Error', description: result.message, variant: 'destructive' });
-        return;
-      }
-      
-      setTailoredPdfBase64(result.updated_resume_pdf_base64 || null);
-      setTailoredResumeText(result.updated_resume_text || null);
-      setRecommendations(prev => prev.filter(r => r.id !== rec.id));
-      
-      if (result.credits_remaining !== undefined && updateCredits) {
-        await updateCredits(result.credits_remaining);
-      }
-      
-      toast({ title: 'Applied', description: 'Recommendation applied and saved to library.' });
-    } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
-    } finally {
-      setApplyingId(null);
-    }
-  };
+  // Note: handleApplyRecommendation removed - users now copy/paste manually
 
   // Handle Download
   const handleDownload = (pdfBase64: string, filename: string) => {
@@ -696,8 +743,6 @@ export default function ResumeWorkshopPage() {
     setShowResults('none');
     setFixedPdfBase64(null);
     setFixedResumeText(null);
-    setTailoredPdfBase64(null);
-    setTailoredResumeText(null);
     setTailorScore(null);
     setRecommendations([]);
   };
@@ -1234,63 +1279,30 @@ export default function ResumeWorkshopPage() {
                                     Recommendations ({recommendations.length})
                                   </h3>
                                   <p className="text-sm text-gray-500 mb-3">
-                                    Apply to generate a tailored version. Each costs 5 credits.
+                                    Click to expand and copy suggestions to your resume.
                                   </p>
                                   <div className="space-y-3">
                                     {recommendations.map(rec => (
-                                      <div key={rec.id} className="border border-gray-200 rounded-xl p-4 bg-white">
-                                        <div className="flex items-start justify-between gap-3">
-                                          <div className="min-w-0">
-                                            <h4 className="font-medium text-gray-900 text-sm">{rec.title}</h4>
-                                            <p className="text-sm text-gray-600 mt-1">{rec.explanation}</p>
-                                            <span className="text-xs text-gray-400">{rec.section}</span>
-                                          </div>
-                                          <Button
-                                            size="sm"
-                                            onClick={() => handleApplyRecommendation(rec)}
-                                            disabled={applyingId !== null}
-                                            className="bg-gradient-to-r from-purple-600 to-indigo-500 hover:shadow-lg flex-shrink-0 rounded-lg"
-                                          >
-                                            {applyingId === rec.id ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply'}
-                                          </Button>
-                                        </div>
-                                      </div>
+                                      <RecommendationCard key={rec.id} rec={rec} />
                                     ))}
                                   </div>
                                 </div>
                               )}
                               
-                              {recommendations.length === 0 && tailoredPdfBase64 && (
-                                <div className="text-center py-6 text-gray-500 bg-green-50 rounded-xl border border-green-200">
-                                  <CheckCircle className="w-8 h-8 text-green-600 mx-auto mb-2" />
-                                  <p className="font-medium text-green-700">All recommendations applied!</p>
-                                </div>
-                              )}
                             </div>
                             
                             {/* Right - Preview */}
                             <div>
                               <h3 className="text-sm font-medium text-gray-700 mb-2">
-                                {tailoredPdfBase64 ? 'Tailored Resume' : 'Original Resume'}
+                                Original Resume
                               </h3>
                               <PDFPreview
-                                pdfUrl={tailoredPdfBase64 ? undefined : resumeUrl}
-                                pdfBase64={tailoredPdfBase64}
-                                title={tailoredPdfBase64 ? 'Tailored Resume' : 'Original Resume'}
+                                pdfUrl={resumeUrl}
+                                title="Original Resume"
                               />
-                              {tailoredPdfBase64 && (
-                                <Button 
-                                  variant="outline" 
-                                  className="mt-4 w-full rounded-xl"
-                                  onClick={() => handleDownload(
-                                    tailoredPdfBase64, 
-                                    `${tailorJobContext?.job_title?.replace(/\s+/g, '_') || 'tailored'}_resume.pdf`
-                                  )}
-                                >
-                                  <Download className="h-4 w-4 mr-2" />
-                                  Download Tailored Resume
-                                </Button>
-                              )}
+                              <p className="text-xs text-gray-500 mt-3 text-center">
+                                Copy suggestions from recommendations and update your resume manually
+                              </p>
                             </div>
                           </div>
                         </div>
@@ -1314,7 +1326,7 @@ export default function ResumeWorkshopPage() {
                             </div>
                             <h3 className="text-lg font-semibold text-gray-900 mb-2">No Saved Resumes</h3>
                             <p className="text-gray-500 max-w-md mx-auto mb-6">
-                              Tailored resumes will appear here after you apply recommendations.
+                              Saved resumes will appear here. Use the Resume Workshop to get tailored recommendations.
                             </p>
                             <button 
                               onClick={() => handleTabChange('resume-workshop')} 

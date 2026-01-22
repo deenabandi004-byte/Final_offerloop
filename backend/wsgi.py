@@ -2,6 +2,10 @@ import os
 import logging
 from flask import Flask, send_from_directory, abort, request, redirect
 
+# Configure logging BEFORE importing anything else that uses logging
+from .app.logging_config import configure_logging
+configure_logging()
+
 # --- Import your API blueprints (use package-relative imports) ---
 from .app.routes.health import health_bp
 from .app.routes.gmail_oauth import gmail_oauth_bp

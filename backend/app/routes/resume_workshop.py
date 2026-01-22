@@ -121,20 +121,51 @@ def _deduct_credits(user_id: str, amount: int) -> int:
 async def _parse_job_url(job_url: str) -> Optional[Dict[str, Any]]:
     """Try to parse job details from a URL."""
     try:
-        from app.services.interview_prep.job_posting_parser import parse_job_posting_url
+        from app.services.interview_prep.job_posting_parser import fetch_job_posting
         
-        job_details = await parse_job_posting_url(job_url)
+        # fetch_job_posting returns (text_content, metadata)
+        content, metadata = await fetch_job_posting(job_url)
         
-        if not job_details:
+        if not content:
             return None
         
-        # Map the job details to the expected format
-        return {
-            "job_title": job_details.get("job_title") or job_details.get("title", ""),
-            "company": job_details.get("company_name") or job_details.get("company", ""),
-            "location": job_details.get("location", ""),
-            "job_description": job_details.get("job_description") or job_details.get("description", "")
-        }
+        # If metadata already has good info, use it directly
+        if metadata.get('job_title') and metadata.get('company_name'):
+            return {
+                "job_title": metadata.get('job_title', ''),
+                "company": metadata.get('company_name', ''),
+                "location": metadata.get('location', ''),
+                "job_description": metadata.get('description', content[:3000])
+            }
+        
+        # Otherwise, use GPT to extract structured job info
+        openai_client = get_async_openai_client()
+        if not openai_client:
+            return None
+        
+        prompt = f"""Extract job information from this content. Return JSON only.
+
+Content:
+{content[:6000]}
+
+Return JSON:
+{{
+    "job_title": "...",
+    "company": "...",
+    "location": "...",
+    "job_description": "..."
+}}"""
+
+        response = await openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        return result
+        
     except Exception as e:
         logger.warning(f"[ResumeWorkshop] Job URL parsing failed: {e}")
         return None
@@ -310,7 +341,7 @@ Company: {company}
 Location: {location}
 
 Description:
-{job_description[:6000]}
+{job_description[:4000]}
 
 ## YOUR TASK:
 Provide a detailed analysis with specific suggestions for each section of the resume. For each suggestion, show the CURRENT text from the resume and your SUGGESTED improvement.
@@ -382,7 +413,7 @@ Respond with ONLY the JSON object, no other text.
 
     try:
         response = await openai_client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4o-mini",  # Faster model, still good for this task
             messages=[
                 {
                     "role": "system",
@@ -393,7 +424,7 @@ Respond with ONLY the JSON object, no other text.
                     "content": prompt
                 }
             ],
-            temperature=0.7,
+            temperature=0.5,  # Lower temperature for more consistent output
             max_tokens=4000,
             response_format={"type": "json_object"}
         )
@@ -690,7 +721,7 @@ If you cannot determine either field, use empty string."""
                     job_description=job_description,
                     openai_client=openai_client
                 ),
-                timeout=90.0
+                timeout=120.0  # Increased from 90 to 120 seconds
             )
         except TimeoutError:
             refund_credits_atomic(user_id, 5, "resume_workshop_analyze_timeout")
@@ -1344,6 +1375,14 @@ def replace_main_resume():
 @require_firebase_auth
 def apply_recommendation():
     """
+    DEPRECATED: This endpoint is deprecated. 
+    
+    The frontend now uses copy/paste instead of PDF generation to avoid timeouts
+    and reduce credit costs. Users can copy suggestions directly from the 
+    recommendations UI.
+    
+    This endpoint may be removed in a future version.
+    
     Apply a single recommendation to the resume.
     Costs 5 credits.
     
@@ -1367,25 +1406,33 @@ def apply_recommendation():
         "credits_remaining": 123
     }
     """
-    payload = request.get_json(force=True, silent=True) or {}
+    # Return deprecation message
+    return jsonify({
+        "status": "error",
+        "message": "This endpoint is deprecated. Please use the copy/paste feature in the UI instead.",
+        "error_code": "DEPRECATED_ENDPOINT"
+    }), 410  # 410 Gone - indicates the resource is no longer available
     
-    user_id = request.firebase_user.get('uid') if hasattr(request, 'firebase_user') else None
-    if not user_id:
-        return jsonify({
-            "status": "error",
-            "message": "User not authenticated"
-        }), 401
-    
-    recommendation = payload.get('recommendation')
-    job_context = payload.get('job_context', {})
-    current_working_resume_text = payload.get('current_working_resume_text')
-    score = payload.get('score')
-    
-    if not recommendation:
-        return jsonify({
-            "status": "error",
-            "message": "Missing recommendation"
-        }), 400
+    # Original implementation below (commented out for reference)
+    # payload = request.get_json(force=True, silent=True) or {}
+    # 
+    # user_id = request.firebase_user.get('uid') if hasattr(request, 'firebase_user') else None
+    # if not user_id:
+    #     return jsonify({
+    #         "status": "error",
+    #         "message": "User not authenticated"
+    #     }), 401
+    # 
+    # recommendation = payload.get('recommendation')
+    # job_context = payload.get('job_context', {})
+    # current_working_resume_text = payload.get('current_working_resume_text')
+    # score = payload.get('score')
+    # 
+    # if not recommendation:
+    #     return jsonify({
+    #         "status": "error",
+    #         "message": "Missing recommendation"
+    #     }), 400
     
     try:
         # Get resume text (either working version or original)

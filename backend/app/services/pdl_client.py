@@ -1738,7 +1738,13 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
         verbose: Enable verbose logging
         skip_count: Number of results to skip from the beginning (for getting different people)
         target_company: Target company name for email domain extraction (required for correct domain)
+    
+    Note: Ensures desired_limit and page_size are integers to avoid float slicing errors.
     """
+    # ✅ Ensure integer values to avoid float slicing errors
+    desired_limit = int(desired_limit)
+    page_size = int(page_size)
+    skip_count = int(skip_count) if skip_count else 0
     import time
     import random
     
@@ -1754,8 +1760,8 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
     # ---- Page 1
     # Fetch more than needed to account for skipping
     fetch_size = page_size + skip_count if skip_count > 0 else page_size
-    # ✅ CRITICAL: Cap at 100 (PDL's max size limit)
-    fetch_size = min(100, fetch_size)
+    # ✅ CRITICAL: Cap at 100 (PDL's max size limit) and ensure integer
+    fetch_size = int(min(100, fetch_size))
     body = {"query": query_obj, "size": fetch_size}
     
     # ✅ ADD DEBUG LOGGING
@@ -1917,7 +1923,7 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
 
     # ---- Page 2+
     while scroll and len(data) < desired_limit:
-        body2 = {"scroll_token": scroll, "size": page_size}
+        body2 = {"scroll_token": scroll, "size": int(page_size)}
         if verbose:
             print(f"\n=== PDL {search_type} NEXT PAGE BODY ===")
             print(json.dumps(body2, ensure_ascii=False))
@@ -1932,7 +1938,7 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
         if r2.status_code == 400 and "Either `query` or `sql` must be provided" in (r2.text or ""):
             if verbose:
                 print(f"{search_type} retrying with query+scroll_token due to 400…")
-            body2_fallback = {"query": query_obj, "scroll_token": scroll, "size": page_size}
+            body2_fallback = {"query": query_obj, "scroll_token": scroll, "size": int(page_size)}
             pdl_api_start = time.time()
             with _session_lock:
                 r2 = _session.post(url, headers=headers, json=body2_fallback, timeout=30)
@@ -2178,25 +2184,25 @@ def try_metro_search_optimized(clean_title, similar_titles, company, location_st
             "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
         }
 
-        # ✅ Request MORE than needed to account for filtering + variation
-        # When alumni filter is active, PDL already narrows results significantly
-        # But we need extra for: email filtering + skipping for variation
+        # ✅ Use max_contacts directly - caller already applies 2.5x multiplier
+        # Only add small buffer for post-filtering (alumni filtering, exclusion keys)
         if college_alumni:
             # Alumni filter in query means PDL returns mostly alumni
-            # But still need more because of flexible matching + variation
-            fetch_limit = max_contacts * 2  # Alumni filter in query = high hit rate
+            fetch_limit = max_contacts * 1.5  # Small buffer for variation
         else:
-            # No alumni filter means more aggressive over-fetching needed
-            # for email filtering, general quality, and variation
-            fetch_limit = max_contacts * 5  # No alumni filter = need more buffer
+            # No alumni filter - minimal buffer for exclusion keys
+            fetch_limit = max_contacts * 1.5  # Minimal buffer for exclusion keys
         
-        page_size = min(100, max(1, fetch_limit))
+        # Cap fetch_limit to prevent over-fetching (max 2.5x or 50, whichever is smaller)
+        fetch_limit = int(min(fetch_limit, max_contacts * 2.5, 50))
+        
+        page_size = int(min(100, max(1, fetch_limit)))
         
         raw_contacts = execute_pdl_search(
             headers=headers,
             url=PDL_URL,
             query_obj=query_obj,
-            desired_limit=fetch_limit,
+            desired_limit=int(fetch_limit),
             search_type=f"metro_{location_strategy.get('matched_metro','unknown')}",
             page_size=page_size,
             verbose=False,
@@ -2305,22 +2311,24 @@ def try_locality_search_optimized(clean_title, similar_titles, company, location
         "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
     }
 
-    # ✅ Request MORE than needed to account for post-filtering
-    # Since we're post-filtering for alumni instead of query-filtering, we need to fetch more
-    # to account for the fact that not all results will be alumni
+    # ✅ Use max_contacts directly - caller already applies 2.5x multiplier
+    # Only add small buffer for post-filtering (alumni filtering, exclusion keys)
     if college_alumni:
-        # Post-filtering means we need to fetch many more to get enough alumni
-        fetch_limit = max_contacts * 10  # Post-filtering = lower hit rate, need more buffer
+        # Post-filtering means we need a small buffer
+        fetch_limit = max_contacts * 2  # Small buffer for post-filtering
     else:
-        fetch_limit = max_contacts * 8  # No alumni filter = need more buffer
+        fetch_limit = max_contacts * 1.5  # Minimal buffer for exclusion keys
     
-    page_size = min(100, max(1, fetch_limit))
+    # Cap fetch_limit to prevent over-fetching (max 2.5x or 50, whichever is smaller)
+    fetch_limit = int(min(fetch_limit, max_contacts * 2.5, 50))
+    
+    page_size = int(min(100, max(1, fetch_limit)))
 
     raw_contacts = execute_pdl_search(
         headers=headers,
         url=PDL_URL,
         query_obj=query_obj,
-        desired_limit=fetch_limit,
+        desired_limit=int(fetch_limit),
         search_type=f"locality_{location_strategy.get('city','unknown')}",
         page_size=page_size,
         verbose=False,
@@ -2424,22 +2432,24 @@ def try_job_title_levels_search_enhanced(job_title_enrichment, company, city, st
         "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
     }
 
-    # ✅ Request MORE than needed to account for post-filtering
-    # Since we're post-filtering for alumni instead of query-filtering, we need to fetch more
-    # to account for the fact that not all results will be alumni
+    # ✅ Use max_contacts directly - caller already applies 2.5x multiplier
+    # Only add small buffer for post-filtering (alumni filtering, exclusion keys)
     if college_alumni:
-        # Post-filtering means we need to fetch many more to get enough alumni
-        fetch_limit = max_contacts * 10  # Post-filtering = lower hit rate, need more buffer
+        # Post-filtering means we need a small buffer
+        fetch_limit = max_contacts * 2  # Small buffer for post-filtering
     else:
-        fetch_limit = max_contacts * 8  # No alumni filter = need more buffer
+        fetch_limit = max_contacts * 1.5  # Minimal buffer for exclusion keys
     
-    page_size = min(100, max(1, fetch_limit))
+    # Cap fetch_limit to prevent over-fetching (max 2.5x or 50, whichever is smaller)
+    fetch_limit = int(min(fetch_limit, max_contacts * 2.5, 50))
+    
+    page_size = int(min(100, max(1, fetch_limit)))
 
     raw_contacts = execute_pdl_search(
         headers=headers,
         url=PDL_URL,
         query_obj=query_obj,
-        desired_limit=fetch_limit,
+        desired_limit=int(fetch_limit),
         search_type="job_levels_enhanced",
         page_size=page_size,
         verbose=False,

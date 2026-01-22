@@ -2,6 +2,7 @@
 Job posting parser service - extract structured data from job posting URLs
 """
 import aiohttp
+import asyncio
 import json
 from bs4 import BeautifulSoup
 from typing import Dict, Optional, Tuple
@@ -119,72 +120,97 @@ async def fetch_job_posting(url: str) -> Tuple[str, Dict]:
     Fetch the raw HTML/text content from a job posting URL.
     Returns both the text content and extracted metadata.
     """
+    # Normalize URL - add https:// if missing
+    url = url.strip()
+    if not url.startswith(('http://', 'https://')):
+        url = f'https://{url}'
+    
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
     }
     metadata = {}
     
+    max_retries = 3
+    retry_delay = 2  # seconds
+    
     try:
         async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as session:
-            async with session.get(url) as resp:
-                if resp.status == 200:
-                    html = await resp.text()
-                    soup = BeautifulSoup(html, 'html.parser')
+            for attempt in range(max_retries):
+                async with session.get(url) as resp:
+                    # Success
+                    if resp.status == 200:
+                        html = await resp.text()
+                        soup = BeautifulSoup(html, 'html.parser')
+                        
+                        # Try to extract metadata from structured data (JSON-LD, microdata, meta tags)
+                        # Many job sites use structured data for SEO
+                        json_ld_scripts = soup.find_all('script', type='application/ld+json')
+                        for script in json_ld_scripts:
+                            try:
+                                data = json.loads(script.string)
+                                if isinstance(data, dict):
+                                    # Look for job posting schema
+                                    if data.get('@type') == 'JobPosting' or 'JobPosting' in str(data.get('@type', '')):
+                                        if 'hiringOrganization' in data:
+                                            org = data['hiringOrganization']
+                                            if isinstance(org, dict):
+                                                metadata['company_name'] = org.get('name', '')
+                                        if 'title' in data:
+                                            metadata['job_title'] = data['title']
+                                        if 'jobLocation' in data:
+                                            loc = data['jobLocation']
+                                            if isinstance(loc, dict):
+                                                address = loc.get('address', {})
+                                                if isinstance(address, dict):
+                                                    metadata['location'] = address.get('addressLocality', '')
+                            except:
+                                pass
+                        
+                        # Try meta tags (og:title, og:description, etc.)
+                        meta_title = soup.find('meta', property='og:title')
+                        if meta_title and meta_title.get('content'):
+                            if not metadata.get('job_title'):
+                                metadata['job_title'] = meta_title.get('content')
+                        
+                        meta_desc = soup.find('meta', property='og:description')
+                        if meta_desc and meta_desc.get('content'):
+                            metadata['description'] = meta_desc.get('content')
+                        
+                        # Try to find company name in various places
+                        if not metadata.get('company_name'):
+                            # Check for company in meta tags
+                            company_meta = soup.find('meta', attrs={'name': 'company'}) or \
+                                          soup.find('meta', attrs={'property': 'og:site_name'})
+                            if company_meta:
+                                metadata['company_name'] = company_meta.get('content', '')
+                        
+                        # Remove script and style elements
+                        for element in soup(['script', 'style', 'nav', 'footer', 'header']):
+                            element.decompose()
+                        
+                        # Get text content
+                        text_content = soup.get_text(separator='\n', strip=True)
+                        
+                        return text_content, metadata
                     
-                    # Try to extract metadata from structured data (JSON-LD, microdata, meta tags)
-                    # Many job sites use structured data for SEO
-                    json_ld_scripts = soup.find_all('script', type='application/ld+json')
-                    for script in json_ld_scripts:
-                        try:
-                            data = json.loads(script.string)
-                            if isinstance(data, dict):
-                                # Look for job posting schema
-                                if data.get('@type') == 'JobPosting' or 'JobPosting' in str(data.get('@type', '')):
-                                    if 'hiringOrganization' in data:
-                                        org = data['hiringOrganization']
-                                        if isinstance(org, dict):
-                                            metadata['company_name'] = org.get('name', '')
-                                    if 'title' in data:
-                                        metadata['job_title'] = data['title']
-                                    if 'jobLocation' in data:
-                                        loc = data['jobLocation']
-                                        if isinstance(loc, dict):
-                                            address = loc.get('address', {})
-                                            if isinstance(address, dict):
-                                                metadata['location'] = address.get('addressLocality', '')
-                        except:
-                            pass
+                    # 202 Accepted - content not ready yet, retry
+                    elif resp.status == 202:
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(retry_delay)
+                            continue
+                        else:
+                            raise Exception(f"Job posting not ready after {max_retries} attempts (HTTP 202)")
                     
-                    # Try meta tags (og:title, og:description, etc.)
-                    meta_title = soup.find('meta', property='og:title')
-                    if meta_title and meta_title.get('content'):
-                        if not metadata.get('job_title'):
-                            metadata['job_title'] = meta_title.get('content')
-                    
-                    meta_desc = soup.find('meta', property='og:description')
-                    if meta_desc and meta_desc.get('content'):
-                        metadata['description'] = meta_desc.get('content')
-                    
-                    # Try to find company name in various places
-                    if not metadata.get('company_name'):
-                        # Check for company in meta tags
-                        company_meta = soup.find('meta', attrs={'name': 'company'}) or \
-                                      soup.find('meta', attrs={'property': 'og:site_name'})
-                        if company_meta:
-                            metadata['company_name'] = company_meta.get('content', '')
-                    
-                    # Remove script and style elements
-                    for element in soup(['script', 'style', 'nav', 'footer', 'header']):
-                        element.decompose()
-                    
-                    # Get text content
-                    text_content = soup.get_text(separator='\n', strip=True)
-                    
-                    return text_content, metadata
-                else:
-                    raise Exception(f"Failed to fetch job posting: HTTP {resp.status}")
+                    # Other errors
+                    else:
+                        raise Exception(f"Failed to fetch job posting: HTTP {resp.status}")
+            
+            raise Exception(f"Failed to fetch job posting after {max_retries} attempts")
     except aiohttp.ClientError as e:
         raise Exception(f"Failed to fetch job posting: {str(e)}")
     except Exception as e:

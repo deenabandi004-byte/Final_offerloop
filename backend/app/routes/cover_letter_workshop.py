@@ -119,13 +119,24 @@ def _deduct_credits(user_id: str, amount: int) -> int:
 async def _parse_job_url(job_url: str) -> Optional[Dict[str, Any]]:
     """Try to parse job details from a URL."""
     try:
-        from app.services.serp_client import fetch_job_posting_content
+        from app.services.interview_prep.job_posting_parser import fetch_job_posting
         
-        content = await fetch_job_posting_content(job_url)
+        # fetch_job_posting returns (text_content, metadata)
+        content, metadata = await fetch_job_posting(job_url)
+        
         if not content:
             return None
         
-        # Use GPT to extract structured job info
+        # If metadata already has good info, use it directly
+        if metadata.get('job_title') and metadata.get('company_name'):
+            return {
+                "job_title": metadata.get('job_title', ''),
+                "company": metadata.get('company_name', ''),
+                "location": metadata.get('location', ''),
+                "job_description": metadata.get('description', content[:3000])
+            }
+        
+        # Otherwise, use GPT to extract structured job info
         openai_client = get_async_openai_client()
         if not openai_client:
             return None
