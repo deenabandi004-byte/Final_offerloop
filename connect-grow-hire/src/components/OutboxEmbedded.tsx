@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -22,11 +22,11 @@ import { useNavigate } from "react-router-dom";
 /* ---------- Status UI ---------- */
 
 const statusLabel: Record<OutboxStatus, string> = {
-  no_reply_yet: "Draft (not sent)",
-  new_reply: "New reply",
-  waiting_on_them: "Sent - waiting for reply",
-  waiting_on_you: "Waiting on you",
-  closed: "Closed",
+  no_reply_yet: "Draft pending",
+  new_reply: "New reply received",
+  waiting_on_them: "Waiting for reply",
+  waiting_on_you: "Your turn to reply",
+  closed: "Conversation closed",
 };
 
 const statusColor: Record<OutboxStatus, string> = {
@@ -86,33 +86,85 @@ export function OutboxEmbedded() {
   const [loading, setLoading] = useState(true);
   const [selectedThread, setSelectedThread] = useState<OutboxThread | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  /* ---------- Load threads ---------- */
+  /* ---------- Search debouncing ---------- */
+  
+  useEffect(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    
+    searchTimeoutRef.current = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300); // 300ms debounce
+    
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchQuery]);
 
-  const loadThreads = async () => {
+  /* ---------- Load threads with retry logic ---------- */
+
+  const loadThreads = useCallback(async (retryAttempt = 0): Promise<void> => {
+    const maxRetries = 3;
+    const retryDelay = 1000 * Math.pow(2, retryAttempt); // Exponential backoff
+    
     try {
       setLoading(true);
       const result = await apiService.getOutboxThreads();
       if ("error" in result) throw new Error(result.error);
       setThreads(result.threads || []);
+      setRetryCount(0); // Reset retry count on success
     } catch (err: any) {
-      toast({
-        title: "Failed to load Outbox",
-        description: err.message || "Try again in a moment.",
-        variant: "destructive",
-      });
+      const errorMessage = err.message || "Failed to load conversations";
+      
+      if (retryAttempt < maxRetries) {
+        // Retry with exponential backoff
+        console.log(`Retrying loadThreads (attempt ${retryAttempt + 1}/${maxRetries})...`);
+        setTimeout(() => {
+          loadThreads(retryAttempt + 1);
+        }, retryDelay);
+        setRetryCount(retryAttempt + 1);
+      } else {
+        // Max retries reached
+        toast({
+          title: "Failed to load Outbox",
+          description: `${errorMessage}. Please check your connection and try again.`,
+          variant: "destructive",
+          action: (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setRetryCount(0);
+                loadThreads(0);
+              }}
+            >
+              Retry
+            </Button>
+          ),
+        });
+        setRetryCount(0);
+      }
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadThreads();
-  }, []);
+  }, [loadThreads]);
 
   const filteredThreads = useMemo(() => {
-    const q = searchQuery.toLowerCase();
+    const q = debouncedSearchQuery.toLowerCase();
+    if (!q) return threads;
+    
     return threads.filter((t) =>
       [
         t.contactName,
@@ -125,7 +177,7 @@ export function OutboxEmbedded() {
         .toLowerCase()
         .includes(q)
     );
-  }, [threads, searchQuery]);
+  }, [threads, debouncedSearchQuery]);
 
   /* ---------- Dashboard Stats ---------- */
 
@@ -134,9 +186,12 @@ export function OutboxEmbedded() {
   }, [threads]);
 
   const sentCount = useMemo(() => {
-    // Count threads that have been sent (status indicates sent, or has gmailThreadId)
-    // For now, we'll count threads that are not "no_reply_yet" as sent
-    return threads.filter((t) => t.status !== "no_reply_yet").length;
+    // Count threads that have been sent (have gmailThreadId and no draft, or status indicates sent)
+    return threads.filter((t) => 
+      t.status === "waiting_on_them" || 
+      t.status === "new_reply" || 
+      t.status === "waiting_on_you"
+    ).length;
   }, [threads]);
 
   const firstName = parseFirstName(user?.name);
@@ -209,7 +264,7 @@ export function OutboxEmbedded() {
     if (!contactHasReplied(selectedThread)) {
       toast({
         title: "No reply from contact",
-        description: "You can only generate a reply after the contact responds.",
+        description: "You can only generate a reply after the contact responds to your message.",
         variant: "destructive",
       });
       return;
@@ -218,23 +273,83 @@ export function OutboxEmbedded() {
     try {
       setGenerating(true);
       const result = await apiService.regenerateOutboxReply(selectedThread.id);
-      if ("error" in result) throw new Error(result.error);
+      if ("error" in result) {
+        // Handle specific error codes
+        const errorData = result as { error: string; error_code?: string; credits_available?: number; credits_required?: number };
+        
+        if (errorData.error_code === "insufficient_credits") {
+          toast({
+            title: "Insufficient credits",
+            description: errorData.error || `You need ${errorData.credits_required} credits but only have ${errorData.credits_available}. Please upgrade your plan or wait for your credits to reset.`,
+            variant: "destructive",
+            action: (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => navigate("/pricing")}
+              >
+                View Plans
+              </Button>
+            ),
+          });
+        } else if (errorData.error_code === "gmail_not_connected") {
+          toast({
+            title: "Gmail not connected",
+            description: "Please connect your Gmail account in Account Settings to generate replies.",
+            variant: "destructive",
+            action: (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => navigate("/account-settings")}
+              >
+                Connect Gmail
+              </Button>
+            ),
+          });
+        } else {
+          throw new Error(errorData.error);
+        }
+        return;
+      }
 
-      const updated = result.thread;
+      const updated = (result as { thread: OutboxThread; credits_used?: number; credits_remaining?: number }).thread;
+      const creditsUsed = (result as { credits_used?: number }).credits_used;
+      const creditsRemaining = (result as { credits_remaining?: number }).credits_remaining;
+      
       setThreads((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
       setSelectedThread(updated);
 
       toast({
         title: "Reply generated",
         description: updated.hasDraft 
-          ? "Your AI-generated reply has been saved as a Gmail draft."
-          : "Reply generated successfully.",
+          ? `Your AI-generated reply has been saved as a Gmail draft.${creditsUsed ? ` (${creditsUsed} credits used, ${creditsRemaining} remaining)` : ""}`
+          : `Reply generated successfully.${creditsUsed ? ` (${creditsUsed} credits used, ${creditsRemaining} remaining)` : ""}`,
       });
     } catch (err: any) {
+      const errorMessage = err.message || "Failed to generate reply";
+      
+      // Provide actionable error messages
+      let actionableMessage = errorMessage;
+      if (errorMessage.includes("credits")) {
+        actionableMessage = `${errorMessage} Visit the Pricing page to upgrade your plan.`;
+      } else if (errorMessage.includes("Gmail") || errorMessage.includes("gmail")) {
+        actionableMessage = `${errorMessage} Please check your Gmail connection in Account Settings.`;
+      }
+      
       toast({
         title: "Failed to regenerate",
-        description: err.message,
+        description: actionableMessage,
         variant: "destructive",
+        action: errorMessage.includes("credits") ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => navigate("/pricing")}
+          >
+            View Plans
+          </Button>
+        ) : undefined,
       });
     } finally {
       setGenerating(false);
@@ -303,7 +418,7 @@ export function OutboxEmbedded() {
             <div className="space-y-2 max-h-[520px] overflow-y-auto pr-1">
             {loading && (
               <div className="py-10 text-center text-muted-foreground text-sm space-y-3">
-                <p>Loading conversations…</p>
+                <p>Loading conversations{retryCount > 0 ? ` (retrying ${retryCount}/3)…` : "…"}</p>
                 <div className="w-48 mx-auto">
                   <LoadingBar variant="indeterminate" size="sm" />
                 </div>

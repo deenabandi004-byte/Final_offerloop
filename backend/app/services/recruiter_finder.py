@@ -137,6 +137,69 @@ def determine_job_type(job_title: str, job_description: str = "") -> str:
     return "general"
 
 
+# Hiring Manager Priority Tiers (5 tiers, 18 priority levels)
+HIRING_MANAGER_PRIORITY_TIERS = {
+    1: {  # Tier 1: Direct Hiring Pipeline (Priority 1-4) - Highest Priority
+        "priority_range": (1, 4),
+        "titles": [
+            "hiring manager",
+            "recruiter",
+            "talent acquisition specialist",
+            "recruiting coordinator"
+        ],
+        "base_score": 100
+    },
+    2: {  # Tier 2: Team Decision Makers (Priority 5-8) - High Priority
+        "priority_range": (5, 8),
+        "titles": [
+            "team lead",
+            "engineering manager",  # Will be replaced with job-type-specific manager
+            "department head",
+            "hr manager"
+        ],
+        "base_score": 70
+    },
+    3: {  # Tier 3: Organizational Influence (Priority 9-12) - Medium Priority
+        "priority_range": (9, 12),
+        "titles": [
+            "hr business partner",
+            "staffing manager",
+            "director",
+            "vp"
+        ],
+        "base_score": 40
+    },
+    4: {  # Tier 4: Referral Sources (Priority 13-15) - Lower Priority
+        "priority_range": (13, 15),
+        "titles": [
+            "people operations",
+            "employee in similar role",  # Generic - will be job-type-specific
+            "executive assistant"
+        ],
+        "base_score": 20
+    },
+    5: {  # Tier 5: Executives (Priority 16-18) - Only for Small Companies
+        "priority_range": (16, 18),
+        "titles": [
+            "founder",
+            "ceo",
+            "coo"
+        ],
+        "base_score": 10
+    }
+}
+
+# Job type to department manager mapping
+DEPARTMENT_MANAGER_BY_JOB_TYPE = {
+    "engineering": ["engineering manager", "software engineering manager", "tech manager", "development manager"],
+    "sales": ["sales manager", "business development manager", "account manager"],
+    "marketing": ["marketing manager", "brand manager", "growth manager"],
+    "finance": ["finance manager", "accounting manager", "financial manager"],
+    "intern": ["university recruiter", "campus recruiter", "early career manager"],
+    "general": ["manager", "department manager", "team manager"]
+}
+
+
 def get_recruiter_titles_for_job_type(job_type: str) -> List[str]:
     """
     Get list of recruiter titles to search for based on job type.
@@ -776,21 +839,412 @@ def search_recruiters_with_fallback(
     }
 
 
-def find_hiring_manager(
+def get_hiring_manager_titles_for_tier(tier: int, job_type: str) -> List[str]:
+    """
+    Get list of hiring manager titles for a specific tier, customized by job type.
+    
+    Args:
+        tier: Tier number (1-5)
+        job_type: Job type (engineering, sales, etc.)
+    
+    Returns:
+        List of job titles to search for
+    """
+    if tier not in HIRING_MANAGER_PRIORITY_TIERS:
+        return []
+    
+    tier_data = HIRING_MANAGER_PRIORITY_TIERS[tier]
+    titles = tier_data["titles"].copy()
+    
+    # Replace generic titles with job-type-specific ones
+    if "engineering manager" in titles and job_type in DEPARTMENT_MANAGER_BY_JOB_TYPE:
+        # Replace "engineering manager" with job-type-specific manager
+        titles = [t if t != "engineering manager" else DEPARTMENT_MANAGER_BY_JOB_TYPE[job_type][0] 
+                 for t in titles]
+        # Also add other department managers for this job type
+        titles.extend(DEPARTMENT_MANAGER_BY_JOB_TYPE[job_type][1:])
+    
+    if "employee in similar role" in titles:
+        # For Tier 4, we'll search for people with similar job titles
+        # This is handled separately in the search logic
+        titles.remove("employee in similar role")
+    
+    return titles
+
+
+def detect_company_size(company_name: str, all_contacts: List[Dict]) -> str:
+    """
+    Detect if company is small (<50 employees) or large.
+    
+    Uses heuristic: If we find <5 people total at company, likely small company.
+    
+    Args:
+        company_name: Company name
+        all_contacts: All contacts found at the company
+    
+    Returns:
+        "small" or "large"
+    """
+    # Heuristic: If we found very few people, likely a small company
+    if len(all_contacts) < 5:
+        return "small"
+    
+    # Otherwise assume large
+    return "large"
+
+
+def should_include_executives(company_name: str, all_contacts: List[Dict]) -> bool:
+    """
+    Determine if we should include executives (Tier 5) in search.
+    
+    Only include executives for small companies.
+    """
+    company_size = detect_company_size(company_name, all_contacts)
+    return company_size == "small"
+
+
+def build_hiring_manager_search_query(
     company_name: str,
-    job_title: str,
-    location: Optional[str] = None,
-    max_results: int = 3
+    titles: List[str],
+    location: Optional[str] = None
 ) -> Dict:
     """
-    Alternative: Find potential hiring managers instead of recruiters.
+    Build PDL Elasticsearch query for hiring manager search.
     
-    Looks for engineering managers, team leads, directors in the relevant area.
-    
-    This is a secondary option if no recruiters are found or user prefers
-    reaching out to hiring managers directly.
+    Similar to build_recruiter_search_query but for hiring managers.
     """
-    # Implementation similar to find_recruiters but with manager titles
-    # TODO: Implement if needed
-    pass
+    # Build job title should clause
+    title_should = []
+    for title in titles:
+        title_should.append({"match_phrase": {"job_title": title}})
+        title_should.append({"match": {"job_title": title}})
+    
+    # Build company should clause (both exact and fuzzy)
+    company_should = [
+        {"match_phrase": {"job_company_name": company_name}},
+        {"match": {"job_company_name": company_name}}
+    ]
+    
+    # Base query structure - NO location filter (like recruiters)
+    must_clauses = [
+        {"bool": {"should": title_should}},
+        {"bool": {"should": company_should}},
+        {"term": {"location_country": "united states"}}  # US only
+    ]
+    
+    query_obj = {
+        "bool": {
+            "must": must_clauses
+        }
+    }
+    
+    print(f"[HiringManagerSearch] Query: company={company_name}, titles={titles[:3]}...")
+    
+    return query_obj
+
+
+def rank_hiring_managers(
+    hiring_managers: List[Dict],
+    job_type: str,
+    target_company: str,
+    job_location: Optional[str] = None,
+    job_title: str = ""
+) -> List[Dict]:
+    """
+    Rank hiring managers by priority tier and relevance.
+    
+    Scoring system:
+    - Base priority scores by tier (Tier 1: +100, Tier 2: +70, etc.)
+    - +50 points: Currently at target company
+    - +30 points: Exact title match for job type (Engineering Manager for engineering jobs)
+    - +20 points: Location match (same city)
+    - +10 points: State match
+    - +10 points: Seniority indicators (Senior, Lead, Head)
+    - -50 points: Tier 5 (executives) at large companies (penalty to deprioritize)
+    
+    Returns sorted list with best matches first.
+    """
+    # Parse job location for ranking
+    job_city, job_state = parse_location_for_ranking(job_location)
+    
+    # Get department manager titles for this job type
+    dept_managers = DEPARTMENT_MANAGER_BY_JOB_TYPE.get(job_type, [])
+    
+    def get_tier_for_title(title: str) -> Optional[int]:
+        """Determine which tier a title belongs to."""
+        title_lower = title.lower()
+        for tier_num, tier_data in HIRING_MANAGER_PRIORITY_TIERS.items():
+            for tier_title in tier_data["titles"]:
+                if tier_title in title_lower:
+                    return tier_num
+        return None
+    
+    def score_hiring_manager(manager: Dict) -> int:
+        score = 0
+        title = manager.get("Title", "").lower()
+        company = manager.get("Company", "").lower()
+        target = target_company.lower()
+        manager_city = (manager.get("City", "") or "").lower()
+        manager_state = (manager.get("State", "") or "").lower()
+        
+        # Determine tier and get base score
+        tier = get_tier_for_title(title)
+        if tier:
+            tier_data = HIRING_MANAGER_PRIORITY_TIERS[tier]
+            score += tier_data["base_score"]
+            
+            # Penalty for Tier 5 (executives) at large companies
+            if tier == 5:
+                # We'll check company size later, but for now assume penalty if we have many results
+                # This will be adjusted based on actual company size detection
+                pass
+        
+        # +50 points if currently at target company
+        if manager.get('IsCurrentlyAtTarget', False):
+            score += 50
+        elif target in company:
+            score += 10  # Historical employment
+        
+        # +30 points for exact title match for job type (e.g., Engineering Manager for engineering jobs)
+        for dept_manager_title in dept_managers:
+            if dept_manager_title in title:
+                score += 30
+                break
+        
+        # +20 points for location match (same city)
+        if job_city and manager_city and job_city in manager_city:
+            score += 20
+        # +10 points for state match (if city doesn't match)
+        elif job_state and manager_state and job_state in manager_state:
+            score += 10
+        
+        # +10 points for seniority indicators
+        if any(word in title for word in ["senior", "lead", "head", "director", "vp"]):
+            score += 10
+        
+        return score
+    
+    # Sort by score descending
+    ranked = sorted(hiring_managers, key=score_hiring_manager, reverse=True)
+    
+    return ranked
+
+
+def find_hiring_manager(
+    company_name: str,
+    job_type: Optional[str] = None,
+    job_title: str = "",
+    job_description: str = "",
+    location: Optional[str] = None,
+    max_results: int = 3,
+    generate_emails: bool = False,
+    user_resume: Dict = None,
+    user_contact: Dict = None
+) -> Dict:
+    """
+    Find hiring managers at a company using tiered search strategy.
+    
+    Search Strategy:
+    1. Start with Tier 1 (most likely to respond)
+    2. If insufficient results, search Tier 2
+    3. Continue down tiers until we have enough results
+    4. For Tier 5 (executives), only search if company appears small
+    
+    Args:
+        company_name: Company name from job posting
+        job_type: Optional explicit job type (engineering, sales, intern, etc.)
+        job_title: Job title from posting (used to determine job type if not provided)
+        job_description: Job description (used to determine job type if not provided)
+        location: Optional location to prefer local hiring managers
+        max_results: Maximum number of hiring managers to return (default 3)
+        generate_emails: Whether to generate personalized emails
+        user_resume: User's parsed resume data
+        user_contact: User's contact information
+    
+    Returns:
+        {
+            "hiringManagers": [...],  # List of hiring manager contacts
+            "emails": [...],  # Generated emails (if requested)
+            "job_type_detected": "engineering",
+            "company_cleaned": "Google LLC",
+            "total_found": 5,
+            "credits_charged": 45,  # 15 per contact
+            "search_tier_used": 2  # Highest tier that contributed results
+        }
+    """
+    if not PEOPLE_DATA_LABS_API_KEY:
+        return {
+            "hiringManagers": [],
+            "emails": [],
+            "job_type_detected": job_type or "general",
+            "company_cleaned": company_name,
+            "total_found": 0,
+            "credits_charged": 0,
+            "error": "PDL API key not configured"
+        }
+    
+    # Clean company name
+    cleaned_company = clean_company_name(company_name)
+    if not cleaned_company:
+        cleaned_company = company_name
+    
+    # Determine job type if not provided
+    if not job_type:
+        job_type = determine_job_type(job_title, job_description)
+    
+    print(f"[HiringManagerFinder] Searching for hiring managers at {cleaned_company} for {job_type} role")
+    
+    # Track all contacts found for company size detection
+    all_contacts_found = []
+    final_hiring_managers = []
+    highest_tier_used = 0
+    
+    # Tiered search: Start with Tier 1, fallback to lower tiers if needed
+    for tier in range(1, 6):  # Tiers 1-5
+        if len(final_hiring_managers) >= max_results:
+            break
+        
+        # Skip Tier 5 (executives) unless company is small
+        if tier == 5:
+            # We'll check company size after we've searched other tiers
+            # For now, do a quick check: if we found many contacts, skip executives
+            if len(all_contacts_found) >= 5:
+                print(f"[HiringManagerFinder] Skipping Tier 5 (executives) - company appears large")
+                continue
+        
+        # Get titles for this tier
+        tier_titles = get_hiring_manager_titles_for_tier(tier, job_type)
+        if not tier_titles:
+            continue
+        
+        print(f"[HiringManagerFinder] Searching Tier {tier} with titles: {tier_titles[:3]}...")
+        
+        # Build query for this tier
+        query_obj = build_hiring_manager_search_query(
+            company_name=cleaned_company.lower(),
+            titles=tier_titles,
+            location=location
+        )
+        
+        # Execute PDL search
+        PDL_URL = f"{PDL_BASE_URL}/person/search"
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
+        }
+        
+        try:
+            raw_managers = execute_pdl_search(
+                headers=headers,
+                url=PDL_URL,
+                query_obj=query_obj,
+                desired_limit=20,  # Fetch more, then rank and filter
+                search_type="hiring_manager_search",
+                page_size=20,
+                verbose=False,
+                target_company=cleaned_company
+            )
+            
+            if raw_managers:
+                all_contacts_found.extend(raw_managers)
+                highest_tier_used = tier
+                
+                # Filter for current employees first
+                current_managers = [m for m in raw_managers if m.get('IsCurrentlyAtTarget', False)]
+                historical_managers = [m for m in raw_managers if not m.get('IsCurrentlyAtTarget', True)]
+                
+                # Prioritize current employees
+                if len(current_managers) >= max_results - len(final_hiring_managers):
+                    managers_to_add = current_managers[:max_results - len(final_hiring_managers)]
+                elif len(current_managers) > 0:
+                    managers_to_add = current_managers + historical_managers[:max_results - len(final_hiring_managers) - len(current_managers)]
+                else:
+                    managers_to_add = historical_managers[:max_results - len(final_hiring_managers)]
+                
+                final_hiring_managers.extend(managers_to_add)
+                print(f"[HiringManagerFinder] Tier {tier}: Found {len(raw_managers)} total, added {len(managers_to_add)} to results")
+            
+        except Exception as e:
+            print(f"[HiringManagerFinder] Error searching Tier {tier}: {e}")
+            continue
+    
+    # Now rank all hiring managers together
+    if final_hiring_managers:
+        final_hiring_managers = rank_hiring_managers(
+            final_hiring_managers,
+            job_type,
+            cleaned_company,
+            location,
+            job_title
+        )
+        
+        # Limit to max_results
+        final_hiring_managers = final_hiring_managers[:max_results]
+        
+        # Apply penalty to Tier 5 (executives) if company is large
+        company_size = detect_company_size(cleaned_company, all_contacts_found)
+        if company_size == "large":
+            # Re-rank to deprioritize executives by filtering them out if we have enough non-executives
+            non_executives = []
+            executives = []
+            executive_titles = ["founder", "ceo", "coo", "president"]
+            
+            for manager in final_hiring_managers:
+                title = manager.get("Title", "").lower()
+                if any(exec_title in title for exec_title in executive_titles):
+                    executives.append(manager)
+                else:
+                    non_executives.append(manager)
+            
+            # Prefer non-executives, only add executives if we don't have enough
+            if len(non_executives) >= max_results:
+                final_hiring_managers = non_executives[:max_results]
+            else:
+                final_hiring_managers = non_executives + executives[:max_results - len(non_executives)]
+    
+    # Hunter.io enrichment for email verification
+    if generate_emails and final_hiring_managers:
+        for manager in final_hiring_managers:
+            if not manager.get('Company'):
+                manager['Company'] = cleaned_company
+        
+        print(f"[HiringManagerFinder] Verifying emails for {len(final_hiring_managers)} hiring managers using Hunter.io...")
+        try:
+            final_hiring_managers = enrich_contacts_with_hunter(
+                contacts=final_hiring_managers,
+                max_enrichments=len(final_hiring_managers),
+                target_company=cleaned_company,
+                skip_personal_emails=True
+            )
+            print(f"[HiringManagerFinder] Email verification/enrichment complete")
+        except Exception as hunter_error:
+            print(f"[HiringManagerFinder] Hunter.io verification failed: {hunter_error}")
+    
+    # Generate emails if requested
+    emails = []
+    if generate_emails and user_resume and user_contact and final_hiring_managers:
+        try:
+            emails = generate_recruiter_emails(
+                recruiters=final_hiring_managers,  # Reuse recruiter email generator
+                job_title=job_title,
+                company=cleaned_company,
+                job_description=job_description,
+                user_resume=user_resume,
+                user_contact=user_contact
+            )
+            print(f"[HiringManagerFinder] Generated {len(emails)} emails for {len(final_hiring_managers)} hiring managers")
+        except Exception as e:
+            print(f"[HiringManagerFinder] Error generating emails: {e}")
+            emails = []
+    
+    return {
+        "hiringManagers": final_hiring_managers,
+        "emails": emails,
+        "job_type_detected": job_type,
+        "company_cleaned": cleaned_company,
+        "total_found": len(all_contacts_found),
+        "credits_charged": 15 * len(final_hiring_managers),
+        "search_tier_used": highest_tier_used
+    }
 

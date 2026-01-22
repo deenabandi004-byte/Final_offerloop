@@ -7,7 +7,52 @@ const BACKEND_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:5001'
   : 'https://www.offerloop.ai';
 
-// Types
+// Types for section-by-section suggestions
+export interface SuggestionItem {
+  current: string;
+  suggested: string;
+  why: string;
+}
+
+export interface ExperienceSuggestion {
+  role: string;
+  company: string;
+  bullets: SuggestionItem[];
+}
+
+export interface SkillsSuggestion {
+  add: Array<{ skill: string; reason: string }>;
+  remove: Array<{ skill: string; reason: string }>;
+}
+
+export interface KeywordSuggestion {
+  keyword: string;
+  where_to_add: string;
+}
+
+export interface TailorResult {
+  status: 'ok' | 'error';
+  score: number;
+  score_label: string;
+  sections: {
+    summary?: SuggestionItem;
+    experience?: ExperienceSuggestion[];
+    skills?: SkillsSuggestion;
+    keywords?: KeywordSuggestion[];
+  };
+  job_context: {
+    job_title: string;
+    company: string;
+    location: string;
+    job_description: string;
+  };
+  credits_remaining: number;
+  url_parse_warning?: string;
+  message?: string;
+  error_code?: string;
+}
+
+// Legacy types (kept for backwards compatibility if needed)
 export interface ScoreCategory {
   name: string;
   score: number;
@@ -297,7 +342,7 @@ export async function replaceMainResume(params: {
 }
 
 /**
- * Tailor resume for a specific job and generate score + recommendations
+ * Tailor resume for a specific job and get section-by-section suggestions
  * Costs 5 credits
  */
 export async function tailorResume(params: {
@@ -306,22 +351,7 @@ export async function tailorResume(params: {
   company?: string;
   location?: string;
   job_description?: string;
-}): Promise<TailorResponse> {
-  return analyzeResume(params);
-}
-
-/**
- * Analyze resume against job and generate score + recommendations
- * Costs 5 credits
- * @deprecated Use tailorResume() instead
- */
-export async function analyzeResume(params: {
-  job_url?: string;
-  job_title?: string;
-  company?: string;
-  location?: string;
-  job_description?: string;
-}): Promise<AnalyzeResponse> {
+}): Promise<TailorResult> {
   const firebaseUser = auth.currentUser;
   const token = firebaseUser ? await firebaseUser.getIdToken() : null;
   
@@ -348,22 +378,66 @@ export async function analyzeResume(params: {
     if (!response.ok) {
       return {
         status: 'error',
-        message: data.message || `HTTP ${response.status}`,
+        score: 0,
+        score_label: '',
+        sections: {},
+        job_context: {
+          job_title: params.job_title || '',
+          company: params.company || '',
+          location: params.location || '',
+          job_description: params.job_description || '',
+        },
+        credits_remaining: 0,
+        message: data.error || data.message || `HTTP ${response.status}`,
         error_code: data.error_code,
       };
     }
     
-    return data;
+    // Map response to TailorResult format
+    return {
+      status: 'ok',
+      score: data.score || 0,
+      score_label: data.score_label || '',
+      sections: data.sections || {},
+      job_context: data.job_context || {
+        job_title: params.job_title || '',
+        company: params.company || '',
+        location: params.location || '',
+        job_description: params.job_description || '',
+      },
+      credits_remaining: data.credits_remaining || 0,
+      url_parse_warning: data.url_parse_warning,
+    };
   } catch (error: any) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
       return {
         status: 'error',
+        score: 0,
+        score_label: '',
+        sections: {},
+        job_context: {
+          job_title: params.job_title || '',
+          company: params.company || '',
+          location: params.location || '',
+          job_description: params.job_description || '',
+        },
+        credits_remaining: 0,
         message: 'Request timed out. Please try again.',
       };
     }
     return {
       status: 'error',
+      score: 0,
+      score_label: '',
+      sections: {},
+      job_context: {
+        job_title: params.job_title || '',
+        company: params.company || '',
+        location: params.location || '',
+        job_description: params.job_description || '',
+      },
+      credits_remaining: 0,
       message: error.message || 'Network error',
     };
   }

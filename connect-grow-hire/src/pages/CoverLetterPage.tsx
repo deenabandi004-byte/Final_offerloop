@@ -91,6 +91,7 @@ export default function CoverLetterPage() {
   const [jobDescription, setJobDescription] = useState('');
   const [showManualInputs, setShowManualInputs] = useState(false);
   const [jobUrlError, setJobUrlError] = useState<string | null>(null);
+  const [urlParsedSuccessfully, setUrlParsedSuccessfully] = useState(false);
   
   // Generation state
   const [isGenerating, setIsGenerating] = useState(false);
@@ -168,10 +169,10 @@ export default function CoverLetterPage() {
     }
   }, [isGenerating]);
 
-  // Check if we can generate
+  // Check if we can generate - only job description is required
   const canGenerate = 
     jobUrl.trim() || 
-    (jobTitle.trim() && company.trim() && jobDescription.trim());
+    jobDescription.trim().length > 0;
 
   // Handle Generate Cover Letter
   const handleGenerate = async () => {
@@ -213,9 +214,10 @@ export default function CoverLetterPage() {
         } else if (result.error_code === 'no_resume') {
           setError('Please upload your resume in Account Settings first.');
         } else if (result.parsed_job) {
-          // URL was parsed but manual fields missing
-          setJobUrlError('Job URL parsed, but some fields are missing. Please fill in the required fields.');
+          // URL was parsed but job description might be missing
+          setJobUrlError('Job URL parsed, but job description may be missing. Please add a job description.');
           setShowManualInputs(true);
+          setUrlParsedSuccessfully(true);
           // Auto-fill what we got
           if (result.parsed_job.job_title) setJobTitle(result.parsed_job.job_title);
           if (result.parsed_job.company) setCompany(result.parsed_job.company);
@@ -225,6 +227,7 @@ export default function CoverLetterPage() {
           // URL parsing failed completely
           setJobUrlError('Could not read job URL. Please use manual inputs.');
           setShowManualInputs(true);
+          setUrlParsedSuccessfully(false); // Enable manual inputs when parsing fails
         } else {
           setError(result.message || 'Failed to generate cover letter.');
           toast({
@@ -247,6 +250,7 @@ export default function CoverLetterPage() {
       
       // Auto-fill fields from parsed job
       if (result.parsed_job) {
+        setUrlParsedSuccessfully(true);
         if (result.parsed_job.job_title && !jobTitle) setJobTitle(result.parsed_job.job_title);
         if (result.parsed_job.company && !company) setCompany(result.parsed_job.company);
         if (result.parsed_job.location && !locationInput) setLocationInput(result.parsed_job.location);
@@ -335,6 +339,8 @@ export default function CoverLetterPage() {
     setLocationInput('');
     setJobDescription('');
     setShowManualInputs(false);
+    setJobUrlError(null);
+    setUrlParsedSuccessfully(false);
   };
 
   // Handle View library entry
@@ -576,6 +582,7 @@ export default function CoverLetterPage() {
                                   onChange={(e) => {
                                     setJobUrl(e.target.value);
                                     setJobUrlError(null);
+                                    setUrlParsedSuccessfully(false); // Reset when URL changes
                                   }}
                                   placeholder="https://linkedin.com/jobs/..."
                                   disabled={isGenerating}
@@ -615,10 +622,10 @@ export default function CoverLetterPage() {
                               </button>
                               
                               {showManualInputs && (
-                                <div className={`mt-4 space-y-4 ${jobUrl ? 'opacity-50' : ''}`}>
+                                <div className={`mt-4 space-y-4 ${urlParsedSuccessfully && jobUrl ? 'opacity-50' : ''}`}>
                                   <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                                      Company <span className="text-red-500">*</span>
+                                      Company
                                     </label>
                                     <div className="relative">
                                       <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -629,7 +636,7 @@ export default function CoverLetterPage() {
                                         value={company}
                                         onChange={(e) => setCompany(e.target.value)}
                                         placeholder="e.g. Google, Stripe"
-                                        disabled={!!jobUrl || isGenerating}
+                                        disabled={(urlParsedSuccessfully && jobUrl) || isGenerating}
                                         className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl
                                                    text-gray-900 placeholder-gray-400 text-sm
                                                    focus:ring-2 focus:ring-violet-500 focus:border-violet-500
@@ -640,7 +647,7 @@ export default function CoverLetterPage() {
                                   
                                   <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                                      Job Title <span className="text-red-500">*</span>
+                                      Job Title
                                     </label>
                                     <div className="relative">
                                       <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -651,7 +658,7 @@ export default function CoverLetterPage() {
                                         value={jobTitle}
                                         onChange={(e) => setJobTitle(e.target.value)}
                                         placeholder="e.g. Product Manager, Software Engineer"
-                                        disabled={!!jobUrl || isGenerating}
+                                        disabled={(urlParsedSuccessfully && jobUrl) || isGenerating}
                                         className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl
                                                    text-gray-900 placeholder-gray-400 text-sm
                                                    focus:ring-2 focus:ring-violet-500 focus:border-violet-500
@@ -669,7 +676,7 @@ export default function CoverLetterPage() {
                                       onChange={(e) => setJobDescription(e.target.value)}
                                       placeholder="Paste the job description or key requirements here..."
                                       rows={5}
-                                      disabled={!!jobUrl || isGenerating}
+                                      disabled={(urlParsedSuccessfully && jobUrl) || isGenerating}
                                       className="block w-full px-4 py-3 border border-gray-200 rounded-xl
                                                  text-gray-900 placeholder-gray-400 text-sm resize-none
                                                  focus:ring-2 focus:ring-violet-500 focus:border-violet-500

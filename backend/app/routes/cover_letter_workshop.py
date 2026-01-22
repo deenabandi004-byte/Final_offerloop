@@ -326,15 +326,11 @@ def generate():
                 location = location or parsed_job.get('location', '')
                 job_description = job_description or parsed_job.get('job_description', '')
         
-        # Validate required fields
-        if not job_title or not company or not job_description:
-            missing = []
-            if not job_title: missing.append('job_title')
-            if not company: missing.append('company')
-            if not job_description: missing.append('job_description')
+        # Validate required fields - only job_description is required
+        if not job_description:
             return jsonify({
                 "status": "error",
-                "message": f"Missing required fields: {', '.join(missing)}",
+                "message": "Job description is required.",
                 "parsed_job": parsed_job,
             }), 400
         

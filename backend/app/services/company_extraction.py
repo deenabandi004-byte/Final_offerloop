@@ -44,15 +44,17 @@ def generate_firm_names_with_chatgpt(
 
 CRITICAL RULES:
 
-1. LOCATION REQUIREMENT (MOST IMPORTANT):
-   - ONLY include companies with headquarters/primary operations in the specified location
-   - Do NOT include companies that are merely "operating" or "have offices" there
-   - The specified location is MANDATORY - not optional
-   - If you're unsure about a company's location, SKIP IT rather than guessing
+1. LOCATION REQUIREMENT:
+   - Prioritize companies with headquarters/primary operations in the specified location
+   - For early-stage startups or companies where location is unclear, include them if they're likely in the location based on available information
+   - The specified location should be a strong preference, but don't skip all companies if you can't verify exact location
+   - If the query mentions a specific location, prioritize companies in that location, but include others if needed to reach the requested count
 
 2. Match the EXACT type of company the user is looking for - not just the broad industry.
 
 3. The user's original search query is the most important guide.
+
+4. For early-stage startups or niche searches, be more flexible with location verification - include companies that are likely in the location even if you can't verify with 100% certainty.
 
 EXAMPLES OF CORRECT MATCHING:
 
@@ -63,6 +65,8 @@ EXAMPLES OF CORRECT MATCHING:
 - "hedge funds" → Return hedge funds - NOT banks or asset managers
 
 - "record labels" → Return record labels - NOT streaming services
+
+- "early-stage tech startups in SF" → Return actual early-stage startups in SF, even if some location details are unclear
 
 Return JSON array only."""
 
@@ -92,13 +96,11 @@ If the user said "law firms", only return law firms.
 
 Do NOT return broadly related companies.
 
-CRITICAL LOCATION REQUIREMENT:
-- ONLY include companies with headquarters/primary operations in: {location_str}
-- Do NOT include companies that are merely "operating" or "have offices" there
-- If you're unsure about a company's exact location, SKIP IT rather than including it
-- The location {location_str} is MANDATORY - verify each company's location before including it
-
-This is the MOST IMPORTANT requirement - only return companies you can confirm are located in {location_str}.
+LOCATION REQUIREMENT:
+- Prioritize companies with headquarters/primary operations in: {location_str}
+- For early-stage startups or when location is unclear, include companies that are likely in {location_str} based on available information
+- The location {location_str} is a strong preference - prioritize it, but don't skip all companies if exact verification is difficult
+- If the query specifically mentions a location, make it a priority, but be flexible enough to return results
 
 CRITICAL SIZE RULE: When size preference is not specified, prioritize returning the BIGGEST and MOST ESTABLISHED companies in the industry. List them from largest to smallest.
 
@@ -155,12 +157,17 @@ Return JSON array:
             # STRICT LIMIT: Ensure we never return more than requested
             unique_names = unique_names[:limit]
             
-            print(f"✅ Generated {len(unique_names)} firm names from ChatGPT (limit: {limit})")
+            if len(unique_names) == 0:
+                print(f"⚠️ ChatGPT returned 0 firm names (limit: {limit})")
+                print(f"⚠️ DEBUG: Raw response (first 500 chars): {result_text[:500]}")
+                print(f"⚠️ DEBUG: Parsed type: {type(parsed)}, Value: {parsed}")
+            else:
+                print(f"✅ Generated {len(unique_names)} firm names from ChatGPT (limit: {limit})")
             return unique_names
             
         except json.JSONDecodeError as e:
             print(f"⚠️ Failed to parse ChatGPT JSON response: {e}")
-            print(f"Response text (first 500 chars): {result_text[:500]}")
+            print(f"⚠️ Response text (first 1000 chars): {result_text[:1000]}")
             # Try to extract JSON array from text
             json_match = re.search(r'\[.*\]', result_text, re.DOTALL)
             if json_match:
@@ -168,10 +175,14 @@ Return JSON array:
                     parsed = json.loads(json_match.group())
                     if isinstance(parsed, list):
                         firm_names = [str(name).strip() for name in parsed if name]
-                        print(f"✅ Recovered {len(firm_names)} firm names after JSON parse error")
-                        return firm_names[:limit]
-                except:
-                    pass
+                        if firm_names:
+                            print(f"✅ Recovered {len(firm_names)} firm names after JSON parse error")
+                            return firm_names[:limit]
+                        else:
+                            print(f"⚠️ Recovered JSON array but it was empty")
+                except Exception as recovery_error:
+                    print(f"⚠️ Failed to recover from JSON parse error: {recovery_error}")
+            print(f"⚠️ Returning empty list - could not parse or recover firm names")
             return []
         
     except Exception as e:

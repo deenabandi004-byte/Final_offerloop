@@ -15,6 +15,7 @@ from flask import Blueprint, jsonify, request
 from app.extensions import require_firebase_auth, get_db
 from app.services.openai_client import get_async_openai_client
 from app.utils.async_runner import run_async
+from app.services.auth import deduct_credits_atomic, refund_credits_atomic
 
 logger = logging.getLogger('resume_workshop')
 
@@ -106,69 +107,33 @@ def _fetch_user_resume_data(user_id: str) -> Dict[str, Any]:
 
 
 def _deduct_credits(user_id: str, amount: int) -> int:
-    """Deduct credits from user and return new balance."""
-    db = get_db()
-    if not db:
-        raise ValueError("Database not available")
-    
-    user_ref = db.collection('users').document(user_id)
-    user_doc = user_ref.get()
-    
-    if not user_doc.exists:
-        raise ValueError("User not found")
-    
-    user_data = user_doc.to_dict()
-    current_credits = user_data.get('credits', 0)
-    
-    if current_credits < amount:
-        raise ValueError(f"Insufficient credits. You have {current_credits} credits but need {amount}.")
-    
-    new_credits = current_credits - amount
-    user_ref.update({'credits': new_credits})
-    
-    logger.info(f"[ResumeWorkshop] Deducted {amount} credits from user {user_id[:8]}... New balance: {new_credits}")
+    """
+    Deduct credits from user atomically and return new balance.
+    Uses atomic transaction to prevent race conditions.
+    """
+    success, new_credits = deduct_credits_atomic(user_id, amount, "resume_workshop")
+    if not success:
+        raise ValueError(f"Insufficient credits. You have {new_credits} credits but need {amount}.")
     return new_credits
 
 
 async def _parse_job_url(job_url: str) -> Optional[Dict[str, Any]]:
     """Try to parse job details from a URL."""
     try:
-        from app.services.serp_client import fetch_job_posting_content
+        from app.services.interview_prep.job_posting_parser import parse_job_posting_url
         
-        content = await fetch_job_posting_content(job_url)
-        if not content:
+        job_details = await parse_job_posting_url(job_url)
+        
+        if not job_details:
             return None
         
-        # Use GPT to extract structured job info
-        openai_client = get_async_openai_client()
-        if not openai_client:
-            return None
-        
-        prompt = f"""Extract job information from this content. Return JSON only.
-
-Content:
-{content[:6000]}
-
-Return JSON:
-{{
-    "job_title": "...",
-    "company": "...",
-    "location": "...",
-    "job_description": "full description text"
-}}"""
-
-        response = await openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "Extract job information. Return valid JSON only."},
-                {"role": "user", "content": prompt}
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.1,
-            max_tokens=2000
-        )
-        
-        return json.loads(response.choices[0].message.content)
+        # Map the job details to the expected format
+        return {
+            "job_title": job_details.get("job_title") or job_details.get("title", ""),
+            "company": job_details.get("company_name") or job_details.get("company", ""),
+            "location": job_details.get("location", ""),
+            "job_description": job_details.get("job_description") or job_details.get("description", "")
+        }
     except Exception as e:
         logger.warning(f"[ResumeWorkshop] Job URL parsing failed: {e}")
         return None
@@ -321,7 +286,7 @@ Return only the resume text, no explanations."""
     }
 
 
-async def _analyze_resume(
+async def _analyze_resume_sections(
     resume_text: str,
     job_title: str,
     company: str,
@@ -329,87 +294,136 @@ async def _analyze_resume(
     job_description: str,
     openai_client
 ) -> Dict[str, Any]:
-    """Analyze resume against job and generate score + recommendations."""
+    """
+    Analyze resume against job posting and return section-by-section suggestions.
+    """
     
-    prompt = f"""You are an expert resume analyst. Analyze this resume against the job requirements and provide:
-1. An overall score (0-100)
-2. Category breakdown scores
-3. Specific actionable recommendations
+    prompt = f"""You are an expert resume consultant. Analyze this resume against the job posting and provide specific, actionable suggestions to tailor it for this role.
 
-## JOB INFORMATION
+## RESUME:
+{resume_text[:12000]}
+
+## JOB POSTING:
 Title: {job_title}
 Company: {company}
 Location: {location}
 
-## JOB DESCRIPTION
-{job_description[:4000]}
+Description:
+{job_description[:6000]}
 
-## RESUME
-{resume_text[:8000]}
+## YOUR TASK:
+Provide a detailed analysis with specific suggestions for each section of the resume. For each suggestion, show the CURRENT text from the resume and your SUGGESTED improvement.
 
-## RESPONSE FORMAT
-Return JSON:
+Respond in this exact JSON format:
 {{
-    "score": 75,
-    "score_label": "Good Match",
-    "categories": [
-        {{
-            "name": "Keywords Match",
-            "score": 70,
-            "explanation": "Brief explanation of the score"
+    "score": <0-100 match score>,
+    "score_label": "<Excellent/Good/Fair/Needs Work>",
+    "sections": {{
+        "summary": {{
+            "current": "<exact current summary from resume, or 'No summary found' if missing>",
+            "suggested": "<your improved summary tailored to this job>",
+            "why": "<1-2 sentences explaining why this change helps>"
         }},
-        {{
-            "name": "Impact & Metrics",
-            "score": 65,
-            "explanation": "Brief explanation"
+        "experience": [
+            {{
+                "role": "<job title>",
+                "company": "<company name>",
+                "bullets": [
+                    {{
+                        "current": "<exact current bullet point>",
+                        "suggested": "<your improved version>",
+                        "why": "<why this change helps for this specific job>"
+                    }}
+                ]
+            }}
+        ],
+        "skills": {{
+            "add": [
+                {{
+                    "skill": "<skill to add>",
+                    "reason": "<why this skill matters for the job>"
+                }}
+            ],
+            "remove": [
+                {{
+                    "skill": "<skill to consider removing>",
+                    "reason": "<why it's not relevant or hurts the application>"
+                }}
+            ]
         }},
-        {{
-            "name": "Clarity & Structure",
-            "score": 80,
-            "explanation": "Brief explanation"
-        }},
-        {{
-            "name": "ATS Compatibility",
-            "score": 85,
-            "explanation": "Brief explanation"
-        }}
-    ],
-    "recommendations": [
-        {{
-            "id": "rec_1",
-            "title": "Short actionable title",
-            "explanation": "1-2 sentence explanation of what to change and why",
-            "section": "Experience",
-            "current_text": "exact text from resume to change",
-            "suggested_text": "improved version of the text",
-            "impact": "high"
-        }}
-    ],
-    "keywords_found": ["keyword1", "keyword2"],
-    "keywords_missing": ["keyword3", "keyword4"],
-    "summary": "2-3 sentence summary of the analysis"
+        "keywords": [
+            {{
+                "keyword": "<keyword from job posting missing in resume>",
+                "where_to_add": "<specific suggestion where to add it>"
+            }}
+        ]
+    }}
 }}
 
-Guidelines:
-- Provide 5-10 specific, actionable recommendations
-- Each recommendation should be a single, focused change
-- Include the exact text to change and what to change it to
-- Order recommendations by impact (high, medium, low)
-- Be specific about which section each recommendation applies to
-- Focus on: action verbs, quantifying achievements, adding relevant keywords, improving clarity"""
+## IMPORTANT GUIDELINES:
+1. For "current" fields, use the EXACT text from the resume - do not paraphrase
+2. For "suggested" fields, provide ready-to-use text the user can copy directly
+3. Focus on the TOP 3-5 most impactful changes for each section
+4. For experience bullets, prioritize bullets that can be improved with quantified metrics, keywords from the job posting, stronger action verbs
+5. For skills, only suggest adding skills the candidate likely has based on their experience
+6. For keywords, focus on important terms that appear multiple times in the job posting
+7. Make suggestions specific to THIS job at THIS company
+8. Keep the score honest - don't inflate it
 
-    response = await openai_client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "You are an expert resume analyst. Return only valid JSON."},
-            {"role": "user", "content": prompt}
-        ],
-        response_format={"type": "json_object"},
-        temperature=0.4,
-        max_tokens=4000
-    )
-    
-    return json.loads(response.choices[0].message.content)
+Score guidelines:
+- 90-100: Excellent match
+- 75-89: Good match
+- 60-74: Fair match
+- Below 60: Needs significant work
+
+Respond with ONLY the JSON object, no other text.
+"""
+
+    try:
+        response = await openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an expert resume consultant. Always respond with valid JSON only."
+                },
+                {
+                    "role": "user", 
+                    "content": prompt
+                }
+            ],
+            temperature=0.7,
+            max_tokens=4000,
+            response_format={"type": "json_object"}
+        )
+        
+        result_text = response.choices[0].message.content.strip()
+        result = json.loads(result_text)
+        
+        # Validate required fields
+        if "score" not in result:
+            result["score"] = 50
+        if "score_label" not in result:
+            if result["score"] >= 90:
+                result["score_label"] = "Excellent"
+            elif result["score"] >= 75:
+                result["score_label"] = "Good"
+            elif result["score"] >= 60:
+                result["score_label"] = "Fair"
+            else:
+                result["score_label"] = "Needs Work"
+        
+        if "sections" not in result:
+            result["sections"] = {}
+        
+        return result
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse GPT response as JSON: {e}")
+        raise ValueError("Failed to analyze resume. Please try again.")
+    except Exception as e:
+        logger.error(f"Error in resume analysis: {e}")
+        raise
 
 
 async def _apply_recommendation(
@@ -482,9 +496,10 @@ def _save_to_resume_library(
     if not db:
         raise ValueError("Database not available")
     
-    # Generate display name
-    sanitized_title = job_title.replace(' ', '_').replace('/', '-')[:50]
-    display_name = f"{sanitized_title}_resume"
+    # Generate display name with timestamp to avoid collisions
+    sanitized_title = job_title.replace(' ', '_').replace('/', '-')[:40]
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    display_name = f"{sanitized_title}_resume_{timestamp}"
     
     # Create library entry
     entry_id = str(uuid.uuid4())
@@ -563,7 +578,7 @@ def analyze():
         parsed_job = None
         
         if job_url:
-            parsed_job = run_async(_parse_job_url(job_url), timeout=30.0)
+            parsed_job = run_async(_parse_job_url(job_url), timeout=45.0)
         
         # Get job context (from parsed URL or manual inputs)
         if parsed_job:
@@ -577,59 +592,131 @@ def analyze():
             location = payload.get('location', '').strip()
             job_description = payload.get('job_description', '').strip()
         
-        # Validate required fields
-        if not job_title or not company or not location or not job_description:
-            error_msg = "Missing required fields."
-            if job_url and not parsed_job:
-                error_msg = "Could not read job URL. Please use manual inputs."
-            
+        # Validate required fields - only job_description is required for manual entry
+        # If URL parsing failed, we still need job_description
+        if not job_description:
             return jsonify({
                 "status": "error",
-                "message": error_msg,
-                "error_code": "URL_PARSE_FAILED" if job_url else "MISSING_FIELDS",
-                "parsed_job": parsed_job
+                "message": "Job description is required.",
+                "url_parse_error": "Could not read job URL. Please provide a job description manually." if job_url and not parsed_job else None
             }), 400
         
-        # Deduct credits (5 for analyze)
-        new_credits = _deduct_credits(user_id, 5)
+        # If no URL was provided and no job_title/company, try to extract from job_description using AI
+        if not job_url and (not job_title or not company):
+            try:
+                openai_client = get_async_openai_client()
+                if openai_client:
+                    extract_prompt = f"""Extract the job title and company name from this job description. Return JSON only.
+
+Job Description:
+{job_description[:2000]}
+
+Return JSON:
+{{
+    "job_title": "...",
+    "company": "..."
+}}
+
+If you cannot determine either field, use empty string."""
+
+                    extract_response = run_async(
+                        openai_client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[
+                                {"role": "system", "content": "Extract job information. Return valid JSON only."},
+                                {"role": "user", "content": extract_prompt}
+                            ],
+                            response_format={"type": "json_object"},
+                            temperature=0.1,
+                            max_tokens=200
+                        ),
+                        timeout=10.0
+                    )
+                    
+                    extracted = json.loads(extract_response.choices[0].message.content)
+                    if not job_title and extracted.get("job_title"):
+                        job_title = extracted["job_title"]
+                    if not company and extracted.get("company"):
+                        company = extracted["company"]
+            except Exception as e:
+                logger.warning(f"[ResumeWorkshop] Failed to extract job title/company from description: {e}")
+                # Continue with empty job_title/company if extraction fails
         
-        # Analyze resume
-        openai_client = get_async_openai_client()
-        if not openai_client:
+        # Check credits before operation (but don't deduct yet)
+        db = get_db()
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        if not user_doc.exists:
             return jsonify({
                 "status": "error",
-                "message": "AI service unavailable"
-            }), 503
+                "message": "User not found"
+            }), 404
         
-        analysis = run_async(
-            _analyze_resume(
-                resume_text=resume_text,
-                job_title=job_title,
-                company=company,
-                location=location,
-                job_description=job_description,
-                openai_client=openai_client
-            ),
-            timeout=90.0
-        )
+        current_credits = user_doc.to_dict().get('credits', 0)
+        if current_credits < 5:
+            return jsonify({
+                "status": "error",
+                "message": f"Insufficient credits. You have {current_credits} credits but need 5.",
+                "error_code": "INSUFFICIENT_CREDITS"
+            }), 402
         
-        return jsonify({
+        # Deduct credits (5 for analyze) - using atomic function
+        deduct_success, new_credits = deduct_credits_atomic(user_id, 5, "resume_workshop_analyze")
+        if not deduct_success:
+            return jsonify({
+                "status": "error",
+                "message": f"Insufficient credits. You have {new_credits} credits but need 5.",
+                "error_code": "INSUFFICIENT_CREDITS"
+            }), 402
+        
+        # Analyze resume - refund credits on failure
+        try:
+            openai_client = get_async_openai_client()
+            if not openai_client:
+                refund_credits_atomic(user_id, 5, "resume_workshop_analyze_ai_unavailable")
+                return jsonify({
+                    "status": "error",
+                    "message": "AI service unavailable",
+                    "credits_refunded": True
+                }), 503
+            
+            analysis = run_async(
+                _analyze_resume_sections(
+                    resume_text=resume_text[:10000],  # Standardized truncation
+                    job_title=job_title,
+                    company=company,
+                    location=location,
+                    job_description=job_description,
+                    openai_client=openai_client
+                ),
+                timeout=90.0
+            )
+        except TimeoutError:
+            refund_credits_atomic(user_id, 5, "resume_workshop_analyze_timeout")
+            raise
+        except Exception as e:
+            refund_credits_atomic(user_id, 5, "resume_workshop_analyze_error")
+            raise
+        
+        response = {
             "status": "ok",
-            "score": analysis.get('score'),
-            "score_label": analysis.get('score_label'),
-            "categories": analysis.get('categories', []),
-            "recommendations": analysis.get('recommendations', []),
-            "keywords_found": analysis.get('keywords_found', []),
-            "keywords_missing": analysis.get('keywords_missing', []),
-            "summary": analysis.get('summary', ''),
-            "parsed_job": parsed_job,
+            "score": analysis.get("score", 50),
+            "score_label": analysis.get("score_label", "Fair"),
+            "sections": analysis.get("sections", {}),
             "job_context": {
                 "job_title": job_title,
                 "company": company,
-                "location": location
+                "location": location,
+                "job_description": job_description[:500] + "..." if len(job_description) > 500 else job_description
             },
             "credits_remaining": new_credits
-        })
+        }
+        
+        # Add URL parse warning if URL parsing failed
+        if job_url and not parsed_job:
+            response["url_parse_warning"] = "Could not read job URL. Please use manual inputs."
+        
+        return jsonify(response)
         
     except ValueError as exc:
         if "Insufficient credits" in str(exc):
@@ -646,15 +733,23 @@ def analyze():
         logger.error(f"[ResumeWorkshop] Analyze timed out for user {user_id[:8]}...")
         return jsonify({
             "status": "error",
-            "message": "Analysis timed out. Please try again."
+            "message": "Analysis timed out. Your credits have been refunded. Please try again.",
+            "credits_refunded": True
         }), 504
     except Exception as exc:
         logger.error(f"[ResumeWorkshop] Analyze failed: {type(exc).__name__}: {exc}")
         import traceback
         logger.error(f"[ResumeWorkshop] Traceback: {traceback.format_exc()}")
+        # Try to refund credits if not already refunded
+        try:
+            refund_credits_atomic(user_id, 5, "resume_workshop_analyze_exception")
+            credits_refunded = True
+        except:
+            credits_refunded = False
         return jsonify({
             "status": "error",
-            "message": f"Analysis failed: {str(exc)}"
+            "message": f"Analysis failed: {str(exc)}",
+            "credits_refunded": credits_refunded
         }), 500
 
 
@@ -692,21 +787,54 @@ def fix_resume():
                 "error_code": "NO_RESUME"
             }), 400
         
-        # Deduct credits
-        new_credits = _deduct_credits(user_id, 5)
-        
-        # Fix resume
-        openai_client = get_async_openai_client()
-        if not openai_client:
+        # Check credits before operation
+        db = get_db()
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        if not user_doc.exists:
             return jsonify({
                 "status": "error",
-                "message": "AI service unavailable"
-            }), 503
+                "message": "User not found"
+            }), 404
         
-        result = run_async(
-            _fix_resume(resume_text=resume_text, openai_client=openai_client),
-            timeout=90.0
-        )
+        current_credits = user_doc.to_dict().get('credits', 0)
+        if current_credits < 5:
+            return jsonify({
+                "status": "error",
+                "message": f"Insufficient credits. You have {current_credits} credits but need 5.",
+                "error_code": "INSUFFICIENT_CREDITS"
+            }), 402
+        
+        # Deduct credits atomically
+        deduct_success, new_credits = deduct_credits_atomic(user_id, 5, "resume_workshop_fix")
+        if not deduct_success:
+            return jsonify({
+                "status": "error",
+                "message": f"Insufficient credits. You have {new_credits} credits but need 5.",
+                "error_code": "INSUFFICIENT_CREDITS"
+            }), 402
+        
+        # Fix resume - refund credits on failure
+        try:
+            openai_client = get_async_openai_client()
+            if not openai_client:
+                refund_credits_atomic(user_id, 5, "resume_workshop_fix_ai_unavailable")
+                return jsonify({
+                    "status": "error",
+                    "message": "AI service unavailable",
+                    "credits_refunded": True
+                }), 503
+            
+            result = run_async(
+                _fix_resume(resume_text=resume_text, openai_client=openai_client),
+                timeout=90.0
+            )
+        except TimeoutError:
+            refund_credits_atomic(user_id, 5, "resume_workshop_fix_timeout")
+            raise
+        except Exception as e:
+            refund_credits_atomic(user_id, 5, "resume_workshop_fix_error")
+            raise
         
         return jsonify({
             "status": "ok",
@@ -730,15 +858,23 @@ def fix_resume():
         logger.error(f"[ResumeWorkshop] Fix timed out for user {user_id[:8]}...")
         return jsonify({
             "status": "error",
-            "message": "Fix timed out. Please try again."
+            "message": "Fix timed out. Your credits have been refunded. Please try again.",
+            "credits_refunded": True
         }), 504
     except Exception as exc:
         logger.error(f"[ResumeWorkshop] Fix failed: {type(exc).__name__}: {exc}")
         import traceback
         logger.error(f"[ResumeWorkshop] Traceback: {traceback.format_exc()}")
+        # Try to refund credits if not already refunded
+        try:
+            refund_credits_atomic(user_id, 5, "resume_workshop_fix_exception")
+            credits_refunded = True
+        except:
+            credits_refunded = False
         return jsonify({
             "status": "error",
-            "message": f"Fix failed: {str(exc)}"
+            "message": f"Fix failed: {str(exc)}",
+            "credits_refunded": credits_refunded
         }), 500
 
 
@@ -778,21 +914,54 @@ def score_resume():
                 "error_code": "NO_RESUME"
             }), 400
         
-        # Deduct credits
-        new_credits = _deduct_credits(user_id, 5)
-        
-        # Score resume
-        openai_client = get_async_openai_client()
-        if not openai_client:
+        # Check credits before operation
+        db = get_db()
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        if not user_doc.exists:
             return jsonify({
                 "status": "error",
-                "message": "AI service unavailable"
-            }), 503
+                "message": "User not found"
+            }), 404
         
-        result = run_async(
-            _score_resume(resume_text=resume_text, openai_client=openai_client),
-            timeout=60.0
-        )
+        current_credits = user_doc.to_dict().get('credits', 0)
+        if current_credits < 5:
+            return jsonify({
+                "status": "error",
+                "message": f"Insufficient credits. You have {current_credits} credits but need 5.",
+                "error_code": "INSUFFICIENT_CREDITS"
+            }), 402
+        
+        # Deduct credits atomically
+        deduct_success, new_credits = deduct_credits_atomic(user_id, 5, "resume_workshop_score")
+        if not deduct_success:
+            return jsonify({
+                "status": "error",
+                "message": f"Insufficient credits. You have {new_credits} credits but need 5.",
+                "error_code": "INSUFFICIENT_CREDITS"
+            }), 402
+        
+        # Score resume - refund credits on failure
+        try:
+            openai_client = get_async_openai_client()
+            if not openai_client:
+                refund_credits_atomic(user_id, 5, "resume_workshop_score_ai_unavailable")
+                return jsonify({
+                    "status": "error",
+                    "message": "AI service unavailable",
+                    "credits_refunded": True
+                }), 503
+            
+            result = run_async(
+                _score_resume(resume_text=resume_text, openai_client=openai_client),
+                timeout=60.0
+            )
+        except TimeoutError:
+            refund_credits_atomic(user_id, 5, "resume_workshop_score_timeout")
+            raise
+        except Exception as e:
+            refund_credits_atomic(user_id, 5, "resume_workshop_score_error")
+            raise
         
         return jsonify({
             "status": "ok",
@@ -818,15 +987,23 @@ def score_resume():
         logger.error(f"[ResumeWorkshop] Score timed out for user {user_id[:8]}...")
         return jsonify({
             "status": "error",
-            "message": "Scoring timed out. Please try again."
+            "message": "Scoring timed out. Your credits have been refunded. Please try again.",
+            "credits_refunded": True
         }), 504
     except Exception as exc:
         logger.error(f"[ResumeWorkshop] Score failed: {type(exc).__name__}: {exc}")
         import traceback
         logger.error(f"[ResumeWorkshop] Traceback: {traceback.format_exc()}")
+        # Try to refund credits if not already refunded
+        try:
+            refund_credits_atomic(user_id, 5, "resume_workshop_score_exception")
+            credits_refunded = True
+        except:
+            credits_refunded = False
         return jsonify({
             "status": "error",
-            "message": f"Scoring failed: {str(exc)}"
+            "message": f"Scoring failed: {str(exc)}",
+            "credits_refunded": credits_refunded
         }), 500
 
 
@@ -877,25 +1054,58 @@ def apply_improvements():
                 "message": "No resume found"
             }), 400
         
-        # Deduct credits
-        new_credits = _deduct_credits(user_id, 5)
-        
-        # Apply improvements
-        openai_client = get_async_openai_client()
-        if not openai_client:
+        # Check credits before operation
+        db = get_db()
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        if not user_doc.exists:
             return jsonify({
                 "status": "error",
-                "message": "AI service unavailable"
-            }), 503
+                "message": "User not found"
+            }), 404
         
-        result = run_async(
-            _apply_improvements(
-                resume_text=resume_text,
-                suggestions=suggestions,
-                openai_client=openai_client
-            ),
-            timeout=90.0
-        )
+        current_credits = user_doc.to_dict().get('credits', 0)
+        if current_credits < 5:
+            return jsonify({
+                "status": "error",
+                "message": f"Insufficient credits. You have {current_credits} credits but need 5.",
+                "error_code": "INSUFFICIENT_CREDITS"
+            }), 402
+        
+        # Deduct credits atomically
+        deduct_success, new_credits = deduct_credits_atomic(user_id, 5, "resume_workshop_apply_improvements")
+        if not deduct_success:
+            return jsonify({
+                "status": "error",
+                "message": f"Insufficient credits. You have {new_credits} credits but need 5.",
+                "error_code": "INSUFFICIENT_CREDITS"
+            }), 402
+        
+        # Apply improvements - refund credits on failure
+        try:
+            openai_client = get_async_openai_client()
+            if not openai_client:
+                refund_credits_atomic(user_id, 5, "resume_workshop_apply_improvements_ai_unavailable")
+                return jsonify({
+                    "status": "error",
+                    "message": "AI service unavailable",
+                    "credits_refunded": True
+                }), 503
+            
+            result = run_async(
+                _apply_improvements(
+                    resume_text=resume_text,
+                    suggestions=suggestions,
+                    openai_client=openai_client
+                ),
+                timeout=90.0
+            )
+        except TimeoutError:
+            refund_credits_atomic(user_id, 5, "resume_workshop_apply_improvements_timeout")
+            raise
+        except Exception as e:
+            refund_credits_atomic(user_id, 5, "resume_workshop_apply_improvements_error")
+            raise
         
         return jsonify({
             "status": "ok",
@@ -919,15 +1129,23 @@ def apply_improvements():
         logger.error(f"[ResumeWorkshop] Apply improvements timed out for user {user_id[:8]}...")
         return jsonify({
             "status": "error",
-            "message": "Operation timed out. Please try again."
+            "message": "Operation timed out. Your credits have been refunded. Please try again.",
+            "credits_refunded": True
         }), 504
     except Exception as exc:
         logger.error(f"[ResumeWorkshop] Apply improvements failed: {type(exc).__name__}: {exc}")
         import traceback
         logger.error(f"[ResumeWorkshop] Traceback: {traceback.format_exc()}")
+        # Try to refund credits if not already refunded
+        try:
+            refund_credits_atomic(user_id, 5, "resume_workshop_apply_improvements_exception")
+            credits_refunded = True
+        except:
+            credits_refunded = False
         return jsonify({
             "status": "error",
-            "message": f"Failed to apply improvements: {str(exc)}"
+            "message": f"Failed to apply improvements: {str(exc)}",
+            "credits_refunded": credits_refunded
         }), 500
 
 
@@ -1079,26 +1297,59 @@ def apply_recommendation():
                 "message": "No resume found"
             }), 400
         
-        # Deduct credits (5 for apply)
-        new_credits = _deduct_credits(user_id, 5)
-        
-        # Apply recommendation
-        openai_client = get_async_openai_client()
-        if not openai_client:
+        # Check credits before operation
+        db = get_db()
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        if not user_doc.exists:
             return jsonify({
                 "status": "error",
-                "message": "AI service unavailable"
-            }), 503
+                "message": "User not found"
+            }), 404
         
-        result = run_async(
-            _apply_recommendation(
-                resume_text=resume_text,
-                recommendation=recommendation,
-                job_context=job_context,
-                openai_client=openai_client
-            ),
-            timeout=60.0
-        )
+        current_credits = user_doc.to_dict().get('credits', 0)
+        if current_credits < 5:
+            return jsonify({
+                "status": "error",
+                "message": f"Insufficient credits. You have {current_credits} credits but need 5.",
+                "error_code": "INSUFFICIENT_CREDITS"
+            }), 402
+        
+        # Deduct credits atomically
+        deduct_success, new_credits = deduct_credits_atomic(user_id, 5, "resume_workshop_apply")
+        if not deduct_success:
+            return jsonify({
+                "status": "error",
+                "message": f"Insufficient credits. You have {new_credits} credits but need 5.",
+                "error_code": "INSUFFICIENT_CREDITS"
+            }), 402
+        
+        # Apply recommendation - refund credits on failure
+        try:
+            openai_client = get_async_openai_client()
+            if not openai_client:
+                refund_credits_atomic(user_id, 5, "resume_workshop_apply_ai_unavailable")
+                return jsonify({
+                    "status": "error",
+                    "message": "AI service unavailable",
+                    "credits_refunded": True
+                }), 503
+            
+            result = run_async(
+                _apply_recommendation(
+                    resume_text=resume_text,
+                    recommendation=recommendation,
+                    job_context=job_context,
+                    openai_client=openai_client
+                ),
+                timeout=60.0
+            )
+        except TimeoutError:
+            refund_credits_atomic(user_id, 5, "resume_workshop_apply_timeout")
+            raise
+        except Exception as e:
+            refund_credits_atomic(user_id, 5, "resume_workshop_apply_error")
+            raise
         
         # Save to Resume Library
         job_title = job_context.get('job_title', 'Unknown')
@@ -1137,15 +1388,23 @@ def apply_recommendation():
         logger.error(f"[ResumeWorkshop] Apply timed out for user {user_id[:8]}...")
         return jsonify({
             "status": "error",
-            "message": "Apply timed out. Please try again."
+            "message": "Apply timed out. Your credits have been refunded. Please try again.",
+            "credits_refunded": True
         }), 504
     except Exception as exc:
         logger.error(f"[ResumeWorkshop] Apply failed: {type(exc).__name__}: {exc}")
         import traceback
         logger.error(f"[ResumeWorkshop] Traceback: {traceback.format_exc()}")
+        # Try to refund credits if not already refunded
+        try:
+            refund_credits_atomic(user_id, 5, "resume_workshop_apply_exception")
+            credits_refunded = True
+        except:
+            credits_refunded = False
         return jsonify({
             "status": "error",
-            "message": f"Failed to apply recommendation: {str(exc)}"
+            "message": f"Failed to apply recommendation: {str(exc)}",
+            "credits_refunded": credits_refunded
         }), 500
 
 

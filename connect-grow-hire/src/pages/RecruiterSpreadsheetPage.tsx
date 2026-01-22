@@ -12,6 +12,8 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { toast } from "@/hooks/use-toast";
 import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileTypes";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
+import { apiService, type Recruiter } from "@/services/api";
+import { firebaseApi, type Recruiter as FirebaseRecruiter } from "../services/firebaseApi";
 import { 
   Users, Link, Building2, Briefcase, MapPin, FileText, CheckCircle, 
   Mail, Sparkles, Check, ArrowRight, ClipboardList, Loader2, Upload
@@ -37,6 +39,7 @@ const RecruiterSpreadsheetPage = () => {
   const [searchComplete, setSearchComplete] = useState(false);
   const [progress, setProgress] = useState(0);
   const [estimatedManagers] = useState(2);
+  const [managersFound, setManagersFound] = useState(0);
 
   // Tracker count (would come from API in real implementation)
   const [trackerCount, setTrackerCount] = useState(0);
@@ -139,7 +142,7 @@ const RecruiterSpreadsheetPage = () => {
 
   // Handle search
   const handleFindHiringManagers = async () => {
-    if (!canSearch) return;
+    if (!canSearch || !user) return;
     setIsSearching(true);
     setProgress(0);
     
@@ -154,19 +157,144 @@ const RecruiterSpreadsheetPage = () => {
       });
     }, 200);
 
-    // TODO: Call backend workflow
-    toast({
-      title: "Finding hiring managers...",
-      description: "This feature will connect to the backend workflow.",
-    });
-    
-    setTimeout(() => {
+    try {
+      let companyName = company;
+      let jobTitleValue = jobTitle;
+      let locationValue = location;
+      let description = jobDescription;
+
+      // Priority 1: Parse job URL if provided
+      if (jobPostingUrl && jobPostingUrl.trim()) {
+        try {
+          const parseResponse = await apiService.parseJobUrl({ url: jobPostingUrl });
+          if (parseResponse.job) {
+            if (parseResponse.job.company && !companyName) {
+              companyName = parseResponse.job.company;
+            }
+            if (parseResponse.job.title && !jobTitleValue) {
+              jobTitleValue = parseResponse.job.title;
+            }
+            if (parseResponse.job.location && !locationValue) {
+              locationValue = parseResponse.job.location;
+            }
+            if (parseResponse.job.description && !description) {
+              description = parseResponse.job.description;
+            }
+          } else if (parseResponse.error) {
+            console.warn('Failed to parse job URL:', parseResponse.error);
+            toast({
+              title: "Could not parse job URL",
+              description: "Please paste the job description instead.",
+              variant: "default"
+            });
+          }
+        } catch (error) {
+          console.error('Error parsing job URL:', error);
+        }
+      }
+
+      // Validate we have required fields
+      if (!companyName) {
+        toast({
+          title: "Company name required",
+          description: "Please provide a company name or paste a job URL.",
+          variant: "destructive",
+        });
+        clearInterval(progressInterval);
+        setIsSearching(false);
+        return;
+      }
+
+      // Call the API
+      const response = await apiService.findHiringManagers({
+        company: companyName,
+        jobTitle: jobTitleValue,
+        jobDescription: description,
+        location: locationValue,
+        jobUrl: jobPostingUrl || undefined,
+        maxResults: estimatedManagers,
+        generateEmails: true,
+        createDrafts: true,
+      });
+
       clearInterval(progressInterval);
       setProgress(100);
+
+      if (response.error) {
+        toast({
+          title: "Error finding hiring managers",
+          description: response.error,
+          variant: "destructive",
+        });
+        setIsSearching(false);
+        return;
+      }
+
+      // Save hiring managers to tracker
+      if (response.hiringManagers && response.hiringManagers.length > 0) {
+        try {
+          // Convert API format to Firebase format
+          const firebaseRecruiters: Omit<FirebaseRecruiter, 'id'>[] = response.hiringManagers.map((manager) => ({
+            firstName: manager.FirstName || '',
+            lastName: manager.LastName || '',
+            linkedinUrl: manager.LinkedIn || '',
+            email: manager.Email || manager.WorkEmail || '',
+            company: manager.Company || companyName,
+            jobTitle: manager.Title || '',
+            location: `${manager.City || ''}${manager.City && manager.State ? ', ' : ''}${manager.State || ''}`.trim() || undefined,
+            phone: manager.Phone,
+            workEmail: manager.WorkEmail,
+            personalEmail: manager.PersonalEmail,
+            associatedJobTitle: jobTitleValue || undefined,
+            associatedJobUrl: jobPostingUrl || undefined,
+            dateAdded: new Date().toISOString(),
+            status: 'Not Contacted',
+          }));
+
+          // Check for duplicates before saving
+          const existingRecruiters = await firebaseApi.getRecruiters(user.uid);
+          const existingEmails = new Set(existingRecruiters.map(r => r.email).filter(Boolean));
+          const existingLinkedIns = new Set(existingRecruiters.map(r => r.linkedinUrl).filter(Boolean));
+
+          const newRecruiters = firebaseRecruiters.filter(r => {
+            const hasEmail = r.email && existingEmails.has(r.email);
+            const hasLinkedIn = r.linkedinUrl && existingLinkedIns.has(r.linkedinUrl);
+            return !hasEmail && !hasLinkedIn;
+          });
+
+          if (newRecruiters.length > 0) {
+            await firebaseApi.bulkCreateRecruiters(user.uid, newRecruiters);
+            setTrackerCount(prev => prev + newRecruiters.length);
+            console.log(`✅ Saved ${newRecruiters.length} hiring manager(s) to tracker`);
+          }
+        } catch (error) {
+          console.error('Error saving hiring managers to tracker:', error);
+          // Don't fail the whole operation if saving fails
+        }
+      }
+
+      // Show success message
+      const foundCount = response.hiringManagers?.length || 0;
+      setManagersFound(foundCount);
+      toast({
+        title: `Found ${foundCount} hiring manager${foundCount !== 1 ? 's' : ''}!`,
+        description: response.draftsCreated && response.draftsCreated.length > 0
+          ? `Draft emails saved to your Gmail`
+          : "Hiring managers saved to tracker",
+      });
+
       setIsSearching(false);
       setSearchComplete(true);
-      setTrackerCount(prev => prev + 2);
-    }, 2000);
+    } catch (error) {
+      clearInterval(progressInterval);
+      setIsSearching(false);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to find hiring managers';
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    }
   };
 
   const handleViewResults = () => {
@@ -632,7 +760,7 @@ const RecruiterSpreadsheetPage = () => {
               <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <CheckCircle className="w-10 h-10 text-green-600" />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-1">Found {estimatedManagers} hiring managers!</h3>
+              <h3 className="text-xl font-semibold text-gray-900 mb-1">Found {managersFound} hiring manager{managersFound !== 1 ? 's' : ''}!</h3>
               <p className="text-gray-600 mb-2">{jobTitle || 'Role'} at {company || 'Company'}</p>
               <p className="text-sm text-rose-600 font-medium mb-6">Draft emails saved to your Gmail</p>
               

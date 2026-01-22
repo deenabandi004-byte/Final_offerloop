@@ -6,7 +6,7 @@ import {
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 import { firebaseApi } from '@/services/firebaseApi';
-import { type Firm, apiService } from '@/services/api';
+import { type Firm, apiService, type OutboxThread } from '@/services/api';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { calculateWeeklySummary, type WeeklySummary } from '@/utils/dashboardStats';
 
@@ -105,6 +105,16 @@ export function Dashboard() {
   const [replyStats, setReplyStats] = useState<{ totalReplies: number; responseRate: number; totalSent: number } | null>(null);
   const [activities, setActivities] = useState<Array<{ id: string; type: string; summary: string; timestamp: any }>>([]);
   const [contacts, setContacts] = useState<Array<any>>([]);
+  const [followUpReminders, setFollowUpReminders] = useState<Array<{
+    id: string;
+    contactId: string;
+    contactName: string;
+    firm: string;
+    daysSinceContact: number;
+    lastContactDate: string;
+  }>>([]);
+  const [outboxThreads, setOutboxThreads] = useState<OutboxThread[]>([]);
+  const [outboxLoading, setOutboxLoading] = useState(true);
 
   // Derived values
   const timeSavedHours = useMemo(() => {
@@ -121,28 +131,195 @@ export function Dashboard() {
   // Get user's first name
   const firstName = user?.name?.split(' ')[0] || 'there';
 
-  // Mock follow-up data (in a real app, this would come from the API)
+  // Fetch follow-up reminders
+  useEffect(() => {
+    const fetchFollowUpReminders = async () => {
+      if (!user?.uid) return;
+      try {
+        const reminders = await firebaseApi.getFollowUpReminders(user.uid);
+        console.log('📋 Follow-up reminders fetched:', reminders.length, reminders);
+        setFollowUpReminders(reminders);
+      } catch (error) {
+        console.error('❌ Failed to fetch follow-up reminders:', error);
+        setFollowUpReminders([]);
+      }
+    };
+    fetchFollowUpReminders();
+  }, [user?.uid, contacts]); // Re-fetch when contacts change
+
+  // Map follow-up reminders to UI format with real data
+  // Also include outbox threads that are waiting for replies (more actionable)
   const followUps = useMemo(() => {
-    return contacts.slice(0, 5).map((contact, index) => ({
-      id: contact.id || `contact-${index}`,
-      personName: contact.name || 'Unknown Contact',
-      title: contact.title || 'Professional',
-      company: contact.company || 'Company',
-      daysSinceContact: Math.floor(Math.random() * 10) + 1,
-      priority: index === 0 ? 'Hot' : index < 3 ? 'Warm' : 'Normal',
-      emailOpened: Math.random() > 0.5,
-    }));
-  }, [contacts]);
+    console.log('🔄 Mapping follow-ups:', {
+      remindersCount: followUpReminders.length,
+      contactsCount: contacts.length,
+      outboxThreadsCount: outboxThreads.length,
+      reminders: followUpReminders
+    });
+    
+    // Start with reminders from getFollowUpReminders (contacts 3+ days old)
+    const reminderFollowUps = followUpReminders.map((reminder) => {
+      // Find the corresponding contact to get additional info
+      const contact = contacts.find(c => 
+        c.id === reminder.contactId || 
+        c.id === reminder.id ||
+        (reminder.contactId && c.id === reminder.contactId)
+      );
+      
+      // Calculate priority based on days since contact
+      // Hot = 7+ days (urgent), Warm = 4-6 days, Normal = 3 days
+      let priority: 'Hot' | 'Warm' | 'Normal' = 'Normal';
+      if (reminder.daysSinceContact >= 7) {
+        priority = 'Hot';
+      } else if (reminder.daysSinceContact >= 4) {
+        priority = 'Warm';
+      }
+      
+      // Get email opened status from contact (if available)
+      // Check multiple possible fields for email tracking
+      const emailOpened = contact?.emailOpened || 
+                         contact?.hasUnreadReply || 
+                         contact?.emailOpenedAt || 
+                         false;
+      
+      // Extract name from contactName (which might be "First Last" or just email)
+      const personName = reminder.contactName || 
+                        (contact ? `${contact.firstName || ''} ${contact.lastName || ''}`.trim() : '') ||
+                        contact?.name ||
+                        'Unknown Contact';
+      
+      return {
+        id: reminder.id || reminder.contactId || `reminder-${Math.random()}`,
+        personName: personName || 'Unknown Contact',
+        title: contact?.jobTitle || contact?.title || contact?.job_title || 'Professional',
+        company: reminder.firm || contact?.company || 'Company',
+        daysSinceContact: reminder.daysSinceContact,
+        priority,
+        emailOpened,
+      };
+    }).sort((a, b) => {
+      // Sort by priority (Hot first, then Warm, then Normal)
+      const priorityOrder = { 'Hot': 0, 'Warm': 1, 'Normal': 2 };
+      if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
+        return priorityOrder[a.priority] - priorityOrder[b.priority];
+      }
+      // Then by days since contact (most urgent first)
+      return b.daysSinceContact - a.daysSinceContact;
+    });
+    
+    // Also add outbox threads that need attention:
+    // 1. Waiting for replies (sent, no reply yet) - these definitely need follow-ups
+    // 2. New replies (contact replied, needs response) - these need responses
+    // 3. Drafts (no_reply_yet) - these are ready to send, show them as actionable items
+    const outboxFollowUps = outboxThreads
+      .filter(t => {
+        // Include all threads that need action:
+        // - Waiting for replies (sent emails)
+        // - New replies (need to respond)
+        // - Drafts (ready to send)
+        return t.status === "waiting_on_them" || 
+               t.status === "new_reply" || 
+               t.status === "waiting_on_you" ||
+               t.status === "no_reply_yet"; // Include drafts as actionable items
+      })
+      .map(thread => {
+        // Calculate days since last activity
+        const lastActivity = thread.lastActivityAt ? new Date(thread.lastActivityAt) : new Date();
+        const daysSince = Math.floor((Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24));
+        
+        // Determine priority based on status and days
+        let priority: 'Hot' | 'Warm' | 'Normal' = 'Normal';
+        
+        // New replies are always high priority
+        if (thread.status === "new_reply" || thread.status === "waiting_on_you") {
+          priority = 'Hot';
+        } else if (daysSince >= 7) {
+          priority = 'Hot';
+        } else if (daysSince >= 4) {
+          priority = 'Warm';
+        } else if (thread.status === "no_reply_yet") {
+          // Drafts are "Normal" priority unless they're old
+          priority = daysSince >= 2 ? 'Warm' : 'Normal';
+        }
+        
+        return {
+          id: thread.id,
+          personName: thread.contactName,
+          title: thread.jobTitle,
+          company: thread.company,
+          daysSinceContact: daysSince,
+          priority,
+          emailOpened: thread.status === "new_reply" || thread.status === "waiting_on_you",
+        };
+      });
+    
+    // Combine both sources and deduplicate by contact ID
+    const allFollowUps = [...reminderFollowUps, ...outboxFollowUps];
+    const uniqueFollowUps = Array.from(
+      new Map(allFollowUps.map(f => [f.id, f])).values()
+    );
+    
+    // Sort by priority and days
+    return uniqueFollowUps.sort((a, b) => {
+      const priorityOrder = { 'Hot': 0, 'Warm': 1, 'Normal': 2 };
+      if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
+        return priorityOrder[a.priority] - priorityOrder[b.priority];
+      }
+      return b.daysSinceContact - a.daysSinceContact;
+    });
+  }, [followUpReminders, contacts, outboxThreads]);
 
   // Get the top follow-up for the hero card
   const topFollowUp = followUps[0];
 
-  // Quick wins data
-  const quickWins = useMemo(() => ({
-    emailsReady: Math.min(contactCount, 3),
-    coffeeChatsNeedPrep: Math.min(coffeeChatCount, 2),
-    newMatches: firmCount > 0 ? Math.min(firmCount, 5) : 0,
-  }), [contactCount, coffeeChatCount, firmCount]);
+  // Fetch outbox threads to get real draft count
+  useEffect(() => {
+    const fetchOutboxThreads = async () => {
+      if (!user?.uid) {
+        setOutboxLoading(false);
+        return;
+      }
+      try {
+        setOutboxLoading(true);
+        const result = await apiService.getOutboxThreads();
+        if ('error' in result) {
+          console.error('❌ Error fetching outbox threads:', result.error);
+          setOutboxThreads([]);
+        } else {
+          const threads = result.threads || [];
+          if (process.env.NODE_ENV === 'development') {
+            console.log('✅ Fetched outbox threads:', threads.length, 'threads');
+          }
+          setOutboxThreads(threads);
+        }
+      } catch (error) {
+        console.error('❌ Failed to fetch outbox threads:', error);
+        setOutboxThreads([]);
+      } finally {
+        setOutboxLoading(false);
+      }
+    };
+    fetchOutboxThreads();
+  }, [user?.uid]);
+
+  // Quick wins data - using real data
+  const quickWins = useMemo(() => {
+    // Count actual drafts ready to send
+    // Simply count threads with hasDraft=true (this is what the backend returns)
+    const emailsReady = outboxThreads.filter(t => Boolean(t.hasDraft)).length;
+    
+    // Coffee chats that need prep
+    const coffeeChatsNeedPrep = coffeeChatCount;
+    
+    // New company matches
+    const newMatches = firmCount > 0 ? firmCount : 0;
+    
+    return {
+      emailsReady,
+      coffeeChatsNeedPrep,
+      newMatches,
+    };
+  }, [outboxThreads, coffeeChatCount, firmCount]);
 
   // Fetch contacts
   useEffect(() => {
@@ -392,73 +569,87 @@ export function Dashboard() {
           <div className="animate-fadeInUp" style={{ animationDelay: '300ms' }}>
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Wins</h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              
-              {quickWins.emailsReady > 0 && (
-                <div 
-                  onClick={() => navigate('/outbox')}
-                  className="bg-green-50 border border-green-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-2xl">📤</span>
-                    <span className="text-xs bg-green-200 text-green-800 px-2 py-0.5 rounded-full">2 min</span>
-                  </div>
-                  <p className="font-semibold text-gray-900">{quickWins.emailsReady} emails ready</p>
-                  <p className="text-sm text-gray-600">Review and send with one click</p>
+              {/* Show loading state while fetching outbox data */}
+              {outboxLoading ? (
+                <div className="col-span-full text-center py-8 text-gray-500 text-sm">
+                  Loading quick wins...
                 </div>
-              )}
-              
-              {quickWins.coffeeChatsNeedPrep > 0 && (
-                <div 
-                  onClick={() => navigate('/coffee-chat-prep')}
-                  className="bg-purple-50 border border-purple-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-2xl">☕</span>
-                    <span className="text-xs bg-purple-200 text-purple-800 px-2 py-0.5 rounded-full">5 min</span>
+              ) : (
+                <>
+                  {/* Show cards when data is loaded */}
+                  <div 
+                    onClick={() => navigate('/outbox')}
+                    className={`bg-green-50 border border-green-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.emailsReady === 0 ? 'opacity-50' : ''}`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-2xl">📤</span>
+                      <span className="text-xs bg-green-200 text-green-800 px-2 py-0.5 rounded-full">2 min</span>
+                    </div>
+                    <p className="font-semibold text-gray-900">{quickWins.emailsReady} emails ready</p>
+                    <p className="text-sm text-gray-600">Review and send with one click</p>
                   </div>
-                  <p className="font-semibold text-gray-900">{quickWins.coffeeChatsNeedPrep} coffee chats</p>
-                  <p className="text-sm text-gray-600">Need quick prep before calls</p>
-                </div>
-              )}
               
-              {quickWins.newMatches > 0 && (
-                <div 
-                  onClick={() => navigate('/firm-search')}
-                  className="bg-blue-50 border border-blue-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-2xl">🎯</span>
-                    <span className="text-xs bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full">New</span>
+                  <div 
+                    onClick={() => navigate('/coffee-chat-prep')}
+                    className={`bg-purple-50 border border-purple-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.coffeeChatsNeedPrep === 0 ? 'opacity-50' : ''}`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-2xl">☕</span>
+                      <span className="text-xs bg-purple-200 text-purple-800 px-2 py-0.5 rounded-full">5 min</span>
+                    </div>
+                    <p className="font-semibold text-gray-900">{quickWins.coffeeChatsNeedPrep} coffee chats</p>
+                    <p className="text-sm text-gray-600">Need quick prep before calls</p>
                   </div>
-                  <p className="font-semibold text-gray-900">{quickWins.newMatches} companies</p>
-                  <p className="text-sm text-gray-600">Match your search criteria</p>
-                </div>
-              )}
+              
+                  <div 
+                    onClick={() => navigate('/firm-search')}
+                    className={`bg-blue-50 border border-blue-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.newMatches === 0 ? 'opacity-50' : ''}`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-2xl">🎯</span>
+                      <span className="text-xs bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full">New</span>
+                    </div>
+                    <p className="font-semibold text-gray-900">{quickWins.newMatches} companies</p>
+                    <p className="text-sm text-gray-600">Match your search criteria</p>
+                  </div>
 
-              {quickWins.emailsReady === 0 && quickWins.coffeeChatsNeedPrep === 0 && quickWins.newMatches === 0 && (
-                <div 
-                  onClick={() => navigate('/contact-search')}
-                  className="bg-gray-50 border border-gray-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer col-span-full"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-2xl">🚀</span>
-                    <span className="text-xs bg-gray-200 text-gray-800 px-2 py-0.5 rounded-full">Get started</span>
-                  </div>
-                  <p className="font-semibold text-gray-900">Find your first contacts</p>
-                  <p className="text-sm text-gray-600">Search for people at companies you're targeting</p>
-                </div>
+                  {quickWins.emailsReady === 0 && quickWins.coffeeChatsNeedPrep === 0 && quickWins.newMatches === 0 && (
+                    <div 
+                      onClick={() => navigate('/contact-search')}
+                      className="bg-gray-50 border border-gray-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer col-span-full"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-2xl">🚀</span>
+                        <span className="text-xs bg-gray-200 text-gray-800 px-2 py-0.5 rounded-full">Get started</span>
+                      </div>
+                      <p className="font-semibold text-gray-900">Find your first contacts</p>
+                      <p className="text-sm text-gray-600">Search for people at companies you're targeting</p>
+                    </div>
+                  )}
+                </>
               )}
               
             </div>
           </div>
 
           {/* FOLLOW-UP QUEUE */}
-          {followUps.length > 0 && (
-            <div className="animate-fadeInUp" style={{ animationDelay: '400ms' }}>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">Your Follow-up Queue</h2>
+          <div className="animate-fadeInUp" style={{ animationDelay: '400ms' }}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">Your Follow-up Queue</h2>
+              {followUps.length > 0 && (
                 <span className="text-sm text-gray-500">{followUps.length} pending</span>
+              )}
+            </div>
+            
+            {followUps.length === 0 ? (
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 text-center">
+                <p className="text-sm text-gray-600 mb-2">No follow-ups needed right now</p>
+                <p className="text-xs text-gray-500">
+                  Follow-ups appear here when contacts haven't replied after 3+ days
+                </p>
               </div>
+            ) : (
+              <>
               
               <div className="space-y-3">
                 {followUps.slice(0, 4).map((followUp) => (
@@ -522,16 +713,17 @@ export function Dashboard() {
                 ))}
               </div>
               
-              {followUps.length > 4 && (
-                <button 
-                  onClick={() => navigate('/outbox')}
-                  className="mt-4 text-sm text-blue-600 hover:underline flex items-center gap-1"
-                >
-                  View all {followUps.length} follow-ups <ArrowRight className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          )}
+                {followUps.length > 4 && (
+                  <button 
+                    onClick={() => navigate('/outbox')}
+                    className="mt-4 text-sm text-blue-600 hover:underline flex items-center gap-1"
+                  >
+                    View all {followUps.length} follow-ups <ArrowRight className="w-4 h-4" />
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         </div>
         
         {/* Right column - 1/3 width */}

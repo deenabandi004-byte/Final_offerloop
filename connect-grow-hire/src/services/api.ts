@@ -142,6 +142,18 @@ export interface FindRecruiterResponse {
   error?: string;
 }
 
+export interface FindHiringManagerResponse {
+  hiringManagers: Recruiter[];  // Reuse Recruiter interface (same structure)
+  emails?: RecruiterEmail[];
+  draftsCreated?: DraftCreated[];
+  jobTypeDetected: string;
+  companyCleaned: string;
+  totalFound: number;
+  creditsCharged: number;
+  creditsRemaining: number;
+  error?: string;
+}
+
 // Base response type
 export interface SearchResponse {
   contacts: Contact[];
@@ -1667,6 +1679,28 @@ async regenerateOutboxReply(
     const headers = await this.getAuthHeaders();
     return this.makeRequest<{ job?: { title?: string; company?: string; location?: string; description?: string }; error?: string }>(
       '/job-board/parse-job-url',
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(params),
+      }
+    );
+  }
+
+  async findHiringManagers(params: {
+    company?: string;
+    jobTitle?: string;
+    jobDescription?: string;
+    jobType?: string;
+    location?: string;
+    jobUrl?: string;
+    maxResults?: number;
+    generateEmails?: boolean;
+    createDrafts?: boolean;
+  }): Promise<FindHiringManagerResponse> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<FindHiringManagerResponse>(
+      '/job-board/find-hiring-manager',
       {
         method: 'POST',
         headers,

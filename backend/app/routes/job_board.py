@@ -23,7 +23,7 @@ from app.extensions import require_firebase_auth, get_db
 from app.services.auth import deduct_credits_atomic, refund_credits_atomic, check_and_reset_credits
 from app.services.openai_client import get_async_openai_client, get_openai_client
 from app.services.ats_scorer import calculate_ats_score
-from app.services.recruiter_finder import find_recruiters, determine_job_type
+from app.services.recruiter_finder import find_recruiters, determine_job_type, find_hiring_manager
 from app.services.resume_optimizer_v2 import optimize_resume_v2 as run_resume_optimization
 from app.services.resume_capabilities import get_capabilities
 from app.services.pdf_builder import generate_cover_letter_pdf
@@ -4509,9 +4509,14 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
     """
     try:
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1"
         }
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, "html.parser")
@@ -4524,17 +4529,112 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
             "requirements": [],
         }
         
+        # Try to extract metadata from structured data (JSON-LD, microdata, meta tags)
+        # Many job sites use structured data for SEO - this works even if HTML parsing fails
+        try:
+            json_ld_scripts = soup.find_all('script', type='application/ld+json')
+            for script in json_ld_scripts:
+                try:
+                    data = json.loads(script.string)
+                    if isinstance(data, dict):
+                        # Look for job posting schema
+                        if data.get('@type') == 'JobPosting' or 'JobPosting' in str(data.get('@type', '')):
+                            if 'hiringOrganization' in data:
+                                org = data['hiringOrganization']
+                                if isinstance(org, dict) and not job_data.get("company"):
+                                    job_data["company"] = org.get('name', '')
+                            if 'title' in data and not job_data.get("title"):
+                                job_data["title"] = data['title']
+                            if 'jobLocation' in data:
+                                loc = data['jobLocation']
+                                if isinstance(loc, dict):
+                                    address = loc.get('address', {})
+                                    if isinstance(address, dict) and not job_data.get("location"):
+                                        locality = address.get('addressLocality', '')
+                                        region = address.get('addressRegion', '')
+                                        if locality and region:
+                                            job_data["location"] = f"{locality}, {region}"
+                                        elif locality:
+                                            job_data["location"] = locality
+                            if 'description' in data and not job_data.get("description"):
+                                job_data["description"] = data['description'][:5000]
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+        except Exception as e:
+            print(f"[JobBoard] Error extracting JSON-LD data: {e}")
+        
+        # Try meta tags (og:title, og:description, etc.) as fallback
+        if not job_data.get("title"):
+            meta_title = soup.find('meta', property='og:title')
+            if meta_title and meta_title.get('content'):
+                job_data["title"] = meta_title.get('content')
+        
+        if not job_data.get("description"):
+            meta_desc = soup.find('meta', property='og:description')
+            if meta_desc and meta_desc.get('content'):
+                job_data["description"] = meta_desc.get('content')[:5000]
+        
         # LinkedIn parsing
         if "linkedin.com" in url:
-            title_elem = soup.find("h1", class_="top-card-layout__title")
-            company_elem = soup.find("a", class_="topcard__org-name-link")
-            location_elem = soup.find("span", class_="topcard__flavor--bullet")
-            description_elem = soup.find("div", class_="description__text")
+            # Try updated LinkedIn selectors first (current structure)
+            title_selectors = [
+                "h1.job-details-jobs-unified-top-card__job-title",
+                ".jobs-unified-top-card__job-title",
+                "h1.topcard__title",
+                "h1[class*='job-title']",
+                ".jobs-details h1",
+                "h1.top-card-layout__title"  # Fallback to old selector
+            ]
+            for selector in title_selectors:
+                title_elem = soup.select_one(selector)
+                if title_elem:
+                    job_data["title"] = title_elem.get_text(strip=True)
+                    break
             
-            job_data["title"] = title_elem.get_text(strip=True) if title_elem else None
-            job_data["company"] = company_elem.get_text(strip=True) if company_elem else None
-            job_data["location"] = location_elem.get_text(strip=True) if location_elem else None
-            job_data["description"] = description_elem.get_text(strip=True) if description_elem else None
+            # Try updated company selectors
+            company_selectors = [
+                ".job-details-jobs-unified-top-card__company-name a",
+                ".jobs-unified-top-card__company-name a",
+                ".topcard__org-name-link",
+                ".job-details-jobs-unified-top-card__primary-description-container a",
+                ".jobs-details-top-card__company-url",
+                "a[class*='org-name-link']"
+            ]
+            for selector in company_selectors:
+                company_elem = soup.select_one(selector)
+                if company_elem:
+                    job_data["company"] = company_elem.get_text(strip=True)
+                    break
+            
+            # Try updated location selectors
+            location_selectors = [
+                ".job-details-jobs-unified-top-card__bullet",
+                ".jobs-unified-top-card__bullet",
+                ".topcard__flavor--bullet",
+                ".jobs-details-top-card__bullet",
+                "span[class*='bullet']"
+            ]
+            for selector in location_selectors:
+                location_elem = soup.select_one(selector)
+                if location_elem:
+                    job_data["location"] = location_elem.get_text(strip=True)
+                    break
+            
+            # Try updated description selectors
+            description_selectors = [
+                ".jobs-description__content",
+                ".jobs-box__html-content",
+                "#job-details",
+                ".jobs-description-content__text",
+                "div.description__text"  # Fallback to old selector
+            ]
+            for selector in description_selectors:
+                description_elem = soup.select_one(selector)
+                if description_elem:
+                    desc_text = description_elem.get_text(strip=True)
+                    if desc_text and len(desc_text) > 50:
+                        job_data["description"] = desc_text[:5000]
+                        break
             
         # Indeed parsing
         elif "indeed.com" in url:
@@ -4777,7 +4877,15 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
                             print(f"[JobBoard] Found description: {len(job_data['description'])} chars")
                             break
         
-        return job_data if any(job_data.values()) else None
+        # Return job_data if we have at least title or company (essential fields)
+        # Don't require description since some sites may not have it easily accessible
+        has_essential_data = job_data.get("title") or job_data.get("company")
+        if has_essential_data:
+            print(f"[JobBoard] Successfully parsed job URL: title={bool(job_data.get('title'))}, company={bool(job_data.get('company'))}, location={bool(job_data.get('location'))}, description={bool(job_data.get('description'))}")
+            return job_data
+        else:
+            print(f"[JobBoard] Failed to parse essential fields from URL: {url}")
+            return None
         
     except Exception as e:
         print(f"[JobBoard] Error parsing URL {url}: {e}")
@@ -7462,6 +7570,332 @@ def find_recruiter_endpoint():
         
     except Exception as e:
         print(f"[FindRecruiter] Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@job_board_bp.route("/find-hiring-manager", methods=["POST"])
+@require_firebase_auth
+def find_hiring_manager_endpoint():
+    """
+    Find hiring managers at a company for a specific job.
+    
+    Request:
+        {
+            "company": "Google",
+            "jobTitle": "Software Engineer",
+            "jobDescription": "...",  # Optional
+            "jobType": "engineering",  # Optional, will be auto-detected
+            "location": "San Francisco, CA",  # Optional
+            "jobUrl": "https://...",  # Optional
+            "maxResults": 3,  # Default: 3
+            "generateEmails": true,  # Default: true
+            "createDrafts": true  # Default: true
+        }
+    
+    Response:
+        {
+            "hiringManagers": [...],
+            "emails": [...],
+            "draftsCreated": [...],
+            "jobTypeDetected": "engineering",
+            "companyCleaned": "Google LLC",
+            "totalFound": 5,
+            "creditsCharged": 45,
+            "creditsRemaining": 155
+        }
+    """
+    try:
+        user_id = request.firebase_user.get('uid')
+        data = request.get_json()
+        
+        # Get job information from various sources
+        company = data.get('company')
+        job_title = data.get('jobTitle', '')
+        job_description = data.get('jobDescription', '')
+        job_type = data.get('jobType')  # Optional
+        location = data.get('location')  # Optional
+        job_url = data.get('jobUrl')  # Optional - for external job links
+        
+        # Log initial values for debugging
+        print(f"[FindHiringManager] Initial values - company: '{company}', job_title: '{job_title}', location: '{location}', has_description: {bool(job_description)}, has_url: {bool(job_url)}")
+        
+        # Reject obviously invalid company names from request
+        invalid_company_names = {'job type', 'job details', 'job description', 'employer', 'company', 'organization', 'n/a', 'null', 'none', ''}
+        if company and company.lower().strip() in invalid_company_names:
+            print(f"[FindHiringManager] Rejecting invalid company name from request: '{company}'")
+            company = None
+        elif company:
+            # Normalize company name from user input
+            company = normalize_company_name(company)
+        
+        # If no company provided but we have a job URL, try to parse it
+        if not company and job_url:
+            try:
+                parsed_job = parse_job_url(job_url)
+                if parsed_job:
+                    if parsed_job.get('company'):
+                        company = normalize_company_name(parsed_job.get('company'))
+                    if parsed_job.get('title'):
+                        job_title = parsed_job.get('title')
+                    if parsed_job.get('location'):
+                        location = parsed_job.get('location')
+                    if parsed_job.get('description'):
+                        job_description = parsed_job.get('description')
+            except Exception as e:
+                print(f"[FindHiringManager] Error parsing job URL: {e}")
+        
+        # Use OpenAI to extract missing information from job description (primary extraction method)
+        if job_description:
+            print(f"[FindHiringManager] Using OpenAI to extract job details from description (length: {len(job_description)})...")
+            try:
+                extracted = extract_job_details_with_openai(job_description)
+                if extracted:
+                    print(f"[FindHiringManager] OpenAI extraction result: {extracted}")
+                    if extracted.get('company'):
+                        company = extracted['company']  # Already normalized
+                        print(f"[FindHiringManager] ✅ OpenAI extracted company: '{company}'")
+                    if extracted.get('job_title'):
+                        job_title = extracted['job_title']
+                        print(f"[FindHiringManager] ✅ OpenAI extracted job_title: '{job_title}'")
+                    if extracted.get('location'):
+                        location = extracted['location']
+                        print(f"[FindHiringManager] ✅ OpenAI extracted location: '{location}'")
+            except Exception as e:
+                print(f"[FindHiringManager] ❌ OpenAI extraction failed: {e}")
+        
+        # Final validation - reject invalid company names
+        invalid_company_names = {
+            'job type', 'job details', 'job description', 'job title', 'job location',
+            'employer', 'company', 'organization', 'corporation', 
+            'n/a', 'null', 'none', '', 'full-time', 'part-time', 'contract',
+            'remote', 'hybrid', 'on-site', 'location', 'details', 'description'
+        }
+        if company:
+            company_lower = company.lower().strip()
+            if company_lower in invalid_company_names or len(company_lower) < 2:
+                print(f"[FindHiringManager] ❌ Final validation: Rejecting invalid company name: '{company}'")
+                company = None
+        
+        print(f"[FindHiringManager] Final values before validation - company: '{company}', job_title: '{job_title}', location: '{location}'")
+        
+        # Validate required fields
+        if not company:
+            return jsonify({
+                "error": "Company name is required",
+                "suggestion": "Please provide a company name, paste a job URL, or include the company name in the job description."
+            }), 400
+        
+        # Check user credits (minimum 15 for 1 contact)
+        db = get_db()
+        if not db:
+            return jsonify({"error": "Database not available"}), 500
+            
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            return jsonify({"error": "User not found"}), 404
+        
+        user_data = user_doc.to_dict()
+        user_data = sanitize_firestore_data(user_data, depth=0, max_depth=20)
+        current_credits = check_and_reset_credits(user_ref, user_data)
+        
+        if current_credits < 15:
+            return jsonify({
+                "error": "Insufficient credits",
+                "creditsRequired": 15,
+                "creditsAvailable": current_credits
+            }), 402
+        
+        # Get user's requested max_results (default: 3, max: 10)
+        max_results_requested = data.get('maxResults', 3)
+        if max_results_requested is not None:
+            max_results_requested = int(max_results_requested)
+            max_results_requested = min(max(max_results_requested, 1), 10)  # Clamp between 1 and 10
+        else:
+            max_results_requested = 3
+        
+        # Calculate how many hiring managers user can afford (15 credits per manager)
+        max_affordable = current_credits // 15
+        # Use the minimum of what user requested and what they can afford
+        max_results_to_fetch = min(max_results_requested, max_affordable)
+        
+        # Get user's resume and contact info for email generation
+        user_resume = user_data.get('resumeParsed', {})
+        user_contact = {
+            "name": user_resume.get('name', user_data.get('displayName', '')),
+            "email": user_data.get('email', ''),
+            "phone": user_resume.get('contact', {}).get('phone', '') if isinstance(user_resume.get('contact'), dict) else '',
+            "linkedin": user_resume.get('contact', {}).get('linkedin', '') if isinstance(user_resume.get('contact'), dict) else ''
+        }
+        
+        # Check if user wants to generate emails (default to True)
+        generate_emails = data.get('generateEmails', True)
+        create_drafts = data.get('createDrafts', True)
+        
+        # Find hiring managers
+        result = find_hiring_manager(
+            company_name=company,
+            job_type=job_type,
+            job_title=job_title,
+            job_description=job_description,
+            location=location,
+            max_results=max_results_to_fetch,
+            generate_emails=generate_emails,
+            user_resume=user_resume,
+            user_contact=user_contact
+        )
+        
+        # Check if we got results
+        if result.get("error"):
+            return jsonify({
+                "error": result["error"],
+                "hiringManagers": [],
+                "creditsCharged": 0
+            }), 500
+        
+        # Get results
+        all_hiring_managers = result.get("hiringManagers", [])
+        all_emails = result.get("emails", [])
+        total_found = result.get("total_found", 0)
+        
+        # Results are already limited to max_results_to_fetch, but we still need to respect credits
+        affordable_managers = all_hiring_managers[:max_affordable]
+        
+        # Limit emails to match affordable managers
+        affordable_emails = []
+        if all_emails:
+            affordable_manager_emails = set()
+            for m in affordable_managers:
+                if m.get("Email") and m.get("Email") != "Not available":
+                    affordable_manager_emails.add(m.get("Email"))
+                if m.get("WorkEmail") and m.get("WorkEmail") != "Not available":
+                    affordable_manager_emails.add(m.get("WorkEmail"))
+            
+            affordable_emails = [e for e in all_emails if e.get("to_email") in affordable_manager_emails]
+        
+        # Create Gmail drafts if requested
+        drafts_created = []
+        if create_drafts and affordable_emails:
+            from app.services.gmail_client import _load_user_gmail_creds, get_gmail_service_for_user
+            from app.services.gmail_client import download_resume_from_url
+            import base64
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+            from email.mime.base import MIMEBase
+            from email import encoders
+            
+            # Check Gmail connection
+            gmail_creds = _load_user_gmail_creds(user_id)
+            resume_url = user_data.get('resumeURL') or user_data.get('resumeUrl')
+            
+            if gmail_creds:
+                # Download resume once for all drafts
+                resume_content = None
+                resume_filename = None
+                if resume_url:
+                    try:
+                        resume_content, resume_filename = download_resume_from_url(resume_url)
+                        if resume_content:
+                            print(f"[FindHiringManager] Downloaded resume ({len(resume_content)} bytes) for {len(affordable_emails)} drafts")
+                    except Exception as e:
+                        print(f"[FindHiringManager] Failed to download resume: {e}")
+                
+                # Get Gmail service
+                gmail_service = get_gmail_service_for_user(user_data.get('email'), user_id=user_id)
+                
+                if gmail_service:
+                    for email_data in affordable_emails:
+                        try:
+                            manager = email_data.get("recruiter", {})
+                            to_email = email_data.get("to_email")
+                            to_name = email_data.get("to_name", "")
+                            subject = email_data.get("subject", "")
+                            body_html = email_data.get("body", "")
+                            body_plain = email_data.get("plain_body", "")
+                            
+                            # Create MIME message
+                            message = MIMEMultipart('alternative')
+                            message['to'] = to_email
+                            message['subject'] = subject
+                            
+                            # Add plain text and HTML parts
+                            part1 = MIMEText(body_plain, 'plain')
+                            part2 = MIMEText(body_html, 'html')
+                            message.attach(part1)
+                            message.attach(part2)
+                            
+                            # Add resume attachment if available
+                            if resume_content and resume_filename:
+                                part = MIMEBase('application', 'octet-stream')
+                                part.set_payload(resume_content)
+                                encoders.encode_base64(part)
+                                part.add_header('Content-Disposition', f'attachment; filename= {resume_filename}')
+                                message.attach(part)
+                            
+                            # Encode message
+                            raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
+                            
+                            # Create draft
+                            draft_body = {
+                                'message': {
+                                    'raw': raw_message
+                                }
+                            }
+                            
+                            draft = gmail_service.users().drafts().create(userId='me', body=draft_body).execute()
+                            draft_id = draft['id']
+                            
+                            # Get Gmail account email for URL
+                            try:
+                                profile = gmail_service.users().getProfile(userId='me').execute()
+                                connected_email = profile.get('emailAddress', '')
+                            except:
+                                connected_email = user_data.get('email', '')
+                            
+                            draft_url = f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft_id}" if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
+                            
+                            drafts_created.append({
+                                "recruiter_email": to_email,
+                                "draft_id": draft_id,
+                                "draft_url": draft_url
+                            })
+                            
+                            print(f"[FindHiringManager] Created Gmail draft for {to_email}")
+                            
+                        except Exception as e:
+                            print(f"[FindHiringManager] Failed to create draft for {email_data.get('to_email')}: {e}")
+                else:
+                    print(f"[FindHiringManager] Gmail service not available")
+            else:
+                print(f"[FindHiringManager] Gmail not connected, skipping draft creation")
+        
+        # Deduct credits for what we're returning
+        credits_charged = 15 * len(affordable_managers)
+        if credits_charged > 0:
+            user_ref.update({
+                'credits': firestore.Increment(-credits_charged)
+            })
+        
+        new_balance = current_credits - credits_charged
+        
+        response = {
+            "hiringManagers": affordable_managers,
+            "emails": affordable_emails,
+            "draftsCreated": drafts_created,
+            "jobTypeDetected": result["job_type_detected"],
+            "companyCleaned": result["company_cleaned"],
+            "totalFound": total_found,
+            "creditsCharged": credits_charged,
+            "creditsRemaining": new_balance
+        }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        print(f"[FindHiringManager] Error: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
