@@ -202,16 +202,28 @@ export default function CoverLetterPage() {
     try {
       const result = await generateCoverLetter(params);
       
-      if (result.status === 'error') {
+      // Debug logging - remove after confirming it works
+      console.log('Cover letter API response:', result);
+      console.log('Response keys:', Object.keys(result));
+      
+      // Handle both snake_case and camelCase response formats
+      const coverLetterText = result.cover_letter_text || result.coverLetter || result.cover_letter || null;
+      const creditsRemaining = result.credits_remaining ?? result.creditsRemaining ?? null;
+      const isError = result.status === 'error' || result.error;
+      const isSuccess = result.status === 'ok' || result.status === 'success' || (coverLetterText && !isError);
+      
+      // Check for errors first
+      if (isError || (!isSuccess && !coverLetterText)) {
         // Handle specific errors
-        if (result.error_code === 'insufficient_credits') {
+        const errorCode = result.error_code || result.errorCode;
+        if (errorCode === 'insufficient_credits') {
           setError('You don\'t have enough credits. Please upgrade your plan to continue.');
           toast({
             title: 'Insufficient Credits',
             description: 'Please upgrade your plan to generate more cover letters.',
             variant: 'destructive',
           });
-        } else if (result.error_code === 'no_resume') {
+        } else if (errorCode === 'no_resume') {
           setError('Please upload your resume in Account Settings first.');
         } else if (result.parsed_job) {
           // URL was parsed but job description might be missing
@@ -229,10 +241,11 @@ export default function CoverLetterPage() {
           setShowManualInputs(true);
           setUrlParsedSuccessfully(false); // Enable manual inputs when parsing fails
         } else {
-          setError(result.message || 'Failed to generate cover letter.');
+          const errorMessage = result.message || result.error || 'Failed to generate cover letter.';
+          setError(errorMessage);
           toast({
             title: 'Error',
-            description: result.message || 'Failed to generate cover letter.',
+            description: errorMessage,
             variant: 'destructive',
           });
         }
@@ -240,35 +253,51 @@ export default function CoverLetterPage() {
       }
       
       // Success!
-      setProgress(100);
-      setGeneratedText(result.cover_letter_text || null);
-      setGeneratedPdfBase64(result.pdf_base64 || null);
-      
-      // Store the job details for display
-      setGeneratedJobTitle(result.parsed_job?.job_title || jobTitle || null);
-      setGeneratedCompany(result.parsed_job?.company || company || null);
-      
-      // Auto-fill fields from parsed job
-      if (result.parsed_job) {
-        setUrlParsedSuccessfully(true);
-        if (result.parsed_job.job_title && !jobTitle) setJobTitle(result.parsed_job.job_title);
-        if (result.parsed_job.company && !company) setCompany(result.parsed_job.company);
-        if (result.parsed_job.location && !locationInput) setLocationInput(result.parsed_job.location);
+      if (isSuccess && coverLetterText) {
+        setProgress(100);
+        setGeneratedText(coverLetterText);
+        
+        // Handle PDF base64 in both formats
+        const pdfBase64 = result.pdf_base64 || result.pdfBase64 || null;
+        setGeneratedPdfBase64(pdfBase64);
+        
+        // Store the job details for display (handle both formats)
+        const parsedJob = result.parsed_job || result.parsedJob;
+        setGeneratedJobTitle(parsedJob?.job_title || parsedJob?.jobTitle || jobTitle || null);
+        setGeneratedCompany(parsedJob?.company || company || null);
+        
+        // Auto-fill fields from parsed job
+        if (parsedJob) {
+          setUrlParsedSuccessfully(true);
+          if (parsedJob.job_title && !jobTitle) setJobTitle(parsedJob.job_title);
+          if (parsedJob.jobTitle && !jobTitle) setJobTitle(parsedJob.jobTitle);
+          if (parsedJob.company && !company) setCompany(parsedJob.company);
+          if (parsedJob.location && !locationInput) setLocationInput(parsedJob.location);
+        }
+        
+        // Update credits (handle both formats)
+        if (creditsRemaining !== null && creditsRemaining !== undefined && updateCredits) {
+          await updateCredits(creditsRemaining);
+        }
+        
+        // Show success toast
+        setShowSuccessToast(true);
+        setTimeout(() => setShowSuccessToast(false), 5000);
+        
+        toast({
+          title: 'Cover Letter Generated',
+          description: 'Your cover letter has been created and saved to your library.',
+        });
+      } else {
+        // No cover letter text found
+        const errorMessage = result.message || result.error || 'Failed to generate cover letter. No cover letter text received.';
+        setError(errorMessage);
+        toast({
+          title: 'Error',
+          description: errorMessage,
+          variant: 'destructive',
+        });
       }
-      
-      // Update credits
-      if (result.credits_remaining !== undefined && updateCredits) {
-        await updateCredits(result.credits_remaining);
-      }
-      
-      // Show success toast
-      setShowSuccessToast(true);
-      setTimeout(() => setShowSuccessToast(false), 5000);
-      
-      toast({
-        title: 'Cover Letter Generated',
-        description: 'Your cover letter has been created and saved to your library.',
-      });
       
     } catch (err: any) {
       setError(err.message || 'Failed to generate cover letter.');

@@ -123,8 +123,8 @@ const ContactSearchPage: React.FC = () => {
     maxCredits: 0,
     name: "User",
     email: "user@example.com",
-    tier: "free",
-  } as const;
+    tier: "free" as "free" | "pro" | "elite",
+  };
 
   const userTier: "free" | "pro" | "elite" = useMemo(() => {
     // Use the actual tier from the user object, default to "free"
@@ -1225,26 +1225,26 @@ const ContactSearchPage: React.FC = () => {
             onJobTitleSuggestion={handleJobTitleSuggestion}
           />
 
-          <main className="bg-gradient-to-b from-slate-50 via-white to-white min-h-screen">
+          <main className="bg-gradient-to-b from-slate-50 via-white to-white min-h-screen contact-search-page">
             {/* Page Header Container */}
-            <div className="max-w-4xl mx-auto px-6 pt-10 pb-4">
+            <div className="max-w-4xl mx-auto px-6 pt-10 pb-4 contact-search-container">
               
               {/* Inspiring Header Section */}
-              <div className="text-center mb-8 animate-fadeInUp">
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              <div className="text-center mb-8 animate-fadeInUp contact-search-header">
+                <h1 className="text-3xl font-bold text-gray-900 mb-2 contact-search-title">
                   Find Your Next Connection
                 </h1>
-                <p className="text-gray-600 text-lg mb-3">
+                <p className="text-gray-600 text-lg mb-3 contact-search-subtitle">
                   Discover professionals who can open doors at your target companies.
                 </p>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-500 contact-search-subtitle-small">
                   Users who reach out to 10+ contacts are 3x more likely to land interviews
                 </p>
               </div>
 
               {/* Pill-style Tabs */}
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mx-auto mb-8 animate-fadeInUp" style={{ animationDelay: '100ms' }}>
+                <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mx-auto mb-8 animate-fadeInUp contact-search-tabs" style={{ animationDelay: '100ms' }}>
                   {[
                     { id: 'contact-search', label: 'Find People', icon: Search },
                     { id: 'import', label: 'Spreadsheet', icon: Upload },
@@ -1323,9 +1323,9 @@ const ContactSearchPage: React.FC = () => {
                   />
 
                   {/* Quick Start Templates */}
-                  <div className="mb-6 animate-fadeInUp" style={{ animationDelay: '200ms' }}>
+                  <div className="mb-6 animate-fadeInUp contact-search-quick-start" style={{ animationDelay: '200ms' }}>
                     <p className="text-sm text-gray-500 mb-3 text-center">Quick Start — Popular Searches</p>
-                    <div className="flex flex-wrap justify-center gap-2">
+                    <div className="flex flex-wrap justify-center gap-2 contact-search-quick-chips">
                       {quickStartTemplates.map((template) => (
                         <button
                           key={template.id}
@@ -1347,9 +1347,9 @@ const ContactSearchPage: React.FC = () => {
                   </div>
 
                   {/* Elevated Resume Section */}
-                  <div className="mb-6 animate-fadeInUp" style={{ animationDelay: '300ms' }}>
+                  <div className="mb-6 animate-fadeInUp contact-search-resume-card" style={{ animationDelay: '300ms' }}>
                     {savedResumeUrl && savedResumeFileName ? (
-                      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 flex items-center justify-between">
+                      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 flex items-center justify-between contact-search-resume-connected">
                         <div className="flex items-center gap-4">
                           <div className="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center">
                             <FileText className="w-6 h-6 text-blue-600" />
@@ -1390,18 +1390,18 @@ const ContactSearchPage: React.FC = () => {
                   </div>
 
                   {/* Main Search Card */}
-                  <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '400ms' }}>
+                  <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp contact-search-form-card" style={{ animationDelay: '400ms' }}>
                     {/* Gradient accent at top */}
                     <div className="h-1 bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600"></div>
                     
-                    <div className="p-8">
+                    <div className="p-8 contact-search-form-content">
                       {/* Search Filters Section */}
-                      <div className="mb-6">
-                        <h2 className="text-xl font-semibold text-gray-900 mb-6">
+                      <div className="mb-6 contact-search-form-section">
+                        <h2 className="text-xl font-semibold text-gray-900 mb-6 contact-search-form-title">
                           Who are you trying to find?
                         </h2>
                         
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 contact-search-form-grid">
                           {/* Job Title - with icon */}
                           <div className="md:col-span-1">
                             <label className="block text-sm font-medium mb-2 text-gray-700">
@@ -1494,8 +1494,8 @@ const ContactSearchPage: React.FC = () => {
                       </div>
 
                       {/* Excitement-Building Slider Section */}
-                      <div className="mt-8 pt-8 border-t border-gray-100">
-                        <h2 className="text-xl font-semibold text-gray-900 mb-2">
+                      <div className="mt-8 pt-8 border-t border-gray-100 contact-search-slider-section">
+                        <h2 className="text-xl font-semibold text-gray-900 mb-2 contact-search-slider-title">
                           How many connections do you want to discover?
                         </h2>
                         <p className="text-gray-600 mb-6">
@@ -1578,7 +1578,7 @@ const ContactSearchPage: React.FC = () => {
                           </div>
 
                           {/* Visual people indicators */}
-                          <div className="flex items-center gap-1 mt-4">
+                          <div className="flex items-center gap-1 mt-4 contact-search-person-icons">
                             {[...Array(maxBatchSize)].map((_, i) => (
                               <div
                                 key={i}
@@ -1602,7 +1602,7 @@ const ContactSearchPage: React.FC = () => {
                       </div>
 
                       {/* Enhanced CTA Button */}
-                      <div className="mt-8">
+                      <div className="mt-8 contact-search-cta">
                         <button
                           onClick={handleSearch}
                           disabled={
@@ -1615,7 +1615,7 @@ const ContactSearchPage: React.FC = () => {
                           className={`
                             w-full md:w-auto px-8 py-4 rounded-full font-semibold text-lg
                             flex items-center justify-center gap-3 mx-auto
-                            transition-all duration-200 transform
+                            transition-all duration-200 transform contact-search-discover-btn
                             ${(!jobTitle.trim() || !location.trim() || isSearching || (effectiveUser.credits ?? 0) < 15)
                               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                               : 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 hover:scale-105 active:scale-100'
@@ -1637,7 +1637,7 @@ const ContactSearchPage: React.FC = () => {
                       </div>
 
                       {/* Value Proposition Below CTA */}
-                      <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-gray-500">
+                      <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-gray-500 contact-search-benefits">
                         <span className="flex items-center gap-1.5">
                           <Check className="w-4 h-4 text-green-500" />
                           Verified work emails
@@ -1922,6 +1922,275 @@ const ContactSearchPage: React.FC = () => {
           </main>
         </MainContentWrapper>
       </div>
+
+      {/* Mobile-only CSS overrides */}
+      <style>{`
+        @media (max-width: 768px) {
+          /* 1. PAGE CONTAINER - Prevent horizontal overflow */
+          .contact-search-page {
+            overflow-x: hidden;
+            max-width: 100vw;
+          }
+
+          .contact-search-container {
+            max-width: 100%;
+            padding-left: 16px;
+            padding-right: 16px;
+            box-sizing: border-box;
+          }
+
+          /* 2. HEADER TEXT - Reduce font size, ensure wrapping */
+          .contact-search-title {
+            font-size: 1.75rem !important;
+            line-height: 1.3;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            padding-left: 0;
+            padding-right: 0;
+          }
+
+          /* 3. SUBTITLE TEXT - Reduce font size */
+          .contact-search-subtitle {
+            font-size: 0.9rem !important;
+            line-height: 1.4;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+          }
+
+          .contact-search-subtitle-small {
+            font-size: 0.8rem !important;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+          }
+
+          /* 4. TAB BAR - Horizontal scroll or stack */
+          .contact-search-tabs {
+            width: 100% !important;
+            max-width: 100%;
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none; /* Firefox */
+            -ms-overflow-style: none; /* IE and Edge */
+            padding: 8px !important;
+            justify-content: flex-start;
+          }
+
+          .contact-search-tabs::-webkit-scrollbar {
+            display: none; /* Chrome, Safari, Opera */
+          }
+
+          .contact-search-tabs button {
+            min-width: fit-content;
+            min-height: 44px;
+            flex-shrink: 0;
+            white-space: nowrap;
+          }
+
+          /* 5. QUICK START CHIPS - Allow horizontal scroll or wrap */
+          .contact-search-quick-start {
+            width: 100%;
+            max-width: 100%;
+            overflow-x: hidden;
+          }
+
+          .contact-search-quick-chips {
+            flex-wrap: wrap !important;
+            justify-content: center;
+            gap: 8px;
+            max-width: 100%;
+          }
+
+          .contact-search-quick-chips button {
+            flex-shrink: 0;
+            max-width: 100%;
+            word-wrap: break-word;
+            white-space: normal;
+            padding: 8px 12px;
+            font-size: 0.875rem;
+          }
+
+          /* 6. RESUME CONNECTED CARD - Full width, proper padding */
+          .contact-search-resume-card {
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .contact-search-resume-connected {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 16px !important;
+          }
+
+          .contact-search-resume-connected > div:first-child {
+            width: 100%;
+          }
+
+          .contact-search-resume-connected button {
+            width: 100%;
+            text-align: center;
+            min-height: 44px;
+          }
+
+          /* 7. FORM SECTION - Full width, proper padding */
+          .contact-search-form-card {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          .contact-search-form-content {
+            padding: 16px !important;
+            box-sizing: border-box;
+          }
+
+          .contact-search-form-title {
+            font-size: 1.125rem !important;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            margin-bottom: 16px !important;
+          }
+
+          .contact-search-form-grid {
+            width: 100%;
+            gap: 16px;
+          }
+
+          .contact-search-form-grid > div {
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .contact-search-form-grid input,
+          .contact-search-form-grid .relative {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          /* 8. SLIDER SECTION - Full width */
+          .contact-search-slider-section {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          .contact-search-slider-title {
+            font-size: 1.125rem !important;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            line-height: 1.4;
+          }
+
+          .contact-search-slider-section p {
+            font-size: 0.875rem !important;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+          }
+
+          .contact-search-slider-section > div {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+            padding: 16px !important;
+          }
+
+          .contact-search-slider-section input[type="range"] {
+            width: 100%;
+            max-width: 100%;
+          }
+
+          /* 9. BENEFITS LIST - Stack vertically */
+          .contact-search-benefits {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 12px !important;
+            text-align: left;
+          }
+
+          .contact-search-benefits span {
+            width: 100%;
+            justify-content: flex-start;
+          }
+
+          /* 10. DISCOVER CONTACTS BUTTON - Full width */
+          .contact-search-cta {
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .contact-search-discover-btn {
+            width: 100% !important;
+            min-height: 48px !important;
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          /* 11. PERSON ICONS ROW - Horizontal scroll or reduce */
+          .contact-search-person-icons {
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            max-width: 100%;
+            flex-wrap: nowrap;
+            padding-bottom: 4px;
+          }
+
+          .contact-search-person-icons::-webkit-scrollbar {
+            display: none;
+          }
+
+          .contact-search-person-icons > div {
+            min-width: 32px;
+            min-height: 32px;
+            flex-shrink: 0;
+          }
+
+          /* GENERAL - Ensure all containers respect max-width */
+          .contact-search-page * {
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          .contact-search-page input,
+          .contact-search-page textarea,
+          .contact-search-page select,
+          .contact-search-page button {
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          /* Prevent text overflow */
+          .contact-search-page p,
+          .contact-search-page h1,
+          .contact-search-page h2,
+          .contact-search-page h3,
+          .contact-search-page span,
+          .contact-search-page label {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            hyphens: auto;
+          }
+
+          /* Additional overflow fixes */
+          html, body {
+            overflow-x: hidden;
+            max-width: 100vw;
+          }
+
+          .contact-search-page {
+            overflow-x: hidden;
+          }
+
+          .contact-search-header {
+            padding-left: 16px;
+            padding-right: 16px;
+          }
+        }
+      `}</style>
     </SidebarProvider>
   );
 };

@@ -446,7 +446,7 @@ export function Dashboard() {
   }, [user?.uid, location.pathname]);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 dashboard-container">
       {/* ================================================================== */}
       {/* PERSONALIZED GREETING */}
       {/* ================================================================== */}
@@ -492,13 +492,13 @@ export function Dashboard() {
             <div className="flex items-center gap-4 flex-wrap">
               <button 
                 onClick={() => navigate('/outbox')}
-                className="bg-white text-blue-600 font-semibold px-6 py-3 rounded-full hover:bg-blue-50 transition-colors"
+                className="dashboard-send-followup-btn bg-white text-blue-600 font-semibold px-6 py-3 rounded-full hover:bg-blue-50 transition-colors"
               >
                 Send Follow-up →
               </button>
               <button 
                 onClick={() => navigate('/contact-search')}
-                className="text-white/80 hover:text-white underline text-sm"
+                className="dashboard-find-contacts-link text-white/80 hover:text-white underline text-sm"
               >
                 Or find new contacts
               </button>
@@ -512,13 +512,13 @@ export function Dashboard() {
             <div className="flex items-center gap-4 flex-wrap">
               <button 
                 onClick={() => navigate('/contact-search')}
-                className="bg-white text-blue-600 font-semibold px-6 py-3 rounded-full hover:bg-blue-50 transition-colors"
+                className="dashboard-send-followup-btn bg-white text-blue-600 font-semibold px-6 py-3 rounded-full hover:bg-blue-50 transition-colors"
               >
                 Find People →
               </button>
               <button 
                 onClick={() => navigate('/firm-search')}
-                className="text-white/80 hover:text-white underline text-sm"
+                className="dashboard-find-contacts-link text-white/80 hover:text-white underline text-sm"
               >
                 Or explore companies
               </button>
@@ -530,33 +530,33 @@ export function Dashboard() {
       {/* ================================================================== */}
       {/* SECONDARY WORKFLOW OPTIONS */}
       {/* ================================================================== */}
-      <div className="animate-fadeInUp" style={{ animationDelay: '200ms' }}>
+      <div className="animate-fadeInUp dashboard-workflow-section" style={{ animationDelay: '200ms' }}>
         <p className="text-sm text-gray-500 mb-3">Or start a new workflow</p>
-        <div className="flex gap-3 flex-wrap">
+        <div className="flex gap-3 flex-wrap dashboard-workflow-buttons">
           <button 
             onClick={() => navigate('/contact-search')}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors"
+            className="dashboard-workflow-btn flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors"
           >
             <Search className="w-4 h-4 text-gray-500" />
             <span className="text-gray-700">Find People</span>
           </button>
           <button 
             onClick={() => navigate('/firm-search')}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors"
+            className="dashboard-workflow-btn flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors"
           >
             <Building2 className="w-4 h-4 text-gray-500" />
             <span className="text-gray-700">Find Companies</span>
           </button>
           <button 
             onClick={() => navigate('/outbox')}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors"
+            className="dashboard-workflow-btn flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors"
           >
             <Mail className="w-4 h-4 text-gray-500" />
             <span className="text-gray-700">Review Outreach</span>
           </button>
           <button 
             onClick={() => navigate('/coffee-chat-prep')}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors"
+            className="dashboard-workflow-btn flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors"
           >
             <Coffee className="w-4 h-4 text-gray-500" />
             <span className="text-gray-700">Prep for Chat</span>
@@ -575,11 +575,11 @@ export function Dashboard() {
           {/* QUICK WINS SECTION */}
           <div className="animate-fadeInUp" style={{ animationDelay: '300ms' }}>
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Wins</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 dashboard-quick-wins">
               {/* Show cards immediately, with loading state for outbox */}
               <div 
                 onClick={() => navigate('/outbox')}
-                className={`bg-green-50 border border-green-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.emailsReady === 0 ? 'opacity-50' : ''}`}
+                className={`dashboard-quick-win-card bg-green-50 border border-green-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.emailsReady === 0 ? 'opacity-50' : ''}`}
               >
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-2xl">📤</span>
@@ -593,7 +593,7 @@ export function Dashboard() {
               
               <div 
                 onClick={() => navigate('/coffee-chat-prep')}
-                className={`bg-purple-50 border border-purple-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.coffeeChatsNeedPrep === 0 ? 'opacity-50' : ''}`}
+                className={`dashboard-quick-win-card bg-purple-50 border border-purple-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.coffeeChatsNeedPrep === 0 ? 'opacity-50' : ''}`}
               >
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-2xl">☕</span>
@@ -605,7 +605,7 @@ export function Dashboard() {
           
               <div 
                 onClick={() => navigate('/firm-search')}
-                className={`bg-blue-50 border border-blue-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.newMatches === 0 ? 'opacity-50' : ''}`}
+                className={`dashboard-quick-win-card bg-blue-50 border border-blue-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.newMatches === 0 ? 'opacity-50' : ''}`}
               >
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-2xl">🎯</span>
@@ -650,13 +650,13 @@ export function Dashboard() {
             ) : (
               <>
               
-              <div className="space-y-3">
+              <div className="space-y-3 dashboard-followup-list">
                 {followUps.slice(0, 4).map((followUp) => (
                   <div 
                     key={followUp.id}
                     onClick={() => navigate('/outbox')}
                     className={`
-                      group relative flex items-center justify-between p-4 bg-white border rounded-xl
+                      dashboard-followup-card group relative flex items-center justify-between p-4 bg-white border rounded-xl
                       hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer
                       border-l-4 ${getPriorityBorderColor(followUp.priority)}
                     `}
@@ -715,7 +715,7 @@ export function Dashboard() {
                 {followUps.length > 4 && (
                   <button 
                     onClick={() => navigate('/outbox')}
-                    className="mt-4 text-sm text-blue-600 hover:underline flex items-center gap-1"
+                    className="dashboard-view-all-followups mt-4 text-sm text-blue-600 hover:underline flex items-center gap-1"
                   >
                     View all {followUps.length} follow-ups <ArrowRight className="w-4 h-4" />
                   </button>
@@ -866,6 +866,86 @@ export function Dashboard() {
         </div>
         
       </div>
+
+      {/* Mobile-only CSS overrides */}
+      <style>{`
+        @media (max-width: 768px) {
+          /* General: Page horizontal padding */
+          .dashboard-container {
+            padding-left: 16px;
+            padding-right: 16px;
+          }
+
+          /* 1. WORKFLOW BUTTONS - Full width, min-height 48px */
+          .dashboard-workflow-buttons {
+            flex-direction: column;
+            gap: 12px;
+          }
+          
+          .dashboard-workflow-btn {
+            width: 100%;
+            min-height: 48px;
+            justify-content: center;
+          }
+
+          /* 2. SEND FOLLOW-UP BUTTON - Full width, min-height 48px */
+          .dashboard-send-followup-btn {
+            width: 100%;
+            min-height: 48px;
+          }
+
+          /* 3. OR FIND NEW CONTACTS LINK - Block display, padding */
+          .dashboard-find-contacts-link {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 0;
+            min-height: 44px;
+            width: 100%;
+          }
+
+          /* 4. QUICK WINS CARDS - Reduced padding, min-height 60px */
+          .dashboard-quick-win-card {
+            padding: 12px;
+            min-height: 60px;
+          }
+
+          /* 5. CONTACT CARDS (Follow-up list) - Reduced padding, min-height 70px, ensure tappable */
+          .dashboard-followup-card {
+            padding: 12px;
+            min-height: 70px;
+            cursor: pointer;
+          }
+
+          /* 6. VIEW ALL FOLLOW-UPS LINK - Full-width button style, min-height 44px */
+          .dashboard-view-all-followups {
+            width: 100%;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #f3f4f6;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 16px;
+          }
+          
+          .dashboard-view-all-followups:hover {
+            background-color: #e5e7eb;
+            text-decoration: none;
+          }
+
+          /* 7. GENERAL - Ensure all interactive elements have min 44px touch targets */
+          .dashboard-workflow-btn,
+          .dashboard-send-followup-btn,
+          .dashboard-find-contacts-link,
+          .dashboard-quick-win-card,
+          .dashboard-followup-card,
+          .dashboard-view-all-followups {
+            touch-action: manipulation;
+          }
+        }
+      `}</style>
     </div>
   );
 }

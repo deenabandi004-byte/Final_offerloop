@@ -1227,9 +1227,6 @@ export default function ResumeWorkshopPage() {
                               <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">What this action does</h3>
                               
                               <div className="flex items-start gap-3">
-                                <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0">
-                                  <Sparkles className="w-4 h-4 text-purple-600" />
-                                </div>
                                 <div>
                                   <p className="text-sm font-medium text-gray-900">Tailor Resume</p>
                                   <p className="text-xs text-gray-500">Customizes your resume to match the job description, highlighting relevant skills.</p>

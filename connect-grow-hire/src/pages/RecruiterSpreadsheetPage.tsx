@@ -387,22 +387,22 @@ const RecruiterSpreadsheetPage = () => {
         <MainContentWrapper>
           <AppHeader title="" />
 
-          <main className="bg-gradient-to-b from-slate-50 via-white to-white min-h-screen">
-            <div className="max-w-4xl mx-auto px-6 pt-10 pb-8">
+          <main className="bg-gradient-to-b from-slate-50 via-white to-white min-h-screen recruiter-search-page">
+            <div className="max-w-4xl mx-auto px-6 pt-10 pb-8 recruiter-search-container">
               
               {/* Inspiring Header Section */}
-              <div className="text-center mb-8 animate-fadeInUp">
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              <div className="text-center mb-8 animate-fadeInUp recruiter-search-header">
+                <h1 className="text-3xl font-bold text-gray-900 mb-2 recruiter-search-title">
                   Find Hiring Managers
                 </h1>
-                <p className="text-gray-600 text-lg">
+                <p className="text-gray-600 text-lg recruiter-search-subtitle">
                   Connect directly with the people who make hiring decisions.
                 </p>
               </div>
 
               {/* Pill-style Tabs */}
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mx-auto mb-8 animate-fadeInUp" style={{ animationDelay: '100ms' }}>
+                <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mx-auto mb-8 animate-fadeInUp recruiter-search-tabs" style={{ animationDelay: '100ms' }}>
                   <button
                     onClick={() => setActiveTab('find-hiring-managers')}
                     className={`
@@ -440,11 +440,11 @@ const RecruiterSpreadsheetPage = () => {
                 {/* TAB 1: Find Hiring Managers */}
                 <TabsContent value="find-hiring-managers" className="mt-0">
                   {/* Main Card */}
-                  <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
+                  <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp recruiter-search-form-card" style={{ animationDelay: '200ms' }}>
                     {/* Rose/pink gradient accent at top */}
                     <div className="h-1 bg-gradient-to-r from-rose-500 via-pink-500 to-rose-600"></div>
                     
-                    <div className="p-8">
+                    <div className="p-8 recruiter-search-form-content">
                       {/* Card Header with Icon */}
                       <div className="text-center mb-8">
                         <div className="w-14 h-14 bg-rose-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -850,6 +850,114 @@ const RecruiterSpreadsheetPage = () => {
           </div>
         )}
       </div>
+
+      {/* Mobile-only CSS overrides */}
+      <style>{`
+        @media (max-width: 768px) {
+          /* 1. PAGE/BODY LEVEL - Prevent horizontal overflow */
+          html, body {
+            overflow-x: hidden;
+            max-width: 100vw;
+          }
+
+          .recruiter-search-page {
+            overflow-x: hidden;
+            max-width: 100vw;
+          }
+
+          /* 2. ALL MAIN CONTENT CONTAINERS */
+          .recruiter-search-container {
+            max-width: 100vw;
+            width: 100%;
+            box-sizing: border-box;
+            padding-left: 16px;
+            padding-right: 16px;
+          }
+
+          /* 3. HEADER SECTION - Ensure padding so text doesn't touch edges */
+          .recruiter-search-header {
+            padding-left: 16px;
+            padding-right: 16px;
+            box-sizing: border-box;
+          }
+
+          .recruiter-search-title {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            font-size: 1.75rem !important;
+          }
+
+          .recruiter-search-subtitle {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            font-size: 0.875rem !important;
+          }
+
+          /* 4. TAB BARS - Ensure doesn't overflow */
+          .recruiter-search-tabs {
+            max-width: 100%;
+            width: 100%;
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            padding: 8px !important;
+            justify-content: flex-start;
+          }
+
+          .recruiter-search-tabs::-webkit-scrollbar {
+            display: none;
+          }
+
+          .recruiter-search-tabs button {
+            min-width: fit-content;
+            min-height: 44px;
+            flex-shrink: 0;
+            white-space: nowrap;
+          }
+
+          /* 5. FORM CARDS - Full width with proper padding */
+          .recruiter-search-form-card {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          .recruiter-search-form-content {
+            padding: 16px !important;
+            box-sizing: border-box;
+          }
+
+          /* 6. ALL CHILD ELEMENTS - Ensure no fixed widths exceed viewport */
+          .recruiter-search-page * {
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          .recruiter-search-page img,
+          .recruiter-search-page .recruiter-search-form-card,
+          .recruiter-search-page button,
+          .recruiter-search-page input,
+          .recruiter-search-page textarea,
+          .recruiter-search-page select {
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          /* Prevent text overflow */
+          .recruiter-search-page p,
+          .recruiter-search-page h1,
+          .recruiter-search-page h2,
+          .recruiter-search-page h3,
+          .recruiter-search-page span,
+          .recruiter-search-page label {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            hyphens: auto;
+          }
+        }
+      `}</style>
     </SidebarProvider>
   );
 };

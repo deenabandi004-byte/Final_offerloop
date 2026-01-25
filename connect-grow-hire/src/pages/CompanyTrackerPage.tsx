@@ -220,23 +220,23 @@ export default function CompanyTrackerPage() {
         <MainContentWrapper>
           <AppHeader title="" />
           
-          <main className="bg-white min-h-screen">
-            <div className="max-w-5xl mx-auto px-8 pt-10 pb-8">
-              <h1 className="text-[28px] font-semibold text-gray-900 mb-2">
+          <main className="bg-white min-h-screen company-tracker-page">
+            <div className="max-w-5xl mx-auto px-8 pt-10 pb-8 company-tracker-container">
+              <h1 className="text-[28px] font-semibold text-gray-900 mb-2 company-tracker-title">
                 Company Tracker
               </h1>
               
-              <p className="text-gray-500 text-sm mb-6">
+              <p className="text-gray-500 text-sm mb-6 company-tracker-subtitle">
                 All companies you've found and saved.
               </p>
 
               {/* Controls */}
-              <div className="flex items-center justify-between gap-4 mb-6">
-                <span className="text-sm text-gray-500">
+              <div className="flex items-center justify-between gap-4 mb-6 company-tracker-controls-row">
+                <span className="text-sm text-gray-500 company-tracker-count">
                   {results.length} {results.length === 1 ? 'company' : 'companies'} saved
                 </span>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 company-tracker-action-buttons">
                   <Button
                     variant="outline"
                     size="sm"
@@ -360,6 +360,79 @@ export default function CompanyTrackerPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Mobile-only CSS overrides */}
+      <style>{`
+        @media (max-width: 768px) {
+          /* 1. PAGE CONTAINER */
+          .company-tracker-page {
+            overflow-x: hidden;
+            width: 100%;
+            max-width: 100vw;
+          }
+
+          .company-tracker-container {
+            width: 100%;
+            max-width: 100vw;
+            padding: 16px !important;
+            box-sizing: border-box;
+          }
+
+          /* 2. HEADER ELEMENTS */
+          .company-tracker-title {
+            width: 100%;
+            max-width: 100%;
+            font-size: 1.5rem !important;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            margin: 0 0 8px 0 !important;
+            padding: 0;
+            box-sizing: border-box;
+          }
+
+          .company-tracker-subtitle {
+            width: 100%;
+            max-width: 100%;
+            font-size: 0.875rem !important;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            margin: 0 0 16px 0 !important;
+            padding: 0;
+            box-sizing: border-box;
+          }
+
+          /* 3. ACTION BUTTONS ROW */
+          .company-tracker-controls-row {
+            width: 100%;
+            max-width: 100%;
+            padding: 0;
+            box-sizing: border-box;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 0 0 16px 0 !important;
+          }
+
+          .company-tracker-count {
+            width: 100%;
+            flex-basis: 100%;
+            margin-bottom: 8px;
+          }
+
+          .company-tracker-action-buttons {
+            width: 100%;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: flex-start;
+          }
+
+          .company-tracker-action-buttons button {
+            flex: 1 1 auto;
+            min-width: fit-content;
+            box-sizing: border-box;
+          }
+        }
+      `}</style>
     </SidebarProvider>
   );
 }

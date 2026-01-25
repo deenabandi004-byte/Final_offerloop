@@ -177,10 +177,10 @@
   }
 
   /* Card hover effects - matching glass-card style */
-  /* Only apply to content boxes, not inputs, buttons, or headers */
+  /* Only apply to content boxes, not inputs, buttons, headers, or sections */
   .card:hover,
-  [class*="bg-card"]:hover:not(input):not(button):not(select):not(textarea):not(header),
-  [class*="bg-white"]:hover:not(input):not(button):not(select):not(textarea):not(header) {
+  [class*="bg-card"]:hover:not(input):not(button):not(select):not(textarea):not(header):not(section),
+  [class*="bg-white"]:hover:not(input):not(button):not(select):not(textarea):not(header):not(section) {
     border-color: rgba(59, 130, 246, 0.5) !important;
     box-shadow: 
       0 8px 24px rgba(59, 130, 246, 0.18),

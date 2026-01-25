@@ -123,18 +123,18 @@ export default function FirmSearchResults({ firms, onViewContacts, onDelete, del
   };
 
   return (
-    <div className="bg-card backdrop-blur-sm rounded-xl shadow-sm border border-border overflow-hidden">
+    <div className="bg-card backdrop-blur-sm rounded-xl shadow-sm border border-border overflow-hidden firm-search-results-wrapper">
       {/* Results Header */}
-      <div className="px-6 py-4 border-b border-border bg-muted">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
+      <div className="px-6 py-4 border-b border-border bg-muted firm-results-header">
+        <div className="flex items-center justify-between firm-results-header-row">
+          <div className="flex items-center space-x-2 firm-results-header-content">
             <Building2 className="h-5 w-5 text-blue-400" />
-            <span className="font-medium text-foreground">
+            <span className="font-medium text-foreground firm-results-count">
               {filteredFirms.length} {filteredFirms.length === 1 ? 'firm' : 'firms'} 
               {searchQuery && ` (filtered from ${firms.length})`}
             </span>
           </div>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground firm-results-helper-text">
             Click "View Contacts" to find professionals at any firm
           </p>
         </div>
@@ -169,8 +169,8 @@ export default function FirmSearchResults({ firms, onViewContacts, onDelete, del
       
       {/* Table */}
       {filteredFirms.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-border">
+        <div className="overflow-x-auto firm-table-wrapper">
+          <table className="min-w-full divide-y divide-border firm-table">
           <thead className="bg-muted">
             <tr>
               {/* Company Name */}
@@ -325,12 +325,93 @@ export default function FirmSearchResults({ firms, onViewContacts, onDelete, del
       
       {/* Footer */}
       {filteredFirms.length > 0 && (
-        <div className="px-6 py-4 border-t border-border bg-muted">
-          <p className="text-sm text-muted-foreground text-center">
+        <div className="px-6 py-4 border-t border-border bg-muted firm-helper-text">
+          <p className="text-sm text-muted-foreground text-center firm-helper-text-content">
             Click on column headers to sort • Click "View Contacts" to find professionals at any firm
           </p>
         </div>
       )}
+
+      {/* Mobile-only CSS overrides */}
+      <style>{`
+        @media (max-width: 768px) {
+          /* 4. HELPER TEXT in header */
+          .firm-results-header {
+            width: 100%;
+            max-width: 100%;
+            padding: 12px 16px !important;
+            box-sizing: border-box;
+          }
+
+          .firm-results-header-row {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+          }
+
+          .firm-results-header-content {
+            width: 100%;
+            flex: 1;
+            min-width: 0;
+          }
+
+          .firm-results-count {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            font-size: 0.875rem !important;
+          }
+
+          .firm-results-helper-text {
+            width: 100%;
+            padding: 0;
+            box-sizing: border-box;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            font-size: 0.75rem !important;
+            text-align: left;
+            margin: 0;
+          }
+
+          /* 5. TABLE WRAPPER - CSS only, no HTML changes */
+          .firm-table-wrapper {
+            overflow-x: auto;
+            width: 100%;
+            box-sizing: border-box;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          /* Table itself - no modifications, just ensure it doesn't affect header */
+          .firm-table {
+            min-width: 800px;
+          }
+
+          /* 11. HELPER TEXT in footer */
+          .firm-helper-text {
+            width: 100%;
+            max-width: 100%;
+            padding: 12px 16px !important;
+            box-sizing: border-box;
+          }
+
+          .firm-helper-text-content {
+            width: 100%;
+            padding: 0 16px;
+            box-sizing: border-box;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            font-size: 0.75rem !important;
+            text-align: left;
+          }
+
+          /* General - ensure wrapper doesn't overflow */
+          .firm-search-results-wrapper {
+            width: 100%;
+            max-width: 100vw;
+            box-sizing: border-box;
+            overflow: visible;
+          }
+        }
+      `}</style>
     </div>
   );
 }

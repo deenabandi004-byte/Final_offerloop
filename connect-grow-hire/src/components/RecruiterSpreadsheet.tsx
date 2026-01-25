@@ -496,10 +496,10 @@ const RecruiterSpreadsheet: React.FC = () => {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 recruiter-spreadsheet-page">
       {/* Export CSV Card */}
       {recruiters.length > 0 && (
-        <div className="flex justify-between items-center bg-card rounded-lg border border-border p-4">
+        <div className="flex justify-between items-center bg-card rounded-lg border border-border p-4 recruiter-info-card">
           <div>
             <div className="flex items-center gap-2">
               <p className="text-sm font-medium text-foreground">
@@ -522,11 +522,11 @@ const RecruiterSpreadsheet: React.FC = () => {
               Export your recruiters to CSV for further analysis
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 recruiter-action-buttons">
             <Button
               onClick={handleExportCsv}
               disabled={currentUser?.tier === 'free'}
-              className={`gap-2 ${
+              className={`gap-2 recruiter-export-btn ${
                 currentUser?.tier === 'free' 
                   ? 'bg-gray-400 hover:bg-gray-400 cursor-not-allowed opacity-60' 
                   : 'bg-blue-600 hover:bg-blue-700'
@@ -541,7 +541,7 @@ const RecruiterSpreadsheet: React.FC = () => {
               size="sm"
               onClick={loadRecruiters}
               disabled={isLoading}
-              className="relative overflow-hidden border-border text-foreground hover:bg-secondary"
+              className="relative overflow-hidden border-border text-foreground hover:bg-secondary recruiter-refresh-btn"
             >
               <RefreshCw className="h-4 w-4" />
               <InlineLoadingBar isLoading={isLoading} />
@@ -550,7 +550,7 @@ const RecruiterSpreadsheet: React.FC = () => {
               variant="outline"
               size="sm"
               onClick={clearAllRecruiters}
-              className="text-destructive border-destructive hover:bg-destructive/10"
+              className="text-destructive border-destructive hover:bg-destructive/10 recruiter-delete-btn"
             >
               <Trash2 className="h-4 w-4" />
             </Button>
@@ -573,18 +573,18 @@ const RecruiterSpreadsheet: React.FC = () => {
           </p>
         </div>
       ) : (
-        <div className="bg-card backdrop-blur-sm rounded-xl shadow-sm border border-border overflow-hidden">
+        <div className="bg-card backdrop-blur-sm rounded-xl shadow-sm border border-border overflow-hidden recruiter-table-wrapper">
           {/* Results Header */}
-          <div className="px-6 py-4 border-b border-border bg-muted">
+          <div className="px-6 py-4 border-b border-border bg-muted recruiter-section-header">
             <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 recruiter-section-header-content">
                 <Mail className="h-5 w-5 text-blue-400" />
-                <span className="font-medium text-foreground">
+                <span className="font-medium text-foreground recruiter-section-header-text">
                   {filteredRecruiters.length} {filteredRecruiters.length === 1 ? 'recruiter' : 'recruiters'}
                   {searchQuery && ` (filtered from ${recruiters.length})`}
                 </span>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 recruiter-scroll-hint">
                 {hasHorizontalOverflow && !hasScrolled && (
                   <div className="swipe-hint flex items-center gap-1.5 text-sm font-bold text-black">
                     <span>Scroll</span>
@@ -596,15 +596,15 @@ const RecruiterSpreadsheet: React.FC = () => {
           </div>
 
           {/* Search Bar */}
-          <div className="px-6 py-4 border-b border-border bg-background">
-            <div className="relative w-80">
+          <div className="px-6 py-4 border-b border-border bg-background recruiter-search-section">
+            <div className="relative w-80 recruiter-search-wrapper">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
               <Input
                 type="text"
                 placeholder="Search recruiters..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 bg-muted border-border text-foreground placeholder-muted-foreground focus:border-primary focus:ring-primary"
+                className="pl-10 bg-muted border-border text-foreground placeholder-muted-foreground focus:border-primary focus:ring-primary recruiter-search-input"
               />
             </div>
           </div>
@@ -624,8 +624,8 @@ const RecruiterSpreadsheet: React.FC = () => {
 
           {/* Table */}
           {filteredRecruiters.length > 0 && (
-            <div ref={tableContainerRef} className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-border">
+            <div ref={tableContainerRef} className="overflow-x-auto recruiter-table-container">
+              <table className="min-w-full divide-y divide-border recruiter-table">
                 <thead className="bg-muted">
                   <tr>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -834,9 +834,9 @@ const RecruiterSpreadsheet: React.FC = () => {
 
           {/* Footer */}
           {filteredRecruiters.length > 0 && (
-            <div className="px-6 py-4 border-t border-border bg-muted">
+            <div className="px-6 py-4 border-t border-border bg-muted recruiter-helper-text">
               <div className="flex justify-between items-center text-sm text-muted-foreground">
-                <p className="text-center flex-1">
+                <p className="text-center flex-1 recruiter-helper-text-content">
                   Click on cells to edit recruiter information
                 </p>
               </div>
@@ -910,6 +910,173 @@ const RecruiterSpreadsheet: React.FC = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Mobile-only CSS overrides */}
+      <style>{`
+        @media (max-width: 768px) {
+          /* 1. MAIN PAGE CONTAINER */
+          .recruiter-spreadsheet-page {
+            width: 100%;
+            max-width: 100vw;
+            overflow-x: hidden;
+            box-sizing: border-box;
+          }
+
+          /* 5. INFO CARD */
+          .recruiter-info-card {
+            width: 100%;
+            max-width: calc(100% - 32px);
+            margin: 0 16px;
+            box-sizing: border-box;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 16px !important;
+          }
+
+          .recruiter-info-card > div:first-child {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          .recruiter-info-card p,
+          .recruiter-info-card span {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            font-size: 0.75rem !important;
+          }
+
+          .recruiter-info-card > div:first-child > div {
+            flex-wrap: wrap;
+            gap: 8px;
+          }
+
+          .recruiter-action-buttons {
+            width: 100%;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: flex-start;
+          }
+
+          .recruiter-export-btn {
+            flex: 1 1 auto;
+            min-width: fit-content;
+            padding: 8px 12px !important;
+            font-size: 0.75rem;
+            box-sizing: border-box;
+          }
+
+          .recruiter-refresh-btn,
+          .recruiter-delete-btn {
+            min-width: 44px;
+            min-height: 44px;
+            padding: 8px !important;
+            box-sizing: border-box;
+          }
+
+          /* 6. SECTION HEADER */
+          .recruiter-section-header {
+            width: 100%;
+            max-width: 100%;
+            padding: 12px 16px !important;
+            box-sizing: border-box;
+          }
+
+          .recruiter-section-header-content {
+            flex: 1;
+            min-width: 0;
+          }
+
+          .recruiter-section-header-text {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            font-size: 0.875rem !important;
+          }
+
+          .recruiter-scroll-hint {
+            flex-shrink: 0;
+          }
+
+          /* 7. SEARCH INPUT */
+          .recruiter-search-section {
+            width: 100%;
+            max-width: 100%;
+            padding: 12px 16px !important;
+            box-sizing: border-box;
+          }
+
+          .recruiter-search-wrapper {
+            width: 100%;
+            max-width: calc(100% - 32px);
+            margin: 0 auto;
+            box-sizing: border-box;
+          }
+
+          .recruiter-search-input {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          /* 8. ACTION BUTTONS ROW - Already handled in info card above */
+
+          /* 9. SCROLL INDICATOR - Keep within viewport */
+          .swipe-hint {
+            font-size: 0.75rem !important;
+            white-space: nowrap;
+          }
+
+          /* 10. TABLE CONTAINER */
+          .recruiter-table-wrapper {
+            width: 100%;
+            max-width: 100vw;
+            box-sizing: border-box;
+            margin: 0;
+            overflow: visible;
+          }
+
+          .recruiter-table-container {
+            width: 100%;
+            overflow-x: auto;
+            overflow-y: visible;
+            -webkit-overflow-scrolling: touch;
+            box-sizing: border-box;
+          }
+
+          .recruiter-table {
+            min-width: 800px;
+            width: 100%;
+            box-sizing: border-box;
+          }
+
+          /* 11. HELPER TEXT */
+          .recruiter-helper-text {
+            width: 100%;
+            max-width: 100%;
+            padding: 12px 16px !important;
+            box-sizing: border-box;
+          }
+
+          .recruiter-helper-text-content {
+            width: 100%;
+            text-align: left;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            font-size: 0.75rem !important;
+          }
+
+          /* GENERAL - Ensure all elements use box-sizing */
+          .recruiter-spreadsheet-page * {
+            box-sizing: border-box;
+          }
+
+          /* Prevent page-level horizontal scroll */
+          .recruiter-spreadsheet-page {
+            overflow-x: hidden;
+          }
+        }
+      `}</style>
     </div>
   );
 };

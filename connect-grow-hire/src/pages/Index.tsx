@@ -1,20 +1,45 @@
 // src/pages/Index.tsx
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Check, ArrowRight, Twitter, Linkedin, Instagram, Menu, X, Calendar as CalendarIconLucide, ChevronDown } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Check, ArrowRight, Twitter, Linkedin, Instagram, Menu, X, Calendar as CalendarIconLucide, ChevronDown, Play } from 'lucide-react';
 // Removed SidebarProvider and AppSidebar - landing page should be public without sidebar
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { ExpandablePrivacyLock } from '@/components/ExpandablePrivacyLock';
-import { ProductTour } from '@/components/ProductTour';
 import { GranolaBackground } from '@/components/GranolaBackground';
 import OfferloopLogo from '@/assets/offerloop_logo2.png';
 import AnimatedDots from '@/components/AnimatedDots';
 import TextType from '@/components/TextType';
-import { AnimatedMadeForText } from '@/components/AnimatedMadeForText';
-import FeatureCards from '@/components/FeatureCards';
+import Marquee from "react-fast-marquee";
+import UniversityLogos from '@/components/UniversityLogos';
+import ExtensionShowcase from '@/components/ExtensionShowcase';
 import ScoutAsleep from '@/assets/ScoutAsleep.mp4';
 import ScaredScout from '@/assets/scaredscout.mp4';
 import ScoutGirlSad from '@/assets/Scoutgirlsad.mp4';
+import WebsiteFeatureWalkthrough from '@/assets/Website Feature Walkthrough.mp4';
+// How It Works video imports
+import HowItWorksCompanies from '@/assets/howitworkscompanies.mp4';
+import HowItWorksContactSearch from '@/assets/howitworkscontactsearch.mp4';
+import HowItWorksCoffeeChat from '@/assets/howitworkscoffeechat.mp4';
+import HowItWorksHiringManager from '@/assets/howitworkshiringmanager.mp4';
+import HowItWorksResumeCV from '@/assets/howitworksresume&cv.mp4';
+import HowItWorksInterviewPrep from '@/assets/howitworksinterviewprep.mp4';
+// Testimonials imports
+import DylanRoby from "@/assets/DylanRoby.png";
+import SaraUcuzoglu from "@/assets/SaraU.png";
+import JacksonLeck from "@/assets/JacksonLeck.png";
+import FiveStarReview from "@/assets/5StarReview.png";
+import EliHamou from "@/assets/EliHamou.png";
+import LucasTurcuato from "@/assets/LucasTurcuato.png";
+import McKinseyLogo from "@/assets/McKinsey.png";
+import EvercoreLogo from "@/assets/Evercore.png";
+import GoldmanSachsLogo from "@/assets/GoldmanSachs.png";
+import BainLogo from "@/assets/McKinsey.png";
+import MorganStanleyLogo from "@/assets/MorganStanley.png";
+import BlackstoneLogo from "@/assets/Blackstone.png";
+import PwCLogo from "@/assets/PwC.png";
+import JPMorganLogo from "@/assets/JPMorgan.png";
+import BarclaysLogo from "@/assets/Barclays.png";
 // Logo imports for Works With section
 import LinkedInLogo from '@/assets/LinkedIn_logo.png';
 import GoogleLogo from '@/assets/Googlelogo.png';
@@ -185,6 +210,7 @@ const Index = () => {
   const [parallaxOffset, setParallaxOffset] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [featuresMenuOpen, setFeaturesMenuOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
   const featuresMenuTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const sectionRefs = useRef<(HTMLElement | null)[]>([]);
   
@@ -202,6 +228,17 @@ const Index = () => {
       setFeaturesMenuOpen(false);
     }, 150);
   };
+
+  // Track window size for responsive zigzag effect
+  useEffect(() => {
+    const checkDesktop = () => {
+      setIsDesktop(window.innerWidth >= 768);
+    };
+    
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
 
   // Handle scroll for scene transitions and parallax
   useEffect(() => {
@@ -582,167 +619,273 @@ const Index = () => {
 
           <div className="flex-1 relative z-10">
 
-        {/* Hero Section */}
-        <section 
-          ref={(el) => { sectionRefs.current[0] = el; }}
-          className="min-h-screen pt-12 md:pt-24 pb-12 md:pb-24 relative"
-          data-scene="0"
-          style={{ overflow: 'clip' }}
-        >
-          {/* Hero Text - Centered */}
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-12 mb-12 md:mb-20">
-            <div className="max-w-5xl mx-auto text-center">
-              <h1 className="text-[70px] md:text-[84px] lg:text-[96px] font-bold mb-6 font-instrument" style={{ overflow: 'visible', lineHeight: '1.1', letterSpacing: '-0.02em' }}>
-                <span className="text-hero-primary tracking-tight">
-                  Land Job Offers.
-                  <br />
-                  <span style={{ color: '#3B82F6' }}>No busywork.</span>
-              </span>
-            </h1>
-              <p className="text-lg md:text-xl text-slate-500 font-semibold mb-12 max-w-3xl mx-auto leading-relaxed">
-                Stop wasting time scrolling LinkedIn, writing cover letters, finding contact information, writing emails, etc. Just use Offerloop.
-            </p>
-            <button
-              onClick={() => navigate("/signin?mode=signup")}
-              className="btn-primary-glass px-10 md:px-16 py-3 md:py-4 text-base md:text-lg font-bold rounded-full pulse-glow inline-flex items-center gap-3"
-            >
-              Try it out <ArrowRight className="h-4 w-4 md:h-5 md:w-5 stroke-[3]" />
-            </button>
+        {/* Hero, Tagline, and How It Works Container - Unified Blue Gradient Background */}
+        <div className="relative overflow-hidden">
+          {/* Background gradient */}
+          <div className="absolute inset-0 bg-gradient-to-b from-blue-50 via-blue-100/50 to-white" />
+          
+          {/* Decorative blue blotches/blobs */}
+          <div className="absolute top-0 left-0 w-[500px] h-[500px] bg-blue-200/30 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/4" />
+          <div className="absolute top-1/4 right-0 w-[600px] h-[600px] bg-blue-300/20 rounded-full blur-3xl translate-x-1/3" />
+          <div className="absolute top-1/2 left-1/4 w-[400px] h-[400px] bg-blue-200/25 rounded-full blur-3xl" />
+          <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-blue-100/30 rounded-full blur-3xl" />
+
+          {/* Hero Section */}
+          <section 
+            ref={(el) => { sectionRefs.current[0] = el; }}
+            className="min-h-screen pt-12 md:pt-24 pb-12 md:pb-24 relative z-10 w-full overflow-hidden"
+            data-scene="0"
+          >
+            {/* Hero Text - Centered */}
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-12 mb-12 md:mb-20">
+              <div className="max-w-5xl mx-auto text-center">
+                <h1 className="text-[70px] md:text-[84px] lg:text-[96px] font-bold mb-6 font-instrument" style={{ overflow: 'visible', lineHeight: '1.1', letterSpacing: '-0.02em' }}>
+                  <span className="text-hero-primary tracking-tight">
+                    Land Job Offers.
+                    <br />
+                    <span style={{ color: '#3B82F6' }}>No busywork.</span>
+                </span>
+              </h1>
+                <p className="text-lg md:text-xl text-slate-500 font-semibold mb-12 max-w-3xl mx-auto leading-relaxed">
+                  Stop wasting time finding contact information, writing emails, scouring company websites, writing cover letters, etc. Just use Offerloop.
+              </p>
+              <button
+                onClick={() => navigate("/signin?mode=signup")}
+                className="btn-primary-glass px-10 md:px-16 py-3 md:py-4 text-base md:text-lg font-bold rounded-full pulse-glow inline-flex items-center gap-3"
+              >
+                Try it out <ArrowRight className="h-4 w-4 md:h-5 md:w-5 stroke-[3]" />
+              </button>
+              </div>
             </div>
             
-            {/* Title section */}
-            <div className="text-center mt-8 md:mt-16 mb-12 md:mb-16" style={{ marginTop: '60px' }}>
-              <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-bold mb-3 text-section-heading font-instrument">
-                The Entire Recruiting Process, <span style={{ color: '#3B82F6' }}>Automated</span>
-              </h2>
-              <p className="text-lg md:text-xl text-section-body max-w-2xl mx-auto">
-                Cuts job search time by <strong className="text-red-600 text-xl md:text-2xl">90%</strong>
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* FeatureCards Section */}
-        <section className="py-16 px-6 relative">
-          <FeatureCards />
-        </section>
-
-          {/* Getting a Job doesn't have to mean Header */}
-          <div className="text-center mt-16 mb-8">
-            <h2 className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold text-section-heading flex flex-col items-center justify-center font-instrument">
-              <span>Getting a Job</span>
-              <span className="flex items-baseline">
-                doesn't have to mean
-                <AnimatedDots />
-              </span>
-            </h2>
-          </div>
-
-          {/* Three Videos Section */}
-          <section className="mt-[82px] max-w-5xl mx-auto px-4">
-            <div className="flex flex-col gap-6">
-              {/* Row 1 - First Video on Left, Text Space on Right */}
-              <div className="flex flex-col md:flex-row items-center gap-6">
-                <video 
-                  src={ScoutAsleep}
-                  autoPlay 
-                  loop 
-                  muted 
-                  playsInline
-                  className="rounded-3xl shadow-lg w-full md:w-1/2 h-64 md:h-80 object-cover border-8 border-black"
-                />
-                <div className="w-full md:w-1/2 flex flex-col items-end md:items-center justify-center">
-                  <div style={{ marginTop: '-40px' }} className="text-right md:text-center">
-                    <RetriggerableTextType
-                      text="Burnout"
-                      className="text-6xl md:text-7xl lg:text-8xl font-bold"
-                      style={{ color: '#3B82F6' }}
-                    />
-                    <p className="text-base md:text-lg text-black mt-3 text-right md:text-center">
-                      From endless tabs, repeated research, and manual follow-ups.
-                    </p>
-                  </div>
-                </div>
-              </div>
-              {/* Row 2 - Text Space on Left, Second Video on Right */}
-              <div className="flex flex-col md:flex-row items-center gap-6">
-                <div className="w-full md:w-1/2 flex flex-col items-start md:items-center justify-center">
-                  <div style={{ marginTop: '-40px' }} className="text-left md:text-center">
-                    <RetriggerableTextType
-                      text="Stress"
-                      className="text-6xl md:text-7xl lg:text-8xl font-bold"
-                      style={{ color: '#3B82F6' }}
-                    />
-                    <p className="text-base md:text-lg text-black mt-3 text-left md:text-center">
-                      From losing track of who you contacted and what's next.
-                    </p>
-                  </div>
-                </div>
-                <video 
-                  src={ScaredScout}
-                  autoPlay 
-                  loop 
-                  muted 
-                  playsInline
-                  className="rounded-3xl shadow-lg w-full md:w-1/2 h-64 md:h-80 object-cover border-8 border-black"
-                />
-              </div>
-              {/* Row 3 - Third Video on Left, Text Space on Right */}
-              <div className="flex flex-col md:flex-row items-center gap-6">
-                <div className="w-full md:w-1/2 h-64 md:h-80 overflow-hidden rounded-3xl border-8 border-black">
-                  <video 
-                    src={ScoutGirlSad}
-                    autoPlay 
-                    loop 
-                    muted 
+            {/* Website Feature Walkthrough Video */}
+            <div className="w-full overflow-hidden">
+              <div className="max-w-[1400px] mx-auto px-4 md:px-[60px]">
+                <div className="aspect-video rounded-lg md:rounded-2xl overflow-hidden border border-blue-500/20 border-blue-300/60 bg-gradient-to-br from-blue-500/5 to-cyan-500/5 shadow-lg shadow-blue-100/50">
+                  <video
+                    src={WebsiteFeatureWalkthrough}
+                    autoPlay
+                    loop
+                    muted
                     playsInline
-                    className="w-full h-full object-cover shadow-lg"
-                    style={{ transform: 'scale(1.00)', objectPosition: 'center' }}
-                  />
-                </div>
-                <div className="w-full md:w-1/2 flex flex-col items-center justify-end md:justify-center">
-                  <div style={{ marginTop: '-40px' }} className="text-right md:text-center">
-                    <RetriggerableTextType
-                      text="FOMO"
-                      className="text-6xl md:text-7xl lg:text-8xl font-bold md:ml-[100px]"
-                      style={{ color: '#3B82F6' }}
-                    />
-                    <p className="text-base md:text-lg text-black mt-3 text-right md:text-center">
-                      From being tired at home wishing you were out enjoying your life.
-                    </p>
-                  </div>
+                    className="w-full h-full object-cover"
+                  >
+                    Your browser does not support the video tag.
+                  </video>
                 </div>
               </div>
             </div>
           </section>
 
-        {/* Offerloop replaces section */}
-        <section className="py-12 px-6">
-          <div className="max-w-7xl mx-auto text-center">
-            <p className="text-xl md:text-2xl font-bold text-black max-w-5xl mx-auto">
+          {/* How It Works Section */}
+          <section className="py-20 px-6 relative z-10">
+          <div className="max-w-7xl mx-auto">
+            <h2 className="text-4xl md:text-5xl lg:text-6xl font-bold text-center mb-4 text-section-heading">
+              How It Works
+            </h2>
+            <p className="text-lg md:text-xl text-slate-600 max-w-2xl mx-auto text-center mb-16">
               Offerloop replaces scattered recruiting work with one clear system, so progress feels manageable instead of overwhelming.
             </p>
+            
+            {[
+              {
+                title: "Find Your Target Companies",
+                description: "Discover companies that match your goals. Search by industry, location, and size to build a focused list of dream employers.",
+                number: "01",
+                videoSrc: HowItWorksCompanies
+              },
+              {
+                title: "Find the Right Contacts",
+                description: "Search our database of professionals by company, role, and school to find the perfect people to reach out to.",
+                number: "02",
+                videoSrc: HowItWorksContactSearch
+              },
+              {
+                title: "Prep for Coffee Chats",
+                description: "Get AI-generated talking points, conversation starters, and background research so you walk into every coffee chat confident and prepared.",
+                number: "03",
+                videoSrc: HowItWorksCoffeeChat
+              },
+              {
+                title: "Find Hiring Managers",
+                description: "Identify the decision-makers at your target companies. Skip the gatekeepers and connect directly with people who can hire you.",
+                number: "04",
+                videoSrc: HowItWorksHiringManager
+              },
+              {
+                title: "Generate Resumes & Cover Letters",
+                description: "Create tailored resumes and cover letters optimized for each opportunity—personalized by AI in seconds.",
+                number: "05",
+                videoSrc: HowItWorksResumeCV
+              },
+              {
+                title: "Ace Your Interviews",
+                description: "Prepare with AI-powered interview prep: company-specific questions, practice prompts, and guidance to help you land the offer.",
+                number: "06",
+                videoSrc: HowItWorksInterviewPrep
+              }
+            ].map((feature, index) => {
+              const isEven = index % 2 === 1;
+              // Zigzag offset: each row shifts slightly to create diagonal effect
+              const offsetAmount = index * 1.5; // Percentage offset for zigzag
+              
+              return (
+                <motion.div
+                  key={index}
+                  initial={{ opacity: 0, y: 50 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, margin: "-100px" }}
+                  transition={{ duration: 0.6, ease: "easeOut" }}
+                  className={`flex flex-col md:flex-row items-center gap-8 md:gap-12 mb-16 md:mb-20 ${
+                    isEven ? 'md:flex-row-reverse' : ''
+                  }`}
+                >
+                  {/* Video Container */}
+                  <div 
+                    className="w-full md:w-[55%] relative"
+                    style={{
+                      transform: isDesktop 
+                        ? `translateX(${isEven ? offsetAmount : -offsetAmount}%)` 
+                        : 'none'
+                    }}
+                  >
+                    <div className="aspect-video rounded-2xl overflow-hidden border border-blue-500/20 border-blue-300/60 bg-gradient-to-br from-blue-500/10 to-cyan-500/10 shadow-lg shadow-blue-100/50 relative">
+                      {/* Video Element */}
+                      <video
+                        src={feature.videoSrc}
+                        className="w-full h-full object-cover"
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                      >
+                        Your browser does not support the video tag.
+                      </video>
+                      {/* Decorative blur effect */}
+                      <div className="absolute -bottom-4 -left-4 w-24 h-24 bg-blue-500/10 rounded-full blur-3xl"></div>
+                    </div>
+                  </div>
+                  
+                  {/* Text Container */}
+                  <div className="w-full md:w-[45%] space-y-4">
+                    <div className="text-sm font-semibold text-blue-600 mb-2">
+                      {feature.number}
+                    </div>
+                    <h3 className="text-3xl md:text-4xl font-bold text-section-heading">
+                      {feature.title}
+                    </h3>
+                    <p className="text-lg text-section-body leading-relaxed">
+                      {feature.description}
+                    </p>
+                  </div>
+                </motion.div>
+              );
+            })}
           </div>
         </section>
+        </div>
 
-        {/* Made for Section */}
-        <section className="py-24 px-6 relative overflow-visible">
-          <div className="max-w-7xl mx-auto">
-            <div className="text-center mb-16 overflow-visible">
-              <AnimatedMadeForText />
+        {/* University Logos Section */}
+        <UniversityLogos />
+
+        {/* Extension Showcase Section */}
+        <ExtensionShowcase />
+
+        {/* Hear from our Customers Section */}
+        <section className="py-24 px-6 overflow-hidden bg-white">
+          <div className="max-w-full mx-auto">
+            <div className="text-center mb-16">
+              <h2 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-4 text-section-heading">
+                Hear from our <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-500 to-teal-500">Real Customers</span>
+              </h2>
+              <p className="text-xl text-section-body">
+                Used by hundreds of students across the country with offers received from top tier firms
+              </p>
             </div>
-          </div>
-        </section>
 
-        {/* Product Tour Section */}
-        <section 
-          ref={(el) => { sectionRefs.current[1] = el; }}
-          id="features"
-          data-scene="1"
-          className="relative"
-          style={{ marginTop: '-1px' }}
-        >
-          <ProductTour />
+            {/* Company Logos */}
+            <div className="mb-16">
+              <Marquee 
+                gradient={true} 
+                gradientColor="#ffffff" 
+                gradientWidth={200} 
+                speed={50} 
+                direction="right"
+              >
+                {[
+                  { src: McKinseyLogo, alt: 'McKinsey' },
+                  { src: EvercoreLogo, alt: 'Evercore' },
+                  { src: GoldmanSachsLogo, alt: 'Goldman Sachs' },
+                  { src: BainLogo, alt: 'Bain' },
+                  { src: MorganStanleyLogo, alt: 'Morgan Stanley' },
+                  { src: BlackstoneLogo, alt: 'Blackstone' },
+                  { src: PwCLogo, alt: 'PwC' },
+                  { src: JPMorganLogo, alt: 'J.P. Morgan' },
+                  { src: BarclaysLogo, alt: 'Barclays' },
+                ].map(({ src, alt }) => (
+                  <div key={alt} className="flex items-center mx-12">
+                    <img src={src} alt={alt} className="h-12 md:h-14 w-auto opacity-60 hover:opacity-100 transition-opacity" />
+                  </div>
+                ))}
+              </Marquee>
+            </div>
+
+            {/* Reviews */}
+            <Marquee 
+              gradient={true} 
+              gradientColor="#ffffff" 
+              gradientWidth={300} 
+              speed={80} 
+              pauseOnHover={true}
+            >
+              {[
+                { name: 'Dylan Roby', role: 'Evercore, Investment Banking Analyst', img: DylanRoby, quote: "Offerloop does the work that I had spent hundreds of hours doing to land my internship… in mere minutes." },
+                { name: 'Sarah Ucuzoglu', role: 'PwC, Financial Advisory Intern', img: SaraUcuzoglu, quote: "Having the ability to automate the cold reach out process allows for more time spent face to face with a professional." },
+                { name: 'Jackson Leck', role: 'Blackstone, Private Equity Intern', img: JacksonLeck, quote: "I would have so many recruiting tabs open... with Offerloop I have one. Everything I need in a single place." },
+                { name: 'Eli Hamou', role: 'Deloitte, Audit Intern', img: EliHamou, quote: "This platform completely transformed how I approach networking. The time I save allows me to focus on what really matters." },
+                { name: 'Lucas Turcuato', role: 'Barclays, Investment Banking Analyst', img: LucasTurcuato, quote: "Game changer for recruiting season. I went from stressed to organized in minutes." },
+              ].map(({ name, role, img, quote }) => {
+                const color = { light: 'rgba(59, 130, 246, 0.08)', border: 'rgba(59, 130, 246, 0.25)' };
+                return (
+                  <div 
+                    key={name} 
+                    className="bg-white rounded-2xl p-8 mx-4 w-[420px] h-[380px] flex flex-col justify-between relative overflow-hidden shadow-sm border"
+                    style={{
+                      borderColor: color.border,
+                    }}
+                  >
+                    {/* Color accent overlay */}
+                    <div 
+                      className="absolute inset-0 pointer-events-none rounded-2xl"
+                      style={{
+                        background: `linear-gradient(135deg, ${color.light} 0%, transparent 50%)`,
+                      }}
+                    />
+                    <div className="relative z-10 flex flex-col h-full">
+                      <div className="flex-1">
+                        <img src={FiveStarReview} alt="5 star rating" className="w-24 mb-4" />
+                        <p className="text-section-body italic text-lg leading-relaxed">"{quote}"</p>
+                      </div>
+                      <div className="flex items-center gap-4 mt-auto pt-6">
+                        <img 
+                          src={img} 
+                          alt={name} 
+                          className="w-14 h-14 rounded-full object-cover border"
+                          style={{
+                            borderColor: color.border,
+                          }}
+                        />
+                        <div>
+                          <div className="font-semibold text-section-heading">{name}</div>
+                          <div className="text-sm text-section-body">{role}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </Marquee>
+          </div>
         </section>
 
         {/* Works With Section - White Background */}
@@ -813,7 +956,7 @@ const Index = () => {
         >
           <div className="max-w-7xl mx-auto">
             <h2 className="text-display-lg text-center mb-16 text-section-heading font-instrument">
-              Start <span className="gradient-text-teal">Connecting</span> Today
+              Start <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-cyan-500">Connecting</span> Today
             </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -949,7 +1092,7 @@ const Index = () => {
               {/* Mission */}
               <div className="glass-card p-10 rounded-3xl">
                 <h2 className="text-4xl font-bold mb-6 text-section-heading font-instrument">
-                  Our <span className="gradient-text-teal">Mission</span>
+                  Our <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-cyan-500">Mission</span>
                 </h2>
                 <p className="text-lg text-section-body leading-relaxed mb-6">
                   To make it easier for students and young professionals to connect, stand out and land better opportunities.
@@ -990,9 +1133,12 @@ const Index = () => {
             <div className="grid md:grid-cols-4 gap-8 mb-12">
               <div className="md:col-span-2">
                 <div className="flex items-center gap-2 mb-6">
-                  <span className="text-2xl font-bold text-section-heading">
-                    offer<span className="gradient-text-teal">loop</span>
-                  </span>
+                  <img 
+                    src={OfferloopLogo} 
+                    alt="Offerloop" 
+                    className="h-10 md:h-12 cursor-pointer"
+                    onClick={() => navigate("/")}
+                  />
                 </div>
                 <p className="text-section-body mb-6 max-w-md">
                   Fundamentally changing how you recruit by taking the tedious, repetitive work out of the process. Connect with professionals and build the career you're excited about.

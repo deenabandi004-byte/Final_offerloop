@@ -691,22 +691,22 @@ const FirmSearchPage: React.FC = () => {
         <MainContentWrapper>
           <AppHeader />
 
-          <main className="bg-gradient-to-b from-slate-50 via-white to-white min-h-screen">
-            <div className="max-w-4xl mx-auto px-6 pt-10 pb-8">
+          <main className="bg-gradient-to-b from-slate-50 via-white to-white min-h-screen firm-search-page">
+            <div className="max-w-4xl mx-auto px-6 pt-10 pb-8 firm-search-container">
               
               {/* Inspiring Header Section */}
-              <div className="text-center mb-8 animate-fadeInUp">
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              <div className="text-center mb-8 animate-fadeInUp firm-search-header">
+                <h1 className="text-3xl font-bold text-gray-900 mb-2 firm-search-title">
                   Find Companies
                 </h1>
-                <p className="text-gray-600 text-lg">
+                <p className="text-gray-600 text-lg firm-search-subtitle">
                   Discover companies that match your target criteria and career goals.
                 </p>
               </div>
 
               {/* Pill-style Tabs */}
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mx-auto mb-8 animate-fadeInUp" style={{ animationDelay: '100ms' }}>
+                <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mx-auto mb-8 animate-fadeInUp firm-search-tabs" style={{ animationDelay: '100ms' }}>
                   <button
                     onClick={() => setActiveTab('firm-search')}
                     className={`
@@ -752,26 +752,26 @@ const FirmSearchPage: React.FC = () => {
                   )}
 
                   {/* Main Card */}
-                  <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
+                  <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp firm-search-form-card" style={{ animationDelay: '200ms' }}>
                     {/* Indigo/purple gradient accent at top */}
                     <div className="h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600"></div>
                     
-                    <div className="p-8">
+                    <div className="p-8 firm-search-form-content">
                       {/* Card Header with History Button */}
-                      <div className="flex items-start justify-between mb-6">
-                        <div className="flex items-center gap-4">
+                      <div className="flex items-start justify-between mb-6 firm-search-header-row">
+                        <div className="flex items-center gap-4 firm-search-header-content">
                           <div className="w-14 h-14 bg-indigo-100 rounded-2xl flex items-center justify-center">
                             <Building2 className="w-7 h-7 text-indigo-600" />
                           </div>
                           <div>
-                            <h2 className="text-xl font-semibold text-gray-900">What type of companies are you looking for?</h2>
-                            <p className="text-gray-600 mt-1">Describe your ideal companies in natural language</p>
+                            <h2 className="text-xl font-semibold text-gray-900 firm-search-form-title">What type of companies are you looking for?</h2>
+                            <p className="text-gray-600 mt-1 firm-search-form-subtitle">Describe your ideal companies in natural language</p>
                           </div>
                         </div>
                         
                         <button 
                           onClick={() => setShowHistory(true)}
-                          className="flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100 hover:border-gray-300 transition-all"
+                          className="firm-search-history-btn flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100 hover:border-gray-300 transition-all"
                         >
                           <History className="w-4 h-4" />
                           History
@@ -779,9 +779,9 @@ const FirmSearchPage: React.FC = () => {
                       </div>
 
                       {/* Quick Start Templates */}
-                      <div className="mb-6">
+                      <div className="mb-6 firm-search-examples">
                         <p className="text-sm text-gray-500 mb-3">Try an example or write your own</p>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-2 firm-search-example-chips">
                           {EXAMPLE_SEARCHES.map((example) => (
                             <button
                               key={example.id}
@@ -796,7 +796,7 @@ const FirmSearchPage: React.FC = () => {
                       </div>
 
                       {/* Enhanced Textarea Input */}
-                      <div className="relative">
+                      <div className="relative firm-search-textarea-wrapper">
                         <textarea
                           value={query}
                           onChange={(e) => setQuery(e.target.value)}
@@ -804,7 +804,7 @@ const FirmSearchPage: React.FC = () => {
                           placeholder="e.g., Mid-sized investment banks in New York focused on healthcare M&A..."
                           rows={4}
                           disabled={isSearching || !user}
-                          className="w-full p-4 pr-14 text-base border-2 border-gray-200 rounded-2xl
+                          className="w-full p-4 pr-14 text-base border-2 border-gray-200 rounded-2xl firm-search-textarea
                                      text-gray-900 placeholder-gray-400 resize-none
                                      focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500
                                      hover:border-gray-300 transition-all disabled:opacity-50"
@@ -856,20 +856,20 @@ const FirmSearchPage: React.FC = () => {
                       )}
 
                       {/* Quantity Selector - Enhanced */}
-                      <div className="mt-8 pt-8 border-t border-gray-100">
-                        <h3 className="text-lg font-semibold text-gray-900 mb-2">How many companies do you want to find?</h3>
-                        <p className="text-gray-600 mb-5">Companies are saved to your Company Tracker for easy access.</p>
+                      <div className="mt-8 pt-8 border-t border-gray-100 firm-search-quantity-section">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-2 firm-search-quantity-title">How many companies do you want to find?</h3>
+                        <p className="text-gray-600 mb-5 firm-search-quantity-subtitle">Companies are saved to your Company Tracker for easy access.</p>
                         
-                        <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-6">
+                        <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-6 firm-search-quantity-card">
                           {/* Quantity buttons */}
-                          <div className="flex items-center gap-2 mb-4">
+                          <div className="flex items-center gap-2 mb-4 firm-search-quantity-buttons">
                             {BATCH_OPTIONS.map((option) => (
                               <button
                                 key={option.value}
                                 onClick={() => setBatchSize(option.value)}
                                 disabled={isSearching || option.value > maxBatchSize}
                                 className={`
-                                  px-5 py-3 rounded-xl font-semibold text-sm transition-all duration-200
+                                  px-5 py-3 rounded-xl font-semibold text-sm transition-all duration-200 firm-search-quantity-btn
                                   ${batchSize === option.value
                                     ? 'bg-gradient-to-r from-indigo-600 to-purple-500 text-white shadow-md'
                                     : 'bg-white text-gray-700 border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50'
@@ -883,7 +883,7 @@ const FirmSearchPage: React.FC = () => {
                           </div>
                           
                           {/* Visual company indicators */}
-                          <div className="flex items-center gap-1 mb-4">
+                          <div className="flex items-center gap-1 mb-4 firm-search-company-icons">
                             {[...Array(40)].map((_, i) => (
                               <div
                                 key={i}
@@ -926,10 +926,10 @@ const FirmSearchPage: React.FC = () => {
                       </div>
 
                       {/* What You'll Get Section */}
-                      <div className="mt-8 pt-8 border-t border-gray-100">
-                        <h3 className="text-center text-sm font-semibold text-gray-500 uppercase tracking-wide mb-6">What you'll get for each company</h3>
+                      <div className="mt-8 pt-8 border-t border-gray-100 firm-search-features-section">
+                        <h3 className="text-center text-sm font-semibold text-gray-500 uppercase tracking-wide mb-6 firm-search-features-title">What you'll get for each company</h3>
                         
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 firm-search-features-grid">
                           <div className="text-center p-4">
                             <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center mx-auto mb-2">
                               <Building2 className="w-5 h-5 text-indigo-600" />
@@ -965,13 +965,13 @@ const FirmSearchPage: React.FC = () => {
                       </div>
 
                       {/* CTA Button */}
-                      <div className="mt-8">
+                      <div className="mt-8 firm-search-cta">
                         <button
                           onClick={() => handleSearch()}
                           disabled={!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm)}
                           className={`
                             w-full md:w-auto px-8 py-4 rounded-full font-semibold text-lg
-                            flex items-center justify-center gap-3 mx-auto
+                            flex items-center justify-center gap-3 mx-auto firm-search-find-btn
                             transition-all duration-200 transform
                             ${(!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm))
                               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
@@ -1279,6 +1279,303 @@ const FirmSearchPage: React.FC = () => {
           </AlertDialogContent>
         </AlertDialog>
       </div>
+
+      {/* Mobile-only CSS overrides */}
+      <style>{`
+        @media (max-width: 768px) {
+          /* 1. PAGE CONTAINER - Prevent horizontal overflow */
+          .firm-search-page {
+            overflow-x: hidden;
+            max-width: 100vw;
+          }
+
+          .firm-search-container {
+            max-width: 100%;
+            padding-left: 16px;
+            padding-right: 16px;
+            box-sizing: border-box;
+          }
+
+          /* 2. HEADER - Reduce font size, ensure wrapping */
+          .firm-search-title {
+            font-size: 1.75rem !important;
+            line-height: 1.3;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            padding-left: 0;
+            padding-right: 0;
+          }
+
+          /* 3. SUBTITLE TEXT - Reduce font size */
+          .firm-search-subtitle {
+            font-size: 0.875rem !important;
+            line-height: 1.4;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+          }
+
+          /* 4. TAB BAR - Horizontal scroll or fit within viewport */
+          .firm-search-tabs {
+            width: 100% !important;
+            max-width: 100%;
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            padding: 8px !important;
+            justify-content: flex-start;
+          }
+
+          .firm-search-tabs::-webkit-scrollbar {
+            display: none;
+          }
+
+          .firm-search-tabs button {
+            min-width: fit-content;
+            min-height: 44px;
+            flex-shrink: 0;
+            white-space: nowrap;
+          }
+
+          /* 5. FORM CARD - Full width, proper padding */
+          .firm-search-form-card {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          .firm-search-form-content {
+            padding: 16px !important;
+            box-sizing: border-box;
+          }
+
+          /* 6. SECTION HEADING + HISTORY BUTTON ROW - Stack if needed */
+          .firm-search-header-row {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 12px;
+          }
+
+          .firm-search-header-content {
+            width: 100%;
+          }
+
+          .firm-search-form-title {
+            font-size: 1.125rem !important;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            line-height: 1.3;
+          }
+
+          .firm-search-form-subtitle {
+            font-size: 0.875rem !important;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+          }
+
+          .firm-search-history-btn {
+            width: 100%;
+            justify-content: center;
+            min-height: 44px;
+          }
+
+          /* 7. EXAMPLE CHIPS - Wrap to multiple lines */
+          .firm-search-examples {
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .firm-search-example-chips {
+            flex-wrap: wrap !important;
+            gap: 8px;
+            max-width: 100%;
+          }
+
+          .firm-search-example-chips button {
+            flex-shrink: 0;
+            max-width: 100%;
+            word-wrap: break-word;
+            white-space: normal;
+            padding: 8px 12px;
+            font-size: 0.875rem;
+          }
+
+          /* 8. TEXTAREA - Full width, proper padding */
+          .firm-search-textarea-wrapper {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          .firm-search-textarea {
+            width: 100% !important;
+            max-width: 100%;
+            box-sizing: border-box;
+            padding: 12px !important;
+            padding-right: 48px !important;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+          }
+
+          /* 9. HOW MANY COMPANIES SECTION - Ensure wrapping */
+          .firm-search-quantity-section {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          .firm-search-quantity-title {
+            font-size: 1.125rem !important;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            line-height: 1.3;
+          }
+
+          .firm-search-quantity-subtitle {
+            font-size: 0.875rem !important;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+          }
+
+          .firm-search-quantity-card {
+            padding: 16px !important;
+            box-sizing: border-box;
+          }
+
+          /* 10. NUMBER SELECTOR BUTTONS - Ensure all 4 fit or allow scroll */
+          .firm-search-quantity-buttons {
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: flex-start;
+          }
+
+          .firm-search-quantity-btn {
+            min-width: 60px;
+            min-height: 44px !important;
+            flex: 1 1 calc(25% - 6px);
+            max-width: calc(25% - 6px);
+            padding: 12px 8px !important;
+            font-size: 0.875rem;
+          }
+
+          /* 11. COMPANY ICON VISUALIZATION ROW - Constrain to viewport */
+          .firm-search-company-icons {
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            max-width: 100%;
+            flex-wrap: nowrap;
+            padding-bottom: 4px;
+          }
+
+          .firm-search-company-icons::-webkit-scrollbar {
+            display: none;
+          }
+
+          .firm-search-company-icons > div {
+            flex-shrink: 0;
+          }
+
+          /* 12. WHAT YOU'LL GET SECTION - Stack in 2x2 grid or single column */
+          .firm-search-features-section {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          .firm-search-features-title {
+            font-size: 0.75rem !important;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            padding: 0 8px;
+          }
+
+          .firm-search-features-grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+            gap: 12px !important;
+          }
+
+          .firm-search-features-grid > div {
+            padding: 12px !important;
+            box-sizing: border-box;
+          }
+
+          .firm-search-features-grid > div > div {
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .firm-search-features-grid p {
+            font-size: 0.75rem !important;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+          }
+
+          /* 13. FIND COMPANIES CTA BUTTON - Full width */
+          .firm-search-cta {
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .firm-search-find-btn {
+            width: 100% !important;
+            min-height: 48px !important;
+            max-width: 100%;
+            box-sizing: border-box;
+            padding: 14px 16px !important;
+          }
+
+          /* GENERAL - Ensure all containers respect max-width */
+          .firm-search-page * {
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          .firm-search-page input,
+          .firm-search-page textarea,
+          .firm-search-page select,
+          .firm-search-page button {
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          /* Prevent text overflow */
+          .firm-search-page p,
+          .firm-search-page h1,
+          .firm-search-page h2,
+          .firm-search-page h3,
+          .firm-search-page span,
+          .firm-search-page label {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            hyphens: auto;
+          }
+
+          /* Ensure content doesn't touch screen edge */
+          .firm-search-container > * {
+            padding-left: 0;
+            padding-right: 0;
+          }
+
+          /* Additional overflow fixes */
+          html, body {
+            overflow-x: hidden;
+            max-width: 100vw;
+          }
+
+          .firm-search-page {
+            overflow-x: hidden;
+          }
+
+          .firm-search-header {
+            padding-left: 16px;
+            padding-right: 16px;
+          }
+        }
+      `}</style>
     </SidebarProvider>
   );
 };

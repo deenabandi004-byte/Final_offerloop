@@ -451,16 +451,16 @@ const SpreadsheetContactDirectory: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 contact-directory-page">
       {/* Helper text */}
-      <p className="text-sm text-gray-500">
+      <p className="text-sm text-gray-500 contact-directory-header-text">
         Track saved contacts, outreach status, and follow-ups.
       </p>
 
       {/* Top Controls - Matching Find People layout */}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-4 contact-directory-controls-row">
         {/* Search */}
-        <div className="relative flex-1 max-w-sm">
+        <div className="relative flex-1 max-w-sm contact-directory-search">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
           <Input
             type="text"
@@ -472,8 +472,8 @@ const SpreadsheetContactDirectory: React.FC = () => {
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-500">
+        <div className="flex items-center gap-3 contact-directory-actions">
+          <span className="text-sm text-gray-500 contact-directory-count">
             {contacts.length} contact{contacts.length !== 1 ? 's' : ''}
           </span>
           <Button
@@ -481,7 +481,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
             size="sm"
             onClick={handleExportCsv}
             disabled={contacts.length === 0}
-            className="gap-2 border-gray-300 hover:border-gray-400"
+            className="gap-2 border-gray-300 hover:border-gray-400 contact-directory-export-btn"
           >
             <Download className="h-4 w-4" />
             Export CSV
@@ -491,7 +491,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
             size="sm"
             onClick={loadContacts}
             disabled={isLoading}
-            className="relative overflow-hidden border-gray-300 hover:border-gray-400"
+            className="relative overflow-hidden border-gray-300 hover:border-gray-400 contact-directory-refresh-btn"
           >
             <RefreshCw className="h-4 w-4" />
             <InlineLoadingBar isLoading={isLoading} />
@@ -501,7 +501,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
             size="sm"
             onClick={clearAllContacts}
             disabled={contacts.length === 0}
-            className="text-red-600 border-gray-300 hover:border-red-300 hover:bg-red-50"
+            className="text-red-600 border-gray-300 hover:border-red-300 hover:bg-red-50 contact-directory-delete-btn"
           >
             <Trash2 className="h-4 w-4" />
           </Button>
@@ -533,13 +533,13 @@ const SpreadsheetContactDirectory: React.FC = () => {
         </div>
       ) : (
         /* Table Container - Flat styling like Find People */
-        <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">
+        <div className="border border-gray-200 rounded-lg bg-white overflow-hidden contact-directory-table-wrapper">
           {/* Table */}
-          <div ref={tableContainerRef} className="overflow-x-auto">
-            <table className="min-w-full">
+          <div ref={tableContainerRef} className="overflow-x-auto contact-directory-table-container">
+            <table className="min-w-full contact-directory-table">
               <thead>
                 <tr className="border-b border-gray-200">
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide contact-directory-name-header">
                     Contact
                   </th>
                   <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
@@ -575,7 +575,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
                       className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50/50 transition-colors"
                     >
                       {/* Contact Name */}
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td className="px-4 py-3 whitespace-nowrap contact-directory-name-cell">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center flex-shrink-0">
                             <User className="h-4 w-4 text-blue-500" />
@@ -840,6 +840,201 @@ const SpreadsheetContactDirectory: React.FC = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Mobile-only CSS overrides */}
+      <style>{`
+        @media (max-width: 768px) {
+          /* 1. PAGE HEADER SECTION - Width 100%, padding 16px */
+          .contact-directory-page {
+            width: 100%;
+            max-width: 100vw;
+            overflow-x: hidden;
+            box-sizing: border-box;
+            padding: 0;
+          }
+
+          .contact-directory-header-text {
+            width: 100%;
+            max-width: 100%;
+            padding: 0 16px;
+            box-sizing: border-box;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            font-size: 0.875rem !important;
+            margin: 0;
+          }
+
+          /* 2. CONTROLS ROW - Separate from table, fixed width */
+          .contact-directory-controls-row {
+            width: 100%;
+            max-width: 100%;
+            padding: 0 16px;
+            box-sizing: border-box;
+            flex-wrap: wrap;
+            gap: 8px;
+            position: relative;
+            z-index: 10;
+            background: white;
+            margin: 0;
+            overflow: hidden;
+          }
+
+          .contact-directory-search {
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+            flex: 1 1 100%;
+          }
+
+          .contact-directory-search input {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          .contact-directory-actions {
+            width: 100%;
+            max-width: 100%;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: flex-start;
+            box-sizing: border-box;
+            display: flex;
+            margin: 0;
+          }
+
+          .contact-directory-count {
+            width: 100%;
+            flex-basis: 100%;
+            flex-shrink: 0;
+            white-space: nowrap;
+            margin-bottom: 4px;
+            box-sizing: border-box;
+          }
+
+          /* Buttons - reduce padding or use icon-only on mobile */
+          .contact-directory-export-btn {
+            flex: 1 1 auto;
+            min-width: fit-content;
+            padding: 8px 10px !important;
+            font-size: 0.75rem;
+            box-sizing: border-box;
+            max-width: 100%;
+            white-space: nowrap;
+          }
+
+          /* Make "Export CSV" button smaller - reduce text if needed */
+          .contact-directory-export-btn svg {
+            width: 14px;
+            height: 14px;
+          }
+
+          .contact-directory-refresh-btn,
+          .contact-directory-delete-btn {
+            min-width: 44px;
+            min-height: 44px;
+            padding: 8px !important;
+            box-sizing: border-box;
+            flex-shrink: 0;
+          }
+
+          /* Hide text in icon buttons, keep icons */
+          .contact-directory-refresh-btn > span:not(.lucide),
+          .contact-directory-delete-btn > span:not(.lucide) {
+            display: none;
+          }
+
+          /* 3. TABLE CONTAINER - Separate scroll container */
+          .contact-directory-table-wrapper {
+            width: 100%;
+            max-width: 100vw;
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+          }
+
+          .contact-directory-table-container {
+            width: 100%;
+            overflow-x: auto;
+            overflow-y: visible;
+            -webkit-overflow-scrolling: touch;
+            box-sizing: border-box;
+          }
+
+          /* 4. TABLE STRUCTURE - Horizontal scroll, sticky first column */
+          .contact-directory-table {
+            min-width: 800px;
+            width: 100%;
+            box-sizing: border-box;
+          }
+
+          .contact-directory-name-header {
+            position: sticky;
+            left: 0;
+            background: white;
+            z-index: 5;
+            box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
+          }
+
+          .contact-directory-name-cell {
+            position: sticky;
+            left: 0;
+            background: white;
+            z-index: 4;
+            box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
+          }
+
+          /* Ensure sticky cells have proper background on hover */
+          .contact-directory-table tbody tr:hover .contact-directory-name-cell {
+            background: #f9fafb;
+          }
+
+          /* 5. SEARCH INPUT - Full width */
+          .contact-directory-search {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+            margin: 0;
+          }
+
+          .contact-directory-search input {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+            margin: 0;
+          }
+
+          /* 6. GENERAL - Prevent page-level horizontal scroll */
+          .contact-directory-page {
+            overflow-x: hidden;
+            max-width: 100vw;
+            width: 100%;
+          }
+
+          .contact-directory-page > * {
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          /* Ensure all header elements use box-sizing */
+          .contact-directory-page * {
+            box-sizing: border-box;
+          }
+
+          /* Remove any negative margins or transforms that cause overflow */
+          .contact-directory-page * {
+            margin-left: 0;
+            margin-right: 0;
+          }
+
+          .contact-directory-controls-row *,
+          .contact-directory-actions *,
+          .contact-directory-search * {
+            transform: none;
+            position: static;
+          }
+        }
+      `}</style>
     </div>
   );
 };

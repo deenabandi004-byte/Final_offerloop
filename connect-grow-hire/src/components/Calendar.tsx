@@ -268,9 +268,9 @@ export function Calendar() {
   };
 
   return (
-    <div className="grid grid-cols-12 gap-6">
+    <div className="grid grid-cols-12 gap-6 calendar-container">
       {/* Calendar Grid */}
-      <div className="col-span-8 bg-card border border-border rounded-xl overflow-hidden">
+      <div className="col-span-8 bg-card border border-border rounded-xl overflow-hidden calendar-main">
         <div className="p-4 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-4">
             <h3 className="text-lg font-semibold">{format(currentMonth, 'MMMM yyyy')}</h3>
@@ -317,7 +317,7 @@ export function Calendar() {
               </div>
               
               {/* Calendar Days */}
-              <div className="grid grid-cols-7 gap-2">
+              <div className="grid grid-cols-7 gap-2 calendar-days-grid">
                 {calendarDays.map((day, index) => {
                   if (day.date === 0) {
                     return <div key={index} className="aspect-square" />;
@@ -363,12 +363,12 @@ export function Calendar() {
       </div>
 
       {/* Upcoming Events & Reminders */}
-      <div className="col-span-4 space-y-6">
+      <div className="col-span-4 space-y-6 calendar-sidebar">
         {/* Upcoming Events */}
-        <div className="bg-card border border-border rounded-xl p-6">
+        <div className="bg-card border border-border rounded-xl p-6 calendar-upcoming-events">
           <div className="flex items-center gap-2 mb-4">
             <CalendarIcon size={18} className="text-blue-600" />
-            <h3 className="text-lg font-semibold">Upcoming Events</h3>
+            <h3 className="text-lg font-semibold calendar-upcoming-title">Upcoming Events</h3>
           </div>
           
           {loading ? (
@@ -442,7 +442,7 @@ export function Calendar() {
           
           <button
             onClick={() => setIsModalOpen(true)}
-            className="w-full mt-4 text-white px-4 py-2 rounded-lg font-medium text-sm shadow-sm transition-all hover:opacity-90"
+            className="w-full mt-4 text-white px-4 py-2 rounded-lg font-medium text-sm shadow-sm transition-all hover:opacity-90 calendar-schedule-btn"
             style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
           >
             Schedule New Chat
@@ -450,8 +450,8 @@ export function Calendar() {
         </div>
 
         {/* Follow-Up Reminders */}
-        <div className="bg-card border border-border rounded-xl p-6">
-          <h3 className="text-lg font-semibold mb-4">Follow-Up Reminders</h3>
+        <div className="bg-card border border-border rounded-xl p-6 calendar-followup-reminders">
+          <h3 className="text-lg font-semibold mb-4 calendar-followup-title">Follow-Up Reminders</h3>
           
           {loading ? (
             <div className="flex items-center justify-center py-8">
@@ -462,14 +462,14 @@ export function Calendar() {
               No follow-ups needed. Great job staying on top of your network!
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-3 calendar-followup-list">
               {reminders.map((reminder) => (
-                <div key={reminder.id} className="p-3 rounded-lg bg-background">
+                <div key={reminder.id} className="p-3 rounded-lg bg-background calendar-followup-item">
                   <div className="flex items-start gap-2">
                     <div className="w-2 h-2 rounded-full bg-purple-500 mt-1.5 flex-shrink-0"></div>
-                    <div>
-                      <div className="text-sm mb-1">Follow up with {reminder.contactName}</div>
-                      <div className="text-xs text-text-muted">
+                    <div className="calendar-followup-content">
+                      <div className="text-sm mb-1 calendar-followup-name">Follow up with {reminder.contactName}</div>
+                      <div className="text-xs text-text-muted calendar-followup-details">
                         {reminder.firm} • No response after {reminder.daysSinceContact} day{reminder.daysSinceContact > 1 ? 's' : ''}
                       </div>
                     </div>
@@ -487,6 +487,154 @@ export function Calendar() {
         onClose={() => setIsModalOpen(false)}
         onEventCreated={handleEventCreated}
       />
+
+      {/* Mobile-only CSS overrides */}
+      <style>{`
+        @media (max-width: 768px) {
+          /* 1. MAIN LAYOUT - Stack vertically */
+          .calendar-container {
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 16px !important;
+            padding: 16px;
+            box-sizing: border-box;
+          }
+
+          /* 2. CALENDAR COMPONENT - Full width */
+          .calendar-main {
+            width: 100% !important;
+            max-width: 100% !important;
+            grid-column: span 12 !important;
+            box-sizing: border-box;
+          }
+
+          .calendar-main > div {
+            width: 100%;
+            max-width: 100%;
+          }
+
+          /* Day cells - ensure adequate size for touch */
+          .calendar-days-grid {
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .calendar-days-grid > div {
+            min-width: 40px;
+            min-height: 40px;
+            aspect-ratio: 1;
+          }
+
+          /* Day labels - ensure breathing room */
+          .calendar-days-grid + div {
+            font-size: 12px;
+          }
+
+          /* 3. UPCOMING EVENTS CARD - Full width */
+          .calendar-sidebar {
+            width: 100% !important;
+            max-width: 100% !important;
+            grid-column: span 12 !important;
+            box-sizing: border-box;
+          }
+
+          .calendar-upcoming-events {
+            width: 100% !important;
+            max-width: 100% !important;
+            padding: 16px !important;
+            box-sizing: border-box;
+          }
+
+          .calendar-upcoming-title {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            white-space: normal;
+          }
+
+          .calendar-schedule-btn {
+            width: 100% !important;
+            min-height: 44px !important;
+            box-sizing: border-box;
+            white-space: normal;
+            word-wrap: break-word;
+          }
+
+          /* 4. FOLLOW-UP REMINDERS SECTION - Full width */
+          .calendar-followup-reminders {
+            width: 100% !important;
+            max-width: 100% !important;
+            padding: 16px !important;
+            box-sizing: border-box;
+          }
+
+          .calendar-followup-title {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            white-space: normal;
+          }
+
+          .calendar-followup-list {
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .calendar-followup-item {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          .calendar-followup-content {
+            width: 100%;
+            max-width: 100%;
+            flex: 1;
+            min-width: 0;
+          }
+
+          .calendar-followup-name {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            white-space: normal;
+          }
+
+          .calendar-followup-details {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            white-space: normal;
+          }
+
+          /* 5. GENERAL - Page padding and spacing */
+          .calendar-container > * {
+            margin-bottom: 0;
+          }
+
+          .calendar-container > * + * {
+            margin-top: 16px;
+          }
+
+          /* Ensure no horizontal overflow */
+          .calendar-container,
+          .calendar-main,
+          .calendar-sidebar,
+          .calendar-upcoming-events,
+          .calendar-followup-reminders {
+            overflow-x: hidden;
+          }
+
+          /* All text must be fully readable */
+          .calendar-container * {
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+
+          .calendar-container p,
+          .calendar-container h3,
+          .calendar-container div {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+          }
+        }
+      `}</style>
     </div>
   );
 }
