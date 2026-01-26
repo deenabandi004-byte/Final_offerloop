@@ -456,7 +456,28 @@ export function OutboxEmbedded() {
               filteredThreads.map((t) => (
                 <button
                   key={t.id}
-                  onClick={() => setSelectedThread(t)}
+                  onClick={async () => {
+                    setSelectedThread(t);
+                    // Sync thread in background when selected (non-blocking)
+                    try {
+                      const synced = await apiService.syncOutboxThread(t.id);
+                      if (synced && "thread" in synced && synced.thread) {
+                        // Update the thread in the list
+                        setThreads((prev) =>
+                          prev.map((thread) =>
+                            thread.id === t.id ? synced.thread : thread
+                          )
+                        );
+                        // Update selected thread if it's still selected
+                        setSelectedThread((current) =>
+                          current?.id === t.id ? synced.thread : current
+                        );
+                      }
+                    } catch (err) {
+                      // Silently fail - user still sees cached data
+                      console.warn("Failed to sync thread:", err);
+                    }
+                  }}
                     className={`w-full text-left p-4 rounded-xl transition-all duration-200 ${
                     selectedThread?.id === t.id
                         ? "bg-gradient-to-r from-blue-50 to-indigo-50 shadow-md ring-2 ring-blue-500/30"

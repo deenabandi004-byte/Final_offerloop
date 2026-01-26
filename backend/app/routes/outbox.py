@@ -235,17 +235,9 @@ def list_threads():
     # Include contacts that have:
     # 1. A Gmail thread ID, OR
     # 2. A Gmail draft ID/URL (even if no threadId yet - drafts can become threads)
+    # OPTIMIZATION: Return cached data immediately without Gmail API calls
+    # Gmail sync happens lazily via the /sync endpoint when user opens a thread
     contacts = []
-    gmail_service = None
-    
-    # Try to get Gmail service once for all contacts
-    try:
-        creds = _load_user_gmail_creds(uid)
-        if creds:
-            gmail_service = _gmail_service(creds)
-            print(f"✅ Gmail service available for syncing messages")
-    except Exception as e:
-        print(f"⚠️ Could not initialize Gmail service: {e}")
     
     for doc in docs:
         data = doc.to_dict()
@@ -260,176 +252,6 @@ def list_threads():
         if has_thread_id or has_draft:
             contacts.append(doc)
             print(f"✅ Contact {doc.id} included: threadId={has_thread_id}, draft={has_draft}")
-            
-            # Track whether draft exists locally (for determining if we should sync)
-            draft_exists_locally = None
-            
-            # If contact has a draft, check if draft still exists (with caching and rate limiting)
-            # Even if there's a threadId, the draft might still exist (drafts can have threadIds)
-            if has_draft and gmail_service:
-                draft_id = data.get("gmailDraftId") or data.get("gmail_draft_id")
-                if draft_id:
-                    # Check rate limit
-                    if not _check_gmail_rate_limit(uid):
-                        print(f"⚠️ Rate limit exceeded for user {uid}, skipping draft check for {draft_id}")
-                        # Use cached value if available, otherwise assume draft exists
-                        draft_exists_locally = data.get("draftStillExists", True)
-                    else:
-                        try:
-                            # Use cached check if available
-                            exists, from_cache = _check_draft_exists_cached(gmail_service, draft_id)
-                            
-                            if exists:
-                                # Draft still exists - mark it
-                                draft_exists_locally = True
-                                doc.reference.update({
-                                    "draftStillExists": True,
-                                    "updatedAt": datetime.utcnow().isoformat()
-                                })
-                                if not from_cache:
-                                    print(f"✅ Draft {draft_id} still exists (not sent yet)")
-                                
-                                # Check if draft has a threadId (some drafts get threadIds before being sent)
-                                if not from_cache:  # Only check threadId if we made an API call
-                                    try:
-                                        draft = gmail_service.users().drafts().get(
-                                            userId='me', 
-                                            id=draft_id,
-                                            format='full'
-                                        ).execute()
-                                        thread_id = draft.get("message", {}).get("threadId")
-                                        if thread_id:
-                                            # Update contact with threadId
-                                            doc.reference.update({
-                                                "gmailThreadId": thread_id,
-                                                "updatedAt": datetime.utcnow().isoformat()
-                                            })
-                                            print(f"✅ Found threadId {thread_id} for draft {draft_id}")
-                                            has_thread_id = True
-                                    except Exception as thread_check_error:
-                                        print(f"⚠️ Could not check threadId for draft: {thread_check_error}")
-                            else:
-                                # Draft doesn't exist - it was likely sent
-                                draft_exists_locally = False
-                                if not from_cache:
-                                    print(f"📤 Draft {draft_id} no longer exists (likely sent)")
-                                
-                                # Mark draft as not existing
-                                doc.reference.update({
-                                    "draftStillExists": False,
-                                    "updatedAt": datetime.utcnow().isoformat()
-                                })
-                                
-                                # Try to get threadId from sent messages (only if not rate limited)
-                                if not from_cache and _check_gmail_rate_limit(uid):
-                                    try:
-                                        contact_email = data.get("email")
-                                        email_subject = data.get("emailSubject") or data.get("email_subject")
-                                        if contact_email and email_subject:
-                                            # Search for sent messages to this contact
-                                            query = f'to:{contact_email} subject:"{email_subject[:50]}"'
-                                            results = gmail_service.users().messages().list(
-                                                userId='me',
-                                                q=query,
-                                                maxResults=1
-                                            ).execute()
-                                            
-                                            messages = results.get('messages', [])
-                                            if messages:
-                                                # Get the message to find its threadId
-                                                msg = gmail_service.users().messages().get(
-                                                    userId='me',
-                                                    id=messages[0]['id'],
-                                                    format='minimal'
-                                                ).execute()
-                                                thread_id = msg.get('threadId')
-                                                if thread_id:
-                                                    doc.reference.update({
-                                                        "gmailThreadId": thread_id,
-                                                        "updatedAt": datetime.utcnow().isoformat()
-                                                    })
-                                                    print(f"✅ Found threadId {thread_id} for sent draft")
-                                                    has_thread_id = True
-                                    except Exception as search_error:
-                                        print(f"⚠️ Could not find threadId for sent draft: {search_error}")
-                        except Exception as e:
-                            # Error checking draft - use cached value or default
-                            print(f"⚠️ Error checking draft {draft_id}: {e}")
-                            draft_exists_locally = data.get("draftStillExists", True)
-            
-            # Sync Gmail messages only if we have a thread ID AND the draft no longer exists
-            # (i.e., the email has been sent). Don't sync if draft still exists.
-            # Use local check result if available, otherwise fall back to Firestore value
-            if draft_exists_locally is not None:
-                draft_still_exists = draft_exists_locally
-            else:
-                # Use existing value from Firestore (for cases where we couldn't check)
-                draft_still_exists = data.get("draftStillExists", True)
-            
-            # Sync Gmail messages only if we have a thread ID AND the draft no longer exists
-            # AND we haven't exceeded rate limits
-            # Only sync if last sync was more than 1 minute ago (to avoid excessive API calls)
-            if has_thread_id and gmail_service and not draft_still_exists:
-                thread_id = data.get("gmailThreadId") or data.get("gmail_thread_id")
-                contact_email = data.get("email")
-                user_email = request.firebase_user.get('email')
-                
-                # Only sync if we have a valid thread_id
-                if not thread_id:
-                    print(f"⚠️ Contact {doc.id} has has_thread_id=True but no gmailThreadId value")
-                    continue
-                
-                # Check if we should sync (avoid syncing too frequently)
-                last_sync = data.get("lastSyncAt")
-                should_sync = True
-                if last_sync:
-                    try:
-                        last_sync_dt = datetime.fromisoformat(last_sync.replace('Z', '+00:00'))
-                        time_since_sync = (datetime.utcnow() - last_sync_dt.replace(tzinfo=None)).total_seconds()
-                        # Only sync if last sync was more than 1 minute ago
-                        should_sync = time_since_sync > 60
-                    except Exception:
-                        should_sync = True
-                
-                if should_sync and _check_gmail_rate_limit(uid):
-                    try:
-                        sync_result = sync_thread_message(gmail_service, thread_id, contact_email, user_email)
-                        
-                        # Update contact with synced data
-                        updates = {
-                            "lastMessageSnippet": sync_result.get('snippet', ''),
-                            "lastActivityAt": sync_result.get('lastActivityAt'),
-                            "lastSyncAt": datetime.utcnow().isoformat(),
-                            "updatedAt": datetime.utcnow().isoformat()
-                        }
-                        
-                        # Update hasUnreadReply and status if we got sync data
-                        if 'hasUnreadReply' in sync_result:
-                            updates["hasUnreadReply"] = sync_result['hasUnreadReply']
-                        if 'status' in sync_result:
-                            updates["threadStatus"] = sync_result['status']
-                        
-                        doc.reference.update(updates)
-                        print(f"✅ Synced message for contact {doc.id}: status={sync_result.get('status')}, snippet={sync_result.get('snippet', '')[:50]}...")
-                    except Exception as e:
-                        print(f"⚠️ Could not sync message for contact {doc.id}: {e}")
-                        # Update lastSyncAt even on error to avoid retrying immediately
-                        doc.reference.update({
-                            "lastSyncAt": datetime.utcnow().isoformat(),
-                            "updatedAt": datetime.utcnow().isoformat()
-                        })
-                elif not should_sync:
-                    print(f"⏭️ Skipping sync for contact {doc.id} (synced recently)")
-                else:
-                    print(f"⚠️ Rate limit exceeded, skipping sync for contact {doc.id}")
-            
-            # Store draft status if we haven't already (for cases where Gmail service wasn't available)
-            if has_draft and not has_thread_id and data.get("draftStillExists") is None:
-                # Default to True if we couldn't check (assume draft exists)
-                doc.reference.update({
-                    "draftStillExists": True,
-                    "updatedAt": datetime.utcnow().isoformat()
-                })
 
     print(f"📧 Contacts with threads/drafts: {len(contacts)}")
     threads = [_build_outbox_thread(doc) for doc in contacts]
@@ -709,4 +531,157 @@ def regenerate(thread_id):
         "thread": thread,
         "credits_used": REPLY_GENERATION_CREDIT_COST,
         "credits_remaining": new_credits
+    }), 200
+
+
+@outbox_bp.post("/threads/<thread_id>/sync")
+@require_firebase_auth
+def sync_thread(thread_id):
+    """Sync a specific thread with Gmail. Called when user opens a thread."""
+    try:
+        db = get_db()
+    except RuntimeError as e:
+        error_msg = str(e)
+        print(f"❌ Database not available: {error_msg}")
+        return jsonify({
+            'error': 'Database not initialized',
+            'message': error_msg
+        }), 500
+    
+    uid = request.firebase_user["uid"]
+    contact_ref = (
+        db.collection("users")
+        .document(uid)
+        .collection("contacts")
+        .document(thread_id)
+    )
+    
+    doc = contact_ref.get()
+    if not doc.exists:
+        return jsonify({
+            "error": "Contact not found",
+            "error_code": "contact_not_found"
+        }), 404
+    
+    data = doc.to_dict()
+    gmail_thread_id = data.get("gmailThreadId") or data.get("gmail_thread_id")
+    has_draft = bool(
+        data.get("gmailDraftId") or 
+        data.get("gmail_draft_id") or 
+        data.get("gmailDraftUrl") or 
+        data.get("gmail_draft_url")
+    )
+    
+    # Get Gmail service
+    gmail_service = None
+    try:
+        creds = _load_user_gmail_creds(uid)
+        if creds:
+            gmail_service = _gmail_service(creds)
+    except Exception as e:
+        print(f"⚠️ Could not initialize Gmail service: {e}")
+        # Continue without Gmail service - return cached data
+    
+    # Check draft existence if we have a draft ID
+    draft_still_exists = data.get("draftStillExists", True)
+    if has_draft and gmail_service:
+        draft_id = data.get("gmailDraftId") or data.get("gmail_draft_id")
+        if draft_id and _check_gmail_rate_limit(uid):
+            try:
+                exists, from_cache = _check_draft_exists_cached(gmail_service, draft_id)
+                draft_still_exists = exists
+                
+                # Update Firestore with draft status
+                doc.reference.update({
+                    "draftStillExists": exists,
+                    "updatedAt": datetime.utcnow().isoformat()
+                })
+                
+                # If draft doesn't exist and we have a threadId, try to find it
+                if not exists and not gmail_thread_id:
+                    try:
+                        contact_email = data.get("email")
+                        email_subject = data.get("emailSubject") or data.get("email_subject")
+                        if contact_email and email_subject and _check_gmail_rate_limit(uid):
+                            query = f'to:{contact_email} subject:"{email_subject[:50]}"'
+                            results = gmail_service.users().messages().list(
+                                userId='me',
+                                q=query,
+                                maxResults=1
+                            ).execute()
+                            
+                            messages = results.get('messages', [])
+                            if messages:
+                                msg = gmail_service.users().messages().get(
+                                    userId='me',
+                                    id=messages[0]['id'],
+                                    format='minimal'
+                                ).execute()
+                                thread_id_found = msg.get('threadId')
+                                if thread_id_found:
+                                    doc.reference.update({
+                                        "gmailThreadId": thread_id_found,
+                                        "updatedAt": datetime.utcnow().isoformat()
+                                    })
+                                    gmail_thread_id = thread_id_found
+                                    print(f"✅ Found threadId {thread_id_found} for sent draft")
+                    except Exception as search_error:
+                        print(f"⚠️ Could not find threadId for sent draft: {search_error}")
+            except Exception as e:
+                print(f"⚠️ Error checking draft {draft_id}: {e}")
+                draft_still_exists = data.get("draftStillExists", True)
+    
+    # Sync Gmail messages if we have a thread ID and draft no longer exists
+    if gmail_thread_id and gmail_service and not draft_still_exists:
+        contact_email = data.get("email")
+        user_email = request.firebase_user.get('email')
+        
+        # Check if we should sync (avoid syncing too frequently)
+        last_sync = data.get("lastSyncAt")
+        should_sync = True
+        if last_sync:
+            try:
+                last_sync_dt = datetime.fromisoformat(last_sync.replace('Z', '+00:00'))
+                time_since_sync = (datetime.utcnow() - last_sync_dt.replace(tzinfo=None)).total_seconds()
+                # Only sync if last sync was more than 30 seconds ago
+                should_sync = time_since_sync > 30
+            except Exception:
+                should_sync = True
+        
+        if should_sync and _check_gmail_rate_limit(uid):
+            try:
+                sync_result = sync_thread_message(gmail_service, gmail_thread_id, contact_email, user_email)
+                
+                # Update contact with synced data
+                updates = {
+                    "lastMessageSnippet": sync_result.get('snippet', ''),
+                    "lastActivityAt": sync_result.get('lastActivityAt'),
+                    "lastSyncAt": datetime.utcnow().isoformat(),
+                    "updatedAt": datetime.utcnow().isoformat()
+                }
+                
+                # Update hasUnreadReply and status if we got sync data
+                if 'hasUnreadReply' in sync_result:
+                    updates["hasUnreadReply"] = sync_result['hasUnreadReply']
+                if 'status' in sync_result:
+                    updates["threadStatus"] = sync_result['status']
+                
+                doc.reference.update(updates)
+                print(f"✅ Synced message for contact {thread_id}: status={sync_result.get('status')}, snippet={sync_result.get('snippet', '')[:50]}...")
+                
+                # Reload doc to get updated data
+                doc = contact_ref.get()
+            except Exception as e:
+                print(f"⚠️ Could not sync message for contact {thread_id}: {e}")
+                # Update lastSyncAt even on error to avoid retrying immediately
+                doc.reference.update({
+                    "lastSyncAt": datetime.utcnow().isoformat(),
+                    "updatedAt": datetime.utcnow().isoformat()
+                })
+    
+    # Build and return updated thread
+    thread = _build_outbox_thread(doc)
+    
+    return jsonify({
+        "thread": thread
     }), 200

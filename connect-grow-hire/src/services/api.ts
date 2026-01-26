@@ -1482,6 +1482,21 @@ async regenerateOutboxReply(
   );
 }
 
+/** Sync a specific thread with Gmail (updates message snippets, status, etc.) */
+async syncOutboxThread(
+  threadId: string
+): Promise<{ thread: OutboxThread } | { error: string }> {
+  const headers = await this.getAuthHeaders();
+
+  return this.makeRequest<{ thread: OutboxThread } | { error: string }>(
+    `/outbox/threads/${threadId}/sync`,
+    {
+      method: 'POST',
+      headers,
+    }
+  );
+}
+
 
 
   /** Helper to download CSV blob as file */
