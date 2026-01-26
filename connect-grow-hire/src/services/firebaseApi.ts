@@ -489,6 +489,16 @@ export const firebaseApi = {
     }
   },
 
+  /**
+   * Fetches calendar events for a user.
+   * 
+   * REQUIRED FIRESTORE INDEX: calendar_events collection needs composite index on (date ASC, time ASC)
+   * Deploy with: firebase deploy --only firestore:indexes
+   * 
+   * @param uid - User ID
+   * @param month - Optional month (0-indexed, 0 = January). If not provided, returns all events.
+   * @param year - Optional year. If not provided, returns all events.
+   */
   async getCalendarEvents(uid: string, month?: number, year?: number): Promise<CalendarEvent[]> {
     try {
       const eventsRef = collection(db, 'users', uid, 'calendar_events');
@@ -522,9 +532,11 @@ export const firebaseApi = {
           // Note: month is 0-indexed in JS Date, but our filter uses 0-indexed too
           return eventMonth - 1 === month && eventYear === year;
         });
+        console.log(`📅 Fetched ${events.length} calendar events for month ${month + 1}/${year}`);
+      } else {
+        console.log(`📅 Fetched ${events.length} calendar events (all events, no month/year filter)`);
       }
       
-      console.log(`📅 Fetched ${events.length} calendar events for month ${month}, year ${year}`);
       return events;
     } catch (error) {
       console.error('Error fetching calendar events:', error);

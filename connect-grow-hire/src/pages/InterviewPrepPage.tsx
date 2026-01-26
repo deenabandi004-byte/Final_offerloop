@@ -263,11 +263,20 @@ const InterviewPrepPage: React.FC = () => {
       };
       
       const pollPromise = new Promise((resolve, reject) => {
+        let pollInterval = 2000; // Start at 2 seconds
+        const maxInterval = 10000; // Cap at 10 seconds
+        const backoffMultiplier = 1.3;
+        let timeoutId: NodeJS.Timeout | null = null;
+        let isPolling = true;
+        
+        // Initial poll
         (async () => {
           try {
             const statusResult = await apiService.getInterviewPrepStatus(prepId);
             
             if ('pdfUrl' in statusResult && statusResult.pdfUrl) {
+              isPolling = false;
+              if (timeoutId) clearTimeout(timeoutId);
               handleCompletion(statusResult);
               resolve(statusResult);
               return;
@@ -279,14 +288,17 @@ const InterviewPrepPage: React.FC = () => {
           }
         })();
         
-        const intervalId = setInterval(async () => {
+        // Recursive polling function with exponential backoff
+        const poll = async () => {
+          if (!isPolling) return;
+          
           pollCount++;
           
           try {
             const statusResult = await apiService.getInterviewPrepStatus(prepId);
             
             if ('error' in statusResult && !('status' in statusResult)) {
-              clearInterval(intervalId);
+              isPolling = false;
               reject(new Error(statusResult.error));
               return;
             }
@@ -314,7 +326,7 @@ const InterviewPrepPage: React.FC = () => {
             }
             
             if ('pdfUrl' in statusResult && statusResult.pdfUrl) {
-              clearInterval(intervalId);
+              isPolling = false;
               handleCompletion(statusResult);
               resolve(statusResult);
               return;
@@ -323,7 +335,7 @@ const InterviewPrepPage: React.FC = () => {
             handleStatusUpdate(statusResult);
             
             if (statusResult.status === 'failed' || statusResult.status === 'parsing_failed') {
-              clearInterval(intervalId);
+              isPolling = false;
               if (statusResult.needsManualInput || statusResult.status === 'parsing_failed') {
                 setShowManualInput(true);
                 setInterviewPrepLoading(false);
@@ -341,7 +353,7 @@ const InterviewPrepPage: React.FC = () => {
             }
             
             if (pollCount >= maxPolls) {
-              clearInterval(intervalId);
+              isPolling = false;
               setTimeout(async () => {
                 try {
                   const finalCheck = await apiService.getInterviewPrepStatus(prepId);
@@ -369,11 +381,22 @@ const InterviewPrepPage: React.FC = () => {
               }, 2000);
               return;
             }
+            
+            // Exponential backoff: increase interval for next poll
+            pollInterval = Math.min(pollInterval * backoffMultiplier, maxInterval);
+            
+            // Schedule next poll
+            if (isPolling) {
+              timeoutId = setTimeout(poll, pollInterval);
+            }
           } catch (error) {
-            clearInterval(intervalId);
+            isPolling = false;
             reject(error);
           }
-        }, 2000);
+        };
+        
+        // Start polling after initial check
+        timeoutId = setTimeout(poll, pollInterval);
       });
       
       await pollPromise;

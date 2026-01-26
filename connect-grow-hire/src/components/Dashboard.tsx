@@ -131,7 +131,7 @@ export function Dashboard() {
   // Get user's first name
   const firstName = user?.name?.split(' ')[0] || 'there';
 
-  // Fetch follow-up reminders
+  // Fetch follow-up reminders (depends on contacts, so keep separate)
   useEffect(() => {
     const fetchFollowUpReminders = async () => {
       if (!user?.uid) return;
@@ -321,7 +321,7 @@ export function Dashboard() {
     };
   }, [outboxThreads, coffeeChatCount, firmCount]);
 
-  // Fetch contacts
+  // Fetch contacts (needed for follow-up reminders, so fetch first)
   useEffect(() => {
     const fetchContacts = async () => {
       if (user?.uid) {
@@ -338,7 +338,37 @@ export function Dashboard() {
     fetchContacts();
   }, [user?.uid]);
 
-  // Fetch firm count
+  // Combined fetch for data that depends on user?.uid (reduces waterfall effect)
+  useEffect(() => {
+    if (!user?.uid) return;
+    
+    const fetchAllData = async () => {
+      try {
+        const [
+          summary,
+          stats,
+          activities
+        ] = await Promise.all([
+          calculateWeeklySummary(user.uid),
+          apiService.getDashboardStats(),
+          firebaseApi.getActivities(user.uid, 10)
+        ]);
+        
+        setWeeklySummary(summary);
+        if (!('error' in stats)) {
+          setTimeSeriesData(stats.outreachByMonth);
+          setReplyStats(stats.replyStats);
+        }
+        setActivities(activities);
+      } catch (error) {
+        console.error('Failed to fetch dashboard data:', error);
+      }
+    };
+    
+    fetchAllData();
+  }, [user?.uid, location.pathname]); // Re-fetch when user or location changes
+
+  // Fetch firm count (keep separate due to different error handling and user dependency)
   useEffect(() => {
     const fetchFirmCount = async () => {
       if (!user) {
@@ -377,7 +407,7 @@ export function Dashboard() {
     fetchFirmCount();
   }, [user]);
 
-  // Fetch coffee chat count
+  // Fetch coffee chat count (keep separate due to different error handling)
   useEffect(() => {
     const fetchCoffeeChatCount = async () => {
       if (!user) {
@@ -398,52 +428,6 @@ export function Dashboard() {
     };
     fetchCoffeeChatCount();
   }, [user]);
-
-  // Fetch weekly summary
-  useEffect(() => {
-    const fetchWeeklySummary = async () => {
-      if (!user?.uid) return;
-      try {
-        const summary = await calculateWeeklySummary(user.uid);
-        setWeeklySummary(summary);
-      } catch (error) {
-        console.error('Failed to fetch weekly summary:', error);
-      }
-    };
-    fetchWeeklySummary();
-  }, [user?.uid]);
-
-  // Fetch dashboard stats
-  useEffect(() => {
-    const fetchDashboardStats = async () => {
-      if (!user?.uid) return;
-      try {
-        const result = await apiService.getDashboardStats();
-        if (!('error' in result)) {
-          setTimeSeriesData(result.outreachByMonth);
-          setReplyStats(result.replyStats);
-        }
-      } catch (error) {
-        console.error('Failed to fetch dashboard stats:', error);
-      }
-    };
-    fetchDashboardStats();
-  }, [user?.uid]);
-
-  // Fetch activities
-  useEffect(() => {
-    const fetchActivities = async () => {
-      if (!user?.uid) return;
-      try {
-        const fetchedActivities = await firebaseApi.getActivities(user.uid, 10);
-        setActivities(fetchedActivities);
-      } catch (error) {
-        console.error('Failed to fetch activities:', error);
-        setActivities([]);
-      }
-    };
-    fetchActivities();
-  }, [user?.uid, location.pathname]);
 
   return (
     <div className="space-y-8 dashboard-container">

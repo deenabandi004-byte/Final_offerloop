@@ -237,6 +237,7 @@ Generate the cover letter text only, no additional commentary."""
         messages=[{"role": "user", "content": prompt}],
         temperature=0.7,
         max_tokens=1500,
+        timeout=60.0,  # Add explicit timeout for the API call
     )
     
     cover_letter_text = response.choices[0].message.content.strip()
@@ -377,7 +378,7 @@ def generate():
                 location=location,
                 job_description=job_description,
             ),
-            timeout=60.0
+            timeout=90.0  # Increased from 60 to handle complex generations
         )
         
         # Generate PDF
