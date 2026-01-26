@@ -300,8 +300,30 @@ const signIn = async (opts?: SignInOptions): Promise<NextRoute> => {
   };
 
   const completeOnboarding = async (onboardingData: any) => {
-    if (!user) return;
+    // Ensure user is authenticated
+    if (!auth.currentUser) {
+      console.error("❌ [ONBOARDING] User not authenticated");
+      throw new Error("User not authenticated");
+    }
+
+    // Ensure we have user data
+    if (!user) {
+      console.error("❌ [ONBOARDING] User data not loaded");
+      throw new Error("User data not loaded");
+    }
+
+    // Force token refresh to ensure permissions are up to date
+    try {
+      await auth.currentUser.getIdToken(true);
+      console.log("✅ [ONBOARDING] Auth token refreshed");
+    } catch (tokenError) {
+      console.error("❌ [ONBOARDING] Failed to refresh token:", tokenError);
+      throw new Error("Failed to refresh authentication token");
+    }
+
     const ref = doc(db, "users", user.uid);
+    console.log("💾 [ONBOARDING] Writing to path:", `users/${user.uid}`);
+    console.log("💾 [ONBOARDING] Auth UID:", auth.currentUser.uid);
 
     const clean = (obj: any): any => {
       const out: any = {};
@@ -313,24 +335,72 @@ const signIn = async (opts?: SignInOptions): Promise<NextRoute> => {
     };
 
     const cleaned = clean(onboardingData);
-    const payload = {
-      ...cleaned,
-      uid: user.uid,
-      email: user.email,
-      name: user.name,
-      picture: user.picture,
-      tier: "free",
-      credits: initialCreditsByTier("free"),
-      maxCredits: initialCreditsByTier("free"),
-      emailsMonthKey: getMonthKey(),
-      emailsUsedThisMonth: 0,
-      createdAt: new Date().toISOString(),
-      needsOnboarding: false,
-       
-    };
-
-    await setDoc(ref, payload);
-    setUser({ ...user, ...payload, needsOnboarding: false });
+    
+    // Check if document already exists
+    const docSnapshot = await getDoc(ref);
+    const docExists = docSnapshot.exists();
+    
+    if (docExists) {
+      // Document exists - use updateDoc and exclude tier/maxCredits to comply with security rules
+      // These fields are already set during sign-in, so we don't need to update them
+      const { tier, maxCredits, ...updatePayload } = {
+        ...cleaned,
+        uid: user.uid,
+        email: user.email,
+        name: user.name,
+        picture: user.picture,
+        credits: initialCreditsByTier("free"),
+        emailsMonthKey: getMonthKey(),
+        emailsUsedThisMonth: 0,
+        needsOnboarding: false,
+      };
+      
+      // Only include createdAt if it doesn't exist in the document
+      const existingData = docSnapshot.data();
+      if (!existingData?.createdAt) {
+        updatePayload.createdAt = new Date().toISOString();
+      }
+      
+      console.log("💾 [ONBOARDING] Document exists, using updateDoc");
+      try {
+        await updateDoc(ref, updatePayload);
+        console.log("✅ [ONBOARDING] Onboarding data updated successfully");
+        setUser({ ...user, ...updatePayload, needsOnboarding: false });
+      } catch (error: any) {
+        console.error("❌ [ONBOARDING] Failed to update onboarding data:", error);
+        console.error("❌ [ONBOARDING] Error code:", error.code);
+        console.error("❌ [ONBOARDING] Error message:", error.message);
+        throw error;
+      }
+    } else {
+      // Document doesn't exist - use setDoc to create it
+      const payload = {
+        ...cleaned,
+        uid: user.uid,
+        email: user.email,
+        name: user.name,
+        picture: user.picture,
+        tier: "free",
+        credits: initialCreditsByTier("free"),
+        maxCredits: initialCreditsByTier("free"),
+        emailsMonthKey: getMonthKey(),
+        emailsUsedThisMonth: 0,
+        createdAt: new Date().toISOString(),
+        needsOnboarding: false,
+      };
+      
+      console.log("💾 [ONBOARDING] Document doesn't exist, using setDoc (create)");
+      try {
+        await setDoc(ref, payload);
+        console.log("✅ [ONBOARDING] Onboarding data created successfully");
+        setUser({ ...user, ...payload, needsOnboarding: false });
+      } catch (error: any) {
+        console.error("❌ [ONBOARDING] Failed to create onboarding data:", error);
+        console.error("❌ [ONBOARDING] Error code:", error.code);
+        console.error("❌ [ONBOARDING] Error message:", error.message);
+        throw error;
+      }
+    }
   };
 
   return (
