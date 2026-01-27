@@ -11,6 +11,7 @@ NO credit cost for using this service.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -23,44 +24,87 @@ from app.services.openai_client import get_async_openai_client
 # ============================================================================
 
 PAGES = {
-    "home": {
-        "route": "/home",
-        "name": "Home / Dashboard",
-        "description": "Your central hub for tracking networking progress, managing emails, and planning your recruiting timeline.",
+    "dashboard": {
+        "route": "/dashboard",
+        "name": "Dashboard",
+        "description": "Central hub for tracking networking progress, managing emails, and planning your recruiting timeline. Shows activity stats, streak counter, and weekly summary.",
     },
     "contactSearch": {
         "route": "/contact-search",
-        "name": "Contact Search",
+        "name": "Find People (Contact Search)",
         "description": "Find professionals at companies to network with. Enter job title, company, and location to discover contacts and generate personalized outreach emails.",
         "creditCost": "15 credits per contact",
     },
     "firmSearch": {
         "route": "/firm-search",
-        "name": "Firm Search",
-        "description": "Discover companies and firms matching your criteria. Search by industry, location, and size.",
+        "name": "Find Companies (Firm Search)",
+        "description": "Discover companies and firms matching your criteria. Search by industry, location, and size. [PRO+ ONLY]",
         "creditCost": "5 credits per firm",
     },
-    "jobBoard": {
-        "route": "/job-board",
-        "name": "Job Board",
-        "description": "Browse job listings, optimize your resume for specific jobs, generate cover letters, and find recruiters.",
+    "recruiterSpreadsheet": {
+        "route": "/recruiter-spreadsheet",
+        "name": "Find Hiring Managers",
+        "description": "Find recruiters and hiring managers at target companies.",
+        "creditCost": "15 credits per contact",
     },
     "coffeeChatPrep": {
         "route": "/coffee-chat-prep",
         "name": "Coffee Chat Prep",
-        "description": "Generate comprehensive preparation materials for networking conversations.",
+        "description": "Generate comprehensive preparation materials for networking conversations. Includes talking points, questions, and company research.",
         "creditCost": "15 credits per prep",
     },
     "interviewPrep": {
         "route": "/interview-prep",
         "name": "Interview Prep",
-        "description": "Generate interview preparation guides based on job postings with real interview experiences.",
+        "description": "Generate interview preparation guides based on job postings with real interview experiences from Reddit and online sources.",
         "creditCost": "25 credits per prep",
+    },
+    "resume": {
+        "route": "/write/resume",
+        "name": "Resume",
+        "description": "Score, fix, and tailor your resume for specific jobs. Manage your resume library.",
+    },
+    "coverLetter": {
+        "route": "/write/cover-letter",
+        "name": "Cover Letter",
+        "description": "Generate custom cover letters for job applications.",
+        "creditCost": "10 credits per letter",
+    },
+    "outbox": {
+        "route": "/outbox",
+        "name": "Track Email Outreach",
+        "description": "Manage your email threads and track responses. View drafts, sent emails, and replies.",
+        "creditCost": "10 credits per reply generation",
+    },
+    "calendar": {
+        "route": "/calendar",
+        "name": "Calendar",
+        "description": "View your personalized recruiting timeline with key dates and milestones.",
+    },
+    "contactDirectory": {
+        "route": "/contact-directory",
+        "name": "Networking",
+        "description": "View and manage all your saved contacts from previous searches.",
+    },
+    "hiringManagerTracker": {
+        "route": "/hiring-manager-tracker",
+        "name": "Hiring Managers",
+        "description": "Track hiring managers you've contacted.",
+    },
+    "companyTracker": {
+        "route": "/company-tracker",
+        "name": "Companies",
+        "description": "Track companies you're targeting.",
     },
     "applicationLab": {
         "route": "/application-lab",
         "name": "Application Lab",
         "description": "Deep job fit analysis and application strengthening. Get detailed fit scores, resume edits, and cover letters.",
+    },
+    "jobBoard": {
+        "route": "/job-board",
+        "name": "Job Board",
+        "description": "Browse job listings, optimize your resume for specific jobs, generate cover letters, and find recruiters.",
     },
     "pricing": {
         "route": "/pricing",
@@ -72,16 +116,6 @@ PAGES = {
         "name": "Account Settings",
         "description": "Manage your profile, upload resume, connect Gmail, and update preferences.",
     },
-    "outbox": {
-        "route": "/home?tab=outbox",
-        "name": "Outbox",
-        "description": "Manage your email threads and track responses.",
-    },
-    "calendar": {
-        "route": "/home?tab=calendar",
-        "name": "Calendar",
-        "description": "View your personalized recruiting timeline with key dates and milestones.",
-    },
 }
 
 CREDIT_COSTS = {
@@ -89,51 +123,267 @@ CREDIT_COSTS = {
     "Firm Search": "5 credits per firm",
     "Coffee Chat Prep": "15 credits per prep",
     "Interview Prep": "25 credits per prep",
-    "Resume Optimization": "10 credits per optimization",
-    "Cover Letter": "10 credits per letter",
+    "Resume Optimization (Job Board)": "20 credits per optimization",
+    "Cover Letter (Job Board)": "15 credits per letter",
+    "Cover Letter (Write section)": "10 credits per letter",
+    "Recruiter Search": "15 credits per search",
+    "Reply Generation (Outbox)": "10 credits per reply",
+    "Resume Workshop": "Varies (scoring, tailoring, fixing)",
 }
 
 TIERS = {
-    "Free": "$0/month - 300 credits, up to 3 contacts per search",
-    "Pro": "$9.99/month - 1,500 credits, up to 8 contacts per search, resume matching",
-    "Elite": "$34.99/month - 3,000 credits, up to 15 contacts per search, all features",
+    "Free": "$0/month - 300 credits/month (~20 contacts), up to 3 contacts per search, 3 Coffee Chat Preps (LIFETIME), 2 Interview Preps (LIFETIME), 10 alumni searches (lifetime), NO Firm Search, NO resume-matched emails, NO exports",
+    "Pro": "$14.99/month - 1,500 credits/month (~100 contacts), up to 8 contacts per search, 10 Coffee Chat Preps/month, 5 Interview Preps/month, unlimited alumni searches, Full Firm Search, resume-matched emails, smart filters, bulk drafting, CSV export",
+    "Elite": "$34.99/month - 3,000 credits/month (~200 contacts), up to 15 contacts per search, UNLIMITED Coffee Chat Preps, UNLIMITED Interview Preps, everything in Pro, priority queue, personalized templates, weekly insights, early access",
 }
 
 ROUTE_KEYWORDS = {
-    "/contact-search": ["contact", "search", "find contacts", "networking", "outreach", "email", "people", "professionals"],
-    "/firm-search": ["firm", "company", "companies", "employers", "find firms", "search companies"],
-    "/job-board": ["job", "jobs", "listings", "openings", "positions", "resume", "cover letter", "recruiter"],
-    "/coffee-chat-prep": ["coffee chat", "coffee prep", "networking prep", "informational"],
+    "/dashboard": ["dashboard", "home", "main", "overview", "stats", "activity"],
+    "/contact-search": ["contact", "search", "find contacts", "networking", "outreach", "email", "people", "professionals", "find people"],
+    "/firm-search": ["firm", "company", "companies", "employers", "find firms", "search companies", "find companies"],
+    "/recruiter-spreadsheet": ["recruiter", "hiring manager", "find recruiters", "find hiring managers"],
+    "/coffee-chat-prep": ["coffee chat", "coffee prep", "networking prep", "informational", "prepare for coffee chat"],
     "/interview-prep": ["interview prep", "interview preparation", "prepare for interview"],
+    "/write/resume": ["resume", "resume workshop", "resume optimization", "tailor resume", "fix resume"],
+    "/write/cover-letter": ["cover letter", "generate cover letter"],
+    "/outbox": ["outbox", "emails", "drafts", "sent", "replies", "email threads", "track emails"],
+    "/calendar": ["calendar", "timeline", "schedule", "deadlines", "recruiting timeline"],
+    "/contact-directory": ["contact directory", "networking", "saved contacts", "contacts library"],
+    "/hiring-manager-tracker": ["hiring manager tracker", "track hiring managers"],
+    "/company-tracker": ["company tracker", "track companies", "target companies"],
     "/application-lab": ["application lab", "fit analysis", "job fit", "analyze application"],
+    "/job-board": ["job", "jobs", "listings", "openings", "positions", "job board"],
     "/pricing": ["pricing", "plans", "upgrade", "subscription", "pro", "elite", "credits", "billing"],
     "/account-settings": ["settings", "account", "profile", "gmail", "connect gmail", "resume upload"],
-    "/home?tab=outbox": ["outbox", "emails", "drafts", "sent", "replies"],
-    "/home?tab=calendar": ["calendar", "timeline", "schedule", "deadlines"],
-    "/home": ["home", "dashboard", "main"],
 }
 
 
 def _build_knowledge_prompt() -> str:
     """Build the knowledge section of the system prompt."""
-    lines = ["PAGES AND ROUTES:"]
-    for key, page in PAGES.items():
-        credit_info = f" ({page.get('creditCost', 'no credit cost')})" if page.get('creditCost') else ""
-        lines.append(f"- {page['name']} ({page['route']}): {page['description']}{credit_info}")
+    lines = [
+        "## OFFERLOOP PLATFORM",
+        "",
+        "Offerloop is an AI-powered networking and recruiting platform for students and professionals. It automates finding contacts, writing outreach emails, and preparing for conversations—saving hours of manual work.",
+        "",
+        "**Target users:** Students and professionals recruiting for internships and full-time roles, especially in investment banking, consulting, technology, and finance.",
+        "",
+        "---",
+        "",
+        "## SIDEBAR NAVIGATION & PAGES",
+        "",
+        "### FIND Section",
+        "- **Find People** (`/contact-search`) - Find professionals at companies and generate personalized outreach emails",
+        "- **Find Companies** (`/firm-search`) - Discover companies by industry, location, and size [PRO+ ONLY]",
+        "- **Find Hiring Managers** (`/recruiter-spreadsheet`) - Find recruiters and hiring managers at target companies",
+        "",
+        "### PREPARE Section",
+        "- **Coffee Chat Prep** (`/coffee-chat-prep`) - Generate prep materials for networking conversations",
+        "- **Interview Prep** (`/interview-prep`) - Generate interview guides with questions and company insights",
+        "",
+        "### WRITE Section",
+        "- **Resume** (`/write/resume`) - Score, fix, and tailor your resume for specific jobs",
+        "- **Cover Letter** (`/write/cover-letter`) - Generate custom cover letters",
+        "",
+        "### TRACK Section",
+        "- **Track Email Outreach** (`/outbox`) - Manage email threads and track responses",
+        "- **Calendar** (`/calendar`) - View recruiting timeline with key dates",
+        "- **Networking** (`/contact-directory`) - View and manage saved contacts",
+        "- **Hiring Managers** (`/hiring-manager-tracker`) - Track hiring managers you've contacted",
+        "- **Companies** (`/company-tracker`) - Track target companies",
+        "",
+        "### Other",
+        "- **Dashboard** (`/dashboard`) - Central hub with activity stats, streak counter, weekly summary",
+        "- **Pricing** (`/pricing`) - View plans and manage subscription",
+        "- **Account Settings** (`/account-settings`) - Profile, resume upload, Gmail connection",
+        "- **Application Lab** (`/application-lab`) - Deep job fit analysis with resume suggestions",
+        "- **Job Board** (`/job-board`) - Browse jobs, optimize resume, generate cover letters, find recruiters",
+        "",
+        "---",
+        "",
+        "## FEATURES & CREDIT COSTS",
+        "",
+    ]
     
-    lines.append("\nCREDIT COSTS:")
-    for feature, cost in CREDIT_COSTS.items():
-        lines.append(f"- {feature}: {cost}")
+    # Add credit costs table
+    lines.append("| Feature | Credits | Notes |")
+    lines.append("|---------|---------|-------|")
+    lines.append("| Contact Search | 15 per contact | Free: 3 max, Pro: 8 max, Elite: 15 max per search |")
+    lines.append("| Firm Search | 5 per firm | PRO+ ONLY. Batch sizes: 5, 10, 20, 40 |")
+    lines.append("| Coffee Chat Prep | 15 per prep | Free: 3 lifetime, Pro: 10/month, Elite: unlimited |")
+    lines.append("| Interview Prep | 25 per prep | Free: 2 lifetime, Pro: 5/month, Elite: unlimited |")
+    lines.append("| Resume Optimization (Job Board) | 20 per optimization | |")
+    lines.append("| Cover Letter (Job Board) | 15 per letter | |")
+    lines.append("| Cover Letter (Write section) | 10 per letter | |")
+    lines.append("| Recruiter Search | 15 per search | |")
+    lines.append("| Reply Generation (Outbox) | 10 per reply | |")
+    lines.append("| Resume Workshop | Varies | Scoring, tailoring, fixing |")
     
-    lines.append("\nSUBSCRIPTION TIERS:")
-    for tier, info in TIERS.items():
-        lines.append(f"- {tier}: {info}")
-    
-    lines.append("\nCOMMON TROUBLESHOOTING:")
-    lines.append("- Gmail not connected: Go to Account Settings and click 'Connect Gmail'")
-    lines.append("- Out of credits: Check credits in sidebar, upgrade plan at Pricing")
-    lines.append("- No contacts found: Try broader job titles or different locations")
-    lines.append("- Emails seem generic: Upload resume in Account Settings for better personalization")
+    lines.extend([
+        "",
+        "---",
+        "",
+        "## SUBSCRIPTION TIERS",
+        "",
+        "### Free ($0/month)",
+        "- 300 credits/month (~20 contacts)",
+        "- Up to 3 contacts per search",
+        "- 3 Coffee Chat Preps (LIFETIME, not monthly)",
+        "- 2 Interview Preps (LIFETIME, not monthly)",
+        "- 10 alumni searches (lifetime cap)",
+        "- Basic email generation",
+        "- Gmail integration",
+        "- NO Firm Search (blocked)",
+        "- NO resume-matched emails",
+        "- NO exports (CSV, bulk Gmail drafts)",
+        "",
+        "### Pro ($14.99/month)",
+        "- 1,500 credits/month (~100 contacts)",
+        "- Up to 8 contacts per search",
+        "- 10 Coffee Chat Preps per month",
+        "- 5 Interview Preps per month",
+        "- Unlimited alumni searches",
+        "- Full Firm Search access",
+        "- Resume-matched personalized emails",
+        "- Smart filters (school, major, career)",
+        "- Bulk drafting + CSV export",
+        "- Priority support",
+        "",
+        "### Elite ($34.99/month)",
+        "- 3,000 credits/month (~200 contacts)",
+        "- Up to 15 contacts per search",
+        "- UNLIMITED Coffee Chat Preps",
+        "- UNLIMITED Interview Preps",
+        "- Everything in Pro",
+        "- Priority queue for contact generation",
+        "- Personalized outreach templates",
+        "- Weekly firm insights",
+        "- Early access to new features",
+        "",
+        "**Credit reset:** Monthly on billing cycle date. Credits do NOT roll over.",
+        "",
+        "---",
+        "",
+        "## WORKFLOWS",
+        "",
+        "### Finding Contacts to Network With",
+        "1. Connect Gmail in Account Settings (required for email drafts)",
+        "2. Go to Find People (Contact Search)",
+        "3. Enter job title (required), company (optional), location (required)",
+        "4. Optionally filter by college or experience level",
+        "5. Select batch size (1-15 depending on plan)",
+        "6. Click Search",
+        "7. Review contacts and AI-generated emails",
+        "8. Emails save to Gmail drafts automatically",
+        "9. Open Gmail, personalize if needed, send",
+        "10. Save contacts to Networking directory",
+        "",
+        "### Preparing for a Coffee Chat",
+        "1. Go to Coffee Chat Prep",
+        "2. Get the LinkedIn URL of the person you're meeting",
+        "3. Paste URL and click Generate Prep",
+        "4. Wait 1-2 minutes for research",
+        "5. Review: talking points, questions, company news, similarity analysis",
+        "6. Download PDF for the meeting",
+        "",
+        "### Preparing for an Interview",
+        "1. Go to Interview Prep",
+        "2. Get job posting URL (or enter company + job title manually)",
+        "3. Paste and click Generate Prep",
+        "4. Wait 2-3 minutes (includes Reddit research)",
+        "5. Review: interview process, common questions, culture insights, tips",
+        "6. Download PDF for studying",
+        "",
+        "### Optimizing Resume for a Job",
+        "1. Go to Job Board",
+        "2. Find a job listing",
+        "3. Click \"Optimize Resume\"",
+        "4. Review ATS score and suggestions",
+        "5. Apply changes and download",
+        "",
+        "OR use Resume Workshop:",
+        "1. Go to Resume",
+        "2. Upload resume if needed",
+        "3. Enter job context",
+        "4. Click Tailor Resume",
+        "5. Review and apply suggestions",
+        "",
+        "### Connecting Gmail",
+        "1. Go to Account Settings",
+        "2. Find Gmail section",
+        "3. Click \"Connect Gmail\"",
+        "4. Sign in with Google and grant permissions",
+        "5. Done! Emails will save to drafts automatically",
+        "",
+        "---",
+        "",
+        "## TROUBLESHOOTING",
+        "",
+        "### \"My emails aren't saving to Gmail\"",
+        "Gmail not connected. Go to Account Settings → Connect Gmail.",
+        "",
+        "### \"I'm out of credits\"",
+        "- Check credits in sidebar (shows X/Y with progress bar)",
+        "- Credits reset monthly on your billing date",
+        "- Upgrade at Pricing page for more credits",
+        "",
+        "### \"Contact search returned no results\"",
+        "- Try broader job titles (e.g., \"Analyst\" instead of \"Investment Banking Analyst\")",
+        "- Check spelling of company name",
+        "- Try a different or broader location",
+        "- Some smaller companies have limited data",
+        "- Use Scout's search help for alternative suggestions",
+        "",
+        "### \"Firm Search is blocked\"",
+        "Firm Search is Pro+ only. Upgrade to Pro ($14.99/month) or Elite ($34.99/month) at Pricing.",
+        "",
+        "### \"My emails seem generic\"",
+        "- Upload your resume in Account Settings",
+        "- Pro/Elite users get resume-matched personalization",
+        "- Complete your profile with career interests",
+        "",
+        "### \"Coffee Chat Prep taking too long\"",
+        "Usually 1-2 minutes. If stuck >5 minutes:",
+        "- Check LinkedIn URL is valid and public (not private profile)",
+        "- Refresh and try again",
+        "- Make sure you have enough credits (15)",
+        "",
+        "### \"Interview Prep failed\"",
+        "- Try pasting job description manually instead of URL",
+        "- Some job postings require login (can't be scraped)",
+        "- Check you have enough credits (25)",
+        "- Normal processing is 2-3 minutes",
+        "",
+        "### \"Payment/subscription issues\"",
+        "Go to Pricing → Manage Subscription. Opens Stripe to update payment or manage billing.",
+        "",
+        "### \"How do I cancel?\"",
+        "Go to Pricing → Manage Subscription → Cancel in Stripe portal.",
+        "",
+        "---",
+        "",
+        "## QUICK REFERENCE",
+        "",
+        "**Credit costs to remember:**",
+        "- Contact = 15 credits",
+        "- Firm = 5 credits",
+        "- Coffee Chat Prep = 15 credits",
+        "- Interview Prep = 25 credits",
+        "- Resume Optimization = 20 credits (Job Board)",
+        "- Cover Letter = 10-15 credits",
+        "- Reply Generation = 10 credits",
+        "",
+        "**Tier limits to remember:**",
+        "- Free: 3 contacts/search, 3 coffee chats LIFETIME, 2 interview preps LIFETIME",
+        "- Pro: 8 contacts/search, 10 coffee chats/MONTH, 5 interview preps/MONTH",
+        "- Elite: 15 contacts/search, UNLIMITED preps",
+        "",
+        "**Pro+ only features:**",
+        "- Firm Search",
+        "- Resume-matched emails",
+        "- CSV export",
+        "- Bulk Gmail drafting",
+        "- Smart filters",
+    ])
     
     return "\n".join(lines)
 
@@ -166,12 +416,13 @@ AVAILABLE ROUTES FOR NAVIGATION:
 
 CRITICAL INSTRUCTIONS:
 1. Answer questions about Offerloop features and how to use them
-2. When directing user to a page, ALWAYS include the route in your response JSON's "navigate_to" field
-3. Do NOT mention "click the button below" or reference any buttons in your message - the navigation button appears automatically
-4. Your message should read naturally, e.g., "Head to Contact Search to find professionals" NOT "Click the button below to go to Contact Search"
-5. If user asks about something outside Offerloop, politely redirect: "I'm here to help with Offerloop! What can I help you with on the platform?"
-6. If you're unsure about something, say so—don't make up features
-7. When mentioning credit costs, be specific about how many credits each action costs
+2. Questions like "What is Offerloop?", "Tell me about Offerloop", or "What does Offerloop do?" are VALID questions - answer them using the Platform Overview from your knowledge base
+3. When directing user to a page, ALWAYS include the route in your response JSON's "navigate_to" field
+4. Do NOT mention "click the button below" or reference any buttons in your message - the navigation button appears automatically
+5. Your message should read naturally, e.g., "Head to Contact Search to find professionals" NOT "Click the button below to go to Contact Search"
+6. Only redirect users who ask about topics COMPLETELY unrelated to Offerloop (e.g., "What's the weather?", "Help me with my homework")
+7. If you're unsure about something, say so—don't make up features
+8. When mentioning credit costs, be specific about how many credits each action costs
 
 AUTO-POPULATE INSTRUCTIONS:
 When a user asks you to find specific people or companies, extract the search parameters from their request and include them in "auto_populate":
@@ -320,14 +571,26 @@ class ScoutAssistantService:
         messages.append({"role": "user", "content": message})
         
         try:
-            # Call OpenAI
-            response = await self._openai.chat.completions.create(
-                model=self.DEFAULT_MODEL,
-                messages=messages,
-                temperature=0.7,
-                max_tokens=500,
-                response_format={"type": "json_object"},
-            )
+            # Call OpenAI with timeout (15 seconds)
+            try:
+                response = await asyncio.wait_for(
+                    self._openai.chat.completions.create(
+                        model=self.DEFAULT_MODEL,
+                        messages=messages,
+                        temperature=0.7,
+                        max_tokens=500,
+                        response_format={"type": "json_object"},
+                    ),
+                    timeout=15.0  # 15 second timeout
+                )
+            except asyncio.TimeoutError:
+                # Timeout occurred - return friendly message
+                return ScoutAssistantResponse(
+                    message="I'm taking too long to think! Could you try asking that again?",
+                    navigate_to=None,
+                    action_buttons=[],
+                    auto_populate=None,
+                ).to_dict()
             
             # Parse response
             content = response.choices[0].message.content
@@ -335,7 +598,16 @@ class ScoutAssistantService:
                 parsed = json.loads(content)
             except json.JSONDecodeError:
                 # If JSON parsing fails, use content as message
-                parsed = {"message": content, "navigate_to": None, "action_buttons": [], "auto_populate": None}
+                if content and content.strip():
+                    parsed = {"message": content, "navigate_to": None, "action_buttons": [], "auto_populate": None}
+                else:
+                    # Empty or invalid content - return fallback
+                    parsed = {
+                        "message": "I had trouble formatting my response. Could you try again?",
+                        "navigate_to": None,
+                        "action_buttons": [],
+                        "auto_populate": None
+                    }
             
             # Extract fields
             response_message = parsed.get("message", "I'm not sure how to help with that. Could you rephrase?")
@@ -346,10 +618,14 @@ class ScoutAssistantService:
             # Validate navigate_to is a valid route
             if navigate_to and not any(navigate_to.startswith(route.split("?")[0]) for route in ROUTE_KEYWORDS.keys()):
                 # Check if it's a valid route we know about
-                valid_routes = ["/home", "/contact-search", "/firm-search", "/job-board", 
-                               "/coffee-chat-prep", "/interview-prep", "/application-lab",
-                               "/pricing", "/account-settings", "/contact-directory"]
-                if navigate_to not in valid_routes and not navigate_to.startswith("/home?"):
+                valid_routes = [
+                    "/dashboard", "/contact-search", "/firm-search", "/recruiter-spreadsheet",
+                    "/job-board", "/coffee-chat-prep", "/interview-prep", "/application-lab",
+                    "/write/resume", "/write/cover-letter", "/outbox", "/calendar",
+                    "/contact-directory", "/hiring-manager-tracker", "/company-tracker",
+                    "/pricing", "/account-settings"
+                ]
+                if navigate_to not in valid_routes:
                     navigate_to = None
             
             # Validate action buttons
@@ -392,13 +668,10 @@ class ScoutAssistantService:
             import traceback
             traceback.print_exc()
             
-            # Return a helpful fallback response
-            detected_route = _detect_route_from_query(message)
-            fallback_message = "I ran into a hiccup, but I'm here to help! What would you like to know about Offerloop?"
-            
+            # Always return a valid response, even on error
             return ScoutAssistantResponse(
-                message=fallback_message,
-                navigate_to=detected_route,
+                message="I'm having a moment! Could you try asking that again?",
+                navigate_to=None,
                 action_buttons=[],
                 auto_populate=None,
             ).to_dict()

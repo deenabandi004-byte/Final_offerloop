@@ -88,11 +88,13 @@ def scout_assistant_chat():
         print(f"[ScoutAssistant] Chat endpoint failed: {type(exc).__name__}: {exc}")
         import traceback
         traceback.print_exc()
+        # Always return a valid response, even on error
         return jsonify({
-            "message": "I ran into an issue, but I'm here to help! What would you like to know about Offerloop?",
+            "message": "I'm having trouble right now. Please try again!",
             "navigate_to": None,
             "action_buttons": [],
-        }), 200  # Return 200 even on error to not break the chat
+            "auto_populate": None,
+        }), 200  # Return 200 so frontend doesn't show error state
 
 
 @scout_assistant_bp.route("/search-help", methods=["POST", "OPTIONS"])

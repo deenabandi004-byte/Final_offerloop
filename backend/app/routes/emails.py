@@ -171,16 +171,82 @@ def generate_and_draft():
         if "for context, i've attached my resume below" not in body.lower():
             body += "\n\nFor context, I've attached my resume below."
 
+        # Check if body already ends with a signature (batch_generate_emails includes signature)
+        # Look for common signature patterns: "Best,", "Best regards", user name, email, university
+        body_lower = body.lower()
+        has_signature = False
+        if user_profile:
+            user_name = user_profile.get('name', '').lower()
+            user_email = user_profile.get('email', '').lower()
+            user_university = user_profile.get('university', '').lower()
+            
+            # Check if body ends with signature-like content
+            signature_indicators = [
+                'best,', 'best regards', 'thank you', 'thanks,', 'sincerely',
+                user_name if user_name else None,
+                user_email if user_email else None,
+                user_university if user_university else None
+            ]
+            signature_indicators = [s for s in signature_indicators if s]
+            
+            # Check last 200 characters for signature indicators
+            body_end = body_lower[-200:] if len(body_lower) > 200 else body_lower
+            has_signature = any(indicator in body_end for indicator in signature_indicators)
+        
+        # Build signature from user_profile (only if not already present)
+        signature_html = ""
+        signature_text = ""
+        if not has_signature and user_profile:
+            user_name = user_profile.get('name', '')
+            user_email = user_profile.get('email', '')
+            user_university = user_profile.get('university', '')
+            user_year = user_profile.get('year', '') or user_profile.get('graduationYear', '')
+            
+            # Build HTML signature
+            signature_parts_html = []
+            if user_name:
+                signature_parts_html.append(f"<b>{user_name}</b>")
+            if user_university:
+                if user_year:
+                    signature_parts_html.append(f"{user_university} | Class of {user_year}")
+                else:
+                    signature_parts_html.append(user_university)
+            if user_email:
+                signature_parts_html.append(f'<a href="mailto:{user_email}">{user_email}</a>')
+            
+            if signature_parts_html:
+                signature_html = f"<br><p>Best,<br>{'<br>'.join(signature_parts_html)}</p>"
+            else:
+                signature_html = "<br><p>Best regards</p>"
+            
+            # Build plain text signature (for Firestore)
+            signature_lines = ["Best,"]
+            if user_name:
+                signature_lines.append(user_name)
+            if user_university:
+                if user_year:
+                    signature_lines.append(f"{user_university} | Class of {user_year}")
+                else:
+                    signature_lines.append(user_university)
+            if user_email:
+                signature_lines.append(user_email)
+            
+            signature_text = "\n" + "\n".join(signature_lines)
+        elif not has_signature:
+            signature_html = "<br><p>Best regards</p>"
+            signature_text = "\n\nBest regards"
+        
+        # Add signature to body before saving to Firestore (only if not already present)
+        if signature_text:
+            body += signature_text
+
         # Convert to simple HTML (paragraph spacing)
         html_body = "".join([
             f'<p style="margin:12px 0; line-height:1.6;">{p.strip()}</p>'
             for p in body.split("\n") if p.strip()
         ])
-        html_body += """
-            <br><p>Warm regards,<br><b>Nicholas Wittig</b><br>
-            USC Marshall School of Business<br>
-            <a href='mailto:nwittig@usc.edu'>nwittig@usc.edu</a></p>
-        """
+        # Add HTML signature
+        html_body += signature_html
 
         # --- Build MIME message ---
         msg = MIMEMultipart("mixed")

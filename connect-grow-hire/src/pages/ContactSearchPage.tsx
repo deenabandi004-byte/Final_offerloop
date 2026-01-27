@@ -319,7 +319,7 @@ const ContactSearchPage: React.FC = () => {
       const today = new Date().toLocaleDateString('en-US');
       const mapped: Omit<ContactApi, 'id'>[] = contacts.map((c: any) => {
         const derivedLocation = [c.City ?? '', c.State ?? ''].filter(Boolean).join(', ') || c.location || searchLocation || '';
-        return stripUndefined({
+        const mappedContact = stripUndefined({
           firstName: c.FirstName ?? c.firstName ?? '',
           lastName: c.LastName ?? c.lastName ?? '',
           linkedinUrl: c.LinkedIn ?? c.linkedinUrl ?? '',
@@ -340,6 +340,21 @@ const ContactSearchPage: React.FC = () => {
           hasUnreadReply: false,
           notificationsMuted: false,
         });
+        
+        // DEBUG: Log first mapped contact to see email fields
+        if (contacts.indexOf(c) === 0) {
+          console.log('[DEBUG] autoSaveToDirectory - Original contact:', {
+            emailSubject: c.emailSubject || c.email_subject || 'MISSING',
+            emailBody: c.emailBody || c.email_body ? `${(c.emailBody || c.email_body).substring(0, 100)}...` : 'MISSING',
+            allKeys: Object.keys(c).filter(k => k.toLowerCase().includes('email')),
+          });
+          console.log('[DEBUG] autoSaveToDirectory - Mapped contact:', {
+            emailSubject: mappedContact.emailSubject || 'MISSING',
+            emailBody: mappedContact.emailBody ? `${mappedContact.emailBody.substring(0, 100)}...` : 'MISSING',
+          });
+        }
+        
+        return mappedContact;
       });
       await firebaseApi.bulkCreateContacts(user.uid, mapped);
     } catch (error) {
@@ -927,6 +942,9 @@ const ContactSearchPage: React.FC = () => {
           }
         }
 
+        // DEBUG: Log raw search result contacts before saving
+        console.log('[DEBUG] Raw search result contacts:', JSON.stringify(result.contacts.slice(0, 2), null, 2));
+        
         try {
           await autoSaveToDirectory(result.contacts, location.trim());
           toast({
@@ -1068,6 +1086,9 @@ const ContactSearchPage: React.FC = () => {
           }
         }
 
+        // DEBUG: Log raw search result contacts before saving
+        console.log('[DEBUG] Raw search result contacts:', JSON.stringify(result.contacts.slice(0, 2), null, 2));
+        
         try {
           await autoSaveToDirectory(result.contacts, location.trim());
           

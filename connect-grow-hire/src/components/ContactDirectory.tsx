@@ -29,6 +29,7 @@ import type { Contact as ContactApi } from '../services/firebaseApi';
 import { useFirebaseMigration } from '../hooks/useFirebaseMigration';
 import { NotificationBell } from '../components/NotificationBell';
 import { apiService } from '@/services/api';
+import { useToast } from '@/hooks/use-toast';
 
 type Contact = ContactApi;
 
@@ -46,6 +47,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
   const navigate = useNavigate();
   const { user: currentUser } = useFirebaseAuth();
   const { isLoading: migrationLoading } = useFirebaseMigration();
+  const { toast } = useToast();
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [filteredContacts, setFilteredContacts] = useState<Contact[]>([]);
@@ -61,38 +63,95 @@ const SpreadsheetContactDirectory: React.FC = () => {
   const [isCheckingReplies, setIsCheckingReplies] = useState(false);
 
   const tableContainerRef = useRef<HTMLDivElement>(null);
+  const isCheckingRepliesRef = useRef(false);
+  const lastCheckTimeRef = useRef<number>(0);
 
   const getStorageKey = () => {
     return currentUser ? `contacts_${currentUser.uid}` : 'contacts_anonymous';
   };
 
-  const normalizeFromServer = (serverContact: any): Contact => ({
-    id: serverContact.id,
-    firstName: serverContact.firstName || serverContact.first_name || '',
-    lastName: serverContact.lastName || serverContact.last_name || '',
-    linkedinUrl: serverContact.linkedinUrl || serverContact.linkedin_url || '',
-    email: serverContact.email || '',
-    company: serverContact.company || '',
-    jobTitle: serverContact.jobTitle || serverContact.job_title || '',
-    college: serverContact.college || '',
-    location: serverContact.location || '',
-    firstContactDate: serverContact.firstContactDate || serverContact.first_contact_date || '',
-    status: serverContact.status || 'Not Contacted',
-    lastContactDate: serverContact.lastContactDate || serverContact.last_contact_date || '',
-    emailSubject: serverContact.emailSubject || serverContact.email_subject || '',
-    emailBody: serverContact.emailBody || serverContact.email_body || '',
-    gmailDraftId: serverContact.gmailDraftId || serverContact.gmail_draft_id || '',
-    gmailDraftUrl: serverContact.gmailDraftUrl || serverContact.gmail_draft_url || '',
-    createdAt: serverContact.createdAt || serverContact.created_at,
-    updatedAt: serverContact.updatedAt || serverContact.updated_at,
-    gmailThreadId: serverContact.gmailThreadId || serverContact.gmail_thread_id,
-    gmailMessageId: serverContact.gmailMessageId || serverContact.gmail_message_id,
-    hasUnreadReply: serverContact.hasUnreadReply || serverContact.has_unread_reply || false,
-    notificationsMuted: serverContact.notificationsMuted || serverContact.notifications_muted || false,
-    draftCreatedAt: serverContact.draftCreatedAt,
-    lastChecked: serverContact.lastChecked,
-    mutedAt: serverContact.mutedAt,
-  });
+  const normalizeFromServer = (serverContact: any): Contact => {
+    // Helper to get value from multiple possible field names, preserving undefined/null
+    const getField = (...fieldNames: string[]): string | undefined => {
+      for (const fieldName of fieldNames) {
+        const value = serverContact[fieldName];
+        if (value !== undefined && value !== null && value !== '') {
+          return String(value).trim();
+        }
+      }
+      return undefined;
+    };
+
+    // DEBUG: Log raw server contact data
+    console.log('[DEBUG] Raw server contact:', JSON.stringify(serverContact, null, 2));
+    
+    // DEBUG: Log normalized email fields
+    const normalizedEmailSubject = getField('emailSubject', 'email_subject');
+    const normalizedEmailBody = getField('emailBody', 'email_body', 'emailContent', 'email_content');
+    console.log('[DEBUG] Normalized emailSubject:', normalizedEmailSubject);
+    console.log('[DEBUG] Normalized emailBody:', normalizedEmailBody ? `${normalizedEmailBody.substring(0, 100)}...` : 'MISSING');
+
+    // DIAGNOSTIC: Log raw server contact data for email fields
+    const isDev = import.meta.env.DEV;
+    if (isDev && (serverContact.emailSubject || serverContact.email_subject || serverContact.emailBody || serverContact.email_body || serverContact.emailContent || serverContact.email_content)) {
+      console.log('[ContactDirectory] normalizeFromServer - Raw email fields:', {
+        id: serverContact.id,
+        name: `${serverContact.firstName || ''} ${serverContact.lastName || ''}`,
+        emailSubject: serverContact.emailSubject || 'MISSING',
+        email_subject: serverContact.email_subject || 'MISSING',
+        emailBody: serverContact.emailBody ? `${serverContact.emailBody.substring(0, 100)}...` : 'MISSING',
+        email_body: serverContact.email_body ? `${serverContact.email_body.substring(0, 100)}...` : 'MISSING',
+        emailContent: serverContact.emailContent ? `${serverContact.emailContent.substring(0, 100)}...` : 'MISSING',
+        email_content: serverContact.email_content ? `${serverContact.email_content.substring(0, 100)}...` : 'MISSING',
+        allEmailKeys: Object.keys(serverContact).filter(k => k.toLowerCase().includes('email')),
+      });
+    }
+
+    const normalized = {
+      id: serverContact.id,
+      firstName: serverContact.firstName || serverContact.first_name || '',
+      lastName: serverContact.lastName || serverContact.last_name || '',
+      linkedinUrl: serverContact.linkedinUrl || serverContact.linkedin_url || '',
+      email: serverContact.email || '',
+      company: serverContact.company || '',
+      jobTitle: serverContact.jobTitle || serverContact.job_title || '',
+      college: serverContact.college || '',
+      location: serverContact.location || '',
+      firstContactDate: serverContact.firstContactDate || serverContact.first_contact_date || '',
+      status: serverContact.status || 'Not Contacted',
+      lastContactDate: serverContact.lastContactDate || serverContact.last_contact_date || '',
+      // SOURCE OF TRUTH: emailSubject/emailBody are the generated outreach emails from backend
+      // Check both camelCase (emailSubject) and snake_case (email_subject) variants
+      // Also check emailContent (legacy field name from linkedin_import bug - now fixed)
+      // Preserve undefined if not present (don't default to empty string)
+      emailSubject: normalizedEmailSubject,
+      emailBody: normalizedEmailBody,
+      gmailDraftId: serverContact.gmailDraftId || serverContact.gmail_draft_id || '',
+      gmailDraftUrl: serverContact.gmailDraftUrl || serverContact.gmail_draft_url || '',
+      createdAt: serverContact.createdAt || serverContact.created_at,
+      updatedAt: serverContact.updatedAt || serverContact.updated_at,
+      gmailThreadId: serverContact.gmailThreadId || serverContact.gmail_thread_id,
+      gmailMessageId: serverContact.gmailMessageId || serverContact.gmail_message_id,
+      hasUnreadReply: serverContact.hasUnreadReply || serverContact.has_unread_reply || false,
+      notificationsMuted: serverContact.notificationsMuted || serverContact.notifications_muted || false,
+      draftCreatedAt: serverContact.draftCreatedAt,
+      lastChecked: serverContact.lastChecked,
+      mutedAt: serverContact.mutedAt,
+    };
+
+    if (isDev) {
+      console.log('[ContactDirectory] normalizeFromServer - Normalized email fields:', {
+        id: normalized.id,
+        name: `${normalized.firstName || ''} ${normalized.lastName || ''}`,
+        emailSubject: normalized.emailSubject ? `${normalized.emailSubject.substring(0, 100)}...` : 'MISSING',
+        emailBody: normalized.emailBody ? `${normalized.emailBody.substring(0, 100)}...` : 'MISSING',
+        emailSubjectLength: normalized.emailSubject?.length || 0,
+        emailBodyLength: normalized.emailBody?.length || 0,
+      });
+    }
+
+    return normalized;
+  };
 
   const loadContacts = async () => {
     try {
@@ -199,17 +258,26 @@ const SpreadsheetContactDirectory: React.FC = () => {
   };
 
   const checkRepliesForAllContacts = useCallback(async () => {
-    if (!contacts || contacts.length === 0 || isCheckingReplies || !currentUser) return;
+    // Debounce: Don't check more than once every 30 seconds
+    const now = Date.now();
+    if (now - lastCheckTimeRef.current < 30000) {
+      return;
+    }
+    
+    if (isCheckingRepliesRef.current || !currentUser) return;
+    
+    isCheckingRepliesRef.current = true;
     setIsCheckingReplies(true);
+    lastCheckTimeRef.current = now;
 
     try {
+      // Access contacts directly - don't need it in deps since we read current value
       const contactsWithThreads = contacts
         .filter((c) => c.gmailThreadId && !c.notificationsMuted && c.id)
         .map((c) => c.id!)
         .filter(Boolean);
 
       if (contactsWithThreads.length === 0) {
-        setIsCheckingReplies(false);
         return;
       }
 
@@ -218,17 +286,30 @@ const SpreadsheetContactDirectory: React.FC = () => {
     } catch (error) {
       console.error('Error checking replies:', error);
     } finally {
+      isCheckingRepliesRef.current = false;
       setIsCheckingReplies(false);
     }
-  }, [contacts, isCheckingReplies, currentUser]);
+  }, [currentUser, contacts]); // Keep contacts but we'll fix the useEffect
 
   useEffect(() => {
-    if (currentUser && contacts.length > 0) {
+    if (!currentUser || contacts.length === 0) return;
+    
+    // Initial check with delay to avoid rapid fire on mount
+    const initialTimeout = setTimeout(() => {
       checkRepliesForAllContacts();
-      const interval = setInterval(() => checkRepliesForAllContacts(), 120000);
-      return () => clearInterval(interval);
-    }
-  }, [currentUser, contacts.length, checkRepliesForAllContacts]);
+    }, 2000);
+    
+    // Set up polling interval (2 minutes)
+    const interval = setInterval(() => {
+      checkRepliesForAllContacts();
+    }, 120000);
+    
+    return () => {
+      clearTimeout(initialTimeout);
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, contacts.length]); // Intentionally exclude checkRepliesForAllContacts to prevent infinite loop
 
   useEffect(() => {
     (window as any).addContactsToDirectory = addContactsToDirectory;
@@ -287,52 +368,191 @@ const SpreadsheetContactDirectory: React.FC = () => {
     setEditingCell(null);
   };
 
+  const handleDeleteContact = async (contactId: string, contactName: string) => {
+    // Show confirmation dialog
+    if (!window.confirm(`Are you sure you want to delete ${contactName}? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      if (currentUser && contactId && !contactId.startsWith('local_')) {
+        // Delete from Firestore via backend API
+        await firebaseApi.deleteContact(currentUser.uid, contactId);
+      }
+      
+      // Update local state
+      setContacts((prev) => prev.filter((contact) => contact.id !== contactId));
+      
+      // Save to localStorage for anonymous users
+      if (!currentUser) {
+        const updatedContacts = contacts.filter((contact) => contact.id !== contactId);
+        localStorage.setItem(getStorageKey(), JSON.stringify(updatedContacts));
+      }
+      
+      toast({
+        title: 'Contact Deleted',
+        description: `${contactName} has been removed from your contacts.`,
+      });
+    } catch (error) {
+      console.error('Error deleting contact:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete contact. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  /**
+   * Get email subject/body with strict precedence order:
+   * 1. Most recent generated email (emailSubject/emailBody) - SOURCE OF TRUTH
+   * 2. Fallback template (only if no generated email exists)
+   * 
+   * This ensures we always use the high-quality generated outreach emails
+   * that match what users see elsewhere in the app.
+   */
+  const getEmailContent = (contact: Contact): { subject: string; body: string } => {
+    // DIAGNOSTIC: Log contact email fields to debug why fallback is used
+    const isDev = import.meta.env.DEV;
+    if (isDev) {
+      const generatedSubject = contact.emailSubject?.trim();
+      const generatedBody = contact.emailBody?.trim();
+      console.log('[ContactDirectory] getEmailContent - Contact data:', {
+        id: contact.id,
+        name: `${contact.firstName || ''} ${contact.lastName || ''}`,
+        email: contact.email || 'MISSING',
+        emailSubject: contact.emailSubject || 'MISSING',
+        emailBody: contact.emailBody ? `${contact.emailBody.substring(0, 100)}...` : 'MISSING',
+        emailSubjectType: typeof contact.emailSubject,
+        emailBodyType: typeof contact.emailBody,
+        emailSubjectLength: contact.emailSubject?.length || 0,
+        emailBodyLength: contact.emailBody?.length || 0,
+        emailSubjectTrimmed: generatedSubject || 'EMPTY_AFTER_TRIM',
+        emailBodyTrimmed: generatedBody ? `${generatedBody.substring(0, 100)}...` : 'EMPTY_AFTER_TRIM',
+        willUseGeneratedSubject: !!(generatedSubject && generatedSubject.length > 0),
+        willUseGeneratedBody: !!(generatedBody && generatedBody.length > 0),
+      });
+    }
+
+    // PRECEDENCE 1: Use generated email content if present (non-empty after trimming)
+    // emailSubject/emailBody are the source of truth - they contain the actual
+    // generated outreach emails saved by the backend (see emails.py, runs.py, etc.)
+    const generatedSubject = contact.emailSubject?.trim();
+    const generatedBody = contact.emailBody?.trim();
+    
+    const subject = generatedSubject && generatedSubject.length > 0
+      ? generatedSubject
+      : `Question about your work at ${contact.company || 'your company'}`;
+    
+    const body = generatedBody && generatedBody.length > 0
+      ? generatedBody
+      : `Hi ${contact.firstName || 'there'},\n\nI'd love to connect and learn more about your work.\n\nBest regards`;
+    
+    if (isDev) {
+      console.log('[ContactDirectory] getEmailContent - Result:', {
+        usingGeneratedSubject: generatedSubject && generatedSubject.length > 0,
+        usingGeneratedBody: generatedBody && generatedBody.length > 0,
+        finalSubject: subject.substring(0, 150),
+        finalBody: body.substring(0, 200),
+        finalSubjectLength: subject.length,
+        finalBodyLength: body.length,
+        isFallbackSubject: !(generatedSubject && generatedSubject.length > 0),
+        isFallbackBody: !(generatedBody && generatedBody.length > 0),
+      });
+    }
+    
+    return { subject, body };
+  };
+
   const buildMailto = (contact: Contact) => {
     const to = contact.email;
     if (!to) return '#';
-    const subject =
-      contact.emailSubject || `Question about your work at ${contact.company || 'your company'}`;
-    const body =
-      contact.emailBody ||
-      `Hi ${contact.firstName || 'there'},\n\nI'd love to connect and learn more about your work.\n\nBest regards`;
+    const { subject, body } = getEmailContent(contact);
     return `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(
       subject
     )}&body=${encodeURIComponent(body.replace(/\n/g, '\r\n'))}`;
   };
 
   const buildGmailLink = (contact: Contact) => {
-    if (contact.gmailDraftUrl) {
-      return contact.gmailDraftUrl;
-    }
-    
+    // Always build a new Gmail compose URL with pre-filled fields
+    // Do NOT attempt to open existing drafts via URL (unreliable)
     const to = contact.email;
     if (!to) return '#';
-    const subject =
-      contact.emailSubject || `Question about your work at ${contact.company || 'your company'}`;
-    const body =
-      contact.emailBody ||
-      `Hi ${contact.firstName || 'there'},\n\nI'd love to connect and learn more about your work.\n\nBest regards`;
-    return `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(
+    const { subject, body } = getEmailContent(contact);
+    // Use the reliable Gmail compose URL format with proper encoding
+    return `https://mail.google.com/mail/u/0/?view=cm&fs=1&tf=1&to=${encodeURIComponent(
       to
     )}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
   const handleEmailClick = (contact: Contact) => {
-    if (contact.gmailDraftUrl) {
-      window.open(contact.gmailDraftUrl, '_blank');
-      return;
+    // DIAGNOSTIC: Log full contact data when email icon is clicked
+    const isDev = import.meta.env.DEV;
+    if (isDev) {
+      console.log('[ContactDirectory] handleEmailClick - Full contact object:', {
+        id: contact.id,
+        name: `${contact.firstName} ${contact.lastName}`,
+        email: contact.email,
+        emailSubject: contact.emailSubject,
+        emailBody: contact.emailBody ? `${contact.emailBody.substring(0, 100)}...` : 'MISSING',
+        emailSubjectType: typeof contact.emailSubject,
+        emailBodyType: typeof contact.emailBody,
+        emailSubjectLength: contact.emailSubject?.length || 0,
+        emailBodyLength: contact.emailBody?.length || 0,
+        allEmailFields: Object.keys(contact).filter(k => k.toLowerCase().includes('email')),
+        rawContact: contact,
+      });
+      
+      // Also log what getEmailContent will return
+      const { subject, body } = getEmailContent(contact);
+      console.log('[ContactDirectory] handleEmailClick - getEmailContent result:', {
+        subject: subject.substring(0, 150),
+        body: body.substring(0, 200),
+        subjectLength: subject.length,
+        bodyLength: body.length,
+        subjectStartsWith: subject.substring(0, 30),
+        bodyStartsWith: body.substring(0, 50),
+      });
     }
+    
+    // Always show the mail app selection dialog
+    // Do NOT attempt to open existing Gmail drafts via URL (unreliable)
+    // The gmailDraftId/gmailDraftUrl are kept for backend tracking but not used for opening
     setSelectedContactForEmail(contact);
     setMailAppDialogOpen(true);
   };
 
   const handleMailAppSelect = (app: 'apple' | 'gmail') => {
     if (!selectedContactForEmail) return;
+    
     if (app === 'apple') {
       window.open(buildMailto(selectedContactForEmail), '_blank');
+      // Note: Apple Mail can't attach files via mailto: URL
+      toast({
+        title: 'Reminder',
+        description: 'Please attach your resume before sending.',
+      });
     } else {
+      // Always open a new Gmail compose window (reliable)
+      // Gmail draft URLs are unreliable and often redirect to inbox
+      // Note: Gmail compose URLs cannot attach files, so we show a reminder
       window.open(buildGmailLink(selectedContactForEmail), '_blank');
+      
+      // Check if a draft with resume exists - if so, guide user to it
+      const hasDraft = selectedContactForEmail.gmailDraftId && selectedContactForEmail.gmailDraftId.trim().length > 0;
+      if (hasDraft) {
+        toast({
+          title: 'Resume Reminder',
+          description: 'A draft with your resume attached exists in Gmail. Check your drafts folder, or attach your resume to this new email.',
+        });
+      } else {
+        toast({
+          title: 'Reminder',
+          description: 'Please attach your resume before sending.',
+        });
+      }
     }
+    
     setMailAppDialogOpen(false);
     setSelectedContactForEmail(null);
   };
@@ -739,18 +959,32 @@ const SpreadsheetContactDirectory: React.FC = () => {
 
                       {/* Actions */}
                       <td className="px-4 py-3 whitespace-nowrap text-right">
-                        {contact.email ? (
+                        <div className="flex items-center justify-end gap-2">
+                          {contact.email ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleEmailClick(contact)}
+                              className="text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                            >
+                              <Mail className="h-4 w-4" />
+                            </Button>
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
                           <Button
-                            size="sm"
                             variant="ghost"
-                            onClick={() => handleEmailClick(contact)}
-                            className="text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation(); // Prevent row selection
+                              handleDeleteContact(contact.id!, getDisplayName(contact));
+                            }}
+                            className="h-8 w-8 p-0 text-gray-400 hover:text-red-500 hover:bg-red-50"
+                            title="Delete contact"
                           >
-                            <Mail className="h-4 w-4" />
+                            <Trash2 className="h-4 w-4" />
                           </Button>
-                        ) : (
-                          <span className="text-gray-300">—</span>
-                        )}
+                        </div>
                       </td>
                     </tr>
                   );

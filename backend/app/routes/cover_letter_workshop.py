@@ -130,10 +130,10 @@ async def _parse_job_url(job_url: str) -> Optional[Dict[str, Any]]:
         # If metadata already has good info, use it directly
         if metadata.get('job_title') and metadata.get('company_name'):
             return {
-                "job_title": metadata.get('job_title', ''),
-                "company": metadata.get('company_name', ''),
-                "location": metadata.get('location', ''),
-                "job_description": metadata.get('description', content[:3000])
+                "job_title": str(metadata.get('job_title', '') or ''),
+                "company": str(metadata.get('company_name', '') or ''),
+                "location": str(metadata.get('location', '') or ''),
+                "job_description": str(metadata.get('description', content[:3000]) or '')
             }
         
         # Otherwise, use GPT to extract structured job info
@@ -162,7 +162,13 @@ Return JSON:
         )
         
         result = json.loads(response.choices[0].message.content)
-        return result
+        # Ensure all values are strings
+        return {
+            "job_title": str(result.get('job_title', '') or ''),
+            "company": str(result.get('company', '') or ''),
+            "location": str(result.get('location', '') or ''),
+            "job_description": str(result.get('job_description', '') or '')
+        }
         
     except Exception as e:
         logger.warning(f"[CoverLetterWorkshop] Job URL parsing failed: {e}")
@@ -182,6 +188,14 @@ async def _generate_cover_letter(
     openai_client = get_async_openai_client()
     if not openai_client:
         raise ValueError("OpenAI client not available")
+    
+    # Ensure all string inputs are actually strings
+    resume_text = str(resume_text) if resume_text else ""
+    user_name = str(user_name) if user_name else ""
+    job_title = str(job_title) if job_title else ""
+    company = str(company) if company else ""
+    location = str(location) if location else ""
+    job_description = str(job_description) if job_description else ""
     
     # Extract key info from resume
     experience_summary = ""
@@ -333,13 +347,21 @@ def generate():
         if job_url:
             parsed_job = run_async(_parse_job_url(job_url), timeout=30.0)
             if parsed_job:
-                job_title = job_title or parsed_job.get('job_title', '')
-                company = company or parsed_job.get('company', '')
-                location = location or parsed_job.get('location', '')
-                job_description = job_description or parsed_job.get('job_description', '')
+                # Ensure all values are strings
+                job_title = job_title or str(parsed_job.get('job_title', '') or '')
+                company = company or str(parsed_job.get('company', '') or '')
+                location = location or str(parsed_job.get('location', '') or '')
+                parsed_desc = parsed_job.get('job_description', '')
+                job_description = job_description or str(parsed_desc if parsed_desc else '')
+        
+        # Ensure job_description is a string (it might be a dict or other type)
+        job_description = str(job_description) if job_description else ''
+        job_title = str(job_title) if job_title else ''
+        company = str(company) if company else ''
+        location = str(location) if location else ''
         
         # Validate required fields - only job_description is required
-        if not job_description:
+        if not job_description or not job_description.strip():
             return jsonify({
                 "status": "error",
                 "message": "Job description is required.",
@@ -382,19 +404,33 @@ def generate():
         )
         
         # Generate PDF
-        pdf_buffer = generate_cover_letter_pdf(cover_letter_text)
-        pdf_bytes = pdf_buffer.read()
-        pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+        try:
+            pdf_buffer = generate_cover_letter_pdf(cover_letter_text)
+            if not pdf_buffer:
+                raise ValueError("PDF buffer generation returned None")
+            pdf_bytes = pdf_buffer.read()
+            if not pdf_bytes:
+                raise ValueError("PDF buffer is empty")
+            pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+        except Exception as pdf_error:
+            logger.error(f"[CoverLetterWorkshop] PDF generation failed: {pdf_error}")
+            # Continue without PDF - we can still return the text
+            pdf_base64 = ""
         
         # Save to library
-        library_entry_id = _save_to_library(
-            user_id=user_id,
-            job_title=job_title,
-            company=company,
-            location=location,
-            cover_letter_text=cover_letter_text,
-            pdf_base64=pdf_base64,
-        )
+        try:
+            library_entry_id = _save_to_library(
+                user_id=user_id,
+                job_title=job_title,
+                company=company,
+                location=location,
+                cover_letter_text=cover_letter_text,
+                pdf_base64=pdf_base64,
+            )
+        except Exception as save_error:
+            logger.error(f"[CoverLetterWorkshop] Failed to save to library: {save_error}")
+            # Continue without saving to library - we can still return the cover letter
+            library_entry_id = None
         
         return jsonify({
             "status": "ok",
@@ -423,12 +459,29 @@ def generate():
             "message": str(e)
         }), 400
     except Exception as e:
-        logger.error(f"[CoverLetterWorkshop] Generation failed for user {user_id[:8]}...: {type(e).__name__}: {e}")
+        error_type = type(e).__name__
+        error_message = str(e)
+        logger.error(f"[CoverLetterWorkshop] Generation failed for user {user_id[:8]}...: {error_type}: {error_message}")
         import traceback
-        logger.error(f"[CoverLetterWorkshop] Traceback: {traceback.format_exc()}")
+        traceback_str = traceback.format_exc()
+        logger.error(f"[CoverLetterWorkshop] Traceback: {traceback_str}")
+        
+        # Provide more specific error messages based on error type
+        if "OpenAI" in error_type or "openai" in error_message.lower() or "api" in error_message.lower():
+            user_message = "OpenAI API error. Please try again in a moment."
+        elif "timeout" in error_message.lower():
+            user_message = "Request timed out. Please try again."
+        elif "database" in error_message.lower() or "firestore" in error_message.lower():
+            user_message = "Database error. Please try again."
+        elif "credits" in error_message.lower():
+            user_message = error_message  # Use original message for credit errors
+        else:
+            user_message = f"Failed to generate cover letter: {error_message[:200]}"
+        
         return jsonify({
             "status": "error",
-            "message": f"Failed to generate cover letter: {str(e)}"
+            "message": user_message,
+            "error_type": error_type,
         }), 500
 
 

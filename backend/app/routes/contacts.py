@@ -270,10 +270,14 @@ def mute_contact_notifications(contact_id):
         return jsonify({'error': str(e)}), 500
 
 
-@contacts_bp.route('/batch-check-replies', methods=['POST'])
+@contacts_bp.route('/batch-check-replies', methods=['POST', 'OPTIONS'])
 @require_firebase_auth
 def batch_check_replies():
     """Check replies for multiple contacts at once"""
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        return '', 200
+    
     try:
         db = get_db()
         user_id = request.firebase_user['uid']
@@ -450,7 +454,14 @@ def bulk_create_contacts():
         created_contacts = []
         today = datetime.now().strftime('%m/%d/%Y')
         
-        for rc in raw_contacts:
+        for idx, rc in enumerate(raw_contacts):
+            # DEBUG: Log first contact received
+            if idx == 0:
+                print(f"[DEBUG] bulk_create_contacts - First raw contact received:")
+                print(f"  emailSubject: {rc.get('emailSubject') or rc.get('email_subject') or 'MISSING'}")
+                print(f"  emailBody: {(rc.get('emailBody') or rc.get('email_body') or 'MISSING')[:100]}...")
+                print(f"  All keys: {list(rc.keys())}")
+            
             first_name = (rc.get('FirstName') or rc.get('firstName') or '').strip()
             last_name = (rc.get('LastName') or rc.get('lastName') or '').strip()
             email = (rc.get('Email') or rc.get('WorkEmail') or rc.get('PersonalEmail') or rc.get('email') or '').strip()
@@ -493,42 +504,42 @@ def bulk_create_contacts():
                     is_duplicate = True
             
             if is_duplicate:
-                # Update existing contact with email subject/body and draft URL if provided
-                email_subject = (rc.get('emailSubject') or rc.get('email_subject') or '').strip()
-                email_body = (rc.get('emailBody') or rc.get('email_body') or '').strip()
-                gmail_draft_id = (rc.get('gmailDraftId') or rc.get('gmail_draft_id') or '').strip()
-                gmail_draft_url = (rc.get('gmailDraftUrl') or rc.get('gmail_draft_url') or '').strip()
+                # DON'T update email fields for duplicates - preserve the existing draft relationship
+                # The user already has a draft for this contact, so we keep the original emailBody
+                # and gmailDraftUrl to maintain consistency between Firestore and Gmail draft
                 
-                if email_subject or email_body or gmail_draft_url:
-                    # Find the existing contact document
-                    existing_doc = None
-                    if email:
-                        email_query = contacts_ref.where('email', '==', email).limit(1)
-                        email_docs = list(email_query.stream())
-                        if email_docs:
-                            existing_doc = email_docs[0]
-                    elif linkedin:
-                        linkedin_query = contacts_ref.where('linkedinUrl', '==', linkedin).limit(1)
-                        linkedin_docs = list(linkedin_query.stream())
-                        if linkedin_docs:
-                            existing_doc = linkedin_docs[0]
-                    
-                    if existing_doc:
-                        update_data = {}
-                        if email_subject:
-                            update_data['emailSubject'] = email_subject
-                        if email_body:
-                            update_data['emailBody'] = email_body
-                        if gmail_draft_id:
-                            update_data['gmailDraftId'] = gmail_draft_id
-                        if gmail_draft_url:
-                            update_data['gmailDraftUrl'] = gmail_draft_url
-                        if update_data:
-                            existing_doc.reference.update(update_data)
-                            print(f"✅ Updated existing contact {first_name} {last_name} with email subject/body/draft URL")
+                # Find the existing contact document to check if it needs any non-email updates
+                existing_doc = None
+                if email:
+                    email_query = contacts_ref.where('email', '==', email).limit(1)
+                    email_docs = list(email_query.stream())
+                    if email_docs:
+                        existing_doc = email_docs[0]
+                elif linkedin:
+                    linkedin_query = contacts_ref.where('linkedinUrl', '==', linkedin).limit(1)
+                    linkedin_docs = list(linkedin_query.stream())
+                    if linkedin_docs:
+                        existing_doc = linkedin_docs[0]
+                elif first_name and last_name and company:
+                    name_company_query = contacts_ref.where('firstName', '==', first_name).where('lastName', '==', last_name).where('company', '==', company).limit(1)
+                    name_company_docs = list(name_company_query.stream())
+                    if name_company_docs:
+                        existing_doc = name_company_docs[0]
+                
+                # Only update non-email fields if needed (e.g., lastContactDate, status, etc.)
+                # Do NOT update: emailSubject, emailBody, gmailDraftId, gmailDraftUrl
+                # This preserves the relationship between Firestore emailBody and Gmail draft
+                if existing_doc:
+                    update_data = {
+                        'updatedAt': datetime.now().isoformat(),
+                    }
+                    # Optionally update other non-email fields here if needed
+                    # For example, you might want to update lastContactDate if the contact was searched again
+                    existing_doc.reference.update(update_data)
+                    print(f"✅ Updated existing contact {first_name} {last_name} (preserved email content and draft URL)")
                 
                 skipped += 1
-                print(f"🚫 Skipping duplicate contact: {first_name} {last_name} ({email or linkedin or 'no email/linkedin'})")
+                print(f"🚫 Skipping duplicate contact: {first_name} {last_name} ({email or linkedin or 'no email/linkedin'}) - preserving existing email content and draft")
                 continue
             
             # Get email subject and body if available (from generated emails)
@@ -536,6 +547,12 @@ def bulk_create_contacts():
             email_body = (rc.get('emailBody') or rc.get('email_body') or '').strip()
             gmail_draft_id = (rc.get('gmailDraftId') or rc.get('gmail_draft_id') or '').strip()
             gmail_draft_url = (rc.get('gmailDraftUrl') or rc.get('gmail_draft_url') or '').strip()
+            
+            # DEBUG: Log extracted email fields
+            if idx == 0:
+                print(f"[DEBUG] bulk_create_contacts - Extracted email fields:")
+                print(f"  email_subject: {email_subject or 'MISSING'}")
+                print(f"  email_body: {(email_body[:100] + '...') if email_body else 'MISSING'}")
             
             contact = {
                 'firstName': first_name,
@@ -565,6 +582,12 @@ def bulk_create_contacts():
                 contact['gmailDraftId'] = gmail_draft_id
             if gmail_draft_url:
                 contact['gmailDraftUrl'] = gmail_draft_url
+            
+            # DEBUG: Log contact being saved to Firestore
+            if idx == 0:
+                print(f"[DEBUG] bulk_create_contacts - Contact being saved to Firestore:")
+                print(f"  emailSubject: {contact.get('emailSubject') or 'MISSING'}")
+                print(f"  emailBody: {(contact.get('emailBody', '')[:100] + '...') if contact.get('emailBody') else 'MISSING'}")
             
             doc_ref = contacts_ref.add(contact)
             contact['id'] = doc_ref[1].id

@@ -206,20 +206,73 @@ export const firebaseApi = {
   },
 
   async bulkCreateContacts(uid: string, contacts: Omit<Contact, 'id'>[]): Promise<void> {
-    const batch = writeBatch(db);
-    const contactsRef = collection(db, 'users', uid, 'contacts');
+    // Use backend API endpoint which has proper deduplication logic
+    // This prevents duplicate contacts from being created
+    try {
+      // Get auth token for API call
+      const { getAuth } = await import('firebase/auth');
+      const auth = getAuth();
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+      const idToken = await user.getIdToken();
 
-    for (const contact of contacts) {
-      const newContactRef = doc(contactsRef);
-      const contactData = {
-        ...contact,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      batch.set(newContactRef, contactData);
+      // Get API base URL (same pattern as apiService)
+      const API_BASE_URL =
+        import.meta.env.VITE_API_BASE_URL ||
+        (['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname)
+          ? 'http://localhost:5001/api'
+          : 'https://www.offerloop.ai/api');
+
+      // Convert contacts to backend format (camelCase to match backend expectations)
+      const backendContacts = contacts.map((c) => ({
+        FirstName: c.firstName,
+        LastName: c.lastName,
+        Email: c.email,
+        LinkedIn: c.linkedinUrl,
+        Company: c.company,
+        Title: c.jobTitle,
+        College: c.college,
+        location: c.location,
+        emailSubject: c.emailSubject,
+        emailBody: c.emailBody,
+        gmailDraftId: c.gmailDraftId,
+        gmailDraftUrl: c.gmailDraftUrl,
+        gmailThreadId: c.gmailThreadId,
+        gmailMessageId: c.gmailMessageId,
+      }));
+
+      // DEBUG: Log first backend contact to see email fields being sent
+      if (backendContacts.length > 0) {
+        console.log('[DEBUG] bulkCreateContacts - First backend contact being sent:', {
+          emailSubject: backendContacts[0].emailSubject || 'MISSING',
+          emailBody: backendContacts[0].emailBody ? `${backendContacts[0].emailBody.substring(0, 100)}...` : 'MISSING',
+          allKeys: Object.keys(backendContacts[0]),
+        });
+      }
+
+      // Call backend API with deduplication (endpoint is /contacts/bulk, API_BASE_URL already includes /api)
+      const response = await fetch(`${API_BASE_URL}/contacts/bulk`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ contacts: backendContacts }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(error.error || `Failed to bulk create contacts: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log(`Bulk create contacts: ${result.created} created, ${result.skipped} skipped (duplicates)`);
+    } catch (error) {
+      console.error('Error in bulkCreateContacts:', error);
+      throw error;
     }
-
-    await batch.commit();
   },
 
   async getContacts(uid: string): Promise<Contact[]> {
@@ -245,8 +298,38 @@ export const firebaseApi = {
   },
 
   async deleteContact(uid: string, contactId: string): Promise<void> {
-    const contactRef = doc(db, 'users', uid, 'contacts', contactId);
-    await deleteDoc(contactRef);
+    try {
+      // Get auth token for API call
+      const { getAuth } = await import('firebase/auth');
+      const auth = getAuth();
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+      const idToken = await user.getIdToken();
+
+      // Get API base URL (same pattern as bulkCreateContacts)
+      const API_BASE_URL =
+        import.meta.env.VITE_API_BASE_URL ||
+        (['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname)
+          ? 'http://localhost:5001/api'
+          : 'https://www.offerloop.ai/api');
+
+      const response = await fetch(`${API_BASE_URL}/contacts/${contactId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete contact: ${response.statusText}`);
+      }
+    } catch (error) {
+      console.error('Error deleting contact:', error);
+      throw error;
+    }
   },
 
   async clearAllContacts(uid: string): Promise<void> {
@@ -783,6 +866,16 @@ export const firebaseApi = {
       await batch.commit();
     } catch (error) {
       console.error('Error bulk creating recruiters:', error);
+      throw error;
+    }
+  },
+
+  async deleteRecruiter(uid: string, recruiterId: string): Promise<void> {
+    try {
+      const recruiterRef = doc(db, 'users', uid, 'recruiters', recruiterId);
+      await deleteDoc(recruiterRef);
+    } catch (error) {
+      console.error('Error deleting recruiter:', error);
       throw error;
     }
   },

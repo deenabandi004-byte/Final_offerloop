@@ -357,6 +357,35 @@ const RecruiterSpreadsheet: React.FC = () => {
     }
   };
 
+  const handleDeleteRecruiter = async (recruiterId: string, recruiterName: string) => {
+    // Show confirmation dialog
+    if (!window.confirm(`Are you sure you want to delete ${recruiterName}? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      if (currentUser && recruiterId) {
+        // Delete from Firestore
+        await firebaseApi.deleteRecruiter(currentUser.uid, recruiterId);
+      }
+      
+      // Update local state
+      setRecruiters((prev) => prev.filter((recruiter) => recruiter.id !== recruiterId));
+      
+      toast({
+        title: 'Recruiter Deleted',
+        description: `${recruiterName} has been removed from your recruiters.`,
+      });
+    } catch (error) {
+      console.error('Error deleting recruiter:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete recruiter. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleEmailClick = (recruiter: Recruiter) => {
     setSelectedRecruiterForEmail(recruiter);
     setMailAppDialogOpen(true);
@@ -810,19 +839,33 @@ const RecruiterSpreadsheet: React.FC = () => {
                         </td>
 
                         <td className="px-6 py-4 whitespace-nowrap text-right">
-                          {recruiter.email || recruiter.workEmail ? (
+                          <div className="flex items-center justify-end gap-2">
+                            {recruiter.email || recruiter.workEmail ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleEmailClick(recruiter)}
+                                className="hover:bg-muted text-muted-foreground hover:text-foreground"
+                                title={`Email ${getDisplayName(recruiter)}`}
+                              >
+                                <Mail className="h-4 w-4 text-blue-600" />
+                              </Button>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
                             <Button
-                              size="sm"
                               variant="ghost"
-                              onClick={() => handleEmailClick(recruiter)}
-                              className="hover:bg-muted text-muted-foreground hover:text-foreground"
-                              title={`Email ${getDisplayName(recruiter)}`}
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation(); // Prevent row selection
+                                handleDeleteRecruiter(recruiter.id!, getDisplayName(recruiter));
+                              }}
+                              className="h-8 w-8 p-0 text-muted-foreground hover:text-red-500 hover:bg-red-50"
+                              title="Delete recruiter"
                             >
-                              <Mail className="h-4 w-4 text-blue-600" />
+                              <Trash2 className="h-4 w-4" />
                             </Button>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
+                          </div>
                         </td>
                       </tr>
                     );

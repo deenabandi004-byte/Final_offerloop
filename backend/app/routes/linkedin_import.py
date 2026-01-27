@@ -621,7 +621,7 @@ def import_from_linkedin():
         if email_subject:
             contact_data['emailSubject'] = email_subject
         if email_body:
-            contact_data['emailContent'] = email_body
+            contact_data['emailBody'] = email_body  # Fixed: use emailBody (not emailContent) to match frontend expectations
         
         if draft_result:
             if isinstance(draft_result, dict):

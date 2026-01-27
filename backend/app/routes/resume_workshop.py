@@ -132,10 +132,10 @@ async def _parse_job_url(job_url: str) -> Optional[Dict[str, Any]]:
         # If metadata already has good info, use it directly
         if metadata.get('job_title') and metadata.get('company_name'):
             return {
-                "job_title": metadata.get('job_title', ''),
-                "company": metadata.get('company_name', ''),
-                "location": metadata.get('location', ''),
-                "job_description": metadata.get('description', content[:3000])
+                "job_title": str(metadata.get('job_title', '') or ''),
+                "company": str(metadata.get('company_name', '') or ''),
+                "location": str(metadata.get('location', '') or ''),
+                "job_description": str(metadata.get('description', content[:3000]) or '')
             }
         
         # Otherwise, use GPT to extract structured job info
@@ -164,7 +164,13 @@ Return JSON:
         )
         
         result = json.loads(response.choices[0].message.content)
-        return result
+        # Ensure all values are strings
+        return {
+            "job_title": str(result.get('job_title', '') or ''),
+            "company": str(result.get('company', '') or ''),
+            "location": str(result.get('location', '') or ''),
+            "job_description": str(result.get('job_description', '') or '')
+        }
         
     except Exception as e:
         logger.warning(f"[ResumeWorkshop] Job URL parsing failed: {e}")
@@ -329,6 +335,12 @@ async def _analyze_resume_sections(
     """
     Analyze resume against job posting and return section-by-section suggestions.
     """
+    # Ensure all string inputs are actually strings
+    resume_text = str(resume_text) if resume_text else ""
+    job_title = str(job_title) if job_title else ""
+    company = str(company) if company else ""
+    location = str(location) if location else ""
+    job_description = str(job_description) if job_description else ""
     
     prompt = f"""You are an expert resume consultant. Analyze this resume against the job posting and provide specific, actionable suggestions to tailor it for this role.
 
@@ -614,19 +626,27 @@ def analyze():
         
         # Get job context (from parsed URL or manual inputs)
         if parsed_job:
-            job_title = parsed_job.get('job_title', payload.get('job_title', ''))
-            company = parsed_job.get('company', payload.get('company', ''))
-            location = parsed_job.get('location', payload.get('location', ''))
-            job_description = parsed_job.get('job_description', payload.get('job_description', ''))
+            job_title = str(parsed_job.get('job_title', payload.get('job_title', '')) or '')
+            company = str(parsed_job.get('company', payload.get('company', '')) or '')
+            location = str(parsed_job.get('location', payload.get('location', '')) or '')
+            parsed_desc = parsed_job.get('job_description', payload.get('job_description', ''))
+            job_description = str(parsed_desc if parsed_desc else '')
         else:
-            job_title = payload.get('job_title', '').strip()
-            company = payload.get('company', '').strip()
-            location = payload.get('location', '').strip()
-            job_description = payload.get('job_description', '').strip()
+            job_title = str(payload.get('job_title', '') or '').strip()
+            company = str(payload.get('company', '') or '').strip()
+            location = str(payload.get('location', '') or '').strip()
+            job_desc_raw = payload.get('job_description', '')
+            job_description = str(job_desc_raw if job_desc_raw else '').strip()
+        
+        # Ensure all fields are strings (handle cases where they might be dicts or other types)
+        job_title = str(job_title) if job_title else ''
+        company = str(company) if company else ''
+        location = str(location) if location else ''
+        job_description = str(job_description) if job_description else ''
         
         # Validate required fields - only job_description is required for manual entry
         # If URL parsing failed, we still need job_description
-        if not job_description:
+        if not job_description or not job_description.strip():
             return jsonify({
                 "status": "error",
                 "message": "Job description is required.",
@@ -638,10 +658,11 @@ def analyze():
             try:
                 openai_client = get_async_openai_client()
                 if openai_client:
+                    job_desc_str = str(job_description) if job_description else ''
                     extract_prompt = f"""Extract the job title and company name from this job description. Return JSON only.
 
 Job Description:
-{job_description[:2000]}
+{job_desc_str[:2000]}
 
 Return JSON:
 {{
@@ -739,7 +760,7 @@ If you cannot determine either field, use empty string."""
                 "job_title": job_title,
                 "company": company,
                 "location": location,
-                "job_description": job_description[:500] + "..." if len(job_description) > 500 else job_description
+                "job_description": (str(job_description)[:500] + "...") if len(str(job_description)) > 500 else str(job_description)
             },
             "credits_remaining": new_credits
         }
