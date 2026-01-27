@@ -235,16 +235,20 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                                 # Handle both dict response (new) and string response (old/fallback)
                                 if isinstance(draft_result, dict):
                                     draft_id = draft_result.get('draft_id', '')
+                                    message_id = draft_result.get('message_id')
                                     draft_url = draft_result.get('draft_url', '')
                                 else:
                                     draft_id = draft_result
+                                    message_id = None
                                     draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}" if draft_id and not draft_id.startswith('mock_') else None
                                 
                                 if draft_id and not draft_id.startswith('mock_'):
                                     successful_drafts += 1
-                                    # Store draft URL with contact
+                                    # Store draft info with contact
+                                    contact['gmailDraftId'] = draft_id
+                                    if message_id:
+                                        contact['gmailMessageId'] = message_id
                                     if draft_url:
-                                        contact['gmailDraftId'] = draft_id
                                         contact['gmailDraftUrl'] = draft_url
                                     print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
                                 else:
@@ -514,16 +518,20 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                                 # Handle both dict response (new) and string response (old/fallback)
                                 if isinstance(draft_result, dict):
                                     draft_id = draft_result.get('draft_id', '')
+                                    message_id = draft_result.get('message_id')
                                     draft_url = draft_result.get('draft_url', '')
                                 else:
                                     draft_id = draft_result
+                                    message_id = None
                                     draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}" if draft_id and not draft_id.startswith('mock_') else None
                                 
                                 if draft_id and not draft_id.startswith('mock_'):
                                     successful_drafts += 1
-                                    # Store draft URL with contact
+                                    # Store draft info with contact
+                                    contact['gmailDraftId'] = draft_id
+                                    if message_id:
+                                        contact['gmailMessageId'] = message_id
                                     if draft_url:
-                                        contact['gmailDraftId'] = draft_id
                                         contact['gmailDraftUrl'] = draft_url
                                     print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
                                 else:

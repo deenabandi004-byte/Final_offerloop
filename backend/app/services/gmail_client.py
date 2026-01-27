@@ -1000,7 +1000,12 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
             print(f"   🔄 Calling Gmail API to create draft...")
             draft_result = gmail_service.users().drafts().create(userId='me', body=draft_body).execute()
             draft_id = draft_result['id']
+            message_id = draft_result.get('message', {}).get('id')
             print(f"   ✅ Gmail API returned draft ID: {draft_id}")
+            if message_id:
+                print(f"   ✅ Gmail API returned message ID: {message_id}")
+            else:
+                print(f"   ⚠️ Message ID not in draft response, will try to fetch it")
         except Exception as api_error:
             print(f"   ❌ Gmail API error creating draft: {api_error}")
             print(f"   📋 Error type: {type(api_error).__name__}")
@@ -1008,13 +1013,28 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
             traceback.print_exc()
             raise  # Re-raise to be caught by outer exception handler
         
+        # If message ID not in response, try to fetch it
+        if not message_id:
+            try:
+                draft_full = gmail_service.users().drafts().get(userId='me', id=draft_id, format='full').execute()
+                message_id = draft_full.get('message', {}).get('id')
+                if message_id:
+                    print(f"   ✅ Fetched message ID: {message_id}")
+            except Exception as fetch_err:
+                print(f"   ⚠️ Could not fetch message ID: {fetch_err}")
+        
         # Get the Gmail account where the draft was created and build draft URL
-        # Use the correct URL format to open the specific draft (singular "draft" not "drafts")
+        # Use message ID format for more reliable draft URL (Option A from fix doc)
+        # Format: https://mail.google.com/mail/u/0/#drafts?compose=<messageId>
         gmail_draft_url = None
         try:
             account_email = gmail_service.users().getProfile(userId='me').execute().get('emailAddress')
-            # Use URL format that opens the specific draft directly
-            gmail_draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
+            # Prefer message ID format (more reliable)
+            if message_id:
+                gmail_draft_url = f"https://mail.google.com/mail/u/0/#drafts?compose={message_id}"
+            else:
+                # Fallback to draft ID format if message ID not available
+                gmail_draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
             print(f"✅ Created {tier.capitalize()} Gmail draft {draft_id}")
             print(f"   📧 Draft saved in Gmail account: {account_email}")
             print(f"   👤 Requested by user: {user_email}")
@@ -1025,12 +1045,16 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         except Exception as profile_err:
             print(f"✅ Created {tier.capitalize()} Gmail draft {draft_id}")
             print(f"   (Could not fetch account details: {profile_err})")
-            # Still create URL even if we can't get profile - use format that opens specific draft
-            gmail_draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
+            # Still create URL even if we can't get profile
+            if message_id:
+                gmail_draft_url = f"https://mail.google.com/mail/u/0/#drafts?compose={message_id}"
+            else:
+                gmail_draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
         
-        # Return both draft_id and URL as a dict for easier access
+        # Return draft_id, message_id, and URL as a dict for easier access
         return {
             'draft_id': draft_id,
+            'message_id': message_id,
             'draft_url': gmail_draft_url
         }
         

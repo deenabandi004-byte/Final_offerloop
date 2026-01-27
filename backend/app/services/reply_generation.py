@@ -15,6 +15,7 @@ from app.utils.users import (
 )
 from app.utils.coffee_chat_prep import detect_commonality
 from datetime import datetime
+import re
 
 # ============================================================================
 # TEMPORARY DEBUG UTILITY - FOR DATA INSPECTION ONLY
@@ -273,6 +274,74 @@ def _select_anchor(contact):
     # Select highest priority (lowest priority number)
     selected = sorted(candidates, key=lambda x: x['priority'])[0]
     return selected
+
+
+def fix_apostrophes_and_formatting(text: str) -> str:
+    """Fix common apostrophe and formatting issues in generated emails"""
+    
+    # Fix missing apostrophes in contractions
+    replacements = {
+        " Im ": " I'm ",
+        " Id ": " I'd ",
+        " Ill ": " I'll ",
+        " Ive ": " I've ",
+        " youre ": " you're ",
+        " youve ": " you've ",
+        " youd ": " you'd ",
+        " youll ": " you'll ",
+        " theyre ": " they're ",
+        " theyve ": " they've ",
+        " theyd ": " they'd ",
+        " weve ": " we've ",
+        " wed ": " we'd ",
+        " wont ": " won't ",
+        " cant ": " can't ",
+        " dont ": " don't ",
+        " doesnt ": " doesn't ",
+        " didnt ": " didn't ",
+        " isnt ": " isn't ",
+        " arent ": " aren't ",
+        " wasnt ": " wasn't ",
+        " werent ": " weren't ",
+        " hasnt ": " hasn't ",
+        " havent ": " haven't ",
+        " hadnt ": " hadn't ",
+        " couldnt ": " couldn't ",
+        " wouldnt ": " wouldn't ",
+        " shouldnt ": " shouldn't ",
+        " thats ": " that's ",
+        " whats ": " what's ",
+        " heres ": " here's ",
+        " theres ": " there's ",
+        " lets ": " let's ",
+    }
+    
+    # Also handle start of sentence
+    start_replacements = {
+        "Im ": "I'm ",
+        "Id ": "I'd ",
+        "Ill ": "I'll ",
+        "Ive ": "I've ",
+    }
+    
+    for wrong, right in replacements.items():
+        text = text.replace(wrong, right)
+    
+    for wrong, right in start_replacements.items():
+        if text.startswith(wrong):
+            text = right + text[len(wrong):]
+    
+    # Fix "1015 minute" -> "10-15 minute" and similar patterns
+    # Match patterns like "1015", "1520", "2030" followed by "minute"
+    text = re.sub(r'(\d{1,2})(\d{2})(\s*minute)', r'\1-\2\3', text)
+    
+    # Fix other number ranges that got concatenated
+    # e.g., "1520 minute" -> "15-20 minute"
+    text = re.sub(r'\b(10)(15)\b', r'\1-\2', text)
+    text = re.sub(r'\b(15)(20)\b', r'\1-\2', text)
+    text = re.sub(r'\b(20)(30)\b', r'\1-\2', text)
+    
+    return text
 
 def _debug_print_email_data(contact, user_info, user_profile, contact_context, resume_text, fit_context):
     """
@@ -703,6 +772,30 @@ FORMATTING:
 - Do NOT mention attached resumes unless RESUME ATTACHMENT RULE says to include it
 - NEVER write sentences like "I'm studying at ."
 
+SUBJECT LINE RULES:
+Generate subject lines that are:
+1. Specific to the recipient (mention their company, role, or a detail)
+2. Short (under 50 characters)
+3. Intriguing but professional
+4. NOT generic ("Quick Question", "Coffee Chat Request", "Reaching Out", "Learning from Your Experience", "Connecting with a Fellow [Title]", "Curious About Your Career Path", "Hope to Connect", "Introduction")
+
+Good examples:
+- "Quick Q about the PM transition at Stripe"
+- "Fellow Trojan → curious about your path to Google"
+- "Saw your work on [specific project] - quick question"
+- "USC alum interested in your journey at McKinsey"
+- "[Shared connection] + question about product roles"
+
+Bad examples (DO NOT USE):
+- "Learning from Your Experience"
+- "Connecting with a Fellow [Title]"
+- "Curious About Your Career Path"
+- "Hope to Connect"
+- "Introduction"
+- "Quick Question" (too vague)
+
+The subject should give a reason to open the email in under 6 words.
+
 Return ONLY valid JSON:
 {{"0": {{"subject": "...", "body": "..."}}, "1": {{"subject": "...", "body": "..."}}, ...}}"""
 
@@ -713,7 +806,7 @@ Return ONLY valid JSON:
                 {"role": "user", "content": prompt}
             ],
             max_tokens=2500,  # Increased for more detailed emails
-            temperature=0.9,  # Higher for more creativity and naturalness
+            temperature=0.75,  # Balanced for naturalness and consistency
         )
         
         response_text = response.choices[0].message.content.strip()
@@ -736,6 +829,10 @@ Return ONLY valid JSON:
             idx = int(k)
             subject = clean_email_text(v.get('subject', 'Quick question about your work'))
             body = clean_email_text(v.get('body', ''))
+            
+            # Fix apostrophes and formatting issues
+            subject = fix_apostrophes_and_formatting(subject)
+            body = fix_apostrophes_and_formatting(body)
             
             # Light sanitization only - preserve the punchy style
             if idx < len(contacts):

@@ -533,19 +533,35 @@ const SpreadsheetContactDirectory: React.FC = () => {
         description: 'Please attach your resume before sending.',
       });
     } else {
-      // Always open a new Gmail compose window (reliable)
-      // Gmail draft URLs are unreliable and often redirect to inbox
-      // Note: Gmail compose URLs cannot attach files, so we show a reminder
-      window.open(buildGmailLink(selectedContactForEmail), '_blank');
+      // Check if we have a Gmail draft URL (has resume attached)
+      // Prefer message ID format (more reliable) over draft ID
+      const messageId = selectedContactForEmail.gmailMessageId;
+      const draftId = selectedContactForEmail.gmailDraftId;
+      let draftUrl = selectedContactForEmail.gmailDraftUrl;
       
-      // Check if a draft with resume exists - if so, guide user to it
-      const hasDraft = selectedContactForEmail.gmailDraftId && selectedContactForEmail.gmailDraftId.trim().length > 0;
-      if (hasDraft) {
+      if (messageId || draftId || draftUrl) {
+        // Open the actual draft (has resume attached)
+        // Option A: Use message ID format (most reliable)
+        if (messageId) {
+          draftUrl = `https://mail.google.com/mail/u/0/#drafts?compose=${messageId}`;
+          window.open(draftUrl, '_blank');
+        } else if (draftUrl) {
+          // Use stored URL (should already be in correct format)
+          window.open(draftUrl, '_blank');
+        } else if (draftId) {
+          // Fallback: Construct draft URL from draft ID
+          draftUrl = `https://mail.google.com/mail/u/0/#draft/${draftId}`;
+          window.open(draftUrl, '_blank');
+        }
+        
         toast({
-          title: 'Resume Reminder',
-          description: 'A draft with your resume attached exists in Gmail. Check your drafts folder, or attach your resume to this new email.',
+          title: 'Opening Draft',
+          description: 'Opening your saved draft with resume attached.',
         });
       } else {
+        // No draft exists - fall back to compose URL (no attachment)
+        window.open(buildGmailLink(selectedContactForEmail), '_blank');
+        
         toast({
           title: 'Reminder',
           description: 'Please attach your resume before sending.',

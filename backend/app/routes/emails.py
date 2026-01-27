@@ -317,28 +317,43 @@ def generate_and_draft():
                 body={"message": {"raw": raw}}
             ).execute()
             print(f"📤 [{i}] Draft created: {draft}")
-            draft_ids.append(draft.get("id"))
+            draft_id = draft.get("id")
+            draft_ids.append(draft_id)
             
-            # Extract threadId from draft (Gmail creates a thread when draft is created)
+            # Extract message ID and threadId from draft (Gmail creates a thread when draft is created)
+            message_id = draft.get("message", {}).get("id")
             thread_id = draft.get("message", {}).get("threadId")
-            if not thread_id:
-                # If threadId not in draft response, get it from the draft message
+            
+            if not message_id or not thread_id:
+                # If message ID or threadId not in draft response, get it from the draft message
                 try:
-                    draft_message = gmail.users().drafts().get(userId="me", id=draft["id"], format="full").execute()
-                    thread_id = draft_message.get("message", {}).get("threadId")
+                    draft_message = gmail.users().drafts().get(userId="me", id=draft_id, format="full").execute()
+                    if not message_id:
+                        message_id = draft_message.get("message", {}).get("id")
+                    if not thread_id:
+                        thread_id = draft_message.get("message", {}).get("threadId")
                 except Exception as e:
-                    print(f"⚠️ [{i}] Could not get threadId from draft: {e}")
+                    print(f"⚠️ [{i}] Could not get message/threadId from draft: {e}")
 
-            # Use the correct format to open the specific draft (singular "draft" not "drafts")
-            gmail_url = (
-                f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft['id']}"
-                if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft['id']}"
-            )
+            # Use message ID format for more reliable draft URL (Option A from fix doc)
+            # Format: https://mail.google.com/mail/u/0/#drafts?compose=<messageId>
+            if message_id:
+                gmail_url = (
+                    f"https://mail.google.com/mail/?authuser={connected_email}#drafts?compose={message_id}"
+                    if connected_email else f"https://mail.google.com/mail/u/0/#drafts?compose={message_id}"
+                )
+            else:
+                # Fallback to draft ID format if message ID not available
+                gmail_url = (
+                    f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft_id}"
+                    if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
+                )
 
             created.append({
                 "index": i,
                 "to": to_addr,
-                "draftId": draft["id"],
+                "draftId": draft_id,
+                "messageId": message_id,
                 "threadId": thread_id,
                 "gmailUrl": gmail_url
             })
@@ -351,7 +366,8 @@ def generate_and_draft():
                 existing_contacts = list(contacts_ref.where("email", "==", to_addr).limit(1).stream())
                 
                 contact_data = {
-                    "gmailDraftId": draft["id"],
+                    "gmailDraftId": draft_id,
+                    "gmailMessageId": message_id,  # Save message ID for more reliable URL
                     "gmailDraftUrl": gmail_url,
                     "emailSubject": r["subject"],
                     "emailBody": body,

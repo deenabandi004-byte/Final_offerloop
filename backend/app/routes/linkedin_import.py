@@ -626,6 +626,9 @@ def import_from_linkedin():
         if draft_result:
             if isinstance(draft_result, dict):
                 contact_data['gmailDraftId'] = draft_result.get('draft_id')
+                message_id = draft_result.get('message_id')
+                if message_id:
+                    contact_data['gmailMessageId'] = message_id
                 contact_data['gmailDraftUrl'] = draft_result.get('draft_url')
                 contact_data['gmailThreadId'] = draft_result.get('thread_id')
             else:
