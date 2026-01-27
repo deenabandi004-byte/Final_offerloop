@@ -222,7 +222,8 @@ def search_companies_with_serp(
     size: str = "none",
     keywords: List[str] = None,
     limit: int = 20,
-    original_query: str = ""
+    original_query: str = "",
+    search_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Search for companies using ChatGPT to generate firm names, then SERP to get details.
@@ -261,9 +262,13 @@ def search_companies_with_serp(
         from app.services.firm_details_extraction import get_firm_details_batch
         from app.services.company_search import transform_serp_company_to_firm, firm_location_matches
         
-        # Generate search ID for end-to-end tracing
-        search_id = str(uuid.uuid4())[:8]  # Short ID for readability
+        # Use provided search_id or generate one for end-to-end tracing
+        if not search_id:
+            search_id = str(uuid.uuid4())[:8]  # Short ID for readability
         start_time = time.time()
+        
+        # Import progress tracker
+        from app.services.search_progress import update_search_progress
         
         # Track firms collected across iterations
         firms_collected = []
@@ -396,6 +401,17 @@ def search_companies_with_serp(
             
             def progress_callback(current, total):
                 progress_data["completed"] = current
+                # Update progress tracker
+                if search_id:
+                    # Calculate overall progress: base progress + iteration progress
+                    base_progress = 3  # Parsing + normalization + name generation
+                    iteration_progress = min(iteration, MAX_ITERATIONS - 1) * 10  # Each iteration ~10% of total
+                    current_progress = base_progress + iteration_progress + int((current / total) * (10 / MAX_ITERATIONS))
+                    update_search_progress(
+                        search_id,
+                        current=min(current_progress, limit),
+                        step=f"Fetching firm details... ({current}/{total} firms)"
+                    )
                 if current % max(1, total // 5) == 0 or current == total:
                     logger.debug("company_search_progress", extra={
                         "search_id": search_id,
@@ -404,6 +420,14 @@ def search_companies_with_serp(
                         "total": total,
                         "percent": int(current/total*100)
                     })
+            
+            # Update progress before fetching
+            if search_id:
+                update_search_progress(
+                    search_id,
+                    current=3 + iteration * 5,
+                    step=f"Fetching details for {len(new_firm_names)} firms (iteration {iteration + 1})..."
+                )
             
             firms_data = get_firm_details_batch(
                 new_firm_names,

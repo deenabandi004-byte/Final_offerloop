@@ -1568,7 +1568,7 @@ def transform_pdl_company_to_firm(company: Dict[str, Any]) -> Optional[Dict[str,
 # MAIN SEARCH FUNCTION - Combines parsing + PDL query
 # =============================================================================
 
-def search_firms(prompt: str, limit: int = 20) -> Dict[str, Any]:
+def search_firms(prompt: str, limit: int = 20, search_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Main entry point for firm search.
     Takes a natural language prompt, parses it, and returns matching firms.
@@ -1586,9 +1586,17 @@ def search_firms(prompt: str, limit: int = 20) -> Dict[str, Any]:
         }
     """
     # Step 1: Parse the natural language prompt
+    from app.services.search_progress import update_search_progress
+    
+    if search_id:
+        update_search_progress(search_id, current=0, step="Parsing search query...")
+    
     parse_result = parse_firm_search_prompt(prompt)
     
     if not parse_result["success"]:
+        if search_id:
+            from app.services.search_progress import fail_search_progress
+            fail_search_progress(search_id, parse_result.get("error", "Parse failed"))
         return {
             "success": False,
             "firms": [],
@@ -1602,10 +1610,15 @@ def search_firms(prompt: str, limit: int = 20) -> Dict[str, Any]:
     parsed = parse_result["parsed"]
     
     # Step 2: Normalize location
+    if search_id:
+        update_search_progress(search_id, current=1, step="Normalizing location...")
     location = normalize_location(parsed.get("location", ""))
     
     # Step 3: Search using SERP API + ChatGPT (bulletproof search handles fallbacks internally)
     from app.services.serp_client import search_companies_with_serp
+    
+    if search_id:
+        update_search_progress(search_id, current=2, step="Generating firm names...")
     
     search_result = search_companies_with_serp(
         industry=parsed["industry"],
@@ -1613,7 +1626,8 @@ def search_firms(prompt: str, limit: int = 20) -> Dict[str, Any]:
         size=parsed.get("size", "none"),
         keywords=parsed.get("keywords", []),
         limit=limit,
-        original_query=prompt  # Pass the original user query
+        original_query=prompt,  # Pass the original user query
+        search_id=search_id  # Pass search_id for progress tracking
     )
     
     # Determine if fallback was applied

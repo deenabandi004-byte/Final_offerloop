@@ -16,6 +16,12 @@ from app.services.company_search import (
     get_size_options
 )
 from app.services.auth import check_and_reset_credits, deduct_credits_atomic
+from app.services.search_progress import (
+    create_search_progress,
+    update_search_progress,
+    complete_search_progress,
+    fail_search_progress
+)
 from app.config import TIER_CONFIGS
 from app.utils.exceptions import ValidationError, OfferloopException, InsufficientCreditsError, ExternalAPIError
 from app.utils.validation import FirmSearchRequest, validate_request
@@ -148,13 +154,21 @@ def search_firms_route():
         if current_credits < max_credits_needed:
             raise InsufficientCreditsError(max_credits_needed, current_credits)
         
-        # Perform the search
+        # Generate search ID for progress tracking
+        search_id = str(uuid.uuid4())
+        
+        # Initialize progress tracking
+        create_search_progress(search_id, total=batch_size, step="Starting search...")
+        
+        # Perform the search with progress tracking
+        # NOTE: Search is synchronous, but progress is tracked for future async implementation
         try:
-            result = search_firms(query, limit=batch_size)
+            result = search_firms(query, limit=batch_size, search_id=search_id)
         except Exception as e:
             print(f"❌ Error calling search_firms: {e}")
             import traceback
             traceback.print_exc()
+            fail_search_progress(search_id, str(e))
             raise ExternalAPIError("Firm Search", f"Search service error: {str(e)}")
         
         firms = result.get('firms', [])
@@ -221,6 +235,9 @@ def search_firms_route():
         print(f"   - Credits charged: {actual_credits_to_charge} ({actual_firms_returned} firms × {CREDITS_PER_FIRM} credits)")
         print(f"   - New balance: {new_credit_balance}")
         
+        # Mark search as complete
+        complete_search_progress(search_id, step="Search complete!")
+        
         response_data = {
             'success': True,
             'firms': firms,
@@ -246,6 +263,36 @@ def search_firms_route():
         import traceback
         traceback.print_exc()
         raise OfferloopException(f"Firm search failed: {str(e)}", error_code="FIRM_SEARCH_ERROR")
+
+
+@firm_search_bp.route('/status/<search_id>', methods=['GET'])
+@require_firebase_auth
+def get_search_status(search_id):
+    """Get progress status for an ongoing search.
+    
+    Returns:
+        {
+            "current": int,
+            "total": int,
+            "step": str,
+            "status": "in_progress" | "completed" | "failed",
+            "error": str (if failed)
+        }
+    """
+    from app.services.search_progress import get_search_progress
+    
+    progress = get_search_progress(search_id)
+    
+    if not progress:
+        return jsonify({
+            'success': False,
+            'error': 'Search not found or expired'
+        }), 404
+    
+    return jsonify({
+        'success': True,
+        'progress': progress
+    })
 
 
 @firm_search_bp.route('/history', methods=['GET'])

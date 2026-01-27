@@ -1181,6 +1181,14 @@ class ApiService {
     });
   }
 
+  async getFirmSearchStatus(searchId: string): Promise<{ success: boolean; progress?: { current: number; total: number; step: string; status: string }; error?: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest(`/firm-search/status/${searchId}`, {
+      method: 'GET',
+      headers,
+    });
+  }
+
   async getFirmSearchHistory(limit: number = 10, includeFirms: boolean = false): Promise<SearchHistoryItem[]> {
     const headers = await this.getAuthHeaders();
     const includeParam = includeFirms ? '&includeFirms=true' : '';

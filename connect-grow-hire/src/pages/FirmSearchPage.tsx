@@ -303,10 +303,76 @@ const FirmSearchPage: React.FC = () => {
       ? `${estimatedSeconds} seconds` 
       : `${Math.ceil(estimatedSeconds / 60)} minutes`;
     
-    setSearchProgress({current: 0, total: batchSize, step: `Generating firm names... (est. ${estimatedTime})`});
+    // Initialize progress with estimated time
+    setSearchProgress({current: 0, total: batchSize, step: `Starting search... (est. ${estimatedTime})`});
+
+    // Simulate progress while waiting (since search is synchronous)
+    let simulatedProgressPercent = 0;
+    let progressSimulator: NodeJS.Timeout | null = null;
+    let progressPollInterval: NodeJS.Timeout | null = null;
+    let searchId: string | null = null;
+    let isPolling = true;
+
+    // Start simulated progress - convert percentage to actual count
+    progressSimulator = setInterval(() => {
+      simulatedProgressPercent = Math.min(simulatedProgressPercent + 2, 90); // Cap at 90% until real progress
+      const simulatedCount = Math.floor((simulatedProgressPercent / 100) * batchSize);
+      setSearchProgress(prev => prev ? {
+        ...prev,
+        current: Math.max(prev.current, simulatedCount),
+        step: prev.step || 'Searching...'
+      } : null);
+    }, 500); // Update every 500ms
 
     try {
       const result: FirmSearchResult = await apiService.searchFirms(q, batchSize);
+      
+      // Clear simulated progress
+      clearInterval(progressSimulator);
+      
+      // Get searchId from response and start real progress polling
+      if (result.searchId) {
+        searchId = result.searchId;
+        
+        // Start polling for final status
+        progressPollInterval = setInterval(async () => {
+          if (!isPolling || !searchId) return;
+          try {
+            const status = await apiService.getFirmSearchStatus(searchId);
+            if (status.success && status.progress) {
+              setSearchProgress({
+                current: status.progress.current,
+                total: status.progress.total,
+                step: status.progress.step || 'Searching...'
+              });
+              
+              // Stop polling if search is complete or failed
+              if (status.progress.status === 'completed' || status.progress.status === 'failed') {
+                isPolling = false;
+                if (progressPollInterval) {
+                  clearInterval(progressPollInterval);
+                  progressPollInterval = null;
+                }
+              }
+            } else if (status.success === false) {
+              // Search not found or expired - stop polling
+              isPolling = false;
+            }
+          } catch (err) {
+            // Ignore polling errors
+            console.debug('Progress poll error:', err);
+          }
+        }, 1000);
+        
+        // Stop polling after a few seconds (search is likely done)
+        setTimeout(() => {
+          isPolling = false;
+          if (progressPollInterval) {
+            clearInterval(progressPollInterval);
+            progressPollInterval = null;
+          }
+        }, 3000);
+      }
       
       setSearchProgress(null);
 
@@ -394,6 +460,15 @@ const FirmSearchPage: React.FC = () => {
         });
       }
     } finally {
+      // Clean up all intervals
+      if (progressSimulator) {
+        clearInterval(progressSimulator);
+        progressSimulator = null;
+      }
+      if (progressPollInterval) {
+        clearInterval(progressPollInterval);
+        progressPollInterval = null;
+      }
       setIsSearching(false);
       setSearchProgress(null);
     }
@@ -1189,20 +1264,57 @@ const FirmSearchPage: React.FC = () => {
 
         {/* Loading Modal */}
         {isSearching && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-2xl">
-              <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Building2 className="w-8 h-8 text-indigo-600 animate-pulse" />
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl p-8 max-w-md w-full mx-4 shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200">
+              {/* Animated Icon */}
+              <div className="w-20 h-20 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-2xl flex items-center justify-center mx-auto mb-6 relative">
+                <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/20 to-purple-500/20 rounded-2xl animate-pulse"></div>
+                <Building2 className="w-10 h-10 text-indigo-600 relative z-10" />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Searching for companies...</h3>
-              <p className="text-gray-600 mb-4">Finding {batchSize} companies matching your criteria</p>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-gradient-to-r from-indigo-500 to-purple-500 h-2 rounded-full transition-all duration-300" 
-                  style={{ width: searchProgress ? `${(searchProgress.current / searchProgress.total) * 100}%` : '10%' }}
-                ></div>
+              
+              {/* Title */}
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">Searching for companies</h3>
+              
+              {/* Status Message */}
+              <p className="text-gray-600 mb-6 text-sm min-h-[20px]">
+                {searchProgress?.step || `Finding ${batchSize} companies matching your criteria`}
+              </p>
+              
+              {/* Progress Bar Container */}
+              <div className="mb-4">
+                <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden shadow-inner">
+                  <div 
+                    className="bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600 h-3 rounded-full transition-all duration-500 ease-out relative overflow-hidden"
+                    style={{ 
+                      width: searchProgress 
+                        ? `${Math.max(2, Math.min(98, (searchProgress.current / searchProgress.total) * 100))}%` 
+                        : '10%' 
+                    }}
+                  >
+                    {/* Shimmer effect */}
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-loading-shimmer bg-[length:200%_100%]"></div>
+                  </div>
+                </div>
+                
+                {/* Progress Text */}
+                <div className="flex items-center justify-between mt-3 text-xs">
+                  <span className="font-medium text-indigo-600">
+                    {searchProgress 
+                      ? `${searchProgress.current} of ${searchProgress.total} companies`
+                      : 'Starting...'}
+                  </span>
+                  <span className="text-gray-500">
+                    {searchProgress 
+                      ? `${Math.round((searchProgress.current / searchProgress.total) * 100)}%`
+                      : '0%'}
+                  </span>
+                </div>
               </div>
-              <p className="text-sm text-gray-500 mt-3">This usually takes 10-20 seconds</p>
+              
+              {/* Estimated Time */}
+              <p className="text-xs text-gray-400 mt-4">
+                This usually takes 10-20 seconds
+              </p>
             </div>
           </div>
         )}
