@@ -608,3 +608,305 @@ Return ONLY valid JSON, no markdown formatting."""
         traceback.print_exc()
         raise
 
+
+def process_interview_content_v2(
+    normalized_content: List[Dict], 
+    job_details: Dict,
+    source_stats: Dict = None
+) -> Dict:
+    """
+    Process multi-source normalized content (Reddit, YouTube, Glassdoor) with OpenAI.
+    
+    Args:
+        normalized_content: List of normalized content items from ContentAggregator
+        job_details: Parsed job posting details
+        source_stats: Dict with source counts (reddit_count, youtube_count, glassdoor_count)
+    
+    Returns structured JSON with multi-source interview insights.
+    """
+    company_name = job_details.get("company_name", "Unknown Company")
+    job_title = job_details.get("job_title", "")
+    level = job_details.get("level", "")
+    role_category = job_details.get("role_category", "Other")
+    
+    if not normalized_content:
+        return {
+            "company_name": company_name,
+            "last_updated": datetime.now().isoformat(),
+            "error": "No content found from any source",
+            "sources_count": 0
+        }
+    
+    client = get_openai_client()
+    if not client:
+        raise Exception("OpenAI client not available")
+    
+    # Separate content by source
+    reddit_items = [item for item in normalized_content if item.get("source") == "reddit"]
+    youtube_items = [item for item in normalized_content if item.get("source") == "youtube"]
+    glassdoor_items = [item for item in normalized_content if item.get("source") == "glassdoor"]
+    
+    # Prepare content summaries with source attribution
+    reddit_text = ""
+    if reddit_items:
+        reddit_text = "## REDDIT POSTS:\n"
+        for i, item in enumerate(reddit_items[:30], 1):  # Limit to 30 for token efficiency
+            reddit_text += f"\n=== POST {i} (r/{item.get('metadata', {}).get('subreddit', 'unknown')}) ===\n"
+            reddit_text += f"Title: {item.get('title', '')}\n"
+            reddit_text += f"Content: {item.get('content', '')[:3000]}\n"  # Limit content length
+            if len(item.get('content', '')) > 3000:
+                reddit_text += "[... truncated ...]\n"
+    
+    youtube_text = ""
+    if youtube_items:
+        youtube_text = "## YOUTUBE VIDEO TRANSCRIPTS:\n"
+        for i, item in enumerate(youtube_items[:15], 1):  # Limit to 15 videos
+            metadata = item.get("metadata", {})
+            youtube_text += f"\n=== VIDEO {i}: {item.get('title', '')} ===\n"
+            youtube_text += f"Channel: {metadata.get('channel', 'Unknown')}\n"
+            youtube_text += f"Views: {metadata.get('view_count', 0)}\n"
+            youtube_text += f"Has Transcript: {metadata.get('has_transcript', False)}\n"
+            youtube_text += f"Content: {item.get('content', '')[:3000]}\n"
+            if len(item.get('content', '')) > 3000:
+                youtube_text += "[... truncated ...]\n"
+    
+    glassdoor_text = ""
+    if glassdoor_items:
+        glassdoor_text = "## GLASSDOOR INTERVIEW REVIEWS:\n"
+        for i, item in enumerate(glassdoor_items[:20], 1):  # Limit to 20 reviews
+            metadata = item.get("metadata", {})
+            glassdoor_text += f"\n=== REVIEW {i} ===\n"
+            glassdoor_text += f"Position: {metadata.get('job_title', 'Unknown')}\n"
+            glassdoor_text += f"Outcome: {metadata.get('outcome', 'Unknown')}\n"
+            glassdoor_text += f"Difficulty: {metadata.get('difficulty', 'Unknown')}\n"
+            glassdoor_text += f"Experience: {item.get('content', '')[:2000]}\n"
+            if len(item.get('content', '')) > 2000:
+                glassdoor_text += "[... truncated ...]\n"
+            # Include questions if available
+            questions = item.get("questions", [])
+            if questions:
+                glassdoor_text += f"Questions Asked: {', '.join(questions[:5])}\n"
+    
+    # Get source counts
+    reddit_count = source_stats.get("reddit", len(reddit_items)) if source_stats else len(reddit_items)
+    youtube_count = source_stats.get("youtube", len(youtube_items)) if source_stats else len(youtube_items)
+    glassdoor_count = source_stats.get("glassdoor", len(glassdoor_items)) if source_stats else len(glassdoor_items)
+    
+    required_skills = job_details.get("required_skills", [])
+    team_division = job_details.get("team_division")
+    
+    role_context = f" for {job_title} at {company_name}"
+    if level:
+        role_context += f" ({level})"
+    
+    skills_context = ""
+    if required_skills:
+        skills_context = f"\n\nREQUIRED SKILLS FROM JOB POSTING: {', '.join(required_skills[:10])}"
+    
+    # Build the prompt
+    prompt = f"""You are creating a COMPREHENSIVE interview preparation guide{role_context} using data from MULTIPLE SOURCES.
+
+JOB POSTING CONTEXT:
+- Company: {company_name}
+- Job Title: {job_title}
+- Level: {level or 'Not specified'}
+- Team/Division: {team_division or 'Not specified'}
+- Role Category: {role_category}
+{skills_context}
+
+DATA SOURCES:
+- Reddit: {reddit_count} posts
+- YouTube: {youtube_count} videos with transcripts
+- Glassdoor: {glassdoor_count} interview reviews
+
+IMPORTANT: 
+- Attribute quotes to their sources (e.g., "Reddit r/subreddit", "YouTube 'Video Title'", "Glassdoor review")
+- Identify patterns across sources (most common questions, typical timeline, etc.)
+- Extract specific, actionable insights
+- Distinguish between successful (offer) and unsuccessful (rejected) experiences
+
+{reddit_text}
+
+{youtube_text}
+
+{glassdoor_text}
+
+Return ONLY valid JSON in this exact structure:
+{{
+    "company_name": "{company_name}",
+    "job_title": "{job_title}",
+    "year": "2024",
+    "last_updated": "{datetime.now().isoformat()}",
+    
+    "summary_stats": {{
+        "total_sources": {reddit_count + youtube_count + glassdoor_count},
+        "reddit_count": {reddit_count},
+        "youtube_count": {youtube_count},
+        "glassdoor_count": {glassdoor_count},
+        "interview_rounds": 0,
+        "timeline_weeks": "4-6 weeks"
+    }},
+    
+    "interview_stages": [
+        {{
+            "stage_number": 1,
+            "name": "Application",
+            "duration": "N/A",
+            "format": "Online",
+            "description": "Submit resume and cover letter",
+            "quotes": [
+                {{"text": "[Quote]", "source": "Reddit r/subreddit", "attribution": "u/username"}}
+            ],
+            "tips": ["Tip 1", "Tip 2"]
+        }}
+    ],
+    
+    "interview_rounds_table": [
+        {{"round": "Phone Screen", "duration": "30 min", "focus": "Resume review", "interviewers": "Recruiter"}}
+    ],
+    
+    "behavioral_questions": [
+        {{
+            "question": "[Question]",
+            "why_asked": "[Explanation]",
+            "tip": "[Answering tip]",
+            "frequency": 5
+        }}
+    ],
+    
+    "technical_questions": [
+        {{
+            "question": "[Question]",
+            "frequency": 3,
+            "difficulty": "Medium",
+            "source": "YouTube/Reddit/Glassdoor"
+        }}
+    ],
+    
+    "company_specific_questions": [
+        {{
+            "question": "Why {company_name}?",
+            "what_they_want": ["Point 1", "Point 2"]
+        }}
+    ],
+    
+    "real_experiences": [
+        {{
+            "role": "{job_title}",
+            "year": "2024",
+            "outcome": "OFFER RECEIVED",
+            "source_type": "Reddit",
+            "source_detail": "r/subreddit",
+            "quote": "[Quote from experience]",
+            "key_insight": "[Takeaway]",
+            "questions_asked": ["Q1", "Q2"],
+            "what_went_wrong": null,
+            "difficulty": "Medium"
+        }}
+    ],
+    
+    "red_flags": ["Mistake 1", "Mistake 2"],
+    
+    "compensation": {{
+        "salary_range": "[Range]",
+        "bonus": "[Info]",
+        "housing_stipend": "[Info or null]",
+        "relocation": "[Info]",
+        "signing_bonus": "[Info]",
+        "negotiation_tip": "[Advice]"
+    }},
+    
+    "culture": {{
+        "work_life_balance": "[Assessment]",
+        "team_dynamics": "[Assessment]",
+        "management_style": "[Assessment]",
+        "growth_opportunities": "[Assessment]",
+        "remote_policy": "[Policy]"
+    }},
+    
+    "timeline": {{
+        "response_time": "[Timeline]",
+        "thank_you_advice": "[Advice]",
+        "follow_up_advice": "[Advice]",
+        "offer_details": "[Details]"
+    }},
+    
+    "resources": [
+        {{"name": "[Resource]", "url": "[URL]", "description": "[Description]"}}
+    ]
+}}
+
+CRITICAL: Include source attribution for all quotes and experiences. Be specific with actual data from the sources."""
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an expert career coach analyzing interview data from multiple sources. You synthesize content from Reddit, YouTube, and Glassdoor into structured interview intelligence. Always attribute quotes to their sources."
+                },
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=8000,
+            temperature=0.15,
+        )
+        
+        response_text = response.choices[0].message.content.strip()
+        
+        # Remove markdown if present
+        if '```' in response_text:
+            response_text = response_text.split('```')[1]
+            if response_text.startswith('json'):
+                response_text = response_text[4:]
+            response_text = response_text.strip()
+        
+        # Parse JSON
+        result = json.loads(response_text)
+        
+        # Ensure required fields exist
+        defaults = {
+            'summary_stats': {
+                "total_sources": reddit_count + youtube_count + glassdoor_count,
+                "reddit_count": reddit_count,
+                "youtube_count": youtube_count,
+                "glassdoor_count": glassdoor_count,
+                "interview_rounds": 0,
+                "timeline_weeks": "4-6 weeks"
+            },
+            'interview_stages': [],
+            'interview_rounds_table': [],
+            'behavioral_questions': [],
+            'technical_questions': [],
+            'company_specific_questions': [],
+            'real_experiences': [],
+            'red_flags': [],
+            'compensation': {},
+            'culture': {},
+            'timeline': {},
+            'resources': []
+        }
+        
+        for key, default_value in defaults.items():
+            if key not in result:
+                result[key] = default_value
+        
+        return result
+        
+    except json.JSONDecodeError as e:
+        print(f"JSON decode error in v2 processor: {e}")
+        print(f"Response text: {response_text[:500]}")
+        # Return fallback structure
+        return {
+            "company_name": company_name,
+            "job_title": job_title,
+            "last_updated": datetime.now().isoformat(),
+            "error": "Failed to parse OpenAI response",
+            **defaults
+        }
+    except Exception as e:
+        print(f"Error processing multi-source content: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+

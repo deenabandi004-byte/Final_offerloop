@@ -15,8 +15,11 @@ from app.utils.exceptions import ValidationError, OfferloopException, Insufficie
 from app.utils.validation import InterviewPrepRequest, validate_request
 from app.services.interview_prep.job_posting_parser import parse_job_posting_url
 from app.services.interview_prep.reddit_scraper import search_reddit
-from app.services.interview_prep.content_processor import process_interview_content
-from app.services.interview_prep.pdf_generator import generate_interview_prep_pdf
+from app.services.interview_prep.content_aggregator import aggregate_content
+from app.services.interview_prep.content_processor import process_interview_content, process_interview_content_v2
+from app.services.interview_prep.pdf_generator import generate_interview_prep_pdf, generate_interview_prep_pdf_v2
+from app.services.interview_prep.resume_parser import get_user_profile
+from app.services.interview_prep.personalization import PersonalizationEngine
 
 interview_prep_bp = Blueprint(
     "interview_prep", __name__, url_prefix="/api/interview-prep"
@@ -39,6 +42,47 @@ def _upload_pdf_to_storage(user_id: str, prep_id: str, pdf_bytes: bytes) -> dict
         pdf_url = blob.generate_signed_url(expiration=3600)
 
     return {"pdf_storage_path": blob_path, "pdf_url": pdf_url}
+
+
+def _convert_normalized_to_reddit_format(normalized_content: list) -> list:
+    """
+    Convert normalized multi-source content to Reddit-like format for compatibility
+    with existing process_interview_content function.
+    
+    Args:
+        normalized_content: List of normalized content items from ContentAggregator
+        
+    Returns:
+        List of items in Reddit-like format
+    """
+    converted = []
+    for item in normalized_content:
+        source = item.get("source", "unknown")
+        metadata = item.get("metadata", {})
+        
+        # Extract upvotes from metadata if available (for Reddit posts)
+        upvotes = metadata.get("upvotes", 0) if source == "reddit" else 0
+        if upvotes == 0 and source == "reddit":
+            # Fallback: estimate from score (score is normalized 0-1, multiply by 1000 for approximate upvotes)
+            upvotes = int(item.get("score", 0) * 1000)
+        
+        # Convert to Reddit-like format
+        reddit_like = {
+            "post_id": item.get("id", "").replace(f"{source}_", ""),
+            "post_title": item.get("title", ""),
+            "post_body": item.get("content", ""),
+            "url": item.get("source_url", ""),
+            "date": item.get("date", ""),
+            "upvotes": upvotes,
+            "subreddit": metadata.get("subreddit", "unknown") if source == "reddit" else source,
+            "top_comments": [],  # Comments not preserved in normalized format, but content includes them
+            # Add source info for tracking (processor may use this)
+            "_source": source,
+            "_original_metadata": metadata,
+        }
+        converted.append(reddit_like)
+    
+    return converted
 
 
 def process_interview_prep_background(
@@ -142,39 +186,87 @@ def process_interview_prep_background(
             "progress": "Extracting role requirements..."
         })
 
-        # Step 2: Scrape Reddit with targeted queries
-        print("Step 2: Scraping Reddit for interview posts...")
-        prep_ref.update({"status": "scraping_reddit", "progress": "Searching Reddit for interview experiences..."})
+        # Step 2: Gather content from all sources (Reddit, YouTube, Glassdoor)
+        normalized_content_v2 = None
+        stats = {}
+        
+        print("Step 2: Gathering content from all sources (Reddit, YouTube, Glassdoor)...")
+        prep_ref.update({"status": "scraping_reddit", "progress": "Searching multiple sources for interview experiences..."})
         
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            reddit_posts = loop.run_until_complete(search_reddit(job_details))
+            aggregated_content, stats = loop.run_until_complete(
+                aggregate_content(job_details, max_items=50, timeout_seconds=180)
+            )
+            
+            # Log source status for debugging
+            sources_status = stats.get("sources_status", {})
+            by_source = stats.get("by_source", {})
+            print(f"✅ Content aggregation complete:")
+            print(f"   - Reddit: {by_source.get('reddit', 0)} items (status: {sources_status.get('reddit', 'unknown')})")
+            print(f"   - YouTube: {by_source.get('youtube', 0)} items (status: {sources_status.get('youtube', 'unknown')})")
+            print(f"   - Glassdoor: {by_source.get('glassdoor', 0)} items (status: {sources_status.get('glassdoor', 'unknown')})")
+            print(f"   - Total: {stats.get('total_items', 0)} items from {stats.get('total_sources', 0)} sources")
+            
+            # Store normalized content for v2 processor
+            normalized_content_v2 = aggregated_content
+            
+            # Also convert to Reddit-like format for fallback compatibility
+            content_for_processing = _convert_normalized_to_reddit_format(aggregated_content)
+            
+            # Fallback to Reddit-only if aggregation returned no content
+            if not content_for_processing:
+                print("⚠️ Multi-source aggregation returned no content, falling back to Reddit-only...")
+                reddit_posts = loop.run_until_complete(search_reddit(job_details))
+                if not reddit_posts:
+                    error_msg = f"No interview data found for {company_name}. They may be too new or small. Try a larger/more well-known company, or the role may be too specific."
+                    prep_ref.update({"status": "failed", "error": error_msg})
+                    return
+                # Use Reddit posts directly (they're already in the right format)
+                content_for_processing = reddit_posts
+                normalized_content_v2 = None  # Clear normalized content since we're using Reddit-only
+        except Exception as agg_error:
+            print(f"⚠️ Multi-source aggregation failed: {agg_error}")
+            import traceback
+            traceback.print_exc()
+            print("   Falling back to Reddit-only...")
+            # Fallback to Reddit-only
+            try:
+                reddit_posts = loop.run_until_complete(search_reddit(job_details))
+                if not reddit_posts:
+                    error_msg = f"No interview data found for {company_name}. They may be too new or small. Try a larger/more well-known company, or the role may be too specific."
+                    prep_ref.update({"status": "failed", "error": error_msg})
+                    return
+                # Use Reddit posts directly (they're already in the right format)
+                content_for_processing = reddit_posts
+                normalized_content_v2 = None  # Clear normalized content since we're using Reddit-only
+            except Exception as reddit_error:
+                print(f"❌ Reddit fallback also failed: {reddit_error}")
+                import traceback
+                traceback.print_exc()
+                prep_ref.update({"status": "failed", "error": f"Failed to gather interview data: {str(reddit_error)}"})
+                return
         finally:
             loop.close()
 
-        if not reddit_posts:
-            print("❌ No Reddit posts found")
-            # Use a more helpful error message
-            if company_name and company_name != "Unknown":
-                error_msg = f"No interview data found for {company_name}. They may be too new or small. Try a larger/more well-known company, or the role may be too specific."
-            else:
-                error_msg = "No interview data found for this company. They may be too new or small. Try a larger/more well-known company."
-            prep_ref.update(
-                {
-                    "status": "failed",
-                    "error": error_msg,
-                }
-            )
-            return
-
-        print(f"✅ Found {len(reddit_posts)} Reddit posts")
+        print(f"✅ Found {len(content_for_processing)} content items for processing")
         prep_ref.update({"progress": "Processing insights..."})
 
         # Step 3: Process content with OpenAI
         print("Step 3: Processing content with OpenAI...")
         prep_ref.update({"status": "processing_content"})
-        insights = process_interview_content(reddit_posts, job_details)
+        
+        # Use v2 processor if we have normalized content from multi-source aggregation
+        use_v2 = normalized_content_v2 is not None
+        
+        if use_v2:
+            # Use the normalized content directly for v2 processor
+            source_stats = stats.get("by_source", {}) if stats else {}
+            insights = process_interview_content_v2(normalized_content_v2, job_details, source_stats)
+        else:
+            # Use v1 processor with Reddit-like format
+            insights = process_interview_content(content_for_processing, job_details)
 
         if insights.get("error"):
             prep_ref.update(
@@ -187,16 +279,75 @@ def process_interview_prep_background(
 
         prep_ref.update({"insights": insights})
 
-        # Step 4: Generate PDF
-        print("Step 4: Generating PDF...")
+        # Step 4: Get user profile and generate personalization (if v2)
+        fit_analysis = {"is_personalized": False, "fit_score": None, "strengths": [], "gaps": []}
+        story_bank = {"stories": [], "personalized": False}
+        prep_plan = {"weeks": []}
+        user_profile = {}
+        
+        if use_v2:
+            print("Step 4: Loading user profile and generating personalization...")
+            prep_ref.update({"progress": "Personalizing your prep guide..."})
+            
+            try:
+                user_profile = get_user_profile(user_id)
+                profile_source = user_profile.get("_source", "none")
+                print(f"Profile source: {profile_source}")
+                
+                # Generate personalization using existing engine
+                personalization_engine = PersonalizationEngine()
+                loop_personal = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop_personal)
+                try:
+                    user_context = loop_personal.run_until_complete(
+                        personalization_engine.get_user_context(user_id, db)
+                    )
+                    
+                    # Generate fit analysis
+                    fit_analysis = personalization_engine.generate_fit_analysis(user_context, job_details)
+                    
+                    # Generate story bank
+                    questions_dict = {
+                        "behavioral": insights.get("behavioral_questions", [])
+                    }
+                    story_bank = personalization_engine.generate_story_bank(user_context, job_details, questions_dict)
+                    
+                    # Generate prep plan
+                    prep_plan = personalization_engine.generate_personalized_prep_plan(user_context, job_details, fit_analysis)
+                    
+                    if fit_analysis.get("is_personalized") or fit_analysis.get("personalized"):
+                        print(f"✓ Personalized content generated (fit score: {fit_analysis.get('fit_score')}%)")
+                    else:
+                        print("⚠ Using generic content (no profile data)")
+                finally:
+                    loop_personal.close()
+            except Exception as personal_error:
+                print(f"⚠ Personalization failed: {personal_error}")
+                import traceback
+                traceback.print_exc()
+                # Continue without personalization
+
+        # Step 5: Generate PDF
+        print("Step 5: Generating PDF...")
         prep_ref.update({"status": "generating_pdf", "progress": "Generating your prep guide..."})
 
         try:
-            pdf_buffer = generate_interview_prep_pdf(
-                prep_id=prep_id,
-                job_details=job_details,
-                insights=insights,
-            )
+            if use_v2:
+                pdf_buffer = generate_interview_prep_pdf_v2(
+                    prep_id=prep_id,
+                    insights=insights,
+                    fit_analysis=fit_analysis,
+                    story_bank=story_bank,
+                    prep_plan=prep_plan,
+                    job_details=job_details,
+                    user_profile=user_profile if use_v2 else None,
+                )
+            else:
+                pdf_buffer = generate_interview_prep_pdf(
+                    prep_id=prep_id,
+                    job_details=job_details,
+                    insights=insights,
+                )
 
             pdf_bytes = pdf_buffer.getvalue()
             
@@ -430,7 +581,7 @@ def get_interview_prep_status(prep_id):
         elif status == "parsing_job_posting":
             prep_data["progress"] = prep_data.get("progress", "Analyzing job posting...")
         elif status == "scraping_reddit":
-            prep_data["progress"] = prep_data.get("progress", "Searching Reddit for interview experiences...")
+            prep_data["progress"] = prep_data.get("progress", "Searching for interview experiences...")
         elif status == "processing_content":
             prep_data["progress"] = prep_data.get("progress", "Processing insights...")
         elif status == "generating_pdf":

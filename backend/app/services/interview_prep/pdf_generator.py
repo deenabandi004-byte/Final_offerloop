@@ -7,7 +7,8 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Image
+from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Image, Table, TableStyle
+from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
 import requests
 
@@ -777,3 +778,596 @@ def generate_interview_prep_pdf(
         traceback.print_exc()
         # Re-raise the exception so the route handler can catch it and fail properly
         raise Exception(f"PDF generation failed: {str(exc)}") from exc
+
+
+def generate_interview_prep_pdf_v2(
+    *,
+    prep_id: str,
+    insights: Dict,
+    fit_analysis: Dict,
+    story_bank: Dict,
+    prep_plan: Dict,
+    job_details: Dict,
+    user_profile: Dict = None,
+) -> BytesIO:
+    """
+    Generate Interview Prep 2.0 PDF with multi-source data and personalization.
+    
+    Args:
+        prep_id: Unique prep ID
+        insights: Structured insights from process_interview_content_v2
+        fit_analysis: Fit analysis from personalization engine
+        story_bank: Story bank from personalization engine
+        prep_plan: Prep plan from personalization engine
+        job_details: Parsed job posting details
+        user_profile: User profile data (optional)
+    """
+    try:
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=letter,
+            topMargin=36,
+            bottomMargin=36,
+            leftMargin=72,
+            rightMargin=72
+        )
+        styles = getSampleStyleSheet()
+        story: List = []
+
+        # Define styles
+        title_style = ParagraphStyle(
+            "InterviewTitle",
+            parent=styles["Heading1"],
+            fontSize=24,
+            textColor="#1a73e8",
+            spaceAfter=18,
+            alignment=TA_CENTER,
+        )
+        section_title = ParagraphStyle(
+            "SectionTitle",
+            parent=styles["Heading2"],
+            fontSize=16,
+            textColor="#0b5394",
+            spaceAfter=12,
+            spaceBefore=18,
+        )
+        subsection_title = ParagraphStyle(
+            "SubsectionTitle",
+            parent=styles["Heading3"],
+            fontSize=13,
+            textColor="#1565c0",
+            spaceAfter=8,
+            spaceBefore=12,
+        )
+        body_style = ParagraphStyle(
+            "Body",
+            parent=styles["BodyText"],
+            fontSize=10.5,
+            leading=14,
+            alignment=TA_LEFT,
+            spaceAfter=6,
+        )
+        source_style = ParagraphStyle(
+            "Source",
+            parent=body_style,
+            fontSize=9,
+            textColor="#666666",
+            fontName="Helvetica-Oblique",
+            spaceAfter=8,
+        )
+        bullet_style = ParagraphStyle(
+            "Bullets",
+            parent=body_style,
+            leftIndent=16,
+            bulletIndent=6,
+        )
+
+        company_name = job_details.get("company_name", "Company")
+        company_domain = job_details.get("company_domain", "")
+        job_title = job_details.get("job_title", "Role")
+        level = job_details.get("level", "")
+        
+        # PAGE 1: Header + Fit Analysis + Role Overview
+        if company_domain:
+            logo = _get_company_logo(company_domain)
+            if logo:
+                try:
+                    img = Image(logo, width=2*inch, height=0.5*inch)
+                    story.append(img)
+                    story.append(Spacer(1, 0.1*inch))
+                except Exception:
+                    pass
+        
+        # Title
+        year = insights.get("year", "2024")
+        story.append(_safe_paragraph(f"{company_name}", title_style))
+        story.append(_safe_paragraph(f"{job_title}: {year}", ParagraphStyle(
+            "Subtitle",
+            parent=title_style,
+            fontSize=18,
+            spaceAfter=12,
+        )))
+        story.append(Spacer(1, 0.2*inch))
+        
+        # Stats table
+        stats = insights.get("summary_stats", {})
+        interview_rounds = len(insights.get("interview_stages", []))
+        timeline = stats.get("timeline_weeks", "4-6 weeks")
+        total_sources = stats.get("total_sources", 0)
+        fit_score = fit_analysis.get("fit_score")
+        
+        stats_data = [
+            ["Interview Stages", "Timeline", "Data Sources", "Your Fit Score"],
+            [
+                f"{interview_rounds} rounds",
+                timeline,
+                f"{total_sources} sources",
+                f"{fit_score}%" if fit_score is not None else "N/A"
+            ]
+        ]
+        stats_table = Table(stats_data, colWidths=[1.5*inch, 1.5*inch, 1.5*inch, 1.5*inch])
+        stats_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ]))
+        story.append(stats_table)
+        story.append(Spacer(1, 0.2*inch))
+        
+        # Fit Analysis
+        story.append(_safe_paragraph("Your Personalized Fit Analysis", section_title))
+        if fit_analysis.get("is_personalized") or fit_analysis.get("personalized"):
+            if fit_score is not None:
+                story.append(_safe_paragraph(f"Fit Score: {fit_score}%", subsection_title))
+            
+            strengths = fit_analysis.get("strengths", []) or fit_analysis.get("strong_matches", [])
+            if strengths:
+                story.append(_safe_paragraph("Strong Matches:", subsection_title))
+                for strength in strengths[:4]:
+                    story.append(Paragraph(f"✓ {strength}", bullet_style))
+                story.append(Spacer(1, 0.1*inch))
+            
+            gaps = fit_analysis.get("gaps", []) or fit_analysis.get("gaps_to_address", [])
+            if gaps:
+                story.append(_safe_paragraph("Gaps to Address:", subsection_title))
+                for gap in gaps[:3]:
+                    story.append(Paragraph(f"• {gap}", bullet_style))
+        else:
+            story.append(_safe_paragraph(
+                "Upload your resume or complete your profile to see personalized fit analysis.",
+                body_style
+            ))
+        
+        story.append(PageBreak())
+        
+        # PAGE 2: Interview Process Deep Dive
+        story.append(_safe_paragraph("Interview Process Deep Dive", section_title))
+        
+        # Source attribution
+        reddit_count = stats.get("reddit_count", 0)
+        youtube_count = stats.get("youtube_count", 0)
+        glassdoor_count = stats.get("glassdoor_count", 0)
+        source_text = f"■ Aggregated from {reddit_count} Reddit posts, {youtube_count} YouTube videos, {glassdoor_count} Glassdoor reviews"
+        story.append(_safe_paragraph(source_text, source_style))
+        story.append(Spacer(1, 0.1*inch))
+        
+        # Interview stages
+        stages = insights.get("interview_stages", [])
+        for stage in stages[:6]:
+            if isinstance(stage, dict):
+                stage_text = f"<b>Stage {stage.get('stage_number', '')}: {stage.get('name', '')}</b><br/>"
+                if stage.get("description"):
+                    stage_text += f"{stage.get('description')}<br/>"
+                if stage.get("duration") and stage.get("duration") != "N/A":
+                    stage_text += f"Duration: {stage.get('duration')}<br/>"
+                if stage.get("format"):
+                    stage_text += f"Format: {stage.get('format')}<br/>"
+                
+                # Add quotes with attribution
+                quotes = stage.get("quotes", [])
+                if quotes:
+                    for quote_obj in quotes[:2]:
+                        if isinstance(quote_obj, dict):
+                            quote_text = quote_obj.get("text", "")
+                            source = quote_obj.get("source", "")
+                            attribution = quote_obj.get("attribution", "")
+                            if quote_text:
+                                stage_text += f'<br/>"{quote_text}"'
+                                if source:
+                                    stage_text += f" — {source}"
+                                if attribution:
+                                    stage_text += f" ({attribution})"
+                
+                story.append(_safe_paragraph(stage_text, body_style))
+                story.append(Spacer(1, 0.1*inch))
+        
+        # Interview rounds table
+        rounds_table_data = insights.get("interview_rounds_table", [])
+        if rounds_table_data:
+            table_data = [["Round", "Duration", "Focus", "Interviewers"]]
+            for round_data in rounds_table_data[:6]:
+                if isinstance(round_data, dict):
+                    table_data.append([
+                        round_data.get("round", ""),
+                        round_data.get("duration", ""),
+                        round_data.get("focus", ""),
+                        round_data.get("interviewers", "")
+                    ])
+            
+            if len(table_data) > 1:
+                rounds_table = Table(table_data, colWidths=[1.5*inch, 1.2*inch, 2*inch, 1.3*inch])
+                rounds_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 10),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ]))
+                story.append(rounds_table)
+        
+        story.append(PageBreak())
+        
+        # PAGE 3: Questions You'll Face
+        story.append(_safe_paragraph("Questions You'll Face", section_title))
+        
+        # Behavioral Questions
+        behavioral_qs = insights.get("behavioral_questions", [])
+        if behavioral_qs:
+            story.append(_safe_paragraph("Behavioral Questions", subsection_title))
+            story.append(_safe_paragraph(
+                f"■ Most frequently asked based on {glassdoor_count} Glassdoor reviews",
+                source_style
+            ))
+            for q_obj in behavioral_qs[:8]:
+                if isinstance(q_obj, dict):
+                    q_text = f"<b>Q: {q_obj.get('question', '')}</b><br/>"
+                    if q_obj.get("why_asked"):
+                        q_text += f"Why asked: {q_obj.get('why_asked')}. "
+                    if q_obj.get("tip"):
+                        q_text += f"{q_obj.get('tip')}"
+                    story.append(_safe_paragraph(q_text, body_style))
+                    story.append(Spacer(1, 0.05*inch))
+        
+        # Technical Questions
+        technical_qs = insights.get("technical_questions", [])
+        if technical_qs:
+            story.append(_safe_paragraph("Technical Questions", subsection_title))
+            story.append(_safe_paragraph(
+                "■ From YouTube interviews + Reddit reports",
+                source_style
+            ))
+            for q_obj in technical_qs[:8]:
+                if isinstance(q_obj, dict):
+                    q_text = f"• {q_obj.get('question', '')}"
+                    if q_obj.get("frequency"):
+                        q_text += f" (Asked {q_obj.get('frequency')} times in last 12 months)"
+                    story.append(Paragraph(q_text, bullet_style))
+            story.append(Spacer(1, 0.1*inch))
+        
+        # Company-Specific Questions
+        company_qs = insights.get("company_specific_questions", [])
+        if company_qs:
+            story.append(_safe_paragraph("Company-Specific Questions", subsection_title))
+            story.append(_safe_paragraph(
+                f"■ From {company_name} careers page + recent interviews",
+                source_style
+            ))
+            for q_obj in company_qs[:5]:
+                if isinstance(q_obj, dict):
+                    q_text = f'<b>"{q_obj.get("question", "")}"</b> — What they want to hear:<br/>'
+                    wants = q_obj.get("what_they_want", [])
+                    if isinstance(wants, list):
+                        for want in wants:
+                            q_text += f"• {want}<br/>"
+                    story.append(_safe_paragraph(q_text, body_style))
+                    story.append(Spacer(1, 0.05*inch))
+        
+        story.append(PageBreak())
+        
+        # PAGE 4-5: Story Bank (if personalized)
+        story_bank_data = story_bank.get("stories", []) if isinstance(story_bank, dict) else []
+        if story_bank_data:
+            story.append(_safe_paragraph("Your Story Bank", section_title))
+            story.append(_safe_paragraph(
+                "■ PERSONALIZED: These stories are tailored from your Offerloop profile and resume",
+                source_style
+            ))
+            
+            for story_obj in story_bank_data[:3]:
+                if isinstance(story_obj, dict):
+                    category = story_obj.get("category") or story_obj.get("theme", "")
+                    title = story_obj.get("title", "")
+                    use_for = story_obj.get("use_for", [])
+                    
+                    story.append(_safe_paragraph(
+                        f"Story: {category} → {title}",
+                        subsection_title
+                    ))
+                    
+                    if use_for:
+                        use_text = "USE FOR: " + " / ".join([f'"{u}"' for u in use_for[:2]])
+                        story.append(_safe_paragraph(use_text, body_style))
+                    
+                    story.append(_safe_paragraph(f"<b>SITUATION:</b> {story_obj.get('situation', '')}", body_style))
+                    story.append(_safe_paragraph(f"<b>TASK:</b> {story_obj.get('task', '')}", body_style))
+                    story.append(_safe_paragraph(f"<b>ACTION:</b> {story_obj.get('action', '')}", body_style))
+                    story.append(_safe_paragraph(f"<b>RESULT:</b> {story_obj.get('result', '')}", body_style))
+                    
+                    if story_obj.get("company_connection"):
+                        story.append(_safe_paragraph(
+                            f"<b>{company_name.upper()} CONNECTION:</b> {story_obj.get('company_connection')}",
+                            body_style
+                        ))
+                    
+                    story.append(Spacer(1, 0.15*inch))
+        
+        story.append(PageBreak())
+        
+        # PAGE 6: Real Interview Experiences
+        story.append(_safe_paragraph("Real Interview Experiences", section_title))
+        story.append(_safe_paragraph(
+            f"■ Aggregated from Reddit, YouTube, and Glassdoor ({year})",
+            source_style
+        ))
+        
+        experiences = insights.get("real_experiences", [])
+        for exp in experiences[:4]:
+            if isinstance(exp, dict):
+                outcome = exp.get("outcome", "")
+                outcome_symbol = "✓" if "OFFER" in outcome.upper() else "✗"
+                
+                exp_text = f"<b>{exp.get('role', 'Role')} ({exp.get('year', 'Year')}) — {outcome} {outcome_symbol}</b><br/>"
+                exp_text += f"Source: {exp.get('source_type', 'Unknown')}"
+                if exp.get("source_detail"):
+                    exp_text += f" ({exp.get('source_detail')})"
+                exp_text += "<br/><br/>"
+                
+                if exp.get("quote"):
+                    exp_text += f'"{exp.get("quote")}"<br/><br/>'
+                
+                if exp.get("key_insight"):
+                    exp_text += f"<b>Key Insight:</b> {exp.get('key_insight')}<br/>"
+                
+                if exp.get("questions_asked"):
+                    questions = exp.get("questions_asked", [])
+                    if isinstance(questions, list) and questions:
+                        exp_text += f"<b>Questions Asked:</b> {', '.join(questions[:3])}<br/>"
+                
+                if exp.get("what_went_wrong"):
+                    exp_text += f"<b>What went wrong:</b> {exp.get('what_went_wrong')}<br/>"
+                
+                if exp.get("difficulty"):
+                    exp_text += f"<b>Difficulty:</b> {exp.get('difficulty')}"
+                
+                story.append(_safe_paragraph(exp_text, body_style))
+                story.append(Spacer(1, 0.15*inch))
+        
+        story.append(PageBreak())
+        
+        # PAGE 7: Personalized Prep Plan
+        story.append(_safe_paragraph("Your Personalized Prep Plan", section_title))
+        story.append(_safe_paragraph(
+            "■ Customized based on your current skill level and the role requirements",
+            source_style
+        ))
+        
+        prep_weeks = prep_plan.get("weeks", []) if isinstance(prep_plan, dict) else []
+        if not prep_weeks:
+            # Fallback to insights preparation_plan
+            prep_weeks = insights.get("preparation_plan", {}).get("week_by_week", [])
+        
+        for week_data in prep_weeks[:4]:
+            if isinstance(week_data, dict):
+                week_num = week_data.get("week", "")
+                week_title = week_data.get("title") or week_data.get("focus", f"Week {week_num}")
+                
+                story.append(_safe_paragraph(f"Week {week_num}: {week_title}", subsection_title))
+                
+                tasks = week_data.get("tasks", [])
+                for task in tasks[:5]:
+                    story.append(Paragraph(f"• {task}", bullet_style))
+                
+                if week_data.get("user_focus") or week_data.get("personalized"):
+                    focus = week_data.get("user_focus") or week_data.get("personalized")
+                    story.append(_safe_paragraph(
+                        f"<i>Your focus: {focus}</i>",
+                        ParagraphStyle("Focus", parent=body_style, textColor="#1565c0")
+                    ))
+                
+                story.append(Spacer(1, 0.1*inch))
+        
+        # Resources
+        resources = insights.get("resources", [])
+        if resources:
+            story.append(_safe_paragraph("Recommended Resources:", subsection_title))
+            for resource in resources[:8]:
+                if isinstance(resource, dict):
+                    res_text = f"<b>{resource.get('name', '')}</b>"
+                    if resource.get("url"):
+                        res_text += f" — {resource.get('url')}"
+                    if resource.get("description"):
+                        res_text += f"<br/>{resource.get('description')}"
+                    story.append(_safe_paragraph(res_text, body_style))
+                    story.append(Spacer(1, 0.05*inch))
+        
+        story.append(PageBreak())
+        
+        # PAGE 8: Day of Interview + Compensation
+        story.append(_safe_paragraph("Day of Interview", section_title))
+        
+        # Day logistics table
+        timeline_data = insights.get("timeline", {})
+        logistics_data = [
+            ["What to Wear", "Virtual Setup"],
+            [
+                job_details.get("dress_code", "Business casual recommended"),
+                timeline_data.get("virtual_setup", "Test your tech beforehand")
+            ],
+            ["Arrival Time", "What to Bring"],
+            [
+                "15 minutes early",
+                "Resume, questions for interviewer, notebook"
+            ]
+        ]
+        logistics_table = Table(logistics_data, colWidths=[2.5*inch, 2.5*inch])
+        logistics_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ]))
+        story.append(logistics_table)
+        story.append(Spacer(1, 0.15*inch))
+        
+        # Red Flags
+        red_flags = insights.get("red_flags", [])
+        if red_flags:
+            story.append(_safe_paragraph("What to Avoid (Interviewer Red Flags):", subsection_title))
+            story.append(_safe_paragraph(
+                "■ From interviewer feedback on Glassdoor",
+                source_style
+            ))
+            for flag in red_flags[:6]:
+                story.append(Paragraph(f"■■ {flag}", bullet_style))
+        
+        story.append(Spacer(1, 0.2*inch))
+        
+        # Compensation
+        story.append(_safe_paragraph("Compensation Intelligence", section_title))
+        story.append(_safe_paragraph(
+            f"■ Data from Levels.fyi, Glassdoor, and Blind ({year})",
+            source_style
+        ))
+        
+        compensation = insights.get("compensation", {})
+        comp_data = [
+            ["Component", "Range", "Notes"],
+            [
+                "Hourly Rate / Salary",
+                compensation.get("salary_range", "See job posting"),
+                ""
+            ],
+            [
+                "Bonus",
+                compensation.get("bonus", "Varies"),
+                ""
+            ],
+            [
+                "Housing/Relocation",
+                compensation.get("housing_stipend") or compensation.get("relocation", "N/A"),
+                ""
+            ],
+            [
+                "Signing Bonus",
+                compensation.get("signing_bonus", "Varies"),
+                ""
+            ]
+        ]
+        comp_table = Table(comp_data, colWidths=[2*inch, 2*inch, 1.5*inch])
+        comp_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ]))
+        story.append(comp_table)
+        
+        if compensation.get("negotiation_tip"):
+            story.append(Spacer(1, 0.1*inch))
+            story.append(_safe_paragraph(
+                f"<b>Negotiation Tip:</b> {compensation.get('negotiation_tip')}",
+                body_style
+            ))
+        
+        story.append(PageBreak())
+        
+        # PAGE 9: After Interview + Culture
+        story.append(_safe_paragraph("After the Interview", section_title))
+        
+        if timeline_data.get("response_time"):
+            story.append(_safe_paragraph("Response Timeline:", subsection_title))
+            story.append(_safe_paragraph(timeline_data.get("response_time"), body_style))
+        
+        if timeline_data.get("thank_you_advice"):
+            story.append(_safe_paragraph("Thank You Notes:", subsection_title))
+            story.append(_safe_paragraph(timeline_data.get("thank_you_advice"), body_style))
+        
+        if timeline_data.get("follow_up_advice"):
+            story.append(_safe_paragraph("Follow Up:", subsection_title))
+            story.append(_safe_paragraph(timeline_data.get("follow_up_advice"), body_style))
+        
+        if timeline_data.get("offer_details"):
+            story.append(_safe_paragraph("Offer Details:", subsection_title))
+            story.append(_safe_paragraph(timeline_data.get("offer_details"), body_style))
+        
+        story.append(Spacer(1, 0.2*inch))
+        
+        # Culture
+        story.append(_safe_paragraph(f"Culture at {company_name}", section_title))
+        story.append(_safe_paragraph(
+            "■ From 'Day in the Life' YouTube videos + Glassdoor reviews",
+            source_style
+        ))
+        
+        culture = insights.get("culture", {})
+        if culture.get("work_life_balance"):
+            story.append(_safe_paragraph("Work-Life Balance:", subsection_title))
+            story.append(_safe_paragraph(culture.get("work_life_balance"), body_style))
+        
+        if culture.get("team_dynamics"):
+            story.append(_safe_paragraph("Team Dynamics:", subsection_title))
+            story.append(_safe_paragraph(culture.get("team_dynamics"), body_style))
+        
+        if culture.get("management_style"):
+            story.append(_safe_paragraph("Management Style:", subsection_title))
+            story.append(_safe_paragraph(culture.get("management_style"), body_style))
+        
+        if culture.get("growth_opportunities"):
+            story.append(_safe_paragraph("Growth Opportunities:", subsection_title))
+            story.append(_safe_paragraph(culture.get("growth_opportunities"), body_style))
+        
+        if culture.get("remote_policy"):
+            story.append(_safe_paragraph("Remote Policy:", subsection_title))
+            story.append(_safe_paragraph(culture.get("remote_policy"), body_style))
+        
+        # Footer
+        story.append(Spacer(1, 0.3*inch))
+        last_updated = insights.get("last_updated", "")
+        footer_text = "Powered by Offerloop.ai | Multi-Source Intelligence Platform"
+        footer_text += f"<br/>Based on {total_sources} sources: {reddit_count} Reddit posts, {youtube_count} YouTube videos, {glassdoor_count} Glassdoor reviews"
+        if last_updated:
+            try:
+                date_str = last_updated.split("T")[0]
+                footer_text += f" | Generated {date_str}"
+            except:
+                pass
+        
+        story.append(_safe_paragraph(footer_text, ParagraphStyle(
+            "Footer",
+            parent=body_style,
+            fontSize=9,
+            textColor="#666666",
+            alignment=TA_CENTER,
+        )))
+
+        doc.build(story)
+        buffer.seek(0)
+        return buffer
+
+    except Exception as exc:
+        print(f"PDF v2 generation failed: {exc}")
+        import traceback
+        traceback.print_exc()
+        raise Exception(f"PDF v2 generation failed: {str(exc)}") from exc
+
