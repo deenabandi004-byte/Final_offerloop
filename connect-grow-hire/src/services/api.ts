@@ -120,6 +120,7 @@ export interface RecruiterEmail {
 export interface DraftCreated {
   recruiter_email: string;
   draft_id: string;
+  message_id?: string;  // Optional: message ID for more reliable draft opening
   draft_url: string;
 }
 

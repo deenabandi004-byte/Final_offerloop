@@ -126,6 +126,10 @@ export interface Recruiter {
   status: string;
   createdAt?: string;
   updatedAt?: string;
+  // Gmail draft tracking fields
+  gmailMessageId?: string;
+  gmailDraftId?: string;
+  gmailDraftUrl?: string;
 }
 
 // ================================

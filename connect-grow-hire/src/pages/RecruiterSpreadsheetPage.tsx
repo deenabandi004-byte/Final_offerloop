@@ -258,14 +258,26 @@ const RecruiterSpreadsheetPage = () => {
       // Save hiring managers to tracker
       if (response.hiringManagers && response.hiringManagers.length > 0) {
         try {
+          // Create a map of email -> draft info for quick lookup
+          const draftMap = new Map<string, any>();
+          if (response.draftsCreated && Array.isArray(response.draftsCreated)) {
+            response.draftsCreated.forEach((draft: any) => {
+              const email = draft.recruiter_email || draft.recruiterEmail;
+              if (email) {
+                draftMap.set(email.toLowerCase(), draft);
+              }
+            });
+          }
+
           // Convert API format to Firebase format
           const firebaseRecruiters: Omit<FirebaseRecruiter, 'id'>[] = response.hiringManagers.map((manager: any) => {
             // Build base object with required fields
+            const managerEmail = manager.Email || manager.email || manager.WorkEmail || manager.work_email || '';
             const recruiter: Omit<FirebaseRecruiter, 'id'> = {
               firstName: manager.FirstName || manager.firstName || manager.first_name || '',
               lastName: manager.LastName || manager.lastName || manager.last_name || '',
               linkedinUrl: manager.LinkedIn || manager.linkedin || manager.linkedinUrl || manager.linkedin_url || '',
-              email: manager.Email || manager.email || manager.WorkEmail || manager.work_email || '',
+              email: managerEmail,
               company: manager.Company || manager.company || companyName,
               jobTitle: manager.Title || manager.title || manager.jobTitle || manager.job_title || '',
               location: `${manager.City || manager.city || ''}${(manager.City || manager.city) && (manager.State || manager.state) ? ', ' : ''}${manager.State || manager.state || ''}`.trim() || '',
@@ -287,6 +299,16 @@ const RecruiterSpreadsheetPage = () => {
               recruiter.associatedJobTitle = associatedJobTitle;
             }
             if (associatedJobUrl) recruiter.associatedJobUrl = associatedJobUrl;
+
+            // Match draft info by email and add to recruiter
+            if (managerEmail) {
+              const draftInfo = draftMap.get(managerEmail.toLowerCase());
+              if (draftInfo) {
+                if (draftInfo.draft_id) recruiter.gmailDraftId = draftInfo.draft_id;
+                if (draftInfo.message_id) recruiter.gmailMessageId = draftInfo.message_id;
+                if (draftInfo.draft_url) recruiter.gmailDraftUrl = draftInfo.draft_url;
+              }
+            }
 
             return recruiter;
           });

@@ -7848,6 +7848,16 @@ def find_hiring_manager_endpoint():
                             draft = gmail_service.users().drafts().create(userId='me', body=draft_body).execute()
                             draft_id = draft['id']
                             
+                            # Extract message ID from draft (more reliable for opening drafts)
+                            message_id = draft.get('message', {}).get('id')
+                            if not message_id:
+                                # If message ID not in draft response, try to fetch it
+                                try:
+                                    draft_message = gmail_service.users().drafts().get(userId='me', id=draft_id, format='full').execute()
+                                    message_id = draft_message.get('message', {}).get('id')
+                                except Exception as e:
+                                    print(f"[FindHiringManager] Could not get message ID from draft: {e}")
+                            
                             # Get Gmail account email for URL
                             try:
                                 profile = gmail_service.users().getProfile(userId='me').execute()
@@ -7855,11 +7865,21 @@ def find_hiring_manager_endpoint():
                             except:
                                 connected_email = user_data.get('email', '')
                             
-                            draft_url = f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft_id}" if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
+                            # Use message ID format for more reliable draft URL (preferred)
+                            # Format: https://mail.google.com/mail/u/0/#drafts?compose=<messageId>
+                            if message_id:
+                                draft_url = (
+                                    f"https://mail.google.com/mail/?authuser={connected_email}#drafts?compose={message_id}"
+                                    if connected_email else f"https://mail.google.com/mail/u/0/#drafts?compose={message_id}"
+                                )
+                            else:
+                                # Fallback to draft ID format if message ID not available
+                                draft_url = f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft_id}" if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
                             
                             drafts_created.append({
                                 "recruiter_email": to_email,
                                 "draft_id": draft_id,
+                                "message_id": message_id,  # Include message_id for more reliable draft opening
                                 "draft_url": draft_url
                             })
                             

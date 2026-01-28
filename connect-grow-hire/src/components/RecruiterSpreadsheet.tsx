@@ -85,6 +85,10 @@ const RecruiterSpreadsheet: React.FC = () => {
     status: serverRecruiter.status || 'Not Contacted',
     createdAt: serverRecruiter.createdAt || serverRecruiter.created_at,
     updatedAt: serverRecruiter.updatedAt || serverRecruiter.updated_at,
+    // Gmail draft tracking fields
+    gmailMessageId: serverRecruiter.gmailMessageId || serverRecruiter.gmail_message_id,
+    gmailDraftId: serverRecruiter.gmailDraftId || serverRecruiter.gmail_draft_id,
+    gmailDraftUrl: serverRecruiter.gmailDraftUrl || serverRecruiter.gmail_draft_url,
   });
 
   const loadRecruiters = useCallback(async () => {
@@ -386,6 +390,30 @@ const RecruiterSpreadsheet: React.FC = () => {
     }
   };
 
+  const buildGmailLink = (recruiter: Recruiter) => {
+    // Build a new Gmail compose URL with pre-filled fields
+    const to = recruiter.email || recruiter.workEmail;
+    if (!to) return '#';
+    const subject = encodeURIComponent(`Inquiry about ${recruiter.associatedJobTitle || 'position'}`);
+    const body = encodeURIComponent(
+      `Hi ${recruiter.firstName || ''},\n\nI hope this email finds you well...`
+    );
+    // Use the reliable Gmail compose URL format with proper encoding
+    return `https://mail.google.com/mail/u/0/?view=cm&fs=1&tf=1&to=${encodeURIComponent(
+      to
+    )}&su=${subject}&body=${body}`;
+  };
+
+  const buildMailto = (recruiter: Recruiter) => {
+    const to = recruiter.email || recruiter.workEmail;
+    if (!to) return '#';
+    const subject = encodeURIComponent(`Inquiry about ${recruiter.associatedJobTitle || 'position'}`);
+    const body = encodeURIComponent(
+      `Hi ${recruiter.firstName || ''},\n\nI hope this email finds you well...`
+    );
+    return `mailto:${to}?subject=${subject}&body=${body}`;
+  };
+
   const handleEmailClick = (recruiter: Recruiter) => {
     setSelectedRecruiterForEmail(recruiter);
     setMailAppDialogOpen(true);
@@ -396,19 +424,58 @@ const RecruiterSpreadsheet: React.FC = () => {
 
     const email = selectedRecruiterForEmail.email || selectedRecruiterForEmail.workEmail;
     if (!email) {
-      alert('No email address available for this recruiter');
+      toast({
+        title: 'No email address',
+        description: 'No email address available for this recruiter.',
+        variant: 'destructive',
+      });
+      setMailAppDialogOpen(false);
+      setSelectedRecruiterForEmail(null);
       return;
     }
 
-    const subject = encodeURIComponent(`Inquiry about ${selectedRecruiterForEmail.associatedJobTitle || 'position'}`);
-    const body = encodeURIComponent(
-      `Hi ${selectedRecruiterForEmail.firstName || ''},\n\nI hope this email finds you well...`
-    );
-
-    if (app === 'gmail') {
-      window.open(`https://mail.google.com/mail/?view=cm&to=${email}&su=${subject}&body=${body}`);
+    if (app === 'apple') {
+      window.open(buildMailto(selectedRecruiterForEmail), '_blank');
+      // Note: Apple Mail can't attach files via mailto: URL
+      toast({
+        title: 'Reminder',
+        description: 'Please attach your resume before sending.',
+      });
     } else {
-      window.open(`mailto:${email}?subject=${subject}&body=${body}`);
+      // Check if we have a Gmail draft URL (has resume attached)
+      // Prefer message ID format (more reliable) over draft ID
+      const messageId = selectedRecruiterForEmail.gmailMessageId;
+      const draftId = selectedRecruiterForEmail.gmailDraftId;
+      let draftUrl = selectedRecruiterForEmail.gmailDraftUrl;
+      
+      if (messageId || draftId || draftUrl) {
+        // Open the actual draft (has resume attached)
+        // Option A: Use message ID format (most reliable)
+        if (messageId) {
+          draftUrl = `https://mail.google.com/mail/u/0/#drafts?compose=${messageId}`;
+          window.open(draftUrl, '_blank');
+        } else if (draftUrl) {
+          // Use stored URL (should already be in correct format)
+          window.open(draftUrl, '_blank');
+        } else if (draftId) {
+          // Fallback: Construct draft URL from draft ID
+          draftUrl = `https://mail.google.com/mail/u/0/#draft/${draftId}`;
+          window.open(draftUrl, '_blank');
+        }
+        
+        toast({
+          title: 'Opening Draft',
+          description: 'Opening your saved draft with resume attached.',
+        });
+      } else {
+        // No draft exists - fall back to compose URL (no attachment)
+        window.open(buildGmailLink(selectedRecruiterForEmail), '_blank');
+        
+        toast({
+          title: 'Reminder',
+          description: 'Please attach your resume before sending.',
+        });
+      }
     }
 
     setMailAppDialogOpen(false);
