@@ -216,51 +216,66 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                 except Exception:
                     pass
                 
-                print(f"📧 Creating Gmail drafts for {len(contacts[:max_contacts])} contacts...")
+                # ✅ ISSUE 3 FIX: Parallel Gmail draft creation
+                from app.services.gmail_client import create_drafts_parallel
+                
+                # Prepare contacts with email data for parallel processing
+                contacts_with_emails = []
                 for i, contact in enumerate(contacts[:max_contacts]):
-                    # Try both string and integer keys
                     email_result = email_results.get(i) or email_results.get(str(i)) or email_results.get(f"{i}")
                     if email_result and isinstance(email_result, dict):
                         subject = email_result.get('subject', '')
                         body = email_result.get('body', '')
                         if subject and body:
-                            try:
-                                draft_result = create_gmail_draft_for_user(
-                                    contact, subject, body,
-                                    tier='free', user_email=user_email, 
-                                    resume_content=resume_content, resume_filename=resume_filename,
-                                    user_info=user_info, user_id=user_id
-                                )
-                                
-                                # Handle both dict response (new) and string response (old/fallback)
-                                if isinstance(draft_result, dict):
-                                    draft_id = draft_result.get('draft_id', '')
-                                    message_id = draft_result.get('message_id')
-                                    draft_url = draft_result.get('draft_url', '')
-                                else:
-                                    draft_id = draft_result
-                                    message_id = None
-                                    draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}" if draft_id and not draft_id.startswith('mock_') else None
-                                
-                                if draft_id and not draft_id.startswith('mock_'):
-                                    successful_drafts += 1
-                                    # Store draft info with contact
-                                    contact['gmailDraftId'] = draft_id
-                                    if message_id:
-                                        contact['gmailMessageId'] = message_id
-                                    if draft_url:
-                                        contact['gmailDraftUrl'] = draft_url
-                                    print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
-                                else:
-                                    print(f"⚠️ [{i}] Draft creation returned mock/invalid ID for {contact.get('FirstName', 'Unknown')}")
-                            except Exception as draft_error:
-                                print(f"❌ [{i}] Failed to create draft for {contact.get('FirstName', 'Unknown')}: {draft_error}")
-                                import traceback
-                                traceback.print_exc()
-                        else:
-                            print(f"⚠️ [{i}] Missing subject/body for {contact.get('FirstName', 'Unknown')}")
-                    else:
-                        print(f"⚠️ [{i}] No email result for draft creation: {contact.get('FirstName', 'Unknown')}")
+                            contacts_with_emails.append({
+                                'index': i,
+                                'contact': contact,
+                                'email_subject': subject,
+                                'email_body': body
+                            })
+                
+                if contacts_with_emails:
+                    # Create all drafts in parallel
+                    draft_results = create_drafts_parallel(
+                        contacts_with_emails,
+                        resume_bytes=resume_content,
+                        resume_filename=resume_filename,
+                        user_info=user_info,
+                        user_id=user_id,
+                        tier='free',
+                        user_email=user_email
+                    )
+                    
+                    # Process results and attach to contacts
+                    for item, draft_result in zip(contacts_with_emails, draft_results):
+                        contact = item['contact']
+                        i = item['index']
+                        try:
+                            # Handle both dict response (new) and string response (old/fallback)
+                            if isinstance(draft_result, dict):
+                                draft_id = draft_result.get('draft_id', '')
+                                message_id = draft_result.get('message_id')
+                                draft_url = draft_result.get('draft_url', '')
+                            else:
+                                draft_id = draft_result if draft_result else None
+                                message_id = None
+                                draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}" if draft_id and not draft_id.startswith('mock_') else None
+                            
+                            if draft_id and not draft_id.startswith('mock_'):
+                                successful_drafts += 1
+                                # Store draft info with contact
+                                contact['gmailDraftId'] = draft_id
+                                if message_id:
+                                    contact['gmailMessageId'] = message_id
+                                if draft_url:
+                                    contact['gmailDraftUrl'] = draft_url
+                                print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
+                            else:
+                                print(f"⚠️ [{i}] Draft creation returned mock/invalid ID for {contact.get('FirstName', 'Unknown')}")
+                        except Exception as draft_error:
+                            print(f"❌ [{i}] Failed to process draft result for {contact.get('FirstName', 'Unknown')}: {draft_error}")
+                else:
+                    print(f"⚠️ No contacts with valid email data to create drafts")
         except Exception as gmail_error:
             # Token refresh happens automatically in _load_user_gmail_creds
             # Only catch errors that indicate PERMANENT auth failure
@@ -424,10 +439,26 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         else:
             print(f"✅ All {len(contacts_with_email)} contacts have emails from PDL, skipping Hunter.io enrichment")
         
-        # Generate emails with resume
+        # ✅ FIX #4: Parse resume ONCE in orchestration layer (not in batch_generate_emails)
+        print(f"📄 Parsing resume once for email generation...")
+        user_info = None
+        if resume_text or user_profile:
+            from app.utils.users import extract_user_info_from_resume_priority
+            user_info = extract_user_info_from_resume_priority(resume_text, user_profile)
+            print(f"✅ Resume parsed - extracted user info for {user_info.get('name', 'Unknown')}")
+        
+        # Generate emails with pre-parsed user_info
         print(f"📧 Generating emails for {len(contacts)} contacts...")
         try:
-            email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None)
+            # Pass pre-parsed user_info instead of raw resume_text
+            email_results = batch_generate_emails(
+                contacts, 
+                resume_text=None,  # Don't need raw text anymore
+                user_profile=user_profile, 
+                career_interests=career_interests, 
+                fit_context=None,
+                pre_parsed_user_info=user_info  # Pass pre-parsed info
+            )
             print(f"📧 Email generation returned {len(email_results)} results")
         except Exception as email_gen_error:
             print(f"❌ Email generation failed: {email_gen_error}")
@@ -479,8 +510,8 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         
         # Create drafts
         successful_drafts = 0
-        user_info = None
-        if user_profile:
+        # ✅ FIX #4: user_info already parsed above for email generation, reuse it
+        if not user_info and user_profile:
             user_info = {
                 'name': user_profile.get('name', ''),
                 'email': user_profile.get('email', ''),
@@ -489,41 +520,54 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
             }
         
         try:
-            creds = _load_user_gmail_creds(user_id) if user_id else None
-            connected_email = None
-            if creds:
+            # ✅ TASK 1: Get Gmail service once for batch operations
+            from app.services.gmail_client import get_gmail_service_for_user, create_drafts_batch
+            gmail_service = get_gmail_service_for_user(user_email, user_id=user_id)
+            
+            if gmail_service:
                 try:
-                    from app.services.gmail_client import _gmail_service
-                    gmail = _gmail_service(creds)
-                    connected_email = gmail.users().getProfile(userId="me").execute().get("emailAddress")
+                    connected_email = gmail_service.users().getProfile(userId="me").execute().get("emailAddress")
+                    print(f"📧 Connected Gmail account: {connected_email}")
                 except Exception:
-                    pass
+                    connected_email = None
                 
-                print(f"📧 Creating Gmail drafts for {len(contacts[:max_contacts])} contacts...")
+                # ✅ TASK 1: Prepare contacts with email data for batch processing
+                contacts_with_emails = []
                 for i, contact in enumerate(contacts[:max_contacts]):
-                    key = str(i)
                     email_result = email_results.get(i) or email_results.get(str(i)) or email_results.get(f"{i}")
                     if email_result and isinstance(email_result, dict):
                         subject = email_result.get('subject', '')
                         body = email_result.get('body', '')
                         if subject and body:
-                            try:
-                                draft_result = create_gmail_draft_for_user(
-                                    contact, subject, body,
-                                    tier='pro', user_email=user_email, 
-                                    resume_content=resume_content, resume_filename=resume_filename,
-                                    user_info=user_info, user_id=user_id
-                                )
-                                
-                                # Handle both dict response (new) and string response (old/fallback)
-                                if isinstance(draft_result, dict):
-                                    draft_id = draft_result.get('draft_id', '')
-                                    message_id = draft_result.get('message_id')
-                                    draft_url = draft_result.get('draft_url', '')
-                                else:
-                                    draft_id = draft_result
-                                    message_id = None
-                                    draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}" if draft_id and not draft_id.startswith('mock_') else None
+                            contacts_with_emails.append({
+                                'index': i,
+                                'contact': contact,
+                                'email_subject': subject,
+                                'email_body': body
+                            })
+                
+                if contacts_with_emails:
+                    # ✅ TASK 1: Use batch API for single HTTP request instead of 15 parallel requests
+                    print(f"📧 Creating {len(contacts_with_emails)} Gmail drafts using batch API...")
+                    draft_results = create_drafts_batch(
+                        contacts_with_emails,
+                        gmail_service=gmail_service,
+                        resume_bytes=resume_content,
+                        resume_filename=resume_filename,
+                        user_info=user_info,
+                        tier='pro',
+                        user_email=user_email
+                    )
+                    
+                    # Process results and attach to contacts
+                    for item, draft_result in zip(contacts_with_emails, draft_results):
+                        contact = item['contact']
+                        i = item['index']
+                        try:
+                            if isinstance(draft_result, dict) and not draft_result.get('error'):
+                                draft_id = draft_result.get('draft_id', '')
+                                message_id = draft_result.get('message_id')
+                                draft_url = draft_result.get('draft_url', '')
                                 
                                 if draft_id and not draft_id.startswith('mock_'):
                                     successful_drafts += 1
@@ -536,14 +580,15 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                                     print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
                                 else:
                                     print(f"⚠️ [{i}] Draft creation returned mock/invalid ID for {contact.get('FirstName', 'Unknown')}")
-                            except Exception as draft_error:
-                                print(f"❌ [{i}] Failed to create draft for {contact.get('FirstName', 'Unknown')}: {draft_error}")
-                                import traceback
-                                traceback.print_exc()
-                        else:
-                            print(f"⚠️ [{i}] Missing subject/body for {contact.get('FirstName', 'Unknown')}")
-                    else:
-                        print(f"⚠️ [{i}] No email result for draft creation: {contact.get('FirstName', 'Unknown')}")
+                            else:
+                                error = draft_result.get('error', 'Unknown error') if isinstance(draft_result, dict) else str(draft_result)
+                                print(f"❌ [{i}] Failed to create draft for {contact.get('FirstName', 'Unknown')}: {error}")
+                        except Exception as draft_error:
+                            print(f"❌ [{i}] Failed to process draft result for {contact.get('FirstName', 'Unknown')}: {draft_error}")
+                else:
+                    print(f"⚠️ No contacts with valid email data to create drafts")
+            else:
+                print(f"⚠️ Gmail service unavailable - skipping draft creation")
         except Exception as gmail_error:
             # Token refresh happens automatically in _load_user_gmail_creds
             # Only catch errors that indicate PERMANENT auth failure
@@ -570,6 +615,86 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                 })
             except Exception:
                 pass
+        
+        # ✅ FIX #2: Save contacts directly to Firestore after draft creation (eliminates redundant bulk_create_contacts call)
+        if db and user_id:
+            try:
+                print(f"💾 Saving {len(contacts)} contacts directly to Firestore...")
+                contacts_ref = db.collection('users').document(user_id).collection('contacts')
+                
+                # ✅ FIX #3: Batch fetch ALL existing contacts ONCE for duplicate checking
+                existing_contacts = list(contacts_ref.stream())
+                existing_emails = {c.get('email', '').lower().strip() for c in existing_contacts if c.get('email')}
+                existing_linkedins = {c.get('linkedinUrl', '').strip() for c in existing_contacts if c.get('linkedinUrl')}
+                existing_name_company = {
+                    f"{c.get('firstName', '')}_{c.get('lastName', '')}_{c.get('company', '')}".lower().strip()
+                    for c in existing_contacts 
+                    if c.get('firstName') and c.get('lastName') and c.get('company')
+                }
+                print(f"📊 Loaded {len(existing_contacts)} existing contacts for duplicate checking")
+                
+                today = datetime.now().strftime('%m/%d/%Y')
+                saved_count = 0
+                skipped_count = 0
+                
+                for contact in contacts:
+                    first_name = (contact.get('FirstName') or contact.get('firstName') or '').strip()
+                    last_name = (contact.get('LastName') or contact.get('lastName') or '').strip()
+                    email = (contact.get('Email') or contact.get('WorkEmail') or contact.get('PersonalEmail') or contact.get('email') or '').strip().lower()
+                    linkedin = (contact.get('LinkedIn') or contact.get('linkedinUrl') or '').strip()
+                    company = (contact.get('Company') or contact.get('company') or '').strip()
+                    
+                    # ✅ FIX #3: Check duplicates in O(1) using pre-loaded sets
+                    is_duplicate = (
+                        (email and email in existing_emails) or
+                        (linkedin and linkedin in existing_linkedins) or
+                        (first_name and last_name and company and 
+                         f"{first_name}_{last_name}_{company}".lower() in existing_name_company)
+                    )
+                    
+                    if is_duplicate:
+                        skipped_count += 1
+                        print(f"🚫 Skipping duplicate contact: {first_name} {last_name} (already in library)")
+                        continue
+                    
+                    # Create contact document
+                    contact_doc = {
+                        'firstName': first_name,
+                        'lastName': last_name,
+                        'email': contact.get('Email') or contact.get('WorkEmail') or contact.get('PersonalEmail') or '',
+                        'linkedinUrl': linkedin,
+                        'company': company,
+                        'jobTitle': contact.get('Title') or contact.get('jobTitle') or '',
+                        'college': contact.get('College') or contact.get('college') or '',
+                        'location': contact.get('location') or '',
+                        'city': contact.get('City') or '',
+                        'state': contact.get('State') or '',
+                        'firstContactDate': today,
+                        'status': 'Not Contacted',
+                        'lastContactDate': today,
+                        'userId': user_id,
+                        'createdAt': today,
+                    }
+                    
+                    # Add email data if available
+                    if contact.get('emailSubject'):
+                        contact_doc['emailSubject'] = contact['emailSubject']
+                    if contact.get('emailBody'):
+                        contact_doc['emailBody'] = contact['emailBody']
+                    if contact.get('gmailDraftId'):
+                        contact_doc['gmailDraftId'] = contact['gmailDraftId']
+                    if contact.get('gmailDraftUrl'):
+                        contact_doc['gmailDraftUrl'] = contact['gmailDraftUrl']
+                    
+                    contacts_ref.add(contact_doc)
+                    saved_count += 1
+                
+                print(f"✅ Saved {saved_count} new contacts to Firestore, skipped {skipped_count} duplicates")
+            except Exception as save_error:
+                print(f"⚠️ Error saving contacts to Firestore: {save_error}")
+                import traceback
+                traceback.print_exc()
+                # Continue - contacts are still returned to frontend
         
         elapsed = time.time() - start_time
         print(f"✅ Pro tier completed in {elapsed:.2f}s - {len(contacts)} contacts, {successful_drafts} drafts")

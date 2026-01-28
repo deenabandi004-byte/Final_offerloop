@@ -329,12 +329,17 @@ export interface InterviewPrepStatus {
     | 'parsing_failed'
     | 'extracting_requirements'
     | 'scraping_reddit'
+    | 'scraping_sources'
     | 'processing_content'
+    | 'personalizing'
     | 'generating_pdf'
     | 'completed'
     | 'failed';
   needsManualInput?: boolean;
   progress?: string;
+  progressPercent?: number;  // NEW: 0-100
+  currentStep?: number;  // NEW: 1-7
+  totalSteps?: number;  // NEW: typically 7
   jobDetails?: {
     company_name: string;
     company_domain: string;

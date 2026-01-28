@@ -4,6 +4,7 @@ Combines data from multiple sources, deduplicates, and scores
 """
 import asyncio
 import hashlib
+import time
 from typing import Dict, List, Tuple
 from datetime import datetime
 import logging
@@ -27,55 +28,107 @@ class ContentAggregator:
         timeout_seconds: int = 180
     ) -> Dict[str, List[Dict]]:
         """
-        Fetch data from all sources in parallel
+        Fetch data from all sources in parallel, collecting results as they complete
         
-        Returns dict with source name as key and list of content as value
+        This fixes the bug where completed results were lost on timeout.
+        Now we collect results incrementally and keep partial results.
         """
         company = job_details.get('company_name', 'Unknown')
         role = job_details.get('job_title', 'Unknown')
         logger.info(f"Gathering content from all sources for company={company}, role={role}")
         logger.debug(f"Job details: {job_details}")
         
-        # Run all scrapers in parallel
-        tasks = {
-            "reddit": search_reddit(job_details, timeout_seconds=45),
-            "youtube": search_youtube(job_details, timeout_seconds=30),
-            "glassdoor": search_glassdoor(job_details, timeout_seconds=45),
+        # Initialize results and status tracking
+        results = {
+            "reddit": [],
+            "youtube": [],
+            "glassdoor": []
+        }
+        self.sources_status = {
+            "reddit": "pending",
+            "youtube": "pending",
+            "glassdoor": "pending"
         }
         
-        results = {}
+        # Create tasks for all sources with per-source timeouts
+        # Reddit needs more time (sequential requests with delays), YouTube/Glassdoor are faster
+        tasks = {
+            "reddit": asyncio.create_task(search_reddit(job_details, timeout_seconds=45)),  # Increased: 45s for Reddit
+            "youtube": asyncio.create_task(search_youtube(job_details, timeout_seconds=20)),
+            "glassdoor": asyncio.create_task(search_glassdoor(job_details, timeout_seconds=15)),
+        }
         
-        try:
-            gathered = await asyncio.wait_for(
-                asyncio.gather(*tasks.values(), return_exceptions=True),
-                timeout=timeout_seconds
-            )
+        # OPTIMIZATION: Cap total timeout at 50s (must be > Reddit timeout of 45s to allow completion)
+        # The aggregation timeout should be MAX of individual source timeouts + buffer
+        max_wait = min(timeout_seconds, 50)  # 50s allows Reddit (45s) to complete
+        start_time = time.time()
+        pending = set(tasks.values())
+        
+        # Collect results as tasks complete (don't wait for all)
+        while pending:
+            remaining_timeout = max_wait - (time.time() - start_time)
+            if remaining_timeout <= 0:
+                logger.warning(f"Content aggregation timeout reached ({max_wait}s) - collecting partial results")
+                break
             
-            for source_name, result in zip(tasks.keys(), gathered):
-                if isinstance(result, Exception):
-                    logger.error(f"Source {source_name} failed with exception: {type(result).__name__}: {result}", exc_info=True)
-                    results[source_name] = []
-                    self.sources_status[source_name] = "failed"
-                elif isinstance(result, list):
-                    results[source_name] = result
-                    if len(result) > 0:
-                        self.sources_status[source_name] = "success"
-                        logger.info(f"Source {source_name}: {len(result)} items")
-                    else:
-                        self.sources_status[source_name] = "empty"
-                        logger.info(f"Source {source_name}: returned empty list (0 items)")
-                else:
-                    logger.warning(f"Source {source_name} returned unexpected type: {type(result)}")
-                    results[source_name] = []
-                    self.sources_status[source_name] = "empty"
-                    
-        except asyncio.TimeoutError:
-            logger.error("Content aggregation timed out")
-            # Return whatever we have
-            for source_name in tasks.keys():
-                if source_name not in results:
-                    results[source_name] = []
-                    self.sources_status[source_name] = "timeout"
+            try:
+                # Wait for next task to complete
+                done, pending = await asyncio.wait(
+                    pending,
+                    timeout=remaining_timeout,
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+                
+                # Collect results from completed tasks IMMEDIATELY
+                for task in done:
+                    # Find which source this task belongs to
+                    for source_name, t in tasks.items():
+                        if t == task:
+                            try:
+                                result = task.result()
+                                if isinstance(result, list):
+                                    results[source_name] = result
+                                    if len(result) > 0:
+                                        self.sources_status[source_name] = "success"
+                                        logger.info(f"✅ {source_name} completed: {len(result)} items")
+                                    else:
+                                        self.sources_status[source_name] = "empty"
+                                        logger.info(f"⚠️ {source_name} returned empty list (0 items)")
+                                else:
+                                    logger.warning(f"⚠️ {source_name} returned unexpected type: {type(result)}")
+                                    results[source_name] = []
+                                    self.sources_status[source_name] = "empty"
+                            except Exception as e:
+                                logger.warning(f"❌ {source_name} failed: {type(e).__name__}: {e}")
+                                results[source_name] = []
+                                self.sources_status[source_name] = "failed"
+                            break
+                            
+            except asyncio.TimeoutError:
+                logger.warning(f"Content aggregation timed out after {max_wait}s - collecting partial results")
+                break
+        
+        # Cancel any still-pending tasks
+        for source_name, task in tasks.items():
+            if not task.done():
+                logger.warning(f"⏱️ {source_name} timed out - cancelling task")
+                self.sources_status[source_name] = "timeout"
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logger.debug(f"Task cancellation error for {source_name}: {e}")
+        
+        # Log final results
+        total_items = sum(len(v) for v in results.values())
+        logger.info(f"After gather: reddit={len(results['reddit'])}, youtube={len(results['youtube'])}, glassdoor={len(results['glassdoor'])}, total={total_items}")
+        logger.info(f"Source statuses: {self.sources_status}")
+        
+        # Early termination check - if we have 20+ items, we're good
+        if total_items >= 20:
+            logger.info(f"Early termination: Have {total_items} items, sufficient for processing")
         
         return results
     

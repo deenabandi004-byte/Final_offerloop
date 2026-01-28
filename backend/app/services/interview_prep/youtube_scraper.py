@@ -354,28 +354,18 @@ class YouTubeScraper:
             # Take top videos
             top_videos = unique_videos[:max_videos]
             
-            # Fetch transcripts for top videos
-            video_ids = [v["video_id"] for v in top_videos]
-            transcripts = await self.get_transcripts_parallel(video_ids)
-            
-            # Add transcripts to videos
-            videos_with_transcripts = []
+            # OPTIMIZATION 3: Skip transcript fetching - it's failing and slow
+            # Just use video metadata (title, description) instead
+            videos_with_metadata = []
             for video in top_videos:
-                vid = video["video_id"]
-                if vid in transcripts:
-                    video["transcript"] = transcripts[vid]
-                    video["has_transcript"] = True
-                    videos_with_transcripts.append(video)
-                else:
-                    video["transcript"] = ""
-                    video["has_transcript"] = False
-                    # Still include videos without transcripts (use title/description)
-                    if video["relevance_score"] > 0.3:
-                        videos_with_transcripts.append(video)
+                # Use description as content instead of transcript
+                video["transcript"] = video.get("description", "")[:2000]  # Use description as fallback
+                video["has_transcript"] = False  # Mark as no transcript since we're skipping
+                videos_with_metadata.append(video)
             
-            logger.info(f"Returning {len(videos_with_transcripts)} videos ({len(transcripts)} with transcripts)")
+            logger.info(f"Returning {len(videos_with_metadata)} videos (transcripts skipped for performance)")
             
-            return videos_with_transcripts
+            return videos_with_metadata
             
         except asyncio.TimeoutError:
             logger.warning("YouTube search timed out")

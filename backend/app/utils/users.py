@@ -550,5 +550,17 @@ def extract_user_info_from_resume_priority(resume_text, profile):
             if not user_info.get('university'):
                 user_info['university'] = profile.get('university') or ""
     
+    # Debug logging and additional fallback for major
+    print(f"[UserInfo] Extracted - name: {user_info.get('name')}, major: {user_info.get('major')}, university: {user_info.get('university')}, year: {user_info.get('year')}")
+    
+    # Check if major is empty and try fallbacks
+    if not user_info.get('major'):
+        # Try from user_profile
+        if profile and profile.get('major'):
+            user_info['major'] = profile['major']
+        # Try from education dict
+        elif user_info.get('education', {}).get('major'):
+            user_info['major'] = user_info['education']['major']
+    
     return user_info
 

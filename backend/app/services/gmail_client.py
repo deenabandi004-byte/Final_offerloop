@@ -1063,3 +1063,233 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         import traceback
         traceback.print_exc()
         return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}_user_{user_email}"
+
+
+# ✅ ISSUE 3 FIX: Parallel Gmail draft creation with rate limiting
+def create_drafts_parallel(contacts_with_emails, resume_bytes=None, resume_filename=None, user_info=None, user_id=None, tier='free', user_email=None):
+    """
+    Create all Gmail drafts in parallel with rate limiting.
+    
+    Args:
+        contacts_with_emails: List of dicts, each containing:
+            - contact: Contact dict
+            - email_subject: Subject line
+            - email_body: Body text
+        resume_bytes: Optional resume content as bytes
+        resume_filename: Optional resume filename
+        user_info: Optional user profile info
+        user_id: Optional user ID
+        tier: 'free' or 'pro'
+        user_email: User's email address
+    
+    Returns:
+        List of results (dicts with draft_id, message_id, draft_url) or error strings
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import threading
+    
+    if not contacts_with_emails:
+        return []
+    
+    # Use semaphore-like behavior with max 5 concurrent workers
+    max_workers = min(5, len(contacts_with_emails))
+    results = []
+    results_lock = threading.Lock()
+    
+    def create_single_draft(item):
+        """Create a single draft"""
+        try:
+            contact = item['contact']
+            email_subject = item['email_subject']
+            email_body = item['email_body']
+            
+            result = create_gmail_draft_for_user(
+                contact, email_subject, email_body, tier, user_email,
+                None,  # resume_url (deprecated)
+                resume_bytes,  # resume_content
+                resume_filename,
+                user_info,
+                user_id
+            )
+            return item.get('index', 0), result, None
+        except Exception as e:
+            return item.get('index', 0), None, str(e)
+    
+    # Create all drafts in parallel
+    print(f"📧 Creating {len(contacts_with_emails)} Gmail drafts in parallel (max {max_workers} concurrent)...")
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_item = {
+            executor.submit(create_single_draft, item): item 
+            for item in contacts_with_emails
+        }
+        
+        # Collect results as they complete
+        for future in as_completed(future_to_item):
+            item = future_to_item[future]
+            try:
+                index, result, error = future.result()
+                with results_lock:
+                    results.append((index, result, error))
+            except Exception as e:
+                with results_lock:
+                    results.append((item.get('index', 0), None, str(e)))
+    
+    # Sort results by index to maintain order
+    results.sort(key=lambda x: x[0])
+    return [result for _, result, _ in results]
+
+
+# ✅ FIX #5: Gmail batch API for draft creation (single HTTP request for all drafts)
+def create_drafts_batch(contacts_with_emails, gmail_service, resume_bytes=None, resume_filename=None, user_info=None, tier='free', user_email=None):
+    """
+    Create all Gmail drafts using Gmail batch API (single HTTP request).
+    Much faster than individual API calls.
+    
+    Args:
+        contacts_with_emails: List of dicts with 'contact', 'email_subject', 'email_body'
+        gmail_service: Gmail service object
+        resume_bytes: Optional resume content as bytes
+        resume_filename: Optional resume filename
+        user_info: Optional user profile info
+        tier: 'free' or 'pro'
+        user_email: User's email address
+    
+    Returns:
+        List of results (dicts with draft_id, message_id, draft_url) or error strings
+    """
+    from googleapiclient.http import BatchHttpRequest
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email import encoders
+    import base64
+    import os
+    import threading
+    
+    if not contacts_with_emails or not gmail_service:
+        return []
+    
+    print(f"📧 Creating {len(contacts_with_emails)} Gmail drafts using batch API...")
+    
+    results = {}
+    results_lock = threading.Lock()
+    
+    def build_draft_message(item):
+        """Build draft message for a single contact"""
+        from app.utils.contact import clean_email_text
+        
+        contact = item['contact']
+        email_subject = clean_email_text(item['email_subject'])
+        email_body = clean_email_text(item['email_body'])
+        
+        # Get recipient email
+        recipient_email = None
+        if contact.get('PersonalEmail') and contact['PersonalEmail'] != 'Not available' and '@' in contact['PersonalEmail']:
+            recipient_email = contact['PersonalEmail']
+        elif contact.get('WorkEmail') and contact['WorkEmail'] != 'Not available' and '@' in contact['WorkEmail']:
+            recipient_email = contact['WorkEmail']
+        elif contact.get('Email') and '@' in contact['Email']:
+            recipient_email = contact['Email']
+        
+        if not recipient_email:
+            return None
+        
+        # Get Gmail account email
+        try:
+            gmail_account_email = gmail_service.users().getProfile(userId='me').execute().get('emailAddress')
+        except Exception:
+            gmail_account_email = user_email or os.getenv("DEFAULT_FROM_EMAIL", "noreply@offerloop.ai")
+        
+        # Create multipart message
+        message = MIMEMultipart('mixed')
+        message['to'] = recipient_email
+        message['subject'] = email_subject
+        message['from'] = gmail_account_email
+        
+        # Add body (HTML if user_info provided)
+        if user_info:
+            email_body_html = email_body.replace('\n\n', '<br><br>').replace('\n', '<br>')
+            html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+<div style="white-space: pre-wrap;">
+{email_body_html}
+</div>
+</body>
+</html>"""
+            message.attach(MIMEText(html_content, 'html', 'utf-8'))
+        else:
+            message.attach(MIMEText(email_body, 'plain', 'utf-8'))
+        
+        # Attach resume if available
+        if resume_bytes:
+            try:
+                filename = resume_filename or "resume.pdf"
+                attachment = MIMEBase('application', 'pdf')
+                attachment.set_payload(resume_bytes)
+                encoders.encode_base64(attachment)
+                attachment.add_header('Content-Disposition', f'attachment; filename="{filename}"')
+                attachment.add_header('Content-Type', 'application/pdf')
+                message.attach(attachment)
+            except Exception:
+                pass
+        
+        return base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
+    
+    def callback(request_id, response, exception):
+        """Callback for batch request"""
+        with results_lock:
+            if exception:
+                results[request_id] = {'error': str(exception), 'draft_id': None}
+            else:
+                draft_id = response.get('id') if response else None
+                message_id = response.get('message', {}).get('id') if response else None
+                
+                # Build draft URL
+                if message_id:
+                    draft_url = f"https://mail.google.com/mail/u/0/#drafts?compose={message_id}"
+                elif draft_id:
+                    draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
+                else:
+                    draft_url = None
+                
+                results[request_id] = {
+                    'draft_id': draft_id,
+                    'message_id': message_id,
+                    'draft_url': draft_url,
+                    'error': None
+                }
+    
+    # Build batch request
+    batch = gmail_service.new_batch_http_request(callback=callback)
+    
+    for i, item in enumerate(contacts_with_emails):
+        raw_message = build_draft_message(item)
+        if raw_message:
+            batch.add(
+                gmail_service.users().drafts().create(
+                    userId='me',
+                    body={'message': {'raw': raw_message}}
+                ),
+                request_id=str(i)
+            )
+        else:
+            # No valid email, mark as error
+            with results_lock:
+                results[str(i)] = {'error': 'No valid recipient email', 'draft_id': None}
+    
+    # Execute batch (single HTTP request for all drafts!)
+    try:
+        batch.execute()
+        print(f"✅ Batch draft creation complete: {len([r for r in results.values() if r.get('draft_id')])} successful")
+    except Exception as e:
+        print(f"❌ Batch draft creation failed: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # Return results in order
+    return [results.get(str(i), {'error': 'Missing result', 'draft_id': None}) for i in range(len(contacts_with_emails))]

@@ -612,7 +612,9 @@ Return ONLY valid JSON, no markdown formatting."""
 def process_interview_content_v2(
     normalized_content: List[Dict], 
     job_details: Dict,
-    source_stats: Dict = None
+    source_stats: Dict = None,
+    user_context: Dict = None,  # NEW: Accept user context for personalization
+    include_prep_plan: bool = True  # NEW: Flag to include prep plan in response
 ) -> Dict:
     """
     Process multi-source normalized content (Reddit, YouTube, Glassdoor) with OpenAI.
@@ -703,8 +705,93 @@ def process_interview_content_v2(
     if required_skills:
         skills_context = f"\n\nREQUIRED SKILLS FROM JOB POSTING: {', '.join(required_skills[:10])}"
     
+    # Format user context for personalization
+    user_context_str = ""
+    if user_context:
+        user_context_lines = ["\nUSER CONTEXT (for personalization):"]
+        if user_context.get("name"):
+            user_context_lines.append(f"- Name: {user_context.get('name')}")
+        if user_context.get("major"):
+            user_context_lines.append(f"- Major: {user_context.get('major')}")
+        if user_context.get("university"):
+            user_context_lines.append(f"- University: {user_context.get('university')}")
+        if user_context.get("year"):
+            user_context_lines.append(f"- Year: {user_context.get('year')}")
+        if user_context.get("experience"):
+            exp = user_context.get("experience", [])
+            if isinstance(exp, list) and exp:
+                user_context_lines.append(f"- Experience: {', '.join(str(e) for e in exp[:3])}")
+        if user_context.get("skills"):
+            skills = user_context.get("skills", [])
+            if isinstance(skills, list) and skills:
+                user_context_lines.append(f"- Skills: {', '.join(str(s) for s in skills[:5])}")
+        if len(user_context_lines) > 1:  # More than just the header
+            user_context_str = "\n".join(user_context_lines)
+    
+    # Build prep plan schema if requested
+    prep_plan_schema = ""
+    if include_prep_plan:
+        prep_plan_schema = ''',
+    
+    "prep_plan": {
+        "weeks": [
+            {
+                "week": 1,
+                "title": "[Specific title like 'Master Data Fundamentals' or 'Behavioral Interview Prep']",
+                "focus": "[What this week targets - tie to skill gaps or interview stages]",
+                "tasks": [
+                    "[Specific task 1 - e.g., 'Complete 15 LeetCode Easy problems on arrays and strings']",
+                    "[Specific task 2 - e.g., 'Review SQL JOIN types with 10 practice queries']",
+                    "[Specific task 3 - e.g., 'Study and practice the top 3 behavioral questions from above']",
+                    "[Specific task 4 - e.g., 'Research {company_name} recent product launches and strategy']",
+                    "[Specific task 5 - e.g., 'Prepare STAR stories for leadership and teamwork questions']"
+                ],
+                "practice_questions": [
+                    "[Question from behavioral_questions above]",
+                    "[Question from technical_questions above]"
+                ],
+                "resources": [
+                    "[Specific resource 1 - e.g., 'LeetCode Array Problems']",
+                    "[Specific resource 2 - e.g., 'SQL Tutorial on JOINs']"
+                ]
+            },
+            {
+                "week": 2,
+                "title": "[Week 2 specific title]",
+                "focus": "[Week 2 focus area]",
+                "tasks": ["[Task 1]", "[Task 2]", "[Task 3]", "[Task 4]", "[Task 5]"],
+                "practice_questions": ["[Question 1]", "[Question 2]"],
+                "resources": ["[Resource 1]", "[Resource 2]"]
+            },
+            {
+                "week": 3,
+                "title": "[Week 3 specific title]",
+                "focus": "[Week 3 focus area]",
+                "tasks": ["[Task 1]", "[Task 2]", "[Task 3]", "[Task 4]", "[Task 5]"],
+                "practice_questions": ["[Question 1]", "[Question 2]"],
+                "resources": ["[Resource 1]", "[Resource 2]"]
+            },
+            {
+                "week": 4,
+                "title": "[Week 4 specific title - e.g., 'Final Review and Mock Interviews']",
+                "focus": "[Week 4 focus area]",
+                "tasks": ["[Task 1]", "[Task 2]", "[Task 3]", "[Task 4]", "[Task 5]"],
+                "practice_questions": ["[Question 1]", "[Question 2]"],
+                "resources": ["[Resource 1]", "[Resource 2]"]
+            }
+        ],
+        "recommended_resources": [
+            {
+                "title": "[Resource name]",
+                "url": "[URL if available]",
+                "description": "[Why this helps for this role]"
+            }
+        ]
+    }'''
+    
     # Build the prompt
     prompt = f"""You are creating a COMPREHENSIVE interview preparation guide{role_context} using data from MULTIPLE SOURCES.
+{user_context_str}
 
 JOB POSTING CONTEXT:
 - Company: {company_name}
@@ -766,21 +853,31 @@ Return ONLY valid JSON in this exact structure:
     ],
     
     "behavioral_questions": [
+        # MINIMUM 8 QUESTIONS REQUIRED - Extract from all sources
+        # Include frequency (how many sources mentioned this question)
+        # Include source attribution (which source(s) mentioned it)
         {{
-            "question": "[Question]",
-            "why_asked": "[Explanation]",
-            "tip": "[Answering tip]",
-            "frequency": 5
+            "question": "[Exact question text from sources]",
+            "why_asked": "[Why this company asks this - tie to company values]",
+            "tip": "[How to structure your answer]",
+            "frequency": 5,
+            "sources": ["Reddit r/cscareerquestions", "Glassdoor"]
         }}
+        # ... extract 8-10 questions total ...
     ],
     
     "technical_questions": [
+        # MINIMUM 8 QUESTIONS REQUIRED
+        # Prioritize questions testing: {', '.join(required_skills[:6]) if required_skills else 'role-specific skills'}
         {{
-            "question": "[Question]",
+            "question": "[Exact question]",
             "frequency": 3,
-            "difficulty": "Medium",
-            "source": "YouTube/Reddit/Glassdoor"
+            "difficulty": "Easy/Medium/Hard",
+            "source": "YouTube/Reddit/Glassdoor",
+            "skills_tested": ["skill1", "skill2"],
+            "hint": "[Brief approach hint]"
         }}
+        # ... extract 8-10 questions total ...
     ],
     
     "company_specific_questions": [
@@ -791,18 +888,24 @@ Return ONLY valid JSON in this exact structure:
     ],
     
     "real_experiences": [
+        # MINIMUM 5 EXPERIENCES REQUIRED
+        # Include mix of outcomes: offers, rejections, ghosted
+        # Use DIRECT QUOTES from sources - copy actual text
         {{
             "role": "{job_title}",
             "year": "2024",
-            "outcome": "OFFER RECEIVED",
-            "source_type": "Reddit",
-            "source_detail": "r/subreddit",
-            "quote": "[Quote from experience]",
-            "key_insight": "[Takeaway]",
-            "questions_asked": ["Q1", "Q2"],
-            "what_went_wrong": null,
-            "difficulty": "Medium"
+            "outcome": "OFFER RECEIVED / REJECTED / GHOSTED",
+            "source_type": "Reddit/YouTube/Glassdoor",
+            "source_detail": "r/subreddit or channel name",
+            "quote": "[EXACT quote from the source - copy real text, don't paraphrase]",
+            "key_insight": "[Main takeaway for candidates]",
+            "questions_asked": ["Q1", "Q2", "Q3"],
+            "timeline": "[e.g., '3 weeks from apply to offer']",
+            "difficulty": "Easy/Medium/Hard",
+            "rounds": 4,
+            "what_went_wrong": null
         }}
+        # ... extract 5-8 experiences total ...
     ],
     
     "red_flags": ["Mistake 1", "Mistake 2"],
@@ -833,8 +936,21 @@ Return ONLY valid JSON in this exact structure:
     
     "resources": [
         {{"name": "[Resource]", "url": "[URL]", "description": "[Description]"}}
-    ]
+    ]{prep_plan_schema}
 }}
+
+CRITICAL EXTRACTION REQUIREMENTS:
+1. Extract MINIMUM 8 behavioral questions (10 preferred)
+2. Extract MINIMUM 8 technical questions (10 preferred)  
+3. Extract MINIMUM 5 real interview experiences (8 preferred)
+4. Use DIRECT QUOTES from sources - don't paraphrase or make up quotes
+5. Include frequency counts based on how often each question appears across sources
+6. For technical questions, prioritize ones testing: {', '.join(required_skills[:6]) if required_skills else 'role-specific skills'}
+7. Include BOTH successful (offer) and unsuccessful (rejected) experiences
+8. If sources lack content for a category, still extract what's available and note it
+9. Generate a SPECIFIC 4-week prep plan with actionable tasks (not generic like "practice skills")
+10. Prep plan tasks should reference actual questions extracted above
+11. If user profile provided, tailor prep plan to their skill gaps and background
 
 CRITICAL: Include source attribution for all quotes and experiences. Be specific with actual data from the sources."""
     
@@ -848,7 +964,7 @@ CRITICAL: Include source attribution for all quotes and experiences. Be specific
                 },
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=8000,
+            max_tokens=10000,  # Increased to handle prep plan in response
             temperature=0.15,
         )
         

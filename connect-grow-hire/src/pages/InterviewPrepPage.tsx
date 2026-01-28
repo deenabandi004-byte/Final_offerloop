@@ -59,20 +59,23 @@ const InterviewPrepPage: React.FC = () => {
   const [interviewPrepResult, setInterviewPrepResult] = useState<InterviewPrepStatus | null>(null);
   const [interviewPrepStatus, setInterviewPrepStatus] = useState<'idle' | 'processing' | 'completed' | 'failed'>('idle');
   const [currentPrepStatus, setCurrentPrepStatus] = useState<string>('processing');
+  const [progressPercent, setProgressPercent] = useState(0);
+  const [currentStep, setCurrentStep] = useState(1);
+  const [totalSteps, setTotalSteps] = useState(7);
   const [jobPostingUrl, setJobPostingUrl] = useState("");
   const [parsedJobDetails, setParsedJobDetails] = useState<any | null>(null);
   const [showManualInput, setShowManualInput] = useState(false);
   const [manualCompanyName, setManualCompanyName] = useState("");
   const [manualJobTitle, setManualJobTitle] = useState("");
 
-  // Interview Prep steps for SteppedLoadingBar
+  // Interview Prep steps for SteppedLoadingBar - Updated to match new statuses
   const interviewPrepSteps = [
-    { id: 'processing', label: 'Initializing...' },
-    { id: 'parsing_job_posting', label: 'Parsing job posting...' },
-    { id: 'extracting_requirements', label: 'Extracting requirements...' },
-    { id: 'scraping_reddit', label: 'Scraping Reddit...' },
-    { id: 'processing_content', label: 'Processing insights...' },
-    { id: 'generating_pdf', label: 'Generating PDF...' },
+    { id: 'parsing_job_posting', label: 'Parsing job posting' },
+    { id: 'extracting_requirements', label: 'Extracting requirements' },
+    { id: 'scraping_sources', label: 'Gathering interview data' },
+    { id: 'processing_content', label: 'Analyzing with AI' },
+    { id: 'personalizing', label: 'Creating prep plan' },
+    { id: 'generating_pdf', label: 'Generating guide' },
     { id: 'completed', label: 'Complete!' },
   ];
 
@@ -171,6 +174,9 @@ const InterviewPrepPage: React.FC = () => {
     setInterviewPrepStatus('processing');
     setCurrentPrepStatus('processing');
     setInterviewPrepProgress('Initializing...');
+    setProgressPercent(0);
+    setCurrentStep(1);
+    setTotalSteps(7);
     setInterviewPrepResult(null);
 
     try {
@@ -195,27 +201,20 @@ const InterviewPrepPage: React.FC = () => {
       const maxPolls = 120;
       
       const handleStatusUpdate = (statusResult: any) => {
-        if ('status' in statusResult) {
-          const status = statusResult.status;
-          setCurrentPrepStatus(status);
-          
-          const statusMessages: Record<string, string> = {
-            'processing': 'Initializing...',
-            'parsing_job_posting': 'Parsing job posting...',
-            'extracting_requirements': 'Extracting requirements...',
-            'scraping_reddit': 'Scraping Reddit...',
-            'processing_content': 'Processing insights...',
-            'generating_pdf': 'Generating PDF...',
-            'completed': 'Interview Prep ready!',
-            'failed': 'Generation failed',
-          };
-          const progressMessage = statusMessages[status] || statusResult.progress || 'Processing...';
-          setInterviewPrepProgress(progressMessage);
-          
-          if (statusResult.jobDetails) {
-            setParsedJobDetails(statusResult.jobDetails);
-          }
-        }
+            if ('status' in statusResult) {
+              const status = statusResult.status;
+              setCurrentPrepStatus(status);
+              
+              // Update progress fields
+              setInterviewPrepProgress(statusResult.progress || 'Processing...');
+              setProgressPercent(statusResult.progressPercent || 0);
+              setCurrentStep(statusResult.currentStep || 1);
+              setTotalSteps(statusResult.totalSteps || 7);
+              
+              if (statusResult.jobDetails) {
+                setParsedJobDetails(statusResult.jobDetails);
+              }
+            }
       };
       
       const handleCompletion = (statusResult: any) => {
@@ -307,18 +306,11 @@ const InterviewPrepPage: React.FC = () => {
               const status = statusResult.status;
               setCurrentPrepStatus(status);
               
-              const statusMessages: Record<string, string> = {
-                'processing': 'Initializing...',
-                'parsing_job_posting': 'Parsing job posting...',
-                'extracting_requirements': 'Extracting requirements...',
-                'scraping_reddit': 'Scraping Reddit...',
-                'processing_content': 'Processing insights...',
-                'generating_pdf': 'Generating PDF...',
-                'completed': 'Interview Prep ready!',
-                'failed': 'Generation failed',
-              };
-              const progressMessage = statusMessages[status] || statusResult.progress || 'Processing...';
-              setInterviewPrepProgress(progressMessage);
+              // Update progress fields
+              setInterviewPrepProgress(statusResult.progress || 'Processing...');
+              setProgressPercent(statusResult.progressPercent || 0);
+              setCurrentStep(statusResult.currentStep || 1);
+              setTotalSteps(statusResult.totalSteps || 7);
               
               if (statusResult.jobDetails) {
                 setParsedJobDetails(statusResult.jobDetails);
@@ -995,16 +987,31 @@ const InterviewPrepPage: React.FC = () => {
                               <span>{interviewPrepProgress || 'Generation failed'}</span>
                             </div>
                           ) : (
-                            <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
-                              <div className="flex items-center justify-center gap-2 mb-3">
+                            <div className="p-6 bg-green-50 border border-green-200 rounded-xl">
+                              <div className="flex items-center justify-center gap-3 mb-4">
                                 <Loader2 className="h-5 w-5 animate-spin text-green-600" />
                                 <span className="font-medium text-green-700">{interviewPrepProgress}</span>
                               </div>
+                              
+                              {/* Stepped progress bar (shows both steps and percentage) */}
                               <SteppedLoadingBar 
                                 steps={interviewPrepSteps} 
                                 currentStepId={currentPrepStatus} 
                               />
-                              <p className="text-center text-xs text-gray-500 mt-3">This usually takes 15-30 seconds</p>
+                              
+                              {/* Step indicator and time estimate */}
+                              <div className="mt-3 flex items-center justify-between">
+                                <p className="text-sm text-gray-600">
+                                  Step {currentStep} of {totalSteps}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  {progressPercent < 40 
+                                    ? "This usually takes 45-60 seconds" 
+                                    : progressPercent < 80 
+                                      ? "Almost there..." 
+                                      : "Finishing up..."}
+                                </p>
+                              </div>
                             </div>
                           )}
                         </div>

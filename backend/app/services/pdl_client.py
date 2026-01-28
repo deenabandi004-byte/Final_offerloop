@@ -1339,13 +1339,14 @@ def _choose_best_email(emails: list[dict], recommended: str | None = None) -> st
     return items[0][1] if items else None
 
 
-def extract_contact_from_pdl_person_enhanced(person, target_company=None):
+def extract_contact_from_pdl_person_enhanced(person, target_company=None, pre_verified_email=None):
     """
     Enhanced contact extraction with relaxed, sensible email acceptance.
     
     Args:
         person: PDL person data dictionary
         target_company: Target company name for email lookup (required for correct domain extraction)
+        pre_verified_email: Optional pre-verified email result from batch verification (✅ TASK 2: avoids redundant Hunter calls)
     """
     import time
     extract_start = time.time()
@@ -1444,26 +1445,34 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None):
             else:
                 print(f"[ContactExtraction] ✅ PDL email matches target domain")
         
-        # Use target company for email verification (not PDL person's current company)
-        company_for_email_lookup = target_company if target_company else company_name
-        
-        # ✅ VERIFY PDL EMAIL WITH HUNTER BEFORE USING IT
-        # This ensures we don't use outdated/invalid PDL emails
-        # Uses target company domain for correct email lookup
-        email_verify_start = time.time()
-        verified_email_result = get_verified_email(
-            pdl_email=pdl_email if pdl_email and pdl_email != "Not available" else None,
-            first_name=first_name,
-            last_name=last_name,
-            company=company_for_email_lookup,  # Use target company, not PDL person's company
-            person_data=person  # Pass full person data for context
-        )
-        email_verify_time = time.time() - email_verify_start
-        print(f"DEBUG: ⏱️  Email verification: {email_verify_time:.2f}s for {first_name} {last_name}")
-        
-        best_email = verified_email_result.get('email')
-        email_source = verified_email_result.get('email_source', 'pdl')
-        email_verified = verified_email_result.get('email_verified', False)
+        # ✅ TASK 2: Use pre-verified email if available (from batch verification), otherwise verify individually
+        if pre_verified_email and pre_verified_email.get('email'):
+            # Skip Hunter verification - use batch result
+            best_email = pre_verified_email.get('email')
+            email_source = pre_verified_email.get('source', 'hunter_batch')
+            email_verified = pre_verified_email.get('verified', False)
+            print(f"[ContactExtraction] ✅ Using pre-verified email from batch: {best_email} (verified: {email_verified})")
+        else:
+            # Fall back to individual verification (existing code)
+            company_for_email_lookup = target_company if target_company else company_name
+            
+            # ✅ VERIFY PDL EMAIL WITH HUNTER BEFORE USING IT
+            # This ensures we don't use outdated/invalid PDL emails
+            # Uses target company domain for correct email lookup
+            email_verify_start = time.time()
+            verified_email_result = get_verified_email(
+                pdl_email=pdl_email if pdl_email and pdl_email != "Not available" else None,
+                first_name=first_name,
+                last_name=last_name,
+                company=company_for_email_lookup,  # Use target company, not PDL person's company
+                person_data=person  # Pass full person data for context
+            )
+            email_verify_time = time.time() - email_verify_start
+            print(f"DEBUG: ⏱️  Email verification: {email_verify_time:.2f}s for {first_name} {last_name}")
+            
+            best_email = verified_email_result.get('email')
+            email_source = verified_email_result.get('email_source', 'pdl')
+            email_verified = verified_email_result.get('email_verified', False)
         
         # ✅ INCLUDE contacts even without emails (Hunter.io will enrich them)
         if not best_email or best_email == "Not available":
@@ -1857,17 +1866,97 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
         extract_start = time.time()
         extracted_contacts = []
         
+        # ✅ ISSUE 1 FIX: Filter duplicates BEFORE extraction to avoid processing same contacts multiple times
+        seen_identity_keys = set()
+        unique_persons = []
+        for person in data[:desired_limit]:
+            first_name = (person.get('first_name', '') or '').lower().strip()
+            last_name = (person.get('last_name', '') or '').lower().strip()
+            # Get company from experience
+            company_name = ''
+            experience = person.get('experience', []) or []
+            if experience and isinstance(experience, list) and len(experience) > 0:
+                company_info = experience[0].get('company') or {}
+                if isinstance(company_info, dict):
+                    company_name = (company_info.get('name', '') or '').lower().strip()
+            
+            identity_key = f"{first_name}_{last_name}_{company_name}"
+            if identity_key not in seen_identity_keys:
+                seen_identity_keys.add(identity_key)
+                unique_persons.append(person)
+        
+        duplicate_count = len(data[:desired_limit]) - len(unique_persons)
+        if duplicate_count > 0:
+            print(f"[PDL Extract] 🔍 Filtered {duplicate_count} duplicate contacts before extraction")
+        
+        # ✅ TASK 2: Batch verify emails BEFORE individual extraction to reduce Hunter API calls
+        batch_email_results = {}
+        person_to_batch_index = {}  # Map unique_persons index -> contacts_for_batch index
+        if len(unique_persons) > 1:
+            try:
+                from app.services.hunter import batch_verify_emails_for_contacts
+                
+                # Prepare contacts for batch verification (simpler format)
+                contacts_for_batch = []
+                batch_index = 0
+                for person_idx, person in enumerate(unique_persons):
+                    first_name = (person.get('first_name', '') or '').strip()
+                    last_name = (person.get('last_name', '') or '').strip()
+                    if not first_name or not last_name:
+                        continue
+                    
+                    # Get company from experience
+                    company_name = ''
+                    experience = person.get('experience', []) or []
+                    if experience and isinstance(experience, list) and len(experience) > 0:
+                        company_info = experience[0].get('company') or {}
+                        if isinstance(company_info, dict):
+                            company_name = (company_info.get('name', '') or '').strip()
+                    
+                    # Get PDL email
+                    emails = person.get('emails') or []
+                    recommended = person.get('recommended_personal_email') or ''
+                    pdl_email = _choose_best_email(emails, recommended) if emails or recommended else None
+                    
+                    contacts_for_batch.append({
+                        'first_name': first_name,
+                        'last_name': last_name,
+                        'company': company_name,
+                        'pdl_email': pdl_email if pdl_email and pdl_email != "Not available" else None,
+                    })
+                    person_to_batch_index[person_idx] = batch_index
+                    batch_index += 1
+                
+                if contacts_for_batch:
+                    print(f"[PDL Extract] 📧 Batch verifying emails for {len(contacts_for_batch)} contacts...")
+                    batch_results = batch_verify_emails_for_contacts(contacts_for_batch, target_company=target_company)
+                    # Map batch results back to unique_persons indices
+                    for person_idx, batch_idx in person_to_batch_index.items():
+                        if batch_idx in batch_results:
+                            batch_email_results[person_idx] = batch_results[batch_idx]
+                    print(f"[PDL Extract] ✅ Batch verification complete: {len([r for r in batch_email_results.values() if r.get('email')])} emails verified")
+            except Exception as batch_error:
+                print(f"[PDL Extract] ⚠️ Batch email verification failed, falling back to individual verification: {batch_error}")
+                import traceback
+                traceback.print_exc()
+                batch_email_results = {}
+        
         # Use parallel extraction to speed up email verification
-        # Limit to 5 workers to avoid rate limiting while still getting speedup
-        max_workers = min(5, len(data[:desired_limit]))
-        persons_to_extract = data[:desired_limit]
+        # ✅ ISSUE 5 FIX: Increased from 5 to 10 workers for faster extraction
+        max_workers = min(10, len(unique_persons))
+        persons_to_extract = unique_persons
         
         if max_workers > 1 and len(persons_to_extract) > 1:
             print(f"[PDL Extract] ⚡ Parallel extraction with {max_workers} workers for {len(persons_to_extract)} contacts...")
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                # Submit all extraction tasks
+                # Submit all extraction tasks with pre-verified email results
                 future_to_person = {
-                    executor.submit(extract_contact_from_pdl_person_enhanced, person, target_company): (i, person)
+                    executor.submit(
+                        extract_contact_from_pdl_person_enhanced, 
+                        person, 
+                        target_company,
+                        batch_email_results.get(i, {})  # Pass pre-verified email result
+                    ): (i, person)
                     for i, person in enumerate(persons_to_extract)
                 }
                 
@@ -1996,17 +2085,97 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
     extract_start = time.time()
     extracted_contacts = []
     
+    # ✅ ISSUE 1 FIX: Filter duplicates BEFORE extraction to avoid processing same contacts multiple times
+    seen_identity_keys = set()
+    unique_persons = []
+    for person in data[:desired_limit]:
+        first_name = (person.get('first_name', '') or '').lower().strip()
+        last_name = (person.get('last_name', '') or '').lower().strip()
+        # Get company from experience
+        company_name = ''
+        experience = person.get('experience', []) or []
+        if experience and isinstance(experience, list) and len(experience) > 0:
+            company_info = experience[0].get('company') or {}
+            if isinstance(company_info, dict):
+                company_name = (company_info.get('name', '') or '').lower().strip()
+        
+        identity_key = f"{first_name}_{last_name}_{company_name}"
+        if identity_key not in seen_identity_keys:
+            seen_identity_keys.add(identity_key)
+            unique_persons.append(person)
+    
+    duplicate_count = len(data[:desired_limit]) - len(unique_persons)
+    if duplicate_count > 0:
+        print(f"[PDL Extract] 🔍 Filtered {duplicate_count} duplicate contacts before extraction")
+    
+    # ✅ TASK 2: Batch verify emails BEFORE individual extraction to reduce Hunter API calls
+    batch_email_results = {}
+    person_to_batch_index = {}  # Map unique_persons index -> contacts_for_batch index
+    if len(unique_persons) > 1:
+        try:
+            from app.services.hunter import batch_verify_emails_for_contacts
+            
+            # Prepare contacts for batch verification (simpler format)
+            contacts_for_batch = []
+            batch_index = 0
+            for person_idx, person in enumerate(unique_persons):
+                first_name = (person.get('first_name', '') or '').strip()
+                last_name = (person.get('last_name', '') or '').strip()
+                if not first_name or not last_name:
+                    continue
+                
+                # Get company from experience
+                company_name = ''
+                experience = person.get('experience', []) or []
+                if experience and isinstance(experience, list) and len(experience) > 0:
+                    company_info = experience[0].get('company') or {}
+                    if isinstance(company_info, dict):
+                        company_name = (company_info.get('name', '') or '').strip()
+                
+                # Get PDL email
+                emails = person.get('emails') or []
+                recommended = person.get('recommended_personal_email') or ''
+                pdl_email = _choose_best_email(emails, recommended) if emails or recommended else None
+                
+                contacts_for_batch.append({
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'company': company_name,
+                    'pdl_email': pdl_email if pdl_email and pdl_email != "Not available" else None,
+                })
+                person_to_batch_index[person_idx] = batch_index
+                batch_index += 1
+            
+            if contacts_for_batch:
+                print(f"[PDL Extract] 📧 Batch verifying emails for {len(contacts_for_batch)} contacts...")
+                batch_results = batch_verify_emails_for_contacts(contacts_for_batch, target_company=target_company)
+                # Map batch results back to unique_persons indices
+                for person_idx, batch_idx in person_to_batch_index.items():
+                    if batch_idx in batch_results:
+                        batch_email_results[person_idx] = batch_results[batch_idx]
+                print(f"[PDL Extract] ✅ Batch verification complete: {len([r for r in batch_email_results.values() if r.get('email')])} emails verified")
+        except Exception as batch_error:
+            print(f"[PDL Extract] ⚠️ Batch email verification failed, falling back to individual verification: {batch_error}")
+            import traceback
+            traceback.print_exc()
+            batch_email_results = {}
+    
     # Use parallel extraction to speed up email verification
-    # Limit to 5 workers to avoid rate limiting while still getting speedup
-    max_workers = min(5, len(data[:desired_limit]))
-    persons_to_extract = data[:desired_limit]
+    # ✅ ISSUE 5 FIX: Increased from 5 to 10 workers for faster extraction
+    max_workers = min(10, len(unique_persons))
+    persons_to_extract = unique_persons
     
     if max_workers > 1 and len(persons_to_extract) > 1:
         print(f"[PDL Extract] ⚡ Parallel extraction with {max_workers} workers for {len(persons_to_extract)} contacts...")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all extraction tasks
+            # Submit all extraction tasks with pre-verified email results
             future_to_person = {
-                executor.submit(extract_contact_from_pdl_person_enhanced, person, target_company): (i, person)
+                executor.submit(
+                    extract_contact_from_pdl_person_enhanced, 
+                    person, 
+                    target_company,
+                    batch_email_results.get(i, {})  # Pass pre-verified email result
+                ): (i, person)
                 for i, person in enumerate(persons_to_extract)
             }
             
@@ -2040,7 +2209,9 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
         # Fallback to sequential for small batches
         for i, person in enumerate(persons_to_extract):
             try:
-                contact = extract_contact_from_pdl_person_enhanced(person, target_company=target_company)
+                # Pass pre-verified email result if available
+                pre_verified = batch_email_results.get(i, {})
+                contact = extract_contact_from_pdl_person_enhanced(person, target_company=target_company, pre_verified_email=pre_verified)
                 if contact:  # Only add if extraction was successful
                     extracted_contacts.append(contact)
             except Exception as e:
@@ -2552,6 +2723,15 @@ def search_contacts_with_smart_location_strategy(
         print(f"Location strategy: {location_strategy['strategy']}")
         if location_strategy['matched_metro']:
             print(f"Matched metro: {location_strategy['matched_metro']} -> {location_strategy['metro_location']}")
+        
+        # ✅ FIX #6: Pre-populate domain cache before parallel searches
+        # This ensures both metro and locality searches share the same cache
+        if cleaned_company:
+            from app.services.hunter import get_smart_company_domain
+            print(f"🔍 Pre-populating domain cache for company: {cleaned_company}")
+            domain = get_smart_company_domain(cleaned_company)
+            if domain:
+                print(f"✅ Domain cached: {cleaned_company} → {domain}")
         
         # Step 4: CHANGED - If alumni filter is active, use batch fetching strategy
         if college_alumni:

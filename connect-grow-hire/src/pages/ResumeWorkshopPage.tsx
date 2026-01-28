@@ -642,6 +642,14 @@ export default function ResumeWorkshopPage() {
       return;
     }
 
+    // Clear any previous state before starting new analysis
+    setTailorScore(null);
+    setTailorScoreLabel('');
+    setTailorCategories([]);
+    setRecommendations([]);
+    setError(null);
+    setJobUrlError(null);
+    
     setIsTailoring(true);
     
     try {
@@ -664,7 +672,19 @@ export default function ResumeWorkshopPage() {
         return;
       }
       
-      setTailorScore(result.score ?? null);
+      // Log the score to help debug if it's always 68
+      console.log('[ResumeWorkshop] Tailor result:', { 
+        score: result.score, 
+        score_label: result.score_label,
+        has_categories: !!result.categories,
+        raw_data: result
+      });
+      
+      // Ensure we're setting the actual score from the response
+      const scoreValue = typeof result.score === 'number' ? result.score : null;
+      console.log('[ResumeWorkshop] Setting score:', scoreValue);
+      
+      setTailorScore(scoreValue);
       setTailorScoreLabel(result.score_label || '');
       setTailorCategories(result.categories || []);
       
@@ -915,133 +935,6 @@ export default function ResumeWorkshopPage() {
 
                         {/* Right Column - Actions (2/5 width) */}
                         <div className="lg:col-span-2 space-y-6">
-                          {/* Resume Score Card */}
-                          {resumeUrl && (
-                            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-                              <div className="h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600"></div>
-                              
-                              <div className="p-6">
-                                <div className="flex items-start justify-between mb-4">
-                                  <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center">
-                                      <BarChart3 className="w-5 h-5 text-amber-600" />
-                                    </div>
-                                    <div>
-                                      <h3 className="font-semibold text-gray-900">Resume Score</h3>
-                                      {resumeScore !== null ? (
-                                        <div className="flex items-center gap-2 mt-1">
-                                          <span className={`text-2xl font-bold ${getScoreColor(resumeScore)}`}>
-                                            {resumeScore}/100
-                                          </span>
-                                          <span className={`text-xs px-2 py-0.5 rounded-full ${getScoreBadgeStyles(resumeScore)}`}>
-                                            {getScoreLabel(resumeScore)}
-                                          </span>
-                                          {scoreData?.cached && (
-                                            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                                              Cached
-                                            </span>
-                                          )}
-                                        </div>
-                                      ) : (
-                                        <p className="text-sm text-gray-500">Not scored yet</p>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                                
-                                <p className="text-sm text-gray-600 mb-4">
-                                  Overall resume strength based on clarity, impact, structure, and ATS readiness.
-                                </p>
-                                
-                                <button 
-                                  onClick={handleScore}
-                                  disabled={isScoring || !resumeUrl}
-                                  className={`w-full py-2.5 text-sm font-semibold rounded-xl transition-all ${
-                                    resumeScore !== null
-                                      ? 'text-amber-600 bg-amber-50 hover:bg-amber-100'
-                                      : 'text-white bg-gradient-to-r from-amber-500 to-orange-500 hover:shadow-lg hover:shadow-amber-500/30'
-                                  }`}
-                                >
-                                  {isScoring ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : (resumeScore !== null ? 'Rescore Resume' : 'Score Resume')}
-                                </button>
-                                
-                                {/* Score Details Section */}
-                                {scoreData && resumeScore !== null && (
-                                  <div className="mt-4 pt-4 border-t border-gray-100">
-                                    <button
-                                      onClick={() => setShowScoreDetails(!showScoreDetails)}
-                                      className="flex items-center justify-between w-full text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                                    >
-                                      <span className="font-medium">View Score Details</span>
-                                      {showScoreDetails ? (
-                                        <ChevronUp className="w-4 h-4" />
-                                      ) : (
-                                        <ChevronDown className="w-4 h-4" />
-                                      )}
-                                    </button>
-                                    
-                                    {showScoreDetails && (
-                                      <div className="mt-4 space-y-4 animate-fadeIn">
-                                        {/* Overall Score Summary */}
-                                        <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl p-4 border border-amber-200">
-                                          <div className="flex items-baseline gap-2 mb-2">
-                                            <span className={`text-3xl font-bold ${getScoreColor(scoreData.score)}`}>
-                                              {scoreData.score}
-                                            </span>
-                                            <span className="text-gray-500">/ 100</span>
-                                            <span className={`text-sm px-2 py-0.5 rounded-full ${getScoreBadgeStyles(scoreData.score)}`}>
-                                              {scoreData.score_label}
-                                            </span>
-                                          </div>
-                                          {scoreData.summary && (
-                                            <p className="text-sm text-gray-700">{scoreData.summary}</p>
-                                          )}
-                                        </div>
-                                        
-                                        {/* Category Breakdown */}
-                                        {scoreData.categories && scoreData.categories.length > 0 && (
-                                          <div className="space-y-3">
-                                            <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
-                                              Category Breakdown
-                                            </h4>
-                                            {scoreData.categories.map((category: any, index: number) => (
-                                              <div key={index} className="border border-gray-200 rounded-xl p-4 bg-white">
-                                                <div className="flex items-start justify-between mb-2">
-                                                  <h5 className="font-medium text-gray-900 text-sm">{category.name}</h5>
-                                                  <span className={`text-lg font-bold ${getScoreColor(category.score)}`}>
-                                                    {category.score}
-                                                  </span>
-                                                </div>
-                                                {category.explanation && (
-                                                  <p className="text-xs text-gray-600 mb-3">{category.explanation}</p>
-                                                )}
-                                                {category.suggestions && category.suggestions.length > 0 && (
-                                                  <div className="space-y-2">
-                                                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                                                      Suggestions
-                                                    </p>
-                                                    <ul className="space-y-1">
-                                                      {category.suggestions.map((suggestion: string, sugIndex: number) => (
-                                                        <li key={sugIndex} className="text-xs text-gray-700 flex items-start gap-2">
-                                                          <span className="text-amber-600 mt-1">•</span>
-                                                          <span>{suggestion}</span>
-                                                        </li>
-                                                      ))}
-                                                    </ul>
-                                                  </div>
-                                                )}
-                                              </div>
-                                            ))}
-                                          </div>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
                           {/* Job Description Card */}
                           {resumeUrl && (
                             <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
@@ -1261,7 +1154,9 @@ export default function ResumeWorkshopPage() {
                                   tailorScore >= 60 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'
                                 }`}>
                                   <div className="flex items-baseline gap-2">
-                                    <span className={`text-3xl font-bold ${getScoreColor(tailorScore)}`}>{tailorScore}</span>
+                                    <span className={`text-3xl font-bold ${getScoreColor(tailorScore)}`}>
+                                      {typeof tailorScore === 'number' ? tailorScore : 'N/A'}
+                                    </span>
                                     <span className="text-gray-500">/ 100</span>
                                     <span className="text-sm text-gray-600 ml-2">{tailorScoreLabel}</span>
                                   </div>

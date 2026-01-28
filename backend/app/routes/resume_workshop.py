@@ -446,7 +446,21 @@ Respond with ONLY the JSON object, no other text.
         
         # Validate required fields
         if "score" not in result:
+            logger.warning(f"[ResumeWorkshop] AI response missing 'score' field, using default 50")
             result["score"] = 50
+        else:
+            # Ensure score is an integer and in valid range
+            try:
+                score = int(result["score"])
+                if score < 0 or score > 100:
+                    logger.warning(f"[ResumeWorkshop] AI returned invalid score {score}, clamping to 0-100")
+                    score = max(0, min(100, score))
+                result["score"] = score
+                logger.info(f"[ResumeWorkshop] Resume analysis score: {score}/100")
+            except (ValueError, TypeError):
+                logger.warning(f"[ResumeWorkshop] AI returned non-numeric score: {result['score']}, using default 50")
+                result["score"] = 50
+        
         if "score_label" not in result:
             if result["score"] >= 90:
                 result["score_label"] = "Excellent"

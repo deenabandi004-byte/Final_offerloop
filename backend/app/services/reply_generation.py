@@ -424,16 +424,17 @@ def _debug_print_email_data(contact, user_info, user_profile, contact_context, r
     print("="*80 + "\n")
 
 
-def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None):
+def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None, pre_parsed_user_info=None):
     """
     Generate all emails using the new compelling prompt template.
     
     Args:
         contacts: List of contact dicts
-        resume_text: User's resume text
+        resume_text: User's resume text (optional if pre_parsed_user_info provided)
         user_profile: User profile dict
         career_interests: Career interests string
-        fit_context: Optional dict with job fit analysis:
+        fit_context: Optional dict with job fit analysis
+        pre_parsed_user_info: Pre-parsed user info dict (✅ FIX #4: avoids re-parsing resume)
             {
                 "job_title": "Business Analyst Intern",
                 "company": "McKinsey",
@@ -657,25 +658,11 @@ The sender is exploring broadly and building their network.
 - Show genuine curiosity about their work
 """
         
-        prompt = f"""You write professional, natural networking emails that feel familiar, thoughtful, and human.
-
-These emails should look like normal cold outreach — just done well.
-
-Do NOT try to be clever, bold, or overly insightful.
-Do NOT use marketing language or hype.
-Do NOT sound automated.
-
-The goal is simple:
-Make the email feel reasonable to receive and easy to reply to.
-
-CRITICAL:
-- Always use correct grammar and apostrophes (I'm, I'd, I've, you're, it's, that's).
-- Never write incomplete sentences.
-- Use only standard ASCII characters.
+        prompt = f"""You write professional, warm networking emails for college students reaching out to industry professionals.
 
 TASK:
 Write {len(contacts)} personalized networking emails.
-Each email must be unique and intentionally written for the specific recipient.
+Each email must be unique and specifically written for that recipient.
 
 ABOUT THE SENDER:
 - Name: {sender_name}
@@ -685,116 +672,69 @@ ABOUT THE SENDER:
 {fit_context_section}
 {outreach_type_guidance}
 
-QUALITY BAR (SAFE-HUMAN):
-Before writing each email, decide:
-- Why is it reasonable for this person to receive this email?
-- What single detail explains why the sender chose them?
-
-Avoid:
-- "I hope you're doing well"
-- "Hope this finds you well"
-- "I came across your profile"
-- "My name is…"
-- Generic praise ("impressed by your background")
-
-Prefer:
-- A clear, simple reason for reaching out
-- One specific reference
-- Plain, professional language
-
 CONTACTS:
 {chr(10).join(contact_contexts)}
 
-ANCHOR PRIORITY RULE:
-If multiple anchors are available, prioritize:
-1) Career transition
-2) Tenure / timing
-3) Title (fallback)
+===== EMAIL STRUCTURE (FOLLOW THIS EXACTLY) =====
 
-Use exactly ONE anchor.
-Never stack anchors.
-
-CONNECTION USAGE RULES:
-If the sender and recipient share a strong connection (same university or same company):
-- Mention it naturally once, either in the subject OR first sentence (not both)
-
-If the connection is weaker (industry, location):
-- Reference it lightly, without overemphasis
-
-If no connection exists:
-- Lead with a simple reason tied to the recipient's role or experience
-
-WRITING GUIDELINES:
-1. Write like a thoughtful student or early-career professional
-2. Keep the tone professional, natural, and calm
-3. Use at most one personalized detail per email
-4. Keep length between 60–90 words
-5. Vary opening sentences across emails
-6. Favor clarity over creativity
-7. Avoid buzzwords, hype, or sales language
-
-If targeted outreach:
-- Reference the role or path naturally
-- Ask one relevant, straightforward question
-
-If general networking:
-- Focus on their experience or decisions
-- Ask one simple, genuine question
-
-CALL TO ACTION:
-End with ONE polite, low-pressure ask.
-Examples:
-- "Would you be open to a quick 10–15 minute chat?"
-- "I'd appreciate hearing your perspective."
-- "Would you be open to connecting briefly?"
-Do not ask multiple questions at the end.
-Do not sound like you are asking for a favor.
-
-RESUME ATTACHMENT RULE:
-Only include a resume mention if (a) outreach is targeted OR (b) a strong connection exists (same university or same company).
-If included:
-- Mention it once, near the end
-- Use neutral language only: "I've attached my resume below for context." or "I've attached my resume below in case helpful."
-- Do NOT ask them to review it and do NOT ask for feedback.
-If no strong reason exists, do NOT mention a resume.
-
-FINAL CHECK:
-Before returning the email, ask:
-"Does this sound like a normal, well-written cold email a real person would send?"
-If it feels robotic, clever, or forced — rewrite it.
-
-FORMATTING:
+OPENING (First Paragraph):
 - Start with: "Hi [FirstName],"
-- Use \\n\\n for paragraph breaks in JSON
-- End with:
-  "Best,\\n[Sender Full Name]\\n{sender_university_short} | Class of {user_info.get('year', '')}"
-  (only include university/year if available)
-- Do NOT mention attached resumes unless RESUME ATTACHMENT RULE says to include it
-- NEVER write sentences like "I'm studying at ."
+- Then: "I came across your background at [Company] and noticed your work as a [title] there."
+- Then: "I'm a [University] student studying [Major], and I'm especially interested in [something specific about their company/role/industry]."
 
-SUBJECT LINE RULES:
-Generate subject lines that are:
-1. Specific to the recipient (mention their company, role, or a detail)
-2. Short (under 50 characters)
-3. Intriguing but professional
-4. NOT generic ("Quick Question", "Coffee Chat Request", "Reaching Out", "Learning from Your Experience", "Connecting with a Fellow [Title]", "Curious About Your Career Path", "Hope to Connect", "Introduction")
+MIDDLE (Second Paragraph):
+- Ask TWO specific questions:
+  1. About their projects or work: "I'd love to hear about the projects you've found most engaging"
+  2. About their day-to-day: "and what your day-to-day looks like on the [engineering/product/etc.] side"
+- End with specific time ask: "If you're open to it, would you have 15 minutes for a quick chat sometime in the next couple of weeks?"
 
-Good examples:
-- "Quick Q about the PM transition at Stripe"
-- "Fellow Trojan → curious about your path to Google"
-- "Saw your work on [specific project] - quick question"
-- "USC alum interested in your journey at McKinsey"
-- "[Shared connection] + question about product roles"
+RESUME LINE (Third Paragraph - BEFORE signature):
+- "I've attached my resume below for context."
 
-Bad examples (DO NOT USE):
-- "Learning from Your Experience"
-- "Connecting with a Fellow [Title]"
-- "Curious About Your Career Path"
-- "Hope to Connect"
+SIGNATURE (exactly this format):
+Best,
+[Full Name]
+[University] | Class of [Year]
+
+===== FORMATTING RULES =====
+
+1. Use "I came across your background at [Company]" - NOT "I'm reaching out because I noticed"
+2. ALWAYS mention the sender's major: "I'm a [University] student studying [Major]"
+3. Show interest in the COMPANY's work, not just generic "your work"
+4. Ask TWO questions (projects + day-to-day OR career path + advice)
+5. Specific time: "15 minutes" and "next couple of weeks"
+6. Resume mention comes BEFORE the signature, not after
+7. No parentheses around university name - use "University of Southern California" not "(USC)"
+8. LENGTH: 4-5 sentences in the body (not counting greeting/signature). Do NOT be too brief.
+
+===== DO NOT =====
+- Start with "I'm reaching out because I noticed..."
+- Use generic phrases like "I'd be interested in hearing about your work"
+- Put resume mention after signature
+- Use parentheses in university name like "(USC)"
+- Write emails shorter than 4 sentences
+- Use "Hope this finds you well" or "I hope you're doing well"
+- Sound templated or robotic
+- Write "[your major]" or any placeholder text - always fill in actual values
+
+===== SUBJECT LINES =====
+Make them conversational and specific:
+- "Question about your work at [Company]"
+- "Curious about your journey at [Company]"
+- "Quick question from a [University] student"
+- "Learning from your path at [Company]"
+- "Insight on your role at [Company]"
+
+NOT these generic ones:
+- "Networking request"
 - "Introduction"
-- "Quick Question" (too vague)
+- "Coffee chat request"
+- "Hope to connect"
 
-The subject should give a reason to open the email in under 6 words.
+===== CRITICAL =====
+- If major is empty or "Not specified", write "I'm a [University] student" without mentioning major
+- Use proper grammar with apostrophes (I'm, I'd, you're, it's)
+- Use \\n\\n for paragraph breaks in JSON
 
 Return ONLY valid JSON:
 {{"0": {{"subject": "...", "body": "..."}}, "1": {{"subject": "...", "body": "..."}}, ...}}"""
@@ -802,10 +742,10 @@ Return ONLY valid JSON:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You write professional, natural networking emails that feel familiar, thoughtful, and human. These emails should look like normal cold outreach — just done well. Do NOT try to be clever, bold, or overly insightful. Do NOT use marketing language or hype. Do NOT sound automated. The goal is simple: Make the email feel reasonable to receive and easy to reply to. Use only standard ASCII characters. CRITICAL: Always use proper grammar with correct apostrophes in contractions (I'm, I'd, couldn't, I've, you're, it's, that's, etc.). Never write 'Im', 'Id', 'couldnt', 'Ive', 'youre', 'thats' - always include the apostrophe."},
+                {"role": "system", "content": "You write warm, professional networking emails for college students. Your emails are 4-5 sentences (not counting greeting/signature), show genuine interest in the recipient's company and role, and always ask TWO specific questions. You ALWAYS mention the sender's university and major. You use the exact phrase 'I came across your background at [Company]' to open. The resume mention always comes BEFORE the signature. Use proper apostrophes (I'm, I'd, you're). Never use placeholders like [your major] - always fill in actual values or omit gracefully."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=2500,  # Increased for more detailed emails
+            max_tokens=4000,  # ✅ ISSUE 4 FIX: Increased for larger batches (15+ contacts)
             temperature=0.75,  # Balanced for naturalness and consistency
         )
         
@@ -859,7 +799,7 @@ Return ONLY valid JSON:
                     # Extract first sentence after greeting
                     first_sentence = lines[greeting_line_idx + 1].strip()
                     # Check for banned openers
-                    banned_openers = ["I hope", "Hope", "My name is", "I came across"]
+                    banned_openers = ["I hope you're doing well", "Hope you're doing well", "I hope this", "Hope this", "My name is"]
                     if first_sentence and any(first_sentence.startswith(banned) for banned in banned_openers):
                         # Replace with context-first opener
                         company = contact.get('Company', '')

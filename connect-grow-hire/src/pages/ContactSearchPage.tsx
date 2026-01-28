@@ -897,10 +897,15 @@ const ContactSearchPage: React.FC = () => {
         setProgressValue(100);
 
         setLastResults(result.contacts);
-        setLastSearchStats({
-          successful_drafts: result.successful_drafts ?? 0,
-          total_contacts: result.contacts.length,
-        });
+        
+        // Delay showing success message until after all drafts are created and logged
+        // This ensures the success message appears after the backend finishes all draft creation
+        setTimeout(() => {
+          setLastSearchStats({
+            successful_drafts: result.successful_drafts ?? 0,
+            total_contacts: result.contacts.length,
+          });
+        }, 3000); // 3 second delay to allow backend to complete all draft creation and Firestore updates
 
         setProgressValue(100);
         setSearchComplete(true);
@@ -942,25 +947,24 @@ const ContactSearchPage: React.FC = () => {
           }
         }
 
-        // DEBUG: Log raw search result contacts before saving
+        // ✅ TASK 3: Contacts are now saved automatically in backend (run_pro_tier_enhanced_final_with_text)
+        // No need to call autoSaveToDirectory - this eliminates redundant duplicate checking
+        // DEBUG: Log raw search result contacts
         console.log('[DEBUG] Raw search result contacts:', JSON.stringify(result.contacts.slice(0, 2), null, 2));
         
-        try {
-          await autoSaveToDirectory(result.contacts, location.trim());
-          toast({
-            title: "Search Complete!",
-            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.`,
-            duration: 5000,
-          });
-        } catch (error) {
-          console.error("Failed to save contacts:", error);
-          toast({
-            title: "Search Complete!",
-            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits.`,
-            variant: "destructive",
-            duration: 5000,
-          });
-        }
+        // Contacts are automatically saved to Firestore in the backend, so we skip the frontend save
+        toast({
+          title: "Search Complete!",
+          description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.`,
+          duration: 5000,
+        });
+        
+        // OLD CODE (removed - contacts now saved in backend):
+        // try {
+        //   await autoSaveToDirectory(result.contacts, location.trim());
+        // } catch (error) {
+        //   console.error("Failed to save contacts:", error);
+        // }
       } else if (userTier === "pro" || userTier === "elite") {
         // Get resume file (either uploaded or from saved resume)
         const resumeFile = await getResumeFile();
@@ -1011,10 +1015,15 @@ const ContactSearchPage: React.FC = () => {
         if (updateCredits) await updateCredits(newCredits);
 
         setLastResults(result.contacts);
-        setLastSearchStats({
-          successful_drafts: result.successful_drafts,
-          total_contacts: result.contacts.length,
-        });
+        
+        // Delay showing success message until after all drafts are created and logged
+        // This ensures the success message appears after the backend finishes all draft creation
+        setTimeout(() => {
+          setLastSearchStats({
+            successful_drafts: result.successful_drafts,
+            total_contacts: result.contacts.length,
+          });
+        }, 3000); // 3 second delay to allow backend to complete all draft creation and Firestore updates
 
         setProgressValue(100);
         setSearchComplete(true);
@@ -1089,29 +1098,25 @@ const ContactSearchPage: React.FC = () => {
         // DEBUG: Log raw search result contacts before saving
         console.log('[DEBUG] Raw search result contacts:', JSON.stringify(result.contacts.slice(0, 2), null, 2));
         
-        try {
-          await autoSaveToDirectory(result.contacts, location.trim());
-          
-          // Show enhanced success message if fit context was used
-          const emailDescription = hasFitContext && fitContextInfo?.job_title
-            ? `Found ${result.contacts.length} contacts. Generated targeted emails for ${fitContextInfo.job_title}${fitContextInfo.company ? ` at ${fitContextInfo.company}` : ''} using your fit analysis. Used ${creditsUsed} credits. ${newCredits} credits remaining.`
-            : `Found ${result.contacts.length} contacts. Generated general networking emails. Used ${creditsUsed} credits. ${newCredits} credits remaining.`;
-          
-          toast({
-            title: hasFitContext && fitContextInfo?.job_title ? "🎯 Targeted Search Complete!" : "Search Complete!",
-            description: emailDescription,
-            duration: 7000,
-          });
-        } catch (error) {
-          const isDev = import.meta.env.DEV;
-          if (isDev) console.error('Failed to save contacts:', error);
-          toast({
-            title: "Search Complete!",
-            description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits.`,
-            variant: "destructive",
-            duration: 5000,
-          });
-        }
+        // ✅ TASK 3: Contacts are now saved automatically in backend - no need to call autoSaveToDirectory
+        // Show enhanced success message if fit context was used
+        const emailDescription = hasFitContext && fitContextInfo?.job_title
+          ? `Found ${result.contacts.length} contacts. Generated targeted emails for ${fitContextInfo.job_title}${fitContextInfo.company ? ` at ${fitContextInfo.company}` : ''} using your fit analysis. Used ${creditsUsed} credits. ${newCredits} credits remaining.`
+          : `Found ${result.contacts.length} contacts. Generated general networking emails. Used ${creditsUsed} credits. ${newCredits} credits remaining.`;
+        
+        toast({
+          title: hasFitContext && fitContextInfo?.job_title ? "🎯 Targeted Search Complete!" : "Search Complete!",
+          description: emailDescription,
+          duration: 7000,
+        });
+        
+        // OLD CODE (removed - contacts now saved in backend):
+        // try {
+        //   await autoSaveToDirectory(result.contacts, location.trim());
+        // } catch (error) {
+        //   const isDev = import.meta.env.DEV;
+        //   if (isDev) console.error('Failed to save contacts:', error);
+        // }
       }
     } catch (error: any) {
       // Clear progress interval on error
@@ -1127,13 +1132,14 @@ const ContactSearchPage: React.FC = () => {
             variant: "destructive",
             duration: 5000,
           });
-          if (error.contacts && error.contacts.length > 0) {
-            try {
-              await autoSaveToDirectory(error.contacts, location.trim());
-            } catch (saveError) {
-              console.error("Failed to save contacts before redirect:", saveError);
-            }
-          }
+          // ✅ TASK 3: Contacts are now saved automatically in backend - no need to call autoSaveToDirectory
+          // if (error.contacts && error.contacts.length > 0) {
+          //   try {
+          //     await autoSaveToDirectory(error.contacts, location.trim());
+          //   } catch (saveError) {
+          //     console.error("Failed to save contacts before redirect:", saveError);
+          //   }
+          // }
           window.location.href = authUrl;
           return;
         }

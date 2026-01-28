@@ -20,6 +20,17 @@ def _safe_paragraph(text: str, style) -> Paragraph:
     return Paragraph(text.replace("\n", "<br/>"), style)
 
 
+def _has_content(data) -> bool:
+    """Check if data has meaningful content"""
+    if not data:
+        return False
+    if isinstance(data, list):
+        return len(data) > 0
+    if isinstance(data, dict):
+        return len(data) > 0 and not all(not v for v in data.values())
+    return bool(data)
+
+
 def _get_company_logo(company_domain: str) -> Optional[ImageReader]:
     """Fetch company logo from Clearbit"""
     try:
@@ -880,9 +891,22 @@ def generate_interview_prep_pdf_v2(
                     pass
         
         # Title
-        year = insights.get("year", "2024")
+        # Use job posting year if available, otherwise current year
+        from datetime import datetime
+        display_year = job_details.get("year") or insights.get("year")
+        if not display_year:
+            # Try to extract year from job posting date if available
+            job_date = job_details.get("start_date") or job_details.get("posted_date")
+            if job_date:
+                try:
+                    display_year = str(job_date).split()[0] if isinstance(job_date, str) else str(job_date.year)
+                except:
+                    pass
+        if not display_year:
+            display_year = str(datetime.now().year)
+        
         story.append(_safe_paragraph(f"{company_name}", title_style))
-        story.append(_safe_paragraph(f"{job_title}: {year}", ParagraphStyle(
+        story.append(_safe_paragraph(f"{job_title}: {display_year}", ParagraphStyle(
             "Subtitle",
             parent=title_style,
             fontSize=18,
@@ -920,9 +944,9 @@ def generate_interview_prep_pdf_v2(
         story.append(stats_table)
         story.append(Spacer(1, 0.2*inch))
         
-        # Fit Analysis
-        story.append(_safe_paragraph("Your Personalized Fit Analysis", section_title))
+        # Fit Analysis - only show if personalized
         if fit_analysis.get("is_personalized") or fit_analysis.get("personalized"):
+            story.append(_safe_paragraph("Your Personalized Fit Analysis", section_title))
             if fit_score is not None:
                 story.append(_safe_paragraph(f"Fit Score: {fit_score}%", subsection_title))
             
@@ -938,22 +962,27 @@ def generate_interview_prep_pdf_v2(
                 story.append(_safe_paragraph("Gaps to Address:", subsection_title))
                 for gap in gaps[:3]:
                     story.append(Paragraph(f"• {gap}", bullet_style))
-        else:
-            story.append(_safe_paragraph(
-                "Upload your resume or complete your profile to see personalized fit analysis.",
-                body_style
-            ))
+        # If not personalized, skip the entire section (don't show placeholder)
         
         story.append(PageBreak())
         
         # PAGE 2: Interview Process Deep Dive
         story.append(_safe_paragraph("Interview Process Deep Dive", section_title))
         
-        # Source attribution
+        # Source attribution - build dynamically, excluding zeros
         reddit_count = stats.get("reddit_count", 0)
         youtube_count = stats.get("youtube_count", 0)
         glassdoor_count = stats.get("glassdoor_count", 0)
-        source_text = f"■ Aggregated from {reddit_count} Reddit posts, {youtube_count} YouTube videos, {glassdoor_count} Glassdoor reviews"
+        
+        sources = []
+        if reddit_count > 0:
+            sources.append(f"{reddit_count} Reddit posts")
+        if youtube_count > 0:
+            sources.append(f"{youtube_count} YouTube videos")
+        if glassdoor_count > 0:
+            sources.append(f"{glassdoor_count} Glassdoor reviews")
+        
+        source_text = f"■ Aggregated from {', '.join(sources)}" if sources else "■ Compiled from available interview data"
         story.append(_safe_paragraph(source_text, source_style))
         story.append(Spacer(1, 0.1*inch))
         
@@ -1021,13 +1050,30 @@ def generate_interview_prep_pdf_v2(
         
         # Behavioral Questions
         behavioral_qs = insights.get("behavioral_questions", [])
-        if behavioral_qs:
+        if _has_content(behavioral_qs):
             story.append(_safe_paragraph("Behavioral Questions", subsection_title))
-            story.append(_safe_paragraph(
-                f"■ Most frequently asked based on {glassdoor_count} Glassdoor reviews",
-                source_style
-            ))
-            for q_obj in behavioral_qs[:8]:
+            
+            # Smart source attribution
+            sources_used = []
+            if glassdoor_count > 0:
+                sources_used.append(f"{glassdoor_count} Glassdoor reviews")
+            if reddit_count > 0:
+                sources_used.append(f"{reddit_count} Reddit posts")
+            if youtube_count > 0:
+                sources_used.append(f"{youtube_count} YouTube videos")
+            
+            if sources_used:
+                story.append(_safe_paragraph(
+                    f"■ Most frequently asked based on {', '.join(sources_used)}",
+                    source_style
+                ))
+            else:
+                story.append(_safe_paragraph(
+                    "■ Compiled from available interview data",
+                    source_style
+                ))
+            
+            for q_obj in behavioral_qs[:10]:
                 if isinstance(q_obj, dict):
                     q_text = f"<b>Q: {q_obj.get('question', '')}</b><br/>"
                     if q_obj.get("why_asked"):
@@ -1039,13 +1085,30 @@ def generate_interview_prep_pdf_v2(
         
         # Technical Questions
         technical_qs = insights.get("technical_questions", [])
-        if technical_qs:
+        if _has_content(technical_qs):
             story.append(_safe_paragraph("Technical Questions", subsection_title))
-            story.append(_safe_paragraph(
-                "■ From YouTube interviews + Reddit reports",
-                source_style
-            ))
-            for q_obj in technical_qs[:8]:
+            
+            # Smart source attribution
+            sources_used = []
+            if youtube_count > 0:
+                sources_used.append(f"{youtube_count} YouTube videos")
+            if reddit_count > 0:
+                sources_used.append(f"{reddit_count} Reddit posts")
+            if glassdoor_count > 0:
+                sources_used.append(f"{glassdoor_count} Glassdoor reviews")
+            
+            if sources_used:
+                story.append(_safe_paragraph(
+                    f"■ From {', '.join(sources_used)}",
+                    source_style
+                ))
+            else:
+                story.append(_safe_paragraph(
+                    "■ Compiled from available interview data",
+                    source_style
+                ))
+            
+            for q_obj in technical_qs[:10]:
                 if isinstance(q_obj, dict):
                     q_text = f"• {q_obj.get('question', '')}"
                     if q_obj.get("frequency"):
@@ -1055,7 +1118,7 @@ def generate_interview_prep_pdf_v2(
         
         # Company-Specific Questions
         company_qs = insights.get("company_specific_questions", [])
-        if company_qs:
+        if _has_content(company_qs):
             story.append(_safe_paragraph("Company-Specific Questions", subsection_title))
             story.append(_safe_paragraph(
                 f"■ From {company_name} careers page + recent interviews",
@@ -1075,7 +1138,7 @@ def generate_interview_prep_pdf_v2(
         
         # PAGE 4-5: Story Bank (if personalized)
         story_bank_data = story_bank.get("stories", []) if isinstance(story_bank, dict) else []
-        if story_bank_data:
+        if _has_content(story_bank_data):
             story.append(_safe_paragraph("Your Story Bank", section_title))
             story.append(_safe_paragraph(
                 "■ PERSONALIZED: These stories are tailored from your Offerloop profile and resume",
@@ -1109,97 +1172,158 @@ def generate_interview_prep_pdf_v2(
                         ))
                     
                     story.append(Spacer(1, 0.15*inch))
-        
-        story.append(PageBreak())
+            
+            story.append(PageBreak())
         
         # PAGE 6: Real Interview Experiences
-        story.append(_safe_paragraph("Real Interview Experiences", section_title))
-        story.append(_safe_paragraph(
-            f"■ Aggregated from Reddit, YouTube, and Glassdoor ({year})",
-            source_style
-        ))
-        
         experiences = insights.get("real_experiences", [])
-        for exp in experiences[:4]:
-            if isinstance(exp, dict):
+        if _has_content(experiences):
+            story.append(_safe_paragraph("Real Interview Experiences", section_title))
+            
+            # Smart source attribution
+            sources_used = []
+            if reddit_count > 0:
+                sources_used.append(f"{reddit_count} Reddit posts")
+            if youtube_count > 0:
+                sources_used.append(f"{youtube_count} YouTube videos")
+            if glassdoor_count > 0:
+                sources_used.append(f"{glassdoor_count} Glassdoor reviews")
+            
+            if sources_used:
+                story.append(_safe_paragraph(
+                    f"■ Aggregated from {', '.join(sources_used)} ({display_year})",
+                    source_style
+                ))
+            else:
+                story.append(_safe_paragraph(
+                    f"■ Compiled from available interview data ({display_year})",
+                    source_style
+                ))
+            
+            for exp in experiences[:6]:
+                if not isinstance(exp, dict):
+                    continue
+                    
                 outcome = exp.get("outcome", "")
-                outcome_symbol = "✓" if "OFFER" in outcome.upper() else "✗"
+                outcome_emoji = "✓" if "OFFER" in outcome.upper() else ("✗" if "REJECT" in outcome.upper() else "○")
                 
-                exp_text = f"<b>{exp.get('role', 'Role')} ({exp.get('year', 'Year')}) — {outcome} {outcome_symbol}</b><br/>"
-                exp_text += f"Source: {exp.get('source_type', 'Unknown')}"
+                # Header with role, year, outcome
+                header = f"<b>{exp.get('role', 'Unknown Role')} ({exp.get('year', 'Year')}) — {outcome} {outcome_emoji}</b>"
+                story.append(_safe_paragraph(header, body_style))
+                
+                # Source
+                source_text = f"Source: {exp.get('source_type', 'Unknown')}"
                 if exp.get("source_detail"):
-                    exp_text += f" ({exp.get('source_detail')})"
-                exp_text += "<br/><br/>"
+                    source_text += f" ({exp.get('source_detail')})"
+                story.append(_safe_paragraph(source_text, source_style))
                 
+                # Quote (this is the most valuable part)
                 if exp.get("quote"):
-                    exp_text += f'"{exp.get("quote")}"<br/><br/>'
+                    story.append(_safe_paragraph(
+                        f'"{exp.get("quote")}"',
+                        ParagraphStyle('Quote', parent=body_style, leftIndent=20, rightIndent=20, fontName='Helvetica-Oblique')
+                    ))
                 
+                # Key insight
                 if exp.get("key_insight"):
-                    exp_text += f"<b>Key Insight:</b> {exp.get('key_insight')}<br/>"
+                    story.append(_safe_paragraph(f"<b>Key Insight:</b> {exp.get('key_insight')}", body_style))
                 
-                if exp.get("questions_asked"):
-                    questions = exp.get("questions_asked", [])
-                    if isinstance(questions, list) and questions:
-                        exp_text += f"<b>Questions Asked:</b> {', '.join(questions[:3])}<br/>"
+                # Questions asked
+                questions = exp.get("questions_asked", [])
+                if questions and isinstance(questions, list):
+                    story.append(_safe_paragraph(f"<b>Questions Asked:</b> {', '.join(questions[:5])}", body_style))
                 
-                if exp.get("what_went_wrong"):
-                    exp_text += f"<b>What went wrong:</b> {exp.get('what_went_wrong')}<br/>"
+                # Timeline
+                if exp.get("timeline"):
+                    story.append(_safe_paragraph(f"<b>Timeline:</b> {exp.get('timeline')}", body_style))
                 
+                # Difficulty
                 if exp.get("difficulty"):
-                    exp_text += f"<b>Difficulty:</b> {exp.get('difficulty')}"
+                    story.append(_safe_paragraph(f"<b>Difficulty:</b> {exp.get('difficulty')}", body_style))
                 
-                story.append(_safe_paragraph(exp_text, body_style))
-                story.append(Spacer(1, 0.15*inch))
-        
-        story.append(PageBreak())
+                story.append(Spacer(1, 0.2*inch))
+            
+            story.append(PageBreak())
+        else:
+            # Show message if no experiences found
+            story.append(_safe_paragraph("Real Interview Experiences", section_title))
+            story.append(_safe_paragraph(
+                "No detailed interview experiences found in available sources. Check Glassdoor or Reddit directly for more experiences.",
+                body_style
+            ))
+            story.append(PageBreak())
         
         # PAGE 7: Personalized Prep Plan
-        story.append(_safe_paragraph("Your Personalized Prep Plan", section_title))
-        story.append(_safe_paragraph(
-            "■ Customized based on your current skill level and the role requirements",
-            source_style
-        ))
-        
         prep_weeks = prep_plan.get("weeks", []) if isinstance(prep_plan, dict) else []
         if not prep_weeks:
             # Fallback to insights preparation_plan
             prep_weeks = insights.get("preparation_plan", {}).get("week_by_week", [])
         
-        for week_data in prep_weeks[:4]:
-            if isinstance(week_data, dict):
-                week_num = week_data.get("week", "")
-                week_title = week_data.get("title") or week_data.get("focus", f"Week {week_num}")
-                
-                story.append(_safe_paragraph(f"Week {week_num}: {week_title}", subsection_title))
-                
-                tasks = week_data.get("tasks", [])
-                for task in tasks[:5]:
-                    story.append(Paragraph(f"• {task}", bullet_style))
-                
-                if week_data.get("user_focus") or week_data.get("personalized"):
-                    focus = week_data.get("user_focus") or week_data.get("personalized")
-                    story.append(_safe_paragraph(
-                        f"<i>Your focus: {focus}</i>",
-                        ParagraphStyle("Focus", parent=body_style, textColor="#1565c0")
-                    ))
-                
-                story.append(Spacer(1, 0.1*inch))
-        
-        # Resources
-        resources = insights.get("resources", [])
-        if resources:
-            story.append(_safe_paragraph("Recommended Resources:", subsection_title))
-            for resource in resources[:8]:
-                if isinstance(resource, dict):
-                    res_text = f"<b>{resource.get('name', '')}</b>"
-                    if resource.get("url"):
-                        res_text += f" — {resource.get('url')}"
-                    if resource.get("description"):
-                        res_text += f"<br/>{resource.get('description')}"
-                    story.append(_safe_paragraph(res_text, body_style))
-                    story.append(Spacer(1, 0.05*inch))
-        
-        story.append(PageBreak())
+        if _has_content(prep_weeks):
+            story.append(_safe_paragraph("Your Personalized Prep Plan", section_title))
+            story.append(_safe_paragraph(
+                "■ Customized based on your current skill level and the role requirements",
+                source_style
+            ))
+            
+            for week_data in prep_weeks[:4]:
+                if isinstance(week_data, dict):
+                    week_num = week_data.get("week", "")
+                    week_title = week_data.get("title") or week_data.get("focus", f"Week {week_num}")
+                    
+                    story.append(_safe_paragraph(f"Week {week_num}: {week_title}", subsection_title))
+                    
+                    # Show focus if available
+                    if week_data.get("focus"):
+                        story.append(_safe_paragraph(
+                            f"<i>Focus: {week_data.get('focus')}</i>",
+                            ParagraphStyle("Focus", parent=body_style, textColor="#1565c0")
+                        ))
+                    
+                    tasks = week_data.get("tasks", [])
+                    for task in tasks[:6]:
+                        story.append(Paragraph(f"• {task}", bullet_style))
+                    
+                    # Show target questions if available
+                    target_questions = week_data.get("target_questions", [])
+                    if target_questions:
+                        story.append(_safe_paragraph(
+                            f"<b>Practice these questions:</b> {', '.join(target_questions[:3])}",
+                            body_style
+                        ))
+                    
+                    # Show resources if available
+                    week_resources = week_data.get("resources", [])
+                    if week_resources:
+                        story.append(_safe_paragraph(
+                            f"<b>Resources:</b> {', '.join(week_resources[:3])}",
+                            body_style
+                        ))
+                    
+                    if week_data.get("user_focus") or week_data.get("personalized"):
+                        focus = week_data.get("user_focus") or week_data.get("personalized")
+                        story.append(_safe_paragraph(
+                            f"<i>Your focus: {focus}</i>",
+                            ParagraphStyle("Focus", parent=body_style, textColor="#1565c0")
+                        ))
+                    
+                    story.append(Spacer(1, 0.1*inch))
+            
+            # Resources
+            resources = insights.get("resources", [])
+            if resources:
+                story.append(_safe_paragraph("Recommended Resources:", subsection_title))
+                for resource in resources[:8]:
+                    if isinstance(resource, dict):
+                        res_text = f"<b>{resource.get('name', '')}</b>"
+                        if resource.get("url"):
+                            res_text += f" — {resource.get('url')}"
+                        if resource.get("description"):
+                            res_text += f"<br/>{resource.get('description')}"
+                        story.append(_safe_paragraph(res_text, body_style))
+                        story.append(Spacer(1, 0.05*inch))
+            
+            story.append(PageBreak())
         
         # PAGE 8: Day of Interview + Compensation
         story.append(_safe_paragraph("Day of Interview", section_title))
@@ -1245,7 +1369,7 @@ def generate_interview_prep_pdf_v2(
         # Compensation
         story.append(_safe_paragraph("Compensation Intelligence", section_title))
         story.append(_safe_paragraph(
-            f"■ Data from Levels.fyi, Glassdoor, and Blind ({year})",
+            f"■ Data from Levels.fyi, Glassdoor, and Blind ({display_year})",
             source_style
         ))
         
@@ -1345,7 +1469,21 @@ def generate_interview_prep_pdf_v2(
         story.append(Spacer(1, 0.3*inch))
         last_updated = insights.get("last_updated", "")
         footer_text = "Powered by Offerloop.ai | Multi-Source Intelligence Platform"
-        footer_text += f"<br/>Based on {total_sources} sources: {reddit_count} Reddit posts, {youtube_count} YouTube videos, {glassdoor_count} Glassdoor reviews"
+        
+        # Build source string dynamically, excluding zeros
+        footer_sources = []
+        if reddit_count > 0:
+            footer_sources.append(f"{reddit_count} Reddit posts")
+        if youtube_count > 0:
+            footer_sources.append(f"{youtube_count} YouTube videos")
+        if glassdoor_count > 0:
+            footer_sources.append(f"{glassdoor_count} Glassdoor reviews")
+        
+        if footer_sources:
+            footer_text += f"<br/>Based on {total_sources} sources: {', '.join(footer_sources)}"
+        elif total_sources > 0:
+            footer_text += f"<br/>Based on {total_sources} sources"
+        
         if last_updated:
             try:
                 date_str = last_updated.split("T")[0]
@@ -1361,7 +1499,19 @@ def generate_interview_prep_pdf_v2(
             alignment=TA_CENTER,
         )))
 
-        doc.build(story)
+        # Remove consecutive page breaks that would create blank pages
+        cleaned_story = []
+        prev_was_pagebreak = False
+        for element in story:
+            if isinstance(element, PageBreak):
+                if not prev_was_pagebreak:
+                    cleaned_story.append(element)
+                prev_was_pagebreak = True
+            else:
+                cleaned_story.append(element)
+                prev_was_pagebreak = False
+        
+        doc.build(cleaned_story)
         buffer.seek(0)
         return buffer
 

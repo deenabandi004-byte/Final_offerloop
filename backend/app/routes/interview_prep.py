@@ -3,10 +3,14 @@ Interview prep routes
 """
 import asyncio
 import threading
+import time
+import logging
 from datetime import datetime
 
 from firebase_admin import firestore, storage
 from flask import Blueprint, jsonify, request
+
+logger = logging.getLogger(__name__)
 
 from app.config import INTERVIEW_PREP_CREDITS, TIER_CONFIGS
 from ..extensions import get_db, require_firebase_auth
@@ -94,9 +98,13 @@ def process_interview_prep_background(
     credits_available,
 ):
     """Background worker to process interview prep."""
+    timings = {}
+    total_start = time.time()
+    
     try:
         db = get_db()
         print(f"\n=== PROCESSING INTERVIEW PREP {prep_id} ===")
+        logger.info(f"⏱️ Starting interview prep generation for prep_id={prep_id}")
 
         prep_ref = (
             db.collection("users")
@@ -107,11 +115,18 @@ def process_interview_prep_background(
 
         # Step 1: Parse job posting or use manual input
         job_details = None
+        start = time.time()
         
         if job_posting_url:
             print("Step 1: Parsing job posting...")
             print(f"Job posting URL: {job_posting_url}")
-            prep_ref.update({"status": "parsing_job_posting", "progress": "Analyzing job posting..."})
+            prep_ref.update({
+                "status": "parsing_job_posting",
+                "progress": "Analyzing job posting...",
+                "progressPercent": 5,
+                "currentStep": 1,
+                "totalSteps": 7
+            })
             
             # Run async function in sync context
             loop = asyncio.new_event_loop()
@@ -135,7 +150,13 @@ def process_interview_prep_background(
         else:
             # Manual input mode
             print("Step 1: Using manual input...")
-            prep_ref.update({"status": "processing", "progress": "Using provided job details..."})
+            prep_ref.update({
+                "status": "processing",
+                "progress": "Using provided job details...",
+                "progressPercent": 5,
+                "currentStep": 1,
+                "totalSteps": 7
+            })
             
             # Create job_details from manual input
             company_domain = company_name.lower().replace(" ", "").replace(".", "") + ".com"
@@ -156,6 +177,10 @@ def process_interview_prep_background(
                 "salary_range": None,
                 "role_category": "Other"
             }
+        
+        timings["job_parsing"] = time.time() - start
+        logger.info(f"⏱️ Job parsing: {timings['job_parsing']:.2f}s")
+        print(f"⏱️ Job parsing: {timings['job_parsing']:.2f}s")
         
         # Validate job_details exists
         if not job_details:
@@ -183,7 +208,10 @@ def process_interview_prep_background(
         prep_ref.update({
             "jobDetails": job_details,
             "status": "extracting_requirements",
-            "progress": "Extracting role requirements..."
+            "progress": "Extracting role requirements...",
+            "progressPercent": 10,
+            "currentStep": 2,
+            "totalSteps": 7
         })
 
         # Step 2: Gather content from all sources (Reddit, YouTube, Glassdoor)
@@ -191,23 +219,48 @@ def process_interview_prep_background(
         stats = {}
         
         print("Step 2: Gathering content from all sources (Reddit, YouTube, Glassdoor)...")
-        prep_ref.update({"status": "scraping_reddit", "progress": "Searching multiple sources for interview experiences..."})
+        prep_ref.update({
+            "status": "scraping_sources",
+            "progress": "Searching Reddit for interview experiences...",
+            "progressPercent": 15,
+            "currentStep": 3,
+            "totalSteps": 7
+        })
         
+        start = time.time()
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             aggregated_content, stats = loop.run_until_complete(
-                aggregate_content(job_details, max_items=50, timeout_seconds=180)
+                aggregate_content(job_details, max_items=30, timeout_seconds=35)  # OPTIMIZED: 30 items max, 35s timeout (was 50 items, 180s)
             )
             
             # Log source status for debugging
             sources_status = stats.get("sources_status", {})
             by_source = stats.get("by_source", {})
+            reddit_count = by_source.get('reddit', 0)
+            youtube_count = by_source.get('youtube', 0)
+            glassdoor_count = by_source.get('glassdoor', 0)
+            total_items = stats.get('total_items', 0)
+            
             print(f"✅ Content aggregation complete:")
-            print(f"   - Reddit: {by_source.get('reddit', 0)} items (status: {sources_status.get('reddit', 'unknown')})")
-            print(f"   - YouTube: {by_source.get('youtube', 0)} items (status: {sources_status.get('youtube', 'unknown')})")
-            print(f"   - Glassdoor: {by_source.get('glassdoor', 0)} items (status: {sources_status.get('glassdoor', 'unknown')})")
-            print(f"   - Total: {stats.get('total_items', 0)} items from {stats.get('total_sources', 0)} sources")
+            print(f"   - Reddit: {reddit_count} items (status: {sources_status.get('reddit', 'unknown')})")
+            print(f"   - YouTube: {youtube_count} items (status: {sources_status.get('youtube', 'unknown')})")
+            print(f"   - Glassdoor: {glassdoor_count} items (status: {sources_status.get('glassdoor', 'unknown')})")
+            print(f"   - Total: {total_items} items from {stats.get('total_sources', 0)} sources")
+            
+            # Update progress as sources complete
+            if reddit_count > 0:
+                prep_ref.update({
+                    "progress": f"Found {reddit_count} Reddit posts. Searching YouTube...",
+                    "progressPercent": 25
+                })
+            
+            if youtube_count > 0:
+                prep_ref.update({
+                    "progress": f"Found {youtube_count} videos. Checking Glassdoor...",
+                    "progressPercent": 30
+                })
             
             # Store normalized content for v2 processor
             normalized_content_v2 = aggregated_content
@@ -249,24 +302,89 @@ def process_interview_prep_background(
                 return
         finally:
             loop.close()
+        
+        timings["content_aggregation"] = time.time() - start
+        logger.info(f"⏱️ Content aggregation: {timings['content_aggregation']:.2f}s")
+        print(f"⏱️ Content aggregation: {timings['content_aggregation']:.2f}s")
 
         print(f"✅ Found {len(content_for_processing)} content items for processing")
-        prep_ref.update({"progress": "Processing insights..."})
+        total_items = len(content_for_processing)
+        prep_ref.update({
+            "status": "processing_content",
+            "progress": f"Analyzing {total_items} sources with AI...",
+            "progressPercent": 40,
+            "currentStep": 4,
+            "totalSteps": 7
+        })
 
-        # Step 3: Process content with OpenAI
+        # Step 3: Process content with OpenAI (including prep plan if v2)
         print("Step 3: Processing content with OpenAI...")
-        prep_ref.update({"status": "processing_content"})
+        
+        start = time.time()
         
         # Use v2 processor if we have normalized content from multi-source aggregation
         use_v2 = normalized_content_v2 is not None
         
+        # Get user context early for personalization (if v2)
+        user_context = None
+        user_profile = {}
         if use_v2:
-            # Use the normalized content directly for v2 processor
+            try:
+                user_profile = get_user_profile(user_id)
+                personalization_engine = PersonalizationEngine()
+                loop_personal = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop_personal)
+                try:
+                    user_context = loop_personal.run_until_complete(
+                        personalization_engine.get_user_context(user_id, db)
+                    )
+                finally:
+                    loop_personal.close()
+            except Exception as e:
+                logger.warning(f"Could not load user context: {e}, continuing without personalization")
+        
+        if use_v2:
+            # Use the normalized content directly for v2 processor WITH prep plan included
             source_stats = stats.get("by_source", {}) if stats else {}
-            insights = process_interview_content_v2(normalized_content_v2, job_details, source_stats)
+            prep_ref.update({
+                "progress": "Analyzing sources and creating prep plan...",
+                "progressPercent": 50
+            })
+            insights = process_interview_content_v2(
+                normalized_content_v2, 
+                job_details, 
+                source_stats,
+                user_context=user_context,  # Pass user context for personalization
+                include_prep_plan=True  # Include prep plan in response
+            )
+            
+            # Extract prep plan from the combined response
+            prep_plan = insights.pop("prep_plan", None)  # Remove from insights, use separately
+            
+            # Fallback if prep plan wasn't generated
+            if not prep_plan or not prep_plan.get("weeks"):
+                logger.warning("Prep plan not in combined response, generating separately...")
+                if user_context:
+                    personalization_engine = PersonalizationEngine()
+                    fit_analysis_temp = personalization_engine.generate_fit_analysis(user_context, job_details)
+                    prep_plan = personalization_engine.generate_personalized_prep_plan(
+                        user_context, 
+                        job_details, 
+                        fit_analysis_temp,
+                        insights=insights
+                    )
+                else:
+                    prep_plan = {"weeks": []}
         else:
             # Use v1 processor with Reddit-like format
             insights = process_interview_content(content_for_processing, job_details)
+            prep_plan = {"weeks": []}
+        
+        # Update progress during OpenAI processing
+        prep_ref.update({
+            "progress": "Extracting interview questions and insights...",
+            "progressPercent": 55
+        })
 
         if insights.get("error"):
             prep_ref.update(
@@ -276,44 +394,49 @@ def process_interview_prep_background(
                 }
             )
             return
+        
+        timings["openai_processing"] = time.time() - start
+        logger.info(f"⏱️ OpenAI processing (includes prep plan): {timings['openai_processing']:.2f}s")
+        print(f"⏱️ OpenAI processing (includes prep plan): {timings['openai_processing']:.2f}s")
 
         prep_ref.update({"insights": insights})
 
-        # Step 4: Get user profile and generate personalization (if v2)
+        # Step 4: Generate fit analysis and story bank (prep plan already done above)
         fit_analysis = {"is_personalized": False, "fit_score": None, "strengths": [], "gaps": []}
         story_bank = {"stories": [], "personalized": False}
-        prep_plan = {"weeks": []}
-        user_profile = {}
         
-        if use_v2:
-            print("Step 4: Loading user profile and generating personalization...")
-            prep_ref.update({"progress": "Personalizing your prep guide..."})
+        if use_v2 and user_context:
+            print("Step 4: Generating fit analysis and story bank...")
+            prep_ref.update({
+                "status": "personalizing",
+                "progress": "Creating personalized fit analysis...",
+                "progressPercent": 70,
+                "currentStep": 5,
+                "totalSteps": 7
+            })
             
+            start = time.time()
             try:
-                user_profile = get_user_profile(user_id)
-                profile_source = user_profile.get("_source", "none")
-                print(f"Profile source: {profile_source}")
-                
                 # Generate personalization using existing engine
                 personalization_engine = PersonalizationEngine()
                 loop_personal = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop_personal)
                 try:
-                    user_context = loop_personal.run_until_complete(
-                        personalization_engine.get_user_context(user_id, db)
-                    )
-                    
                     # Generate fit analysis
+                    fit_start = time.time()
                     fit_analysis = personalization_engine.generate_fit_analysis(user_context, job_details)
+                    logger.info(f"⏱️   - Fit analysis: {time.time() - fit_start:.2f}s")
                     
                     # Generate story bank
+                    story_start = time.time()
                     questions_dict = {
                         "behavioral": insights.get("behavioral_questions", [])
                     }
                     story_bank = personalization_engine.generate_story_bank(user_context, job_details, questions_dict)
+                    logger.info(f"⏱️   - Story bank: {time.time() - story_start:.2f}s")
                     
-                    # Generate prep plan
-                    prep_plan = personalization_engine.generate_personalized_prep_plan(user_context, job_details, fit_analysis)
+                    # Prep plan already generated above (combined with content processing)
+                    logger.info(f"⏱️   - Prep plan: 0s (combined with content processing)")
                     
                     if fit_analysis.get("is_personalized") or fit_analysis.get("personalized"):
                         print(f"✓ Personalized content generated (fit score: {fit_analysis.get('fit_score')}%)")
@@ -321,16 +444,28 @@ def process_interview_prep_background(
                         print("⚠ Using generic content (no profile data)")
                 finally:
                     loop_personal.close()
+                
+                timings["personalization"] = time.time() - start
+                logger.info(f"⏱️ Personalization (fit + story): {timings['personalization']:.2f}s")
+                print(f"⏱️ Personalization (fit + story): {timings['personalization']:.2f}s")
             except Exception as personal_error:
                 print(f"⚠ Personalization failed: {personal_error}")
                 import traceback
                 traceback.print_exc()
+                timings["personalization"] = time.time() - start
                 # Continue without personalization
 
         # Step 5: Generate PDF
         print("Step 5: Generating PDF...")
-        prep_ref.update({"status": "generating_pdf", "progress": "Generating your prep guide..."})
+        prep_ref.update({
+            "status": "generating_pdf",
+            "progress": "Generating your interview prep guide...",
+            "progressPercent": 90,
+            "currentStep": 6,
+            "totalSteps": 7
+        })
 
+        start = time.time()
         try:
             if use_v2:
                 pdf_buffer = generate_interview_prep_pdf_v2(
@@ -355,7 +490,20 @@ def process_interview_prep_background(
             if len(pdf_bytes) < 1024:
                 raise Exception(f"PDF generation failed: generated PDF is too small ({len(pdf_bytes)} bytes). This usually indicates an error during PDF creation.")
             
+            timings["pdf_generation"] = time.time() - start
+            logger.info(f"⏱️ PDF generation: {timings['pdf_generation']:.2f}s")
+            print(f"⏱️ PDF generation: {timings['pdf_generation']:.2f}s")
+            
+            prep_ref.update({
+                "progress": "Uploading your guide...",
+                "progressPercent": 95
+            })
+            
+            start = time.time()
             upload_result = _upload_pdf_to_storage(user_id, prep_id, pdf_bytes)
+            timings["firebase_upload"] = time.time() - start
+            logger.info(f"⏱️ Firebase upload: {timings['firebase_upload']:.2f}s")
+            print(f"⏱️ Firebase upload: {timings['firebase_upload']:.2f}s")
         except Exception as pdf_error:
             error_msg = f"Failed to generate PDF: {str(pdf_error)}"
             print(f"❌ {error_msg}")
@@ -365,11 +513,15 @@ def process_interview_prep_background(
             })
             return
 
-        # Step 5: Mark as completed
-        print("Step 5: Marking as completed...")
+        # Step 6: Mark as completed
+        print("Step 6: Marking as completed...")
         prep_ref.update(
             {
                 "status": "completed",
+                "progress": "Interview Prep ready!",
+                "progressPercent": 100,
+                "currentStep": 7,
+                "totalSteps": 7,
                 "completedAt": datetime.now().isoformat(),
                 "pdfUrl": upload_result["pdf_url"],
                 "pdfStoragePath": upload_result["pdf_storage_path"],
@@ -400,6 +552,11 @@ def process_interview_prep_background(
         except Exception as usage_error:
             print(f"⚠️ Failed to increment usage counter: {usage_error}")
         
+        timings["total"] = time.time() - total_start
+        logger.info(f"⏱️ TOTAL: {timings['total']:.2f}s")
+        logger.info(f"⏱️ Breakdown: {timings}")
+        print(f"⏱️ TOTAL: {timings['total']:.2f}s")
+        print(f"⏱️ Breakdown: {timings}")
         print(f"=== INTERVIEW PREP {prep_id} COMPLETED SUCCESSFULLY ===\n")
 
     except Exception as e:
@@ -580,10 +737,12 @@ def get_interview_prep_status(prep_id):
             prep_data["progress"] = prep_data.get("progress", "Processing...")
         elif status == "parsing_job_posting":
             prep_data["progress"] = prep_data.get("progress", "Analyzing job posting...")
-        elif status == "scraping_reddit":
+        elif status == "scraping_sources" or status == "scraping_reddit":
             prep_data["progress"] = prep_data.get("progress", "Searching for interview experiences...")
         elif status == "processing_content":
             prep_data["progress"] = prep_data.get("progress", "Processing insights...")
+        elif status == "personalizing":
+            prep_data["progress"] = prep_data.get("progress", "Creating your personalized prep plan...")
         elif status == "generating_pdf":
             prep_data["progress"] = prep_data.get("progress", "Generating your prep guide...")
         elif status == "failed":
@@ -592,12 +751,17 @@ def get_interview_prep_status(prep_id):
                 prep_data["error"] = "Generation failed. Please try again."
             prep_data["progress"] = prep_data.get("progress", "Generation failed")
         
+        # Ensure progress fields have defaults
+        prep_data["progressPercent"] = prep_data.get("progressPercent", 0)
+        prep_data["currentStep"] = prep_data.get("currentStep", 1)
+        prep_data["totalSteps"] = prep_data.get("totalSteps", 7)
+        
         # Add backward compatibility fields for frontend
         job_details = prep_data.get("jobDetails", {})
         if job_details:
             prep_data["companyName"] = job_details.get("company_name", "")
             prep_data["companyDomain"] = job_details.get("company_domain", "")
-
+        
         return jsonify(prep_data), 200
 
     except Exception as e:

@@ -304,16 +304,123 @@ Make stories specific using actual details from the resume. Include metrics wher
         self, 
         user_context: Dict,
         job_details: Dict,
-        fit_analysis: Dict
+        fit_analysis: Dict,
+        insights: Dict = None
     ) -> Dict:
         """
-        Generate a personalized week-by-week prep plan
+        Generate a personalized week-by-week prep plan using AI with actual interview data
         """
         gaps = fit_analysis.get("gaps", [])
         strengths = fit_analysis.get("strengths", [])
         role_category = job_details.get("role_category", "Software Engineering")
+        required_skills = job_details.get("required_skills", [])
         
-        # Customize based on gaps
+        # Get actual questions from insights to make plan specific
+        behavioral_qs = insights.get("behavioral_questions", [])[:5] if insights else []
+        technical_qs = insights.get("technical_questions", [])[:5] if insights else []
+        company_name = job_details.get("company_name", "Unknown")
+        job_title = job_details.get("job_title", "Unknown")
+        
+        # Use AI to generate specific prep plan
+        if self.client:
+            try:
+                # Prepare question examples for prompt
+                behavioral_examples = []
+                for q in behavioral_qs[:3]:
+                    if isinstance(q, dict):
+                        behavioral_examples.append(q.get("question", "")[:80])
+                
+                technical_examples = []
+                for q in technical_qs[:3]:
+                    if isinstance(q, dict):
+                        technical_examples.append(q.get("question", "")[:80])
+                
+                prompt = f"""Create a personalized 4-week interview prep plan for this candidate.
+
+CANDIDATE PROFILE:
+- Strengths: {', '.join(strengths[:3]) if strengths else 'Not specified'}
+- Gaps to address: {', '.join(gaps[:3]) if gaps else 'None identified'}
+
+JOB REQUIREMENTS:
+- Role: {job_title} at {company_name}
+- Required Skills: {', '.join(required_skills[:8]) if required_skills else 'Not specified'}
+- Role Category: {role_category}
+
+ACTUAL INTERVIEW QUESTIONS FOUND:
+Behavioral: {', '.join(behavioral_examples) if behavioral_examples else 'None found'}
+Technical: {', '.join(technical_examples) if technical_examples else 'None found'}
+
+Create a SPECIFIC week-by-week plan with:
+- Week 1: Foundation building (tailored to gaps)
+- Week 2: Core practice (using actual questions found)
+- Week 3: Advanced prep (role-specific)
+- Week 4: Final polish (mock interviews, company research)
+
+Each week should have 4-6 SPECIFIC, ACTIONABLE tasks (not generic like "practice skills").
+Include specific resources, number of problems/cases to complete, and focus areas.
+
+Return JSON:
+{{
+    "weeks": [
+        {{
+            "week": 1,
+            "title": "[Specific title like 'Master Data Structures']",
+            "focus": "[What this week targets]",
+            "tasks": [
+                "[Specific task 1 - e.g., 'Complete 20 LeetCode Easy problems on arrays and strings']",
+                "[Specific task 2 - e.g., 'Review Big O notation and practice explaining time complexity']",
+                "[Specific task 3 - e.g., 'Study the 3 behavioral questions most asked at this company']",
+                "[Specific task 4]",
+                "[Specific task 5]"
+            ],
+            "resources": ["Resource 1", "Resource 2"],
+            "target_questions": ["Question 1 to practice", "Question 2"]
+        }}
+    ],
+    "total_weeks": 4,
+    "personalized_notes": ["Note 1", "Note 2"]
+}}
+"""
+                
+                response = self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": "You are an expert interview coach creating personalized prep plans. Always return valid JSON."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.4,
+                    max_tokens=2000,
+                )
+                
+                result_text = response.choices[0].message.content
+                json_match = re.search(r'\{[\s\S]*\}', result_text)
+                if json_match:
+                    plan = json.loads(json_match.group())
+                    plan["personalized"] = True
+                    # Ensure all weeks have required fields
+                    for week in plan.get("weeks", []):
+                        if "week" not in week:
+                            week["week"] = len(plan.get("weeks", []))
+                        if "title" not in week:
+                            week["title"] = f"Week {week.get('week', '')}"
+                        if "tasks" not in week:
+                            week["tasks"] = []
+                    return plan
+            except Exception as e:
+                logger.error(f"AI prep plan generation failed: {e}, falling back to role-specific plan")
+        
+        # Fallback to role-specific templates if AI fails
+        return self._fallback_prep_plan(role_category, gaps, strengths, required_skills, company_name)
+    
+    def _fallback_prep_plan(
+        self, 
+        role_category: str, 
+        gaps: List[str], 
+        strengths: List[str],
+        required_skills: List[str],
+        company_name: str
+    ) -> Dict:
+        """Fallback to role-specific templates if AI fails"""
         focus_areas = []
         if any("system design" in g.lower() for g in gaps):
             focus_areas.append("system_design")
@@ -322,15 +429,14 @@ Make stories specific using actual details from the resume. Include metrics wher
         if any("behavioral" in g.lower() or "communication" in g.lower() for g in gaps):
             focus_areas.append("behavioral")
         
-        # Default plan structure
         plan = {
             "total_weeks": 4,
             "weeks": [],
             "focus_areas": focus_areas,
             "personalized_notes": [],
+            "personalized": False,
         }
         
-        # Add personalized notes
         if strengths:
             plan["personalized_notes"].append(
                 f"Your strengths: {', '.join(strengths[:3])}. Leverage these in your interviews."
@@ -340,99 +446,159 @@ Make stories specific using actual details from the resume. Include metrics wher
                 f"Focus on improving: {', '.join(gaps[:2])}."
             )
         
-        # Generate weekly plan
         if role_category == "Software Engineering":
             plan["weeks"] = [
                 {
                     "week": 1,
-                    "title": "Foundations",
+                    "title": "Technical Foundations",
+                    "focus": "Build core algorithmic skills",
                     "tasks": [
-                        "Complete 20 easy LeetCode problems",
-                        "Review Big O notation",
+                        f"Complete 20 easy LeetCode problems focusing on {', '.join(required_skills[:2]) if required_skills else 'arrays and strings'}",
+                        "Review Big O notation and practice explaining time complexity",
                         "Study basic algorithms: sorting, searching, BFS/DFS",
+                        "Practice explaining your approach out loud for each problem",
                     ],
-                    "personalized": f"Focus extra time on {gaps[0] if gaps else 'fundamentals'}",
+                    "resources": ["LeetCode", "NeetCode 150"],
                 },
                 {
                     "week": 2,
-                    "title": "Core Problems",
+                    "title": "Core Problem Solving",
+                    "focus": "Medium difficulty problems and company-specific prep",
                     "tasks": [
                         "Complete 30 medium LeetCode problems",
-                        "Focus on company-tagged problems",
+                        f"Focus on {company_name}-tagged problems if available",
                         "Practice explaining your approach out loud",
+                        "Review common patterns: two pointers, sliding window, hash maps",
                     ],
+                    "resources": ["LeetCode Company Tags", "Blind 75"],
                 },
                 {
                     "week": 3,
-                    "title": "System Design",
+                    "title": "System Design & Advanced Topics",
+                    "focus": "Architecture and scaling concepts",
                     "tasks": [
                         "Read System Design Primer",
-                        "Practice 3-4 common design problems",
+                        "Practice 3-4 common design problems (Twitter, URL shortener, etc.)",
                         "Understand caching, load balancing, databases",
+                        "Study distributed systems concepts",
                     ],
+                    "resources": ["System Design Primer", "Grokking System Design"],
                 },
                 {
                     "week": 4,
-                    "title": "Behavioral + Mock",
+                    "title": "Behavioral Prep & Final Polish",
+                    "focus": "STAR stories and mock interviews",
                     "tasks": [
-                        "Refine your STAR stories",
-                        "Do 2-3 mock interviews",
-                        "Research the company thoroughly",
+                        "Refine your STAR stories using actual behavioral questions",
+                        "Do 2-3 mock interviews (Pramp, Interviewing.io)",
+                        f"Research {company_name} thoroughly: products, culture, recent news",
+                        "Prepare questions to ask interviewers",
                     ],
+                    "resources": ["Pramp", "Interviewing.io"],
                 },
             ]
         elif role_category == "Consulting":
             plan["weeks"] = [
                 {
                     "week": 1,
-                    "title": "Case Frameworks",
+                    "title": "Case Frameworks & Fundamentals",
+                    "focus": "Learn core consulting frameworks",
                     "tasks": [
                         "Learn profitability and market entry frameworks",
-                        "Read Case in Point",
-                        "Practice mental math",
+                        "Read Case in Point chapters 1-5",
+                        "Practice mental math daily (multiplication, division, percentages)",
+                        "Study the 3 C's framework (Company, Competitors, Customers)",
                     ],
+                    "resources": ["Case in Point", "PrepLounge"],
                 },
                 {
                     "week": 2,
-                    "title": "Case Practice",
+                    "title": "Case Practice & Structuring",
+                    "focus": "Apply frameworks to real cases",
                     "tasks": [
-                        "Complete 10-15 cases",
-                        "Find case partners on PrepLounge",
-                        "Focus on structuring",
+                        "Complete 10-15 cases with a partner",
+                        "Find case partners on PrepLounge or through your network",
+                        "Focus on structuring your approach clearly",
+                        "Practice market sizing problems",
                     ],
+                    "resources": ["PrepLounge", "CaseCoach"],
                 },
                 {
                     "week": 3,
-                    "title": "Advanced Cases",
+                    "title": "Advanced Cases & Communication",
+                    "focus": "Complex cases and presentation skills",
                     "tasks": [
-                        "Complete 15-20 more cases",
-                        "Practice market sizing",
-                        "Work on communication",
+                        "Complete 15-20 more cases (mix of profitability, market entry, M&A)",
+                        "Practice market sizing with time pressure",
+                        "Work on clear communication and hypothesis-driven thinking",
+                        "Practice handling interruptions and clarifying questions",
                     ],
+                    "resources": ["Victor Cheng LOMS", "CaseCoach"],
                 },
                 {
                     "week": 4,
-                    "title": "Behavioral + Mock",
+                    "title": "Behavioral Prep & Final Polish",
+                    "focus": "Fit interviews and company research",
                     "tasks": [
-                        "Refine your STAR stories",
-                        "Do 2-3 mock interviews",
-                        "Research the company thoroughly",
+                        "Refine your STAR stories for consulting fit questions",
+                        "Do 2-3 mock interviews with consultants",
+                        f"Research {company_name} thoroughly: clients, recent projects, culture",
+                        "Prepare 'Why consulting?' and 'Why this firm?' answers",
                     ],
+                    "resources": ["Consulting Prep", "Firm websites"],
                 },
             ]
         else:
-            # Generic plan
+            # More detailed generic plan
             plan["weeks"] = [
                 {
-                    "week": i + 1,
-                    "title": f"Week {i + 1}",
+                    "week": 1,
+                    "title": "Week 1: Foundation & Research",
+                    "focus": "Understand role requirements and build basics",
                     "tasks": [
-                        "Review job requirements",
-                        "Practice relevant skills",
-                        "Prepare for interviews",
+                        f"Deeply review {company_name} job posting and identify key requirements",
+                        f"Research {company_name}: products, culture, recent news, leadership",
+                        "Assess your current skills against required skills",
+                        "Create a skills gap analysis",
                     ],
-                }
-                for i in range(4)
+                    "resources": [f"{company_name} website", "LinkedIn company page"],
+                },
+                {
+                    "week": 2,
+                    "title": "Week 2: Skill Development",
+                    "focus": "Address identified gaps",
+                    "tasks": [
+                        f"Focus on top 3 required skills: {', '.join(required_skills[:3]) if required_skills else 'role-specific skills'}",
+                        "Complete relevant practice problems or exercises",
+                        "Study role-specific frameworks and methodologies",
+                        "Practice explaining your experience and projects",
+                    ],
+                    "resources": ["Role-specific resources"],
+                },
+                {
+                    "week": 3,
+                    "title": "Week 3: Interview Practice",
+                    "focus": "Mock interviews and question practice",
+                    "tasks": [
+                        "Practice common behavioral questions using STAR method",
+                        "Prepare answers for role-specific technical questions",
+                        "Do 2-3 mock interviews",
+                        "Refine your stories and examples",
+                    ],
+                    "resources": ["Pramp", "Interviewing.io"],
+                },
+                {
+                    "week": 4,
+                    "title": "Week 4: Final Preparation",
+                    "focus": "Company-specific prep and final polish",
+                    "tasks": [
+                        f"Deep dive into {company_name} culture and values",
+                        "Prepare thoughtful questions to ask interviewers",
+                        "Review your resume and be ready to discuss every bullet point",
+                        "Practice your elevator pitch and 'Why this company?' answer",
+                    ],
+                    "resources": [f"{company_name} careers page", "Glassdoor reviews"],
+                },
             ]
         
         return plan

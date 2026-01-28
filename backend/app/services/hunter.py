@@ -3,6 +3,7 @@ import os
 import time
 import json
 from functools import lru_cache
+from typing import Dict, Tuple, Optional
 from app.utils.retry import retry_with_backoff, retry_on_rate_limit
 from app.services.openai_client import get_openai_client
 import requests.exceptions
@@ -14,14 +15,16 @@ HUNTER_API_KEY = os.getenv('HUNTER_API_KEY')
 # Note: No preemptive delays - only sleep when actually rate limited (429 status)
 MAX_CONSECUTIVE_FAILURES = 3  # Stop after 3 consecutive API failures (likely rate limit)
 
-# Domain pattern cache - stores email patterns for each domain
-# Format: {domain: pattern} e.g., {'google.com': '{first}.{last}'}
-_domain_pattern_cache = {}
+# ✅ ISSUE 2 FIX: Module-level caches with TTL timestamps (persist across requests)
+# Domain pattern cache - stores email patterns for each domain with timestamps
+# Format: {domain: (pattern, timestamp)} e.g., {'google.com': ('{first}.{last}', 1234567890.0)}
+_email_pattern_cache = {}  # type: Dict[str, Tuple[str, float]]
 _cache_lock = threading.Lock()
+CACHE_TTL = 3600  # 1 hour TTL
 
-# Email verification cache - stores verification results to avoid duplicate calls
-# Format: {email: verification_result}
-_email_verification_cache = {}
+# Email verification cache - stores verification results with timestamps
+# Format: {email: (verification_result, timestamp)}
+_email_verification_cache = {}  # type: Dict[str, Tuple[dict, float]]
 _verification_cache_lock = threading.Lock()
 
 # Company domain mapping for common companies
@@ -681,13 +684,17 @@ def get_domain_pattern(domain: str, api_key: str = None) -> str:
     if not domain:
         return None
     
-    # Check cache first
+    # ✅ ISSUE 2 FIX: Check cache with TTL validation
     with _cache_lock:
-        if domain in _domain_pattern_cache:
-            pattern = _domain_pattern_cache[domain]
-            cache_time = time.time() - pattern_start
-            print(f"📦 ⏱️  Using cached email pattern ({cache_time*1000:.0f}ms) for {domain}: {pattern}")
-            return pattern
+        if domain in _email_pattern_cache:
+            pattern, timestamp = _email_pattern_cache[domain]
+            if time.time() - timestamp < CACHE_TTL:
+                cache_time = time.time() - pattern_start
+                print(f"📦 ⏱️  Using cached email pattern ({cache_time*1000:.0f}ms) for {domain}: {pattern}")
+                return pattern
+            else:
+                # Cache expired, remove it
+                del _email_pattern_cache[domain]
     
     # Fetch pattern from Hunter with retry logic (only sleeps on actual 429 rate limits)
     url = "https://api.hunter.io/v2/domain-search"
@@ -717,9 +724,9 @@ def get_domain_pattern(domain: str, api_key: str = None) -> str:
                 
                 total_time = time.time() - pattern_start
                 if pattern:
-                    # Cache the pattern
+                    # ✅ ISSUE 2 FIX: Cache the pattern with timestamp
                     with _cache_lock:
-                        _domain_pattern_cache[domain] = pattern
+                        _email_pattern_cache[domain] = (pattern, time.time())
                     print(f"✅ ⏱️  Retrieved email pattern ({total_time:.2f}s, API: {api_time:.2f}s) for {domain}: {pattern}")
                     return pattern
                 else:
@@ -1073,14 +1080,18 @@ def verify_email_hunter(email: str, api_key: str = None, use_cache: bool = True)
     if not api_key:
         return None
     
-    # Check cache first
+    # ✅ ISSUE 2 FIX: Check cache with TTL validation
     if use_cache:
         with _verification_cache_lock:
             if email in _email_verification_cache:
-                cached_result = _email_verification_cache[email]
-                cache_time = time.time() - verify_start
-                print(f"📦 ⏱️  Using cached verification ({cache_time*1000:.0f}ms) for {email}: score={cached_result.get('score', 'N/A')}")
-                return cached_result
+                cached_result, timestamp = _email_verification_cache[email]
+                if time.time() - timestamp < CACHE_TTL:
+                    cache_time = time.time() - verify_start
+                    print(f"📦 ⏱️  Using cached verification ({cache_time*1000:.0f}ms) for {email}: score={cached_result.get('score', 'N/A')}")
+                    return cached_result
+                else:
+                    # Cache expired, remove it
+                    del _email_verification_cache[email]
     
     # Only sleep when actually rate limited (429), not preemptively
     url = "https://api.hunter.io/v2/email-verifier"
@@ -1149,7 +1160,8 @@ def verify_email_hunter(email: str, api_key: str = None, use_cache: bool = True)
                     # Cache the result
                     if use_cache:
                         with _verification_cache_lock:
-                            _email_verification_cache[email] = result
+                            # ✅ ISSUE 2 FIX: Cache with timestamp
+                            _email_verification_cache[email] = (result, time.time())
                     
                     return result
                 else:
@@ -1472,6 +1484,114 @@ def get_verified_email(
         'email_verified': False,
         'email_source': None
     }
+
+
+# ✅ FIX #1: Batch email verification with aggressive caching
+def batch_verify_emails_for_contacts(contacts: list, target_company: str = None) -> dict:
+    """
+    Batch verify emails for multiple contacts efficiently.
+    Uses pre-computed domain patterns and generates emails without parallel Hunter API calls.
+    
+    Args:
+        contacts: List of contact dicts with:
+            - 'FirstName'/'firstName' or 'first_name': First name
+            - 'LastName'/'lastName' or 'last_name': Last name
+            - 'Company'/'company': Company name
+            - 'Email'/'WorkEmail'/'PersonalEmail' or 'pdl_email': PDL email
+        target_company: Target company name (if searching for specific company)
+    
+    Returns:
+        {contact_index: {'email': str, 'verified': bool, 'source': str}}
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import time
+    
+    if not contacts:
+        return {}
+    
+    print(f"\n[BatchEmailVerification] ⚡ Starting batch verification for {len(contacts)} contacts...")
+    batch_start = time.time()
+    
+    # Step 1: Collect all unique domains and pre-fetch patterns in parallel
+    unique_domains = set()
+    contact_domain_map = {}  # contact_index -> domain
+    
+    for i, contact in enumerate(contacts):
+        # Support multiple contact formats
+        company = target_company or contact.get('Company', '') or contact.get('company', '')
+        if company:
+            domain = get_smart_company_domain(company)
+            if domain:
+                unique_domains.add(domain)
+                contact_domain_map[i] = domain
+    
+    # Pre-fetch ALL domain patterns in parallel (one API call per domain, not per contact)
+    print(f"[BatchEmailVerification] 🔍 Pre-fetching {len(unique_domains)} unique domain patterns...")
+    domain_patterns = {}
+    if unique_domains:
+        with ThreadPoolExecutor(max_workers=min(5, len(unique_domains))) as executor:
+            pattern_futures = {
+                executor.submit(get_domain_pattern, domain): domain
+                for domain in unique_domains
+            }
+            for future in as_completed(pattern_futures):
+                domain = pattern_futures[future]
+                try:
+                    pattern = future.result()
+                    if pattern:
+                        domain_patterns[domain] = pattern
+                        print(f"[BatchEmailVerification] ✅ Cached pattern for {domain}: {pattern}")
+                except Exception as e:
+                    print(f"[BatchEmailVerification] ⚠️ Failed to get pattern for {domain}: {e}")
+    
+    # Step 2: Generate emails for each contact using cached patterns (NO Hunter API calls)
+    results = {}
+    
+    for i, contact in enumerate(contacts):
+        # Support multiple contact formats
+        first_name = (contact.get('FirstName', '') or contact.get('firstName', '') or contact.get('first_name', '') or '').strip()
+        last_name = (contact.get('LastName', '') or contact.get('lastName', '') or contact.get('last_name', '') or '').strip()
+        company = target_company or contact.get('Company', '') or contact.get('company', '')
+        pdl_email = (contact.get('Email') or contact.get('WorkEmail') or contact.get('PersonalEmail') or contact.get('pdl_email') or '').strip()
+        
+        if not first_name or not last_name:
+            results[i] = {'email': None, 'verified': False, 'source': None}
+            continue
+        
+        # Get domain for this contact
+        domain = contact_domain_map.get(i)
+        if not domain and company:
+            domain = get_smart_company_domain(company)
+        
+        # Strategy 1: Use PDL email if it matches the target domain
+        if pdl_email and pdl_email != "Not available" and '@' in pdl_email:
+            pdl_domain = pdl_email.split('@')[1].lower().strip()
+            if domain and pdl_domain == domain.lower():
+                # PDL email matches target domain - use it
+                results[i] = {'email': pdl_email, 'verified': True, 'source': 'pdl'}
+                continue
+        
+        # Strategy 2: Generate email from pattern if we have domain and pattern
+        if domain and domain in domain_patterns:
+            pattern = domain_patterns[domain]
+            generated_email = generate_email_from_pattern(first_name, last_name, domain, pattern)
+            results[i] = {'email': generated_email, 'verified': False, 'source': 'pattern'}
+            continue
+        
+        # Strategy 3: Fall back to PDL email (even if domain doesn't match)
+        if pdl_email and pdl_email != "Not available":
+            results[i] = {'email': pdl_email, 'verified': False, 'source': 'pdl_fallback'}
+            continue
+        
+        # Strategy 4: No email found
+        results[i] = {'email': None, 'verified': False, 'source': None}
+    
+    batch_time = time.time() - batch_start
+    email_count = sum(1 for r in results.values() if r.get('email'))
+    verified_count = sum(1 for r in results.values() if r.get('verified'))
+    print(f"[BatchEmailVerification] ✅ Batch verification complete: {batch_time:.2f}s for {len(contacts)} contacts ({email_count} emails, {verified_count} verified)")
+    
+    return results
 
 
 def get_verified_email_with_alternates(
