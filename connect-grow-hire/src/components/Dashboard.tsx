@@ -436,7 +436,7 @@ export function Dashboard() {
       {/* ================================================================== */}
       <div className="animate-fadeInUp">
         <h1 className="text-2xl font-bold text-gray-900">
-          {getTimeOfDayGreeting()}, {firstName} 👋
+          {getTimeOfDayGreeting()}, {firstName}
         </h1>
         <p className="text-gray-600 mt-1">
           {followUps.length > 0 ? (
@@ -469,7 +469,7 @@ export function Dashboard() {
             <p className="text-blue-100 mb-1">{topFollowUp.title} at {topFollowUp.company}</p>
             
             <div className="flex items-center gap-4 text-sm text-blue-100 mb-6 flex-wrap">
-              <span>📧 Last contacted {topFollowUp.daysSinceContact} days ago</span>
+              <span>Last contacted {topFollowUp.daysSinceContact} days ago</span>
               <span className="bg-white/20 px-2 py-0.5 rounded-full">{topFollowUp.priority} Priority</span>
             </div>
             
@@ -566,7 +566,7 @@ export function Dashboard() {
                 className={`dashboard-quick-win-card bg-green-50 border border-green-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.emailsReady === 0 ? 'opacity-50' : ''}`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-2xl">📤</span>
+                  <Mail className="w-6 h-6 text-gray-400" />
                   <span className="text-xs bg-green-200 text-green-800 px-2 py-0.5 rounded-full">2 min</span>
                 </div>
                 <p className="font-semibold text-gray-900">
@@ -580,7 +580,7 @@ export function Dashboard() {
                 className={`dashboard-quick-win-card bg-purple-50 border border-purple-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.coffeeChatsNeedPrep === 0 ? 'opacity-50' : ''}`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-2xl">☕</span>
+                  <Coffee className="w-6 h-6 text-gray-400" />
                   <span className="text-xs bg-purple-200 text-purple-800 px-2 py-0.5 rounded-full">5 min</span>
                 </div>
                 <p className="font-semibold text-gray-900">{quickWins.coffeeChatsNeedPrep} coffee chats</p>
@@ -592,7 +592,7 @@ export function Dashboard() {
                 className={`dashboard-quick-win-card bg-blue-50 border border-blue-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.newMatches === 0 ? 'opacity-50' : ''}`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-2xl">🎯</span>
+                  <Building2 className="w-6 h-6 text-gray-400" />
                   <span className="text-xs bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full">New</span>
                 </div>
                 <p className="font-semibold text-gray-900">{quickWins.newMatches} companies</p>
@@ -605,7 +605,7 @@ export function Dashboard() {
                       className="bg-gray-50 border border-gray-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer col-span-full"
                     >
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-2xl">🚀</span>
+                        <Search className="w-6 h-6 text-gray-400" />
                         <span className="text-xs bg-gray-200 text-gray-800 px-2 py-0.5 rounded-full">Get started</span>
                       </div>
                       <p className="font-semibold text-gray-900">Find your first contacts</p>
@@ -660,8 +660,8 @@ export function Dashboard() {
                         </div>
                         <p className="text-sm text-gray-600">{followUp.title} at {followUp.company}</p>
                         <p className="text-xs text-gray-400 mt-1">
-                          📧 Last contacted {followUp.daysSinceContact} days ago
-                          {followUp.emailOpened && <span className="ml-2 text-green-600">✓ Email opened</span>}
+                          Last contacted {followUp.daysSinceContact} days ago
+                          {followUp.emailOpened && <span className="ml-2 text-green-600">Email opened</span>}
                         </p>
                       </div>
                     </div>

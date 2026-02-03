@@ -688,11 +688,6 @@ const SpreadsheetContactDirectory: React.FC = () => {
 
   return (
     <div className="space-y-6 contact-directory-page">
-      {/* Helper text */}
-      <p className="text-sm text-gray-500 contact-directory-header-text">
-        Track saved contacts, outreach status, and follow-ups.
-      </p>
-
       {/* Top Controls - Matching Find People layout */}
       <div className="flex items-center justify-between gap-4 contact-directory-controls-row">
         {/* Search */}
@@ -771,8 +766,8 @@ const SpreadsheetContactDirectory: React.FC = () => {
         /* Table Container - Flat styling like Find People */
         <div className="border border-gray-200 rounded-lg bg-white overflow-hidden contact-directory-table-wrapper">
           {/* Table */}
-          <div ref={tableContainerRef} className="overflow-x-auto contact-directory-table-container">
-            <table className="min-w-full contact-directory-table">
+          <div ref={tableContainerRef} className="overflow-x-auto overflow-y-visible contact-directory-table-container" style={{ maxWidth: '100%', WebkitOverflowScrolling: 'touch' }}>
+            <table className="min-w-[1400px] w-full contact-directory-table">
               <thead>
                 <tr className="border-b border-gray-200">
                   <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide contact-directory-name-header">
@@ -793,7 +788,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
                   <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
                     Location
                   </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide min-w-[180px]">
                     Status
                   </th>
                   <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">
@@ -938,12 +933,12 @@ const SpreadsheetContactDirectory: React.FC = () => {
                       </td>
 
                       {/* Status */}
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
+                      <td className="px-4 py-3 whitespace-nowrap min-w-[180px]">
+                        <div className="flex items-center gap-2 min-w-[180px]">
                           <select
                             value={contact.status}
                             onChange={(e) => handleCellEdit(contact.id!, 'status', e.target.value)}
-                            className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer hover:border-gray-400 transition-colors"
+                            className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer hover:border-gray-400 transition-colors flex-shrink-0 min-w-[150px]"
                             style={{ color: statusOption?.color }}
                           >
                             {STATUS_OPTIONS.map(option => (

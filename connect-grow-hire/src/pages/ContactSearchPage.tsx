@@ -44,13 +44,13 @@ const quickStartTemplates = [
   { id: 4, label: 'SWE in Bay Area', jobTitle: 'Software Engineer', location: 'San Francisco, CA', company: '', college: '' },
 ];
 
-// Helper function for slider encouragement messages
-const getSliderMessage = (count: number): string => {
-  if (count === 1) return "Perfect for testing a specific target";
+// Helper function for contact count guidance
+const getContactCountHelper = (count: number): string => {
+  if (count === 1) return "Perfect for testing a single, specific contact";
   if (count <= 3) return "Great for focused outreach";
   if (count <= 7) return "Good for exploring a company";
   if (count <= 10) return "Solid networking foundation";
-  return "Maximum reach — highly recommended!";
+  return "Maximum reach for broad exposure";
 };
 
 // Stripe-style Tabs Component with animated underline
@@ -1521,16 +1521,16 @@ const ContactSearchPage: React.FC = () => {
                       </div>
 
                       {/* Quantity Selector - Slider */}
-                      <div className="bg-gray-50 rounded-xl p-6 mb-10">
-                        <div className="flex items-center justify-between gap-4 mb-4">
+                      <div className="bg-gray-50 border border-gray-200 rounded-xl px-6 py-5 mb-10">
+                        {/* Header row */}
+                        <div className="flex items-center justify-between gap-4 mb-5">
                           <div>
-                            <h3 className="text-base font-semibold text-gray-900">Number of Contacts</h3>
+                            <h3 className="text-base font-semibold text-gray-900 mb-1">Number of Contacts</h3>
                             <p className="text-sm text-gray-500">How many people should we find?</p>
                           </div>
-                          <div className="text-right">
-                            <span className="text-base font-semibold text-blue-700">{batchSize}</span>
-                            <span className="text-xs text-gray-500 ml-1">selected</span>
-                          </div>
+                          <span className="text-sm text-gray-500">
+                            {batchSize} selected
+                          </span>
                         </div>
 
                         <div className="slider-container">
@@ -1541,13 +1541,13 @@ const ContactSearchPage: React.FC = () => {
                               <div
                                 className="slider-filled-track"
                                 style={{
-                                  width: `${((batchSize - 1) / (15 - 1)) * 100}%`
+                                  width: `${((batchSize - 1) / (maxBatchSize - 1)) * 100}%`
                                 }}
                               />
                               <input
                                 type="range"
                                 min={1}
-                                max={15}
+                                max={maxBatchSize}
                                 value={batchSize}
                                 onChange={(e) => {
                                   const newValue = Number(e.target.value);
@@ -1559,20 +1559,19 @@ const ContactSearchPage: React.FC = () => {
                                 className="slider-custom"
                                 aria-label="Number of contacts to find"
                                 aria-valuemin={1}
-                                aria-valuemax={15}
+                                aria-valuemax={maxBatchSize}
                                 aria-valuenow={batchSize}
                                 aria-disabled={isSearching}
                               />
                             </div>
-                            <span className="text-xs text-gray-400 min-w-[24px]">15</span>
+                            <span className="text-xs text-gray-400 min-w-[24px]">{maxBatchSize}</span>
                           </div>
                         </div>
-                        
-                        {maxBatchSize < 15 && (
-                          <p className="text-xs text-gray-400 mt-3">
-                            Upgrade to search for more contacts at once.
-                          </p>
-                        )}
+
+                        {/* Dynamic helper message */}
+                        <p className="mt-2 text-sm text-gray-500 text-center">
+                          {getContactCountHelper(batchSize)}
+                        </p>
                       </div>
 
                       {/* Action Button */}

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Check, ArrowLeft, Settings, Sparkles, Shield, ChevronDown, X } from "lucide-react";
+import { Check, ArrowLeft, Settings, Shield, ChevronDown, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
@@ -53,23 +53,24 @@ const FeatureItem: React.FC<FeatureItemProps> = ({ children, highlight, muted })
 interface FAQItemProps {
   question: string;
   answer: string;
+  isProminent?: boolean;
 }
 
-const FAQItem: React.FC<FAQItemProps> = ({ question, answer }) => {
+const FAQItem: React.FC<FAQItemProps> = ({ question, answer, isProminent = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div className="border-b border-gray-100 last:border-b-0">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between p-5 text-left hover:bg-gray-50 transition-colors"
+        className="w-full flex items-center justify-between py-4 text-left hover:bg-gray-50/50 transition-colors"
       >
-        <span className="font-medium text-gray-900">{question}</span>
-        <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        <span className={`${isProminent ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>{question}</span>
+        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 flex-shrink-0 ml-4 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       
       {isOpen && (
-        <div className="px-5 pb-5 text-gray-600 animate-fadeInUp">
+        <div className={`pb-4 text-gray-600 leading-relaxed ${isProminent ? 'text-base' : 'text-sm'}`}>
           {answer}
         </div>
       )}
@@ -376,9 +377,6 @@ const Pricing = () => {
           <div className="mb-10 bg-gradient-to-r from-blue-600 to-cyan-500 rounded-2xl p-[2px] animate-fadeInUp" style={{ animationDelay: '50ms' }}>
             <div className="bg-white rounded-xl px-6 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center">
-                  <Sparkles className="w-6 h-6 text-white" />
-                </div>
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="font-semibold text-gray-900">{isEliteUser ? 'Elite' : 'Pro'} Subscription Active</h3>
@@ -652,36 +650,38 @@ const Pricing = () => {
         </div>
 
         {/* FAQ Section */}
-        <div className="max-w-3xl mx-auto mb-16 animate-fadeInUp" style={{ animationDelay: '500ms' }}>
-          <h2 className="text-2xl font-bold text-gray-900 text-center mb-8">Frequently Asked Questions</h2>
+        <div className="max-w-3xl mb-16 animate-fadeInUp" style={{ animationDelay: '500ms' }}>
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">Frequently Asked Questions</h2>
           
-          <div className="space-y-4">
+          <div>
             <FAQItem 
               question="What happens when I run out of credits?"
-              answer="When your credits are depleted, you won't be able to search for new contacts until your plan renews or you upgrade. Your existing saved contacts and drafts remain accessible."
+              answer="You'll hit a pause on new searches until your plan renews or you upgrade. No waiting, no emails—just upgrade when you're ready. All your saved contacts and drafts stay put."
+              isProminent={true}
             />
             <FAQItem 
-              question="Can I upgrade or downgrade at any time?"
-              answer="Yes! You can change your plan at any time. When upgrading, you'll get immediate access to new features. When downgrading, the change takes effect at your next billing cycle."
+              question="Can I change plans anytime?"
+              answer="Yep, anytime. Upgrading? You get access immediately. Downgrading? Takes effect at your next billing cycle. Takes 10 seconds to switch."
+              isProminent={true}
             />
             <FAQItem 
-              question="Do unused credits roll over?"
-              answer="Credits reset at the beginning of each billing cycle and do not roll over. We recommend using your credits before they expire!"
+              question="Do credits roll over?"
+              answer="Nope, they reset each month. Use 'em or lose 'em—but honestly, most people use them up pretty quick."
             />
             <FAQItem 
-              question="Is there a student discount?"
-              answer="Our Pro plan is already priced for students at $14.99/month (25% off the regular price). Just sign up with your .edu email!"
+              question="Student discount?"
+              answer="Pro is already priced for students at $14.99/month. Just use your .edu email when you sign up."
             />
             <FAQItem 
-              question="How do I cancel my subscription?"
-              answer="You can cancel anytime from your subscription management page. Your access continues until the end of your billing period."
+              question="How do I cancel?"
+              answer="Cancel anytime from your subscription page. You keep access until the end of your billing period—no tricks."
             />
           </div>
         </div>
 
         {/* Footer Note */}
-        <div className="text-center text-sm text-gray-500 pb-8 animate-fadeInUp" style={{ animationDelay: '600ms' }}>
-          <p>Have questions? <button onClick={() => window.open('mailto:support@offerloop.ai', '_blank')} className="text-blue-600 hover:underline font-medium">Contact our support team</button></p>
+        <div className="max-w-3xl text-sm text-gray-500 pb-8 animate-fadeInUp" style={{ animationDelay: '600ms' }}>
+          <p>Still unsure? <button onClick={() => window.open('mailto:support@offerloop.ai', '_blank')} className="text-blue-600 hover:underline font-medium">Talk to us</button></p>
         </div>
         
       </div>
