@@ -6,12 +6,20 @@ import { AppHeader } from "@/components/AppHeader";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { useScout } from "@/contexts/ScoutContext";
-import { 
+import {
   History, Loader2, AlertCircle, ArrowUp, Download, Trash2, Building2, Search,
   CheckCircle, Users, Globe, Bookmark, ArrowRight, X, ChevronRight, Check
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,6 +35,7 @@ import type { Firm, FirmSearchResult, SearchHistoryItem } from "@/services/api";
 import FirmSearchResults from "@/components/FirmSearchResults";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
+import { StickyCTA } from "@/components/StickyCTA";
 
 // Example prompts to show users
 const EXAMPLE_SEARCHES = [
@@ -74,13 +83,16 @@ const FirmSearchPage: React.FC = () => {
   const [parsedFilters, setParsedFilters] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
-  const [searchProgress, setSearchProgress] = useState<{current: number, total: number, step: string} | null>(null);
+  const [searchProgress, setSearchProgress] = useState<{ current: number, total: number, step: string } | null>(null);
   const [searchComplete, setSearchComplete] = useState(false);
 
   // History state
   const [showHistory, setShowHistory] = useState(false);
   const [searchHistory, setSearchHistory] = useState<SearchHistoryItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Ref for original button to track visibility
+  const originalButtonRef = useRef<HTMLButtonElement>(null);
 
   // Tab state
   const [activeTab, setActiveTab] = useState('firm-search');
@@ -90,16 +102,20 @@ const FirmSearchPage: React.FC = () => {
   const [deletingFirmId, setDeletingFirmId] = useState<string | null>(null);
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
-  
+
   // Use a ref to track current results to avoid stale closures
   const resultsRef = useRef<Firm[]>([]);
-  
+
   // Track deleted firm IDs to prevent them from reappearing
   const deletedFirmIds = useRef<Set<string>>(new Set());
 
   // Credit system state
   const [batchSize, setBatchSize] = useState<number>(10);
   const [creditsPerFirm] = useState<number>(5);
+
+  // UI polish state
+  const [selectedExampleId, setSelectedExampleId] = useState<number | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Validation
   const hasIndustry = query.length > 10;
@@ -125,7 +141,7 @@ const FirmSearchPage: React.FC = () => {
         const stored = sessionStorage.getItem(SCOUT_AUTO_POPULATE_KEY);
         if (stored) {
           const data = JSON.parse(stored);
-          
+
           let populateData;
           if (data.search_type === 'firm') {
             if (data.auto_populate) {
@@ -133,16 +149,16 @@ const FirmSearchPage: React.FC = () => {
             } else {
               populateData = data;
             }
-            
+
             const { industry, location: autoLocation } = populateData;
             let newQuery = '';
             if (industry) newQuery += industry;
             if (autoLocation) newQuery += (newQuery ? ' in ' : '') + autoLocation;
-            
+
             if (newQuery) {
               setQuery(newQuery);
               sessionStorage.removeItem(SCOUT_AUTO_POPULATE_KEY);
-              
+
               toast({
                 title: "Search pre-filled",
                 description: "Scout has filled in your search fields. Click Search to find firms.",
@@ -162,7 +178,7 @@ const FirmSearchPage: React.FC = () => {
 
   // Track recently deleted firm IDs to filter them out during reload
   const recentlyDeletedFirmIds = useRef<Set<string>>(new Set());
-  
+
   // Load all saved firms from Firebase on mount
   const loadAllSavedFirms = useCallback(async () => {
     if (!user) {
@@ -184,13 +200,13 @@ const FirmSearchPage: React.FC = () => {
             if (firm.id && deletedFirmIds.current.has(firm.id)) {
               return;
             }
-            
+
             if (firm.id && recentlyDeletedFirmIds.current.has(firm.id)) {
               return;
             }
-            
+
             const firmKey = firm.id || `${firm.name}-${firm.location?.display}`;
-            
+
             if (firm.id) {
               if (!firmIds.has(firm.id)) {
                 firmIds.add(firm.id);
@@ -205,18 +221,18 @@ const FirmSearchPage: React.FC = () => {
           });
         }
       });
-      
+
       const filteredFirms = allFirms.filter(firm => {
         if (firm.id && deletedFirmIds.current.has(firm.id)) {
           return false;
         }
         return true;
       });
-      
+
       if (recentlyDeletedFirmIds.current.size > 0) {
         recentlyDeletedFirmIds.current.clear();
       }
-      
+
       setResults(filteredFirms);
       loadAttemptedRef.current = false;
     } catch (err) {
@@ -256,7 +272,7 @@ const FirmSearchPage: React.FC = () => {
 
   // Track if we've attempted to load
   const loadAttemptedRef = useRef(false);
-  
+
   // Load saved firms when switching to firm-library tab
   useEffect(() => {
     if (activeTab !== 'firm-library') {
@@ -297,14 +313,14 @@ const FirmSearchPage: React.FC = () => {
     setError(null);
     setHasSearched(true);
     setSearchComplete(false);
-    
+
     const estimatedSeconds = 2 + Math.ceil(batchSize / 5) * 2;
-    const estimatedTime = estimatedSeconds < 60 
-      ? `${estimatedSeconds} seconds` 
+    const estimatedTime = estimatedSeconds < 60
+      ? `${estimatedSeconds} seconds`
       : `${Math.ceil(estimatedSeconds / 60)} minutes`;
-    
+
     // Initialize progress with estimated time
-    setSearchProgress({current: 0, total: batchSize, step: `Starting search... (est. ${estimatedTime})`});
+    setSearchProgress({ current: 0, total: batchSize, step: `Starting search... (est. ${estimatedTime})` });
 
     // Simulate progress while waiting (since search is synchronous)
     let simulatedProgressPercent = 0;
@@ -326,14 +342,14 @@ const FirmSearchPage: React.FC = () => {
 
     try {
       const result: FirmSearchResult = await apiService.searchFirms(q, batchSize);
-      
+
       // Clear simulated progress
       clearInterval(progressSimulator);
-      
+
       // Get searchId from response and start real progress polling
       if (result.searchId) {
         searchId = result.searchId;
-        
+
         // Start polling for final status
         progressPollInterval = setInterval(async () => {
           if (!isPolling || !searchId) return;
@@ -345,7 +361,7 @@ const FirmSearchPage: React.FC = () => {
                 total: status.progress.total,
                 step: status.progress.step || 'Searching...'
               });
-              
+
               // Stop polling if search is complete or failed
               if (status.progress.status === 'completed' || status.progress.status === 'failed') {
                 isPolling = false;
@@ -363,7 +379,7 @@ const FirmSearchPage: React.FC = () => {
             console.debug('Progress poll error:', err);
           }
         }, 1000);
-        
+
         // Stop polling after a few seconds (search is likely done)
         setTimeout(() => {
           isPolling = false;
@@ -373,7 +389,7 @@ const FirmSearchPage: React.FC = () => {
           }
         }, 3000);
       }
-      
+
       setSearchProgress(null);
 
       if (result.success) {
@@ -381,7 +397,7 @@ const FirmSearchPage: React.FC = () => {
 
         if (result.firms.length === 0) {
           setError('No firms found matching your criteria. Try broadening your search or adjusting the location/industry.');
-          
+
           openPanelWithSearchHelp({
             searchType: 'firm',
             failedSearchParams: {
@@ -398,7 +414,7 @@ const FirmSearchPage: React.FC = () => {
 
           toast({
             title: result.partialMessage ? "Partial Results" : "Search Complete!",
-            description: result.partialMessage 
+            description: result.partialMessage
               ? `${result.partialMessage} Used ${result.creditsCharged || 0} credits.`
               : `Found ${result.firms.length} firm${result.firms.length !== 1 ? 's' : ''}. Used ${result.creditsCharged || 0} credits.`,
           });
@@ -421,7 +437,7 @@ const FirmSearchPage: React.FC = () => {
       }
     } catch (err: any) {
       console.error('Search error:', err);
-      
+
       if (err.status === 401 || err.message?.includes('Authentication required')) {
         setError('Authentication required. Please sign in again.');
         toast({
@@ -432,14 +448,14 @@ const FirmSearchPage: React.FC = () => {
       } else if (err.status === 402 || err.error_code === 'INSUFFICIENT_CREDITS') {
         const creditsNeeded = err.creditsNeeded || err.required || (batchSize * creditsPerFirm);
         const currentCredits = err.currentCredits || err.available || effectiveUser.credits || 0;
-        
+
         setError(`Insufficient credits. You need ${creditsNeeded} credits but only have ${currentCredits}.`);
         toast({
           title: "Insufficient Credits",
           description: `You need ${creditsNeeded} credits but only have ${currentCredits}. Please upgrade your plan or reduce batch size.`,
           variant: "destructive",
         });
-        
+
         if (checkCredits) {
           await checkCredits();
         }
@@ -498,13 +514,13 @@ const FirmSearchPage: React.FC = () => {
   const handleDeleteFirm = async (firm: Firm) => {
     const firmKey = getFirmKey(firm);
     setDeletingFirmId(firmKey);
-    
+
     try {
       if (firm.id) {
         deletedFirmIds.current.add(firm.id);
         recentlyDeletedFirmIds.current.add(firm.id);
       }
-      
+
       setResults((prev) => {
         const filtered = prev.filter((f) => {
           if (firm.id && f.id) {
@@ -515,9 +531,9 @@ const FirmSearchPage: React.FC = () => {
         });
         return filtered;
       });
-      
+
       const result = await apiService.deleteFirm(firm);
-      
+
       if (result.success) {
         if (result.deletedCount === 0) {
           if (firm.id) {
@@ -543,12 +559,12 @@ const FirmSearchPage: React.FC = () => {
           });
           return;
         }
-        
+
         toast({
           title: "Firm deleted",
           description: `Removed from your Firm Library.`,
         });
-        
+
         if (activeTab === 'firm-library') {
           const reloadAttempts = [1000, 2000, 3000];
           for (const delay of reloadAttempts) {
@@ -612,24 +628,24 @@ const FirmSearchPage: React.FC = () => {
   const handleDeleteAllFirms = async () => {
     const count = results.length;
     setShowDeleteAllDialog(false);
-    
+
     try {
       const deletePromises = results.map(firm => apiService.deleteFirm(firm));
       const results_array = await Promise.allSettled(deletePromises);
-      
+
       const successCount = results_array.filter(
         r => r.status === 'fulfilled' && r.value.success && (r.value.deletedCount || 0) > 0
       ).length;
       const failedCount = count - successCount;
-      
+
       setResults([]);
-      
+
       if (failedCount === 0) {
         toast({
           title: "All firms deleted",
           description: `Removed ${successCount} firm${successCount !== 1 ? 's' : ''} from your Firm Library.`,
         });
-        
+
         if (activeTab === 'firm-library') {
           setTimeout(async () => {
             try {
@@ -645,7 +661,7 @@ const FirmSearchPage: React.FC = () => {
           description: `Deleted ${successCount} of ${count} firms. ${failedCount} failed.`,
           variant: "default",
         });
-        
+
         if (activeTab === 'firm-library') {
           setTimeout(async () => {
             try {
@@ -664,7 +680,7 @@ const FirmSearchPage: React.FC = () => {
         description: "An error occurred while deleting firms.",
         variant: "destructive",
       });
-      
+
       if (activeTab === 'firm-library') {
         setTimeout(async () => {
           try {
@@ -685,8 +701,16 @@ const FirmSearchPage: React.FC = () => {
   };
 
   // Handle example prompt click
-  const handleExampleClick = (searchQuery: string) => {
+  const handleExampleClick = (searchQuery: string, exampleId: number) => {
     setQuery(searchQuery);
+    setSelectedExampleId(exampleId);
+    // Briefly emphasize the textarea and auto-focus
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+      setTimeout(() => {
+        setSelectedExampleId(null);
+      }, 150);
+    }
   };
 
   // Handle Enter key
@@ -766,452 +790,409 @@ const FirmSearchPage: React.FC = () => {
         <MainContentWrapper>
           <AppHeader />
 
-          <main className="bg-gradient-to-b from-slate-50 via-white to-white min-h-screen firm-search-page">
-            <div className="max-w-4xl mx-auto px-6 pt-10 pb-8 firm-search-container">
-              
-              {/* Inspiring Header Section */}
-              <div className="text-center mb-8 animate-fadeInUp firm-search-header">
-                <h1 className="text-3xl font-bold text-gray-900 mb-2 firm-search-title">
+          <main className="w-full max-w-5xl mx-auto px-6 py-12 pb-24">
+            <div>
+
+              {/* Header Section */}
+              <div className="text-center mb-12 max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700">
+                <h1 className="text-4xl font-bold tracking-tight text-gray-900 mb-4">
                   Find Companies
                 </h1>
-                <p className="text-gray-600 text-lg firm-search-subtitle">
+                <p className="text-lg text-gray-500 leading-relaxed">
                   Discover companies that match your target criteria and career goals.
                 </p>
               </div>
 
-              {/* Pill-style Tabs */}
-              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mx-auto mb-8 animate-fadeInUp firm-search-tabs" style={{ animationDelay: '100ms' }}>
+              {/* Navigation Tabs */}
+              <div className="flex justify-center mb-10">
+                <div className="inline-flex items-center p-1 bg-white border border-gray-200 rounded-full shadow-sm">
                   <button
                     onClick={() => setActiveTab('firm-search')}
                     className={`
-                      flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
-                      ${activeTab === 'firm-search' 
-                        ? 'bg-white text-indigo-600 shadow-sm' 
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                      flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-medium transition-all duration-300
+                      ${activeTab === 'firm-search'
+                        ? 'bg-indigo-600 text-white shadow-md transform scale-[1.02]'
+                        : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
                       }
                     `}
                   >
-                    <Search className="w-4 h-4" />
+                    <Search className={`w-4 h-4 ${activeTab === 'firm-search' ? 'text-white' : 'text-current'}`} />
                     Find Companies
                   </button>
-                  
+
                   <button
                     onClick={() => setActiveTab('firm-library')}
                     className={`
-                      flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
-                      ${activeTab === 'firm-library' 
-                        ? 'bg-white text-indigo-600 shadow-sm' 
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                      flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-medium transition-all duration-300
+                      ${activeTab === 'firm-library'
+                        ? 'bg-indigo-600 text-white shadow-md transform scale-[1.02]'
+                        : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
                       }
                     `}
                   >
-                    <Building2 className="w-4 h-4" />
+                    <Building2 className={`w-4 h-4 ${activeTab === 'firm-library' ? 'text-white' : 'text-current'}`} />
                     Company Tracker
                     {results.length > 0 && (
-                      <span className="ml-1 px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-full">
+                      <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${activeTab === 'firm-library' ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'}`}>
                         {results.length}
                       </span>
                     )}
                   </button>
                 </div>
+              </div>
 
-                {/* TAB 1: Find Companies */}
-                <TabsContent value="firm-search" className="mt-0">
-                  {/* Authentication Notice */}
-                  {!user && (
-                    <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3 animate-fadeInUp" style={{ animationDelay: '150ms' }}>
-                      <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                      <p className="text-sm text-amber-700">Please sign in to use Find Companies.</p>
-                    </div>
-                  )}
+              {/* Main Content Area */}
+              <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 delay-100">
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
 
-                  {/* Main Card */}
-                  <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp firm-search-form-card" style={{ animationDelay: '200ms' }}>
-                    {/* Indigo/purple gradient accent at top */}
-                    <div className="h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600"></div>
-                    
-                    <div className="p-8 firm-search-form-content">
-                      {/* Card Header with History Button */}
-                      <div className="flex items-start justify-between mb-6 firm-search-header-row">
-                        <div className="flex items-center gap-4 firm-search-header-content">
-                          <div className="w-14 h-14 bg-indigo-100 rounded-2xl flex items-center justify-center">
-                            <Building2 className="w-7 h-7 text-indigo-600" />
+                  {/* TAB 1: Find Companies */}
+                  <TabsContent value="firm-search" className="mt-0">
+                    {/* Authentication Notice */}
+                    {!user && (
+                      <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3 animate-fadeInUp" style={{ animationDelay: '150ms' }}>
+                        <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                        <p className="text-sm text-amber-700">Please sign in to use Find Companies.</p>
+                      </div>
+                    )}
+
+                    {/* Main Card */}
+                    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp firm-search-form-card" style={{ animationDelay: '200ms' }}>
+                      {/* Simple gray divider instead of gradient */}
+                      <div className="h-1 bg-gray-100"></div>
+
+                      <div className="p-8 firm-search-form-content">
+                        {/* Card Header with History Button */}
+                        <div className="flex items-start justify-between mb-6 firm-search-header-row">
+                          <div className="flex items-center gap-4 firm-search-header-content">
+                            <div>
+                              <h2 className="text-xl font-semibold text-gray-900 firm-search-form-title">What type of companies are you looking for?</h2>
+                              <p className="text-gray-600 mt-1 firm-search-form-subtitle">Describe your ideal companies in natural language</p>
+                            </div>
                           </div>
-                          <div>
-                            <h2 className="text-xl font-semibold text-gray-900 firm-search-form-title">What type of companies are you looking for?</h2>
-                            <p className="text-gray-600 mt-1 firm-search-form-subtitle">Describe your ideal companies in natural language</p>
-                          </div>
+
+                          <button
+                            onClick={() => setShowHistory(true)}
+                            className="firm-search-history-btn flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100 hover:border-gray-300 transition-all"
+                          >
+                            <History className="w-4 h-4" />
+                            History
+                          </button>
                         </div>
-                        
-                        <button 
-                          onClick={() => setShowHistory(true)}
-                          className="firm-search-history-btn flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100 hover:border-gray-300 transition-all"
-                        >
-                          <History className="w-4 h-4" />
-                          History
-                        </button>
-                      </div>
 
-                      {/* Quick Start Templates */}
-                      <div className="mb-6 firm-search-examples">
-                        <p className="text-sm text-gray-500 mb-3">Try an example or write your own</p>
-                        <div className="flex flex-wrap gap-2 firm-search-example-chips">
-                          {EXAMPLE_SEARCHES.map((example) => (
-                            <button
-                              key={example.id}
-                              onClick={() => handleExampleClick(example.query)}
-                              className="px-3 py-1.5 bg-indigo-50 border border-indigo-200 rounded-full text-sm text-indigo-700 
-                                         hover:bg-indigo-100 hover:border-indigo-300 transition-all"
-                            >
-                              {example.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Enhanced Textarea Input */}
-                      <div className="relative firm-search-textarea-wrapper">
-                        <textarea
-                          value={query}
-                          onChange={(e) => setQuery(e.target.value)}
-                          onKeyDown={handleKeyDown}
-                          placeholder="e.g., Mid-sized investment banks in New York focused on healthcare M&A..."
-                          rows={4}
-                          disabled={isSearching || !user}
-                          className="w-full p-4 pr-14 text-base border-2 border-gray-200 rounded-2xl firm-search-textarea
-                                     text-gray-900 placeholder-gray-400 resize-none
-                                     focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500
-                                     hover:border-gray-300 transition-all disabled:opacity-50"
-                        />
-                        
-                        {/* Submit button inside textarea */}
-                        <button
-                          onClick={() => handleSearch()}
-                          disabled={!isValidQuery || isSearching || !user}
-                          className={`
-                            absolute bottom-4 right-4 w-10 h-10 rounded-full
-                            flex items-center justify-center transition-all duration-200
-                            ${isValidQuery && !isSearching && user
-                              ? 'bg-gradient-to-r from-indigo-600 to-purple-500 text-white shadow-md hover:shadow-lg hover:scale-110'
-                              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                            }
-                          `}
-                        >
-                          {isSearching ? (
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                          ) : (
-                            <ArrowUp className="w-5 h-5" />
-                          )}
-                        </button>
-                      </div>
-
-                      {/* Requirements hint */}
-                      <div className="mt-3 flex flex-wrap items-center gap-x-1 text-sm">
-                        <span className="text-gray-500">Include</span>
-                        <span className={`font-medium ${hasIndustry ? 'text-green-600' : 'text-indigo-600'}`}>
-                          industry
-                          {hasIndustry && <Check className="w-3 h-3 inline ml-0.5" />}
-                        </span>
-                        <span className="text-gray-400">(required),</span>
-                        <span className={`font-medium ${hasLocation ? 'text-green-600' : 'text-indigo-600'}`}>
-                          location
-                          {hasLocation && <Check className="w-3 h-3 inline ml-0.5" />}
-                        </span>
-                        <span className="text-gray-400">(required),</span>
-                        <span className="text-gray-500">and optionally size, focus areas, and keywords.</span>
-                      </div>
-
-                      {/* Error Message */}
-                      {error && (
-                        <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
-                          <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
-                          <p className="text-red-700 text-sm">{error}</p>
-                        </div>
-                      )}
-
-                      {/* Quantity Selector - Enhanced */}
-                      <div className="mt-8 pt-8 border-t border-gray-100 firm-search-quantity-section">
-                        <h3 className="text-lg font-semibold text-gray-900 mb-2 firm-search-quantity-title">How many companies do you want to find?</h3>
-                        <p className="text-gray-600 mb-5 firm-search-quantity-subtitle">Companies are saved to your Company Tracker for easy access.</p>
-                        
-                        <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-6 firm-search-quantity-card">
-                          {/* Quantity buttons */}
-                          <div className="flex items-center gap-2 mb-4 firm-search-quantity-buttons">
-                            {BATCH_OPTIONS.map((option) => (
+                        {/* Quick Start Templates */}
+                        <div className="mb-6 firm-search-examples">
+                          <p className="text-sm text-gray-500 mb-3">Try an example or write your own</p>
+                          <div className="flex flex-wrap gap-2 firm-search-example-chips">
+                            {EXAMPLE_SEARCHES.map((example) => (
                               <button
-                                key={option.value}
-                                onClick={() => setBatchSize(option.value)}
-                                disabled={isSearching || option.value > maxBatchSize}
-                                className={`
-                                  px-5 py-3 rounded-xl font-semibold text-sm transition-all duration-200 firm-search-quantity-btn
-                                  ${batchSize === option.value
-                                    ? 'bg-gradient-to-r from-indigo-600 to-purple-500 text-white shadow-md'
-                                    : 'bg-white text-gray-700 border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50'
-                                  }
-                                  ${option.value > maxBatchSize ? 'opacity-50 cursor-not-allowed' : ''}
-                                `}
+                                key={example.id}
+                                onClick={() => handleExampleClick(example.query, example.id)}
+                                className="px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-full text-sm text-gray-600 
+                                         hover:bg-blue-50 hover:text-gray-900 hover:border-blue-200 
+                                         transition-all duration-150"
                               >
-                                {option.value}
+                                {example.label}
                               </button>
                             ))}
                           </div>
-                          
-                          {/* Visual company indicators */}
-                          <div className="flex items-center gap-1 mb-4 firm-search-company-icons">
-                            {[...Array(40)].map((_, i) => (
-                              <div
-                                key={i}
-                                className={`
-                                  w-2 h-6 rounded-sm transition-all duration-200
-                                  ${i < batchSize 
-                                    ? 'bg-indigo-500' 
-                                    : 'bg-gray-200'
-                                  }
+                        </div>
+
+                        {/* Enhanced Textarea Input */}
+                        <div className="relative firm-search-textarea-wrapper">
+                          <textarea
+                            ref={textareaRef}
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            onFocus={() => setSelectedExampleId(null)}
+                            placeholder="e.g., Mid-sized investment banks in New York focused on healthcare M&A..."
+                            rows={4}
+                            disabled={isSearching || !user}
+                            className={`w-full p-4 pr-14 text-base border-2 rounded-2xl firm-search-textarea
+                                     text-gray-900 placeholder-gray-400 resize-none
+                                     transition-all duration-150 disabled:opacity-50
+                                     border-gray-200 hover:border-gray-300
+                                     focus:border-blue-400 focus:bg-blue-50/20 focus:ring-1 focus:ring-blue-400/20
+                                     ${selectedExampleId !== null ? 'bg-blue-50/30 border-blue-300' : ''}`}
+                          />
+
+                          {/* Submit button inside textarea */}
+                          <button
+                            onClick={() => handleSearch()}
+                            disabled={!isValidQuery || isSearching || !user}
+                            className={`
+                            absolute bottom-4 right-4 w-10 h-10 rounded-full
+                            flex items-center justify-center transition-all duration-200
+                            ${isValidQuery && !isSearching && user
+                                ? 'bg-indigo-600 text-white shadow-md hover:scale-105'
+                                : 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                              }
+                          `}
+                          >
+                            {isSearching ? (
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                            ) : (
+                              <ArrowUp className="w-5 h-5" />
+                            )}
+                          </button>
+                        </div>
+
+                        {/* Helper microcopy */}
+                        <p className="mt-2 text-xs text-gray-400">
+                          We'll convert this into structured filters automatically.
+                        </p>
+
+                        {/* Requirements hint */}
+                        <div className="mt-3 flex flex-wrap items-center gap-x-1 text-sm">
+                          <span className="text-gray-500">Include</span>
+                          <span className={`font-medium ${hasIndustry ? 'text-green-600' : 'text-gray-900'}`}>
+                            industry
+                            {hasIndustry && <Check className="w-3 h-3 inline ml-0.5" />}
+                          </span>
+                          <span className="text-gray-400">(required),</span>
+                          <span className={`font-medium ${hasLocation ? 'text-green-600' : 'text-gray-900'}`}>
+                            location
+                            {hasLocation && <Check className="w-3 h-3 inline ml-0.5" />}
+                          </span>
+                          <span className="text-gray-400">(required),</span>
+                          <span className="text-gray-500">and optionally size, focus areas, and keywords.</span>
+                        </div>
+
+                        {/* Error Message */}
+                        {error && (
+                          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+                            <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+                            <p className="text-red-700 text-sm">{error}</p>
+                          </div>
+                        )}
+
+                        {/* Quantity Selector - Enhanced */}
+                        <div className="mt-8 pt-8 border-t border-gray-100 firm-search-quantity-section">
+                          <h3 className="text-lg font-semibold text-gray-900 mb-2 firm-search-quantity-title">How many companies do you want to find?</h3>
+                          <p className="text-gray-600 mb-5 firm-search-quantity-subtitle">Companies are saved to your Company Tracker for easy access.</p>
+
+                          <div className="bg-gray-50 rounded-xl p-6 firm-search-quantity-card">
+                            <div className="flex items-center justify-between gap-4">
+                              <span className="text-sm font-medium text-gray-700 whitespace-nowrap">Quantity:</span>
+                              {/* Quantity buttons */}
+                              <div className="flex items-center gap-2 firm-search-quantity-buttons flex-1">
+                                {BATCH_OPTIONS.map((option) => (
+                                  <button
+                                    key={option.value}
+                                    onClick={() => setBatchSize(option.value)}
+                                    disabled={isSearching || option.value > maxBatchSize}
+                                    className={`
+                                  px-4 py-2 rounded-lg font-semibold text-sm transition-all duration-150 firm-search-quantity-btn flex-1
+                                  ${batchSize === option.value
+                                        ? 'bg-indigo-600 text-white shadow-sm'
+                                        : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                                      }
+                                  ${option.value > maxBatchSize ? 'opacity-50 cursor-not-allowed' : ''}
                                 `}
-                              />
-                            ))}
-                          </div>
-                          
-                          {/* Summary */}
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="text-2xl">🏢</span>
-                              <span className="text-gray-900">
-                                Finding <span className="font-bold text-indigo-600">{batchSize}</span> companies
+                                  >
+                                    {option.value}
+                                  </button>
+                                ))}
+                              </div>
+                              <span className="text-sm text-gray-500 whitespace-nowrap min-w-[80px] text-right">
+                                {batchSize * creditsPerFirm} credits
                               </span>
-                              <span className="text-gray-400">•</span>
-                              <span className="text-gray-600">{batchSize * creditsPerFirm} credits</span>
                             </div>
-                            
-                            {/* Dynamic encouragement */}
-                            <p className="text-sm text-gray-500 italic hidden md:block">
-                              {getQuantityMessage(batchSize)}
-                            </p>
-                          </div>
 
-                          {/* Insufficient Credits Warning */}
-                          {effectiveUser.credits !== undefined && effectiveUser.credits < (batchSize * creditsPerFirm) && (
-                            <p className="text-xs text-amber-600 mt-3 flex items-center gap-1">
-                              <AlertCircle className="w-3 h-3" />
-                              Insufficient credits. You need {batchSize * creditsPerFirm} but have {effectiveUser.credits}.
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* What You'll Get Section */}
-                      <div className="mt-8 pt-8 border-t border-gray-100 firm-search-features-section">
-                        <h3 className="text-center text-sm font-semibold text-gray-500 uppercase tracking-wide mb-6 firm-search-features-title">What you'll get for each company</h3>
-                        
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 firm-search-features-grid">
-                          <div className="text-center p-4">
-                            <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center mx-auto mb-2">
-                              <Building2 className="w-5 h-5 text-indigo-600" />
-                            </div>
-                            <p className="font-medium text-gray-900 text-sm">Company Profile</p>
-                            <p className="text-xs text-gray-500">Size, industry, HQ</p>
-                          </div>
-                          
-                          <div className="text-center p-4">
-                            <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center mx-auto mb-2">
-                              <Users className="w-5 h-5 text-purple-600" />
-                            </div>
-                            <p className="font-medium text-gray-900 text-sm">Key Contacts</p>
-                            <p className="text-xs text-gray-500">Hiring managers</p>
-                          </div>
-                          
-                          <div className="text-center p-4">
-                            <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-2">
-                              <Globe className="w-5 h-5 text-blue-600" />
-                            </div>
-                            <p className="font-medium text-gray-900 text-sm">Career Page</p>
-                            <p className="text-xs text-gray-500">Direct link to jobs</p>
-                          </div>
-                          
-                          <div className="text-center p-4">
-                            <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center mx-auto mb-2">
-                              <Bookmark className="w-5 h-5 text-green-600" />
-                            </div>
-                            <p className="font-medium text-gray-900 text-sm">Auto-Saved</p>
-                            <p className="text-xs text-gray-500">To Company Tracker</p>
+                            {/* Insufficient Credits Warning */}
+                            {effectiveUser.credits !== undefined && effectiveUser.credits < (batchSize * creditsPerFirm) && (
+                              <p className="text-xs text-amber-600 mt-3 flex items-center gap-1">
+                                <AlertCircle className="w-3 h-3" />
+                                Insufficient credits. You need {batchSize * creditsPerFirm} but have {effectiveUser.credits}.
+                              </p>
+                            )}
                           </div>
                         </div>
-                      </div>
 
-                      {/* CTA Button */}
-                      <div className="mt-8 firm-search-cta">
-                        <button
-                          onClick={() => handleSearch()}
-                          disabled={!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm)}
-                          className={`
+
+
+                        {/* CTA Button */}
+                        <div className="mt-8 firm-search-cta">
+                          <button
+                            ref={originalButtonRef}
+                            onClick={() => handleSearch()}
+                            disabled={!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm)}
+                            className={`
                             w-full md:w-auto px-8 py-4 rounded-full font-semibold text-lg
                             flex items-center justify-center gap-3 mx-auto firm-search-find-btn
                             transition-all duration-200 transform
                             ${(!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm))
-                              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                              : 'bg-gradient-to-r from-indigo-600 to-purple-500 text-white shadow-lg shadow-indigo-500/30 hover:shadow-xl hover:shadow-indigo-500/40 hover:scale-105 active:scale-100'
-                            }
+                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                : 'bg-indigo-600 text-white shadow-lg hover:shadow-xl hover:scale-105 active:scale-100'
+                              }
                           `}
-                        >
-                          {isSearching ? (
-                            <>
-                              <Loader2 className="w-5 h-5 animate-spin" />
-                              Searching...
-                            </>
-                          ) : (
-                            <>
-                              Find Companies
-                              <ArrowRight className="w-5 h-5" />
-                            </>
-                          )}
-                        </button>
-                        
-                        {/* Validation feedback */}
-                        {query && !isValidQuery && (
-                          <p className="text-center text-sm text-amber-600 mt-4 flex items-center justify-center gap-1">
-                            <AlertCircle className="w-4 h-4" />
-                            Please include both an industry and location in your search
-                          </p>
-                        )}
-                      </div>
+                          >
+                            {isSearching ? (
+                              <>
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                                Searching...
+                              </>
+                            ) : (
+                              <>
+                                Find Companies
+                                <ArrowRight className="w-5 h-5" />
+                              </>
+                            )}
+                          </button>
 
-                      {/* Recent Searches */}
-                      {searchHistory.length > 0 && !hasSearched && (
-                        <div className="mt-10 pt-8 border-t border-gray-100">
-                          <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-sm font-semibold text-gray-700">Recent Searches</h3>
-                            <button 
-                              onClick={() => setShowHistory(true)}
-                              className="text-sm text-indigo-600 hover:underline"
-                            >
-                              View all
-                            </button>
-                          </div>
-                          
-                          <div className="space-y-2">
-                            {searchHistory.slice(0, 3).map((search) => (
-                              <div 
-                                key={search.id}
-                                onClick={() => handleHistoryClick(search)}
-                                className="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-indigo-50 cursor-pointer transition-colors group"
-                              >
-                                <div className="flex items-center gap-3">
-                                  <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-gray-200 group-hover:border-indigo-300">
-                                    <Search className="w-5 h-5 text-gray-400 group-hover:text-indigo-600" />
-                                  </div>
-                                  <div>
-                                    <p className="font-medium text-gray-900 text-sm line-clamp-1">{search.query}</p>
+                          {/* Validation feedback */}
+                          {query && !isValidQuery && (
+                            <p className="text-center text-sm text-amber-600 mt-4 flex items-center justify-center gap-1">
+                              <AlertCircle className="w-4 h-4" />
+                              Please include both an industry and location in your search
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Recent Searches Dropdown */}
+                        {searchHistory.length > 0 && !hasSearched && (
+                          <div className="mt-6 flex justify-center">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors">
+                                  <History className="w-4 h-4" />
+                                  <span>Recent Searches</span>
+                                  {searchHistory.length > 0 && (
+                                    <span className="text-xs text-gray-400">({searchHistory.length})</span>
+                                  )}
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start" side="bottom" className="w-80">
+                                <DropdownMenuLabel>Recent Searches</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                {searchHistory.slice(0, 3).map((search) => (
+                                  <DropdownMenuItem
+                                    key={search.id}
+                                    onClick={() => handleHistoryClick(search)}
+                                    className="flex flex-col items-start gap-1 py-3 px-3 cursor-pointer"
+                                  >
+                                    <p className="font-medium text-gray-900 text-sm line-clamp-2 w-full">
+                                      {search.query}
+                                    </p>
                                     <p className="text-xs text-gray-500">
                                       {search.resultsCount} companies • {new Date(search.createdAt).toLocaleDateString()}
                                     </p>
-                                  </div>
-                                </div>
-                                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-indigo-600" />
-                              </div>
-                            ))}
+                                  </DropdownMenuItem>
+                                ))}
+                                {searchHistory.length > 3 && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      onClick={() => setShowHistory(true)}
+                                      className="text-center justify-center"
+                                    >
+                                      View all ({searchHistory.length})
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </TabsContent>
-
-                {/* TAB 2: Company Tracker */}
-                <TabsContent value="firm-library" className="mt-0">
-                  <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
-                    <div className="h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600"></div>
-                    
-                    <div className="p-8">
-                      {/* Header with actions */}
-                      <div className="flex justify-between items-center pb-6 border-b border-gray-100 mb-6">
-                        <div>
-                          <h2 className="text-xl font-semibold text-gray-900">
-                            {results.length} {results.length === 1 ? 'company' : 'companies'} saved
-                          </h2>
-                          <p className="text-sm text-gray-500 mt-1">
-                            Export your results to CSV for further analysis
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            onClick={() => {
-                              loadAttemptedRef.current = false;
-                              loadAllSavedFirms();
-                            }}
-                            variant="outline"
-                            size="sm"
-                            className="gap-2 border-gray-300 text-gray-700 hover:bg-gray-50"
-                            disabled={loadingSavedFirms}
-                          >
-                            {loadingSavedFirms ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                              </svg>
-                            )}
-                            Refresh
-                          </Button>
-                          {results.length > 0 && (
-                            <>
-                              <Button
-                                onClick={() => setShowDeleteAllDialog(true)}
-                                variant="outline"
-                                className="gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                                Delete All
-                              </Button>
-                              <Button
-                                onClick={handleExportCsv}
-                                className={`gap-2 ${
-                                  effectiveUser.tier === 'free' 
-                                    ? 'bg-gray-400 hover:bg-gray-400 cursor-not-allowed opacity-60' 
-                                    : 'bg-indigo-600 hover:bg-indigo-700'
-                                }`}
-                                disabled={effectiveUser.tier === 'free'}
-                                title={effectiveUser.tier === 'free' ? 'Upgrade to Pro or Elite to export CSV' : 'Export firms to CSV'}
-                              >
-                                <Download className="h-4 w-4" />
-                                Export CSV
-                              </Button>
-                            </>
-                          )}
-                        </div>
+                        )}
                       </div>
-
-                      {/* Company Results */}
-                      {loadingSavedFirms ? (
-                        <LoadingSkeleton variant="card" count={3} />
-                      ) : results.length > 0 ? (
-                        <FirmSearchResults
-                          firms={results}
-                          onViewContacts={handleViewContacts}
-                          onDelete={handleDeleteFirm}
-                          deletingId={deletingFirmId}
-                        />
-                      ) : (
-                        <div className="py-12 text-center">
-                          <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <Building2 className="h-8 w-8 text-indigo-600" />
-                          </div>
-                          <h3 className="text-lg font-semibold text-gray-900 mb-2">No companies yet</h3>
-                          <p className="text-sm text-gray-500 mb-6">
-                            Use the Find Companies tab to discover companies
-                          </p>
-                          <button
-                            onClick={() => setActiveTab('firm-search')}
-                            className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-500 text-white font-semibold rounded-full hover:shadow-lg transition-all"
-                          >
-                            Find Companies
-                          </button>
-                        </div>
-                      )}
                     </div>
-                  </div>
-                </TabsContent>
-              </Tabs>
+                  </TabsContent>
+
+                  {/* TAB 2: Company Tracker */}
+                  <TabsContent value="firm-library" className="mt-0">
+                    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
+                      <div className="h-1 bg-gray-100"></div>
+
+                      <div className="p-8">
+                        {/* Header with actions */}
+                        <div className="flex justify-between items-center pb-6 border-b border-gray-100 mb-6">
+                          <div>
+                            <h2 className="text-xl font-semibold text-gray-900">
+                              {results.length} {results.length === 1 ? 'company' : 'companies'} saved
+                            </h2>
+                            <p className="text-sm text-gray-500 mt-1">
+                              Export your results to CSV for further analysis
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              onClick={() => {
+                                loadAttemptedRef.current = false;
+                                loadAllSavedFirms();
+                              }}
+                              variant="outline"
+                              size="sm"
+                              className="gap-2 border-gray-300 text-gray-700 hover:bg-gray-50"
+                              disabled={loadingSavedFirms}
+                            >
+                              {loadingSavedFirms ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                              )}
+                              Refresh
+                            </Button>
+                            {results.length > 0 && (
+                              <>
+                                <Button
+                                  onClick={() => setShowDeleteAllDialog(true)}
+                                  variant="outline"
+                                  className="gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  Delete All
+                                </Button>
+                                <Button
+                                  onClick={handleExportCsv}
+                                  className={`gap-2 ${effectiveUser.tier === 'free'
+                                    ? 'bg-gray-400 hover:bg-gray-400 cursor-not-allowed opacity-60'
+                                    : 'bg-gray-900 hover:bg-gray-800'
+                                    }`}
+                                  disabled={effectiveUser.tier === 'free'}
+                                  title={effectiveUser.tier === 'free' ? 'Upgrade to Pro or Elite to export CSV' : 'Export firms to CSV'}
+                                >
+                                  <Download className="h-4 w-4" />
+                                  Export CSV
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Company Results */}
+                        {loadingSavedFirms ? (
+                          <LoadingSkeleton variant="card" count={3} />
+                        ) : results.length > 0 ? (
+                          <FirmSearchResults
+                            firms={results}
+                            onViewContacts={handleViewContacts}
+                            onDelete={handleDeleteFirm}
+                            deletingId={deletingFirmId}
+                          />
+                        ) : (
+                          <div className="py-12 text-center">
+                            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                              <Building2 className="h-8 w-8 text-gray-900" />
+                            </div>
+                            <h3 className="text-lg font-semibold text-gray-900 mb-2">No companies yet</h3>
+                            <p className="text-sm text-gray-500 mb-6">
+                              Use the Find Companies tab to discover companies
+                            </p>
+                            <button
+                              onClick={() => setActiveTab('firm-search')}
+                              className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
+                            >
+                              Find Companies
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </div>
             </div>
           </main>
         </MainContentWrapper>
@@ -1222,14 +1203,14 @@ const FirmSearchPage: React.FC = () => {
             <div className="bg-white rounded-2xl p-6 max-w-lg w-full mx-4 shadow-2xl max-h-[80vh] overflow-hidden flex flex-col animate-scaleIn">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Search History</h3>
-                <button 
+                <button
                   onClick={() => setShowHistory(false)}
                   className="p-2 hover:bg-gray-100 rounded-lg"
                 >
                   <X className="w-5 h-5 text-gray-500" />
                 </button>
               </div>
-              
+
               <div className="overflow-y-auto flex-1 space-y-2">
                 {loadingHistory ? (
                   <div className="py-8 text-center">
@@ -1242,10 +1223,10 @@ const FirmSearchPage: React.FC = () => {
                   </div>
                 ) : (
                   searchHistory.map((item) => (
-                    <div 
+                    <div
                       key={item.id}
                       onClick={() => handleHistoryClick(item)}
-                      className="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-indigo-50 cursor-pointer transition-colors"
+                      className="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-gray-100 cursor-pointer transition-colors"
                     >
                       <div>
                         <p className="font-medium text-gray-900 text-sm line-clamp-2">{item.query}</p>
@@ -1267,50 +1248,50 @@ const FirmSearchPage: React.FC = () => {
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
             <div className="bg-white rounded-3xl p-8 max-w-md w-full mx-4 shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200">
               {/* Animated Icon */}
-              <div className="w-20 h-20 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-2xl flex items-center justify-center mx-auto mb-6 relative">
-                <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/20 to-purple-500/20 rounded-2xl animate-pulse"></div>
-                <Building2 className="w-10 h-10 text-indigo-600 relative z-10" />
+              <div className="w-20 h-20 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-6 relative">
+                <div className="absolute inset-0 bg-gray-200/50 rounded-2xl animate-pulse"></div>
+                <Building2 className="w-10 h-10 text-gray-900 relative z-10" />
               </div>
-              
+
               {/* Title */}
               <h3 className="text-2xl font-bold text-gray-900 mb-2">Searching for companies</h3>
-              
+
               {/* Status Message */}
               <p className="text-gray-600 mb-6 text-sm min-h-[20px]">
                 {searchProgress?.step || `Finding ${batchSize} companies matching your criteria`}
               </p>
-              
+
               {/* Progress Bar Container */}
               <div className="mb-4">
                 <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden shadow-inner">
-                  <div 
-                    className="bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600 h-3 rounded-full transition-all duration-500 ease-out relative overflow-hidden"
-                    style={{ 
-                      width: searchProgress 
-                        ? `${Math.max(2, Math.min(98, (searchProgress.current / searchProgress.total) * 100))}%` 
-                        : '10%' 
+                  <div
+                    className="bg-indigo-600 h-3 rounded-full transition-all duration-500 ease-out relative overflow-hidden"
+                    style={{
+                      width: searchProgress
+                        ? `${Math.max(2, Math.min(98, (searchProgress.current / searchProgress.total) * 100))}%`
+                        : '10%'
                     }}
                   >
                     {/* Shimmer effect */}
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-loading-shimmer bg-[length:200%_100%]"></div>
                   </div>
                 </div>
-                
+
                 {/* Progress Text */}
                 <div className="flex items-center justify-between mt-3 text-xs">
                   <span className="font-medium text-indigo-600">
-                    {searchProgress 
+                    {searchProgress
                       ? `${searchProgress.current} of ${searchProgress.total} companies`
                       : 'Starting...'}
                   </span>
                   <span className="text-gray-500">
-                    {searchProgress 
+                    {searchProgress
                       ? `${Math.round((searchProgress.current / searchProgress.total) * 100)}%`
                       : '0%'}
                   </span>
                 </div>
               </div>
-              
+
               {/* Estimated Time */}
               <p className="text-xs text-gray-400 mt-4">
                 This usually takes 10-20 seconds
@@ -1329,15 +1310,15 @@ const FirmSearchPage: React.FC = () => {
               <h3 className="text-xl font-semibold text-gray-900 mb-1">Found {results.length} companies!</h3>
               <p className="text-gray-600 mb-2">Matching your criteria</p>
               <p className="text-sm text-indigo-600 font-medium mb-6">Saved to your Company Tracker</p>
-              
+
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                <button 
+                <button
                   onClick={() => { setSearchComplete(false); setActiveTab('firm-library'); }}
-                  className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-500 text-white font-semibold rounded-full hover:shadow-lg transition-all"
+                  className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
                 >
                   View Companies →
                 </button>
-                <button 
+                <button
                   onClick={() => { setSearchComplete(false); setQuery(''); setHasSearched(false); }}
                   className="px-6 py-3 bg-gray-100 text-gray-700 font-semibold rounded-full hover:bg-gray-200 transition-colors"
                 >
@@ -1354,7 +1335,7 @@ const FirmSearchPage: React.FC = () => {
             <AlertDialogHeader>
               <AlertDialogTitle>Delete All Companies?</AlertDialogTitle>
               <AlertDialogDescription>
-                This will permanently remove all {results.length} {results.length === 1 ? 'company' : 'companies'} from your Company Tracker. 
+                This will permanently remove all {results.length} {results.length === 1 ? 'company' : 'companies'} from your Company Tracker.
                 This action cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
@@ -1688,6 +1669,19 @@ const FirmSearchPage: React.FC = () => {
           }
         }
       `}</style>
+      
+      {/* Sticky CTA - Only show on firm-search tab */}
+      {activeTab === 'firm-search' && (
+        <StickyCTA
+          originalButtonRef={originalButtonRef}
+          onClick={() => handleSearch()}
+          isLoading={isSearching}
+          disabled={!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm)}
+          buttonClassName="rounded-full"
+        >
+          <span>Find Companies</span>
+        </StickyCTA>
+      )}
     </SidebarProvider>
   );
 };

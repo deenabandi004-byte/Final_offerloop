@@ -271,9 +271,30 @@
     </footer>
   </div>
   
-  <!-- Firebase SDK (local files) -->
-  <script src="lib/firebase-app-compat.js"></script>
-  <script src="lib/firebase-auth-compat.js"></script>
-  <script src="popup.js"></script>
+  <!-- Firebase SDK (local files) - Load with proper extension URLs -->
+  <script>
+    // Use chrome.runtime.getURL() to get proper extension URLs
+    // This prevents chrome-extension://invalid/ errors
+    (function() {
+      const firebaseAppScript = document.createElement('script');
+      firebaseAppScript.src = chrome.runtime.getURL('lib/firebase-app-compat.js');
+      firebaseAppScript.onerror = () => console.error('[Extension] Failed to load firebase-app-compat.js');
+      document.head.appendChild(firebaseAppScript);
+      
+      firebaseAppScript.onload = () => {
+        const firebaseAuthScript = document.createElement('script');
+        firebaseAuthScript.src = chrome.runtime.getURL('lib/firebase-auth-compat.js');
+        firebaseAuthScript.onerror = () => console.error('[Extension] Failed to load firebase-auth-compat.js');
+        firebaseAuthScript.onload = () => {
+          // Load popup.js after Firebase scripts are loaded
+          const popupScript = document.createElement('script');
+          popupScript.src = chrome.runtime.getURL('popup.js');
+          popupScript.onerror = () => console.error('[Extension] Failed to load popup.js');
+          document.head.appendChild(popupScript);
+        };
+        document.head.appendChild(firebaseAuthScript);
+      };
+    })();
+  </script>
 </body>
 </html>

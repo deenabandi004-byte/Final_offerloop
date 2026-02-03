@@ -749,3 +749,159 @@ h6.font-instrument,
 .animate-scaleIn {
   animation: scaleIn 0.3s ease-out forwards;
 }
+
+/* ============================================
+   CUSTOM RANGE SLIDER
+   ============================================ */
+
+@layer utilities {
+  /* Custom range slider for Number of Contacts */
+  input[type="range"].slider-custom {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    border-radius: 9999px;
+    background: transparent;
+    outline: none;
+    cursor: pointer;
+    position: relative;
+  }
+
+  /* Webkit/Chrome track */
+  input[type="range"].slider-custom::-webkit-slider-track {
+    width: 100%;
+    height: 4px;
+    border-radius: 9999px;
+    background: transparent;
+  }
+
+  /* Webkit/Chrome thumb */
+  input[type="range"].slider-custom::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: white;
+    border: 2px solid #6366F1;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    position: relative;
+    z-index: 1;
+  }
+
+  input[type="range"].slider-custom::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+    box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
+    border-color: #6366F1;
+  }
+
+  input[type="range"].slider-custom::-webkit-slider-thumb:active {
+    transform: scale(1.15);
+    box-shadow: 0 3px 8px rgba(99, 102, 241, 0.4);
+  }
+
+  /* Firefox track */
+  input[type="range"].slider-custom::-moz-range-track {
+    width: 100%;
+    height: 4px;
+    border-radius: 9999px;
+    background: transparent;
+    border: none;
+  }
+
+  /* Firefox thumb */
+  input[type="range"].slider-custom::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: white;
+    border: 2px solid #6366F1;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  input[type="range"].slider-custom::-moz-range-thumb:hover {
+    transform: scale(1.1);
+    box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
+    border-color: #6366F1;
+  }
+
+  input[type="range"].slider-custom::-moz-range-thumb:active {
+    transform: scale(1.15);
+    box-shadow: 0 3px 8px rgba(99, 102, 241, 0.4);
+  }
+
+  /* Disabled state */
+  input[type="range"].slider-custom:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  input[type="range"].slider-custom:disabled::-webkit-slider-thumb {
+    cursor: not-allowed;
+  }
+
+  input[type="range"].slider-custom:disabled::-moz-range-thumb {
+    cursor: not-allowed;
+  }
+
+  /* Filled track effect using gradient */
+  .slider-container {
+    position: relative;
+    width: 100%;
+  }
+
+  .slider-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+  }
+
+  .slider-input-wrapper {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    height: 4px;
+  }
+
+  /* Background track (gray) */
+  .slider-input-wrapper::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: #E5E7EB;
+    border-radius: 9999px;
+    transform: translateY(-50%);
+    z-index: 0;
+  }
+
+  /* Filled track (indigo) */
+  .slider-filled-track {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    height: 4px;
+    background: #6366F1;
+    border-radius: 9999px;
+    pointer-events: none;
+    transform: translateY(-50%);
+    transition: width 0.15s ease;
+    z-index: 1;
+  }
+
+  .slider-input-wrapper input[type="range"] {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+  }
+}

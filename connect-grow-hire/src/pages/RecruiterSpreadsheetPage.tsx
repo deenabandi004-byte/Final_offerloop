@@ -13,22 +13,23 @@ import { toast } from "@/hooks/use-toast";
 import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileTypes";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { apiService, type Recruiter } from "@/services/api";
+import { StickyCTA } from "@/components/StickyCTA";
 import { firebaseApi, type Recruiter as FirebaseRecruiter } from "../services/firebaseApi";
-import { 
-  Users, Link, Building2, Briefcase, MapPin, FileText, CheckCircle, 
+import {
+  Users, Link, Building2, Briefcase, MapPin, FileText, CheckCircle,
   Mail, Sparkles, Check, ArrowRight, ClipboardList, Loader2, Upload
 } from "lucide-react";
 
 const RecruiterSpreadsheetPage = () => {
   const { user } = useFirebaseAuth();
   const [activeTab, setActiveTab] = useState('find-hiring-managers');
-  
+
   // Resume state
   const [savedResumeUrl, setSavedResumeUrl] = useState<string | null>(null);
   const [savedResumeFileName, setSavedResumeFileName] = useState<string | null>(null);
   const [isUploadingResume, setIsUploadingResume] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   // Form state
   const [jobPostingUrl, setJobPostingUrl] = useState('');
   const [company, setCompany] = useState('');
@@ -40,6 +41,10 @@ const RecruiterSpreadsheetPage = () => {
   const [progress, setProgress] = useState(0);
   const [estimatedManagers] = useState(2);
   const [managersFound, setManagersFound] = useState(0);
+  const [showManualEntry, setShowManualEntry] = useState(false);
+
+  // Ref for original button to track visibility
+  const originalButtonRef = useRef<HTMLButtonElement>(null);
 
   // Tracker count (would come from API in real implementation)
   const [trackerCount, setTrackerCount] = useState(0);
@@ -49,7 +54,7 @@ const RecruiterSpreadsheetPage = () => {
   // Validate parsed job title - reject common error messages from JS-required pages
   const isValidJobTitle = (title: string | undefined | null): boolean => {
     if (!title || title.trim().length === 0) return false;
-    
+
     const invalidPatterns = [
       'javascript is disabled',
       'javascript is required',
@@ -59,7 +64,7 @@ const RecruiterSpreadsheetPage = () => {
       'loading...',
       'please wait',
     ];
-    
+
     const lowerTitle = title.toLowerCase().trim();
     return !invalidPatterns.some(pattern => lowerTitle.includes(pattern));
   };
@@ -156,8 +161,8 @@ const RecruiterSpreadsheetPage = () => {
     event.target.value = '';
   };
 
-  // Check if form is valid
-  const hasValidInput = jobPostingUrl.trim() || (company.trim() && jobTitle.trim() && location.trim() && jobDescription.trim());
+  // Check if form is valid - only job description is required
+  const hasValidInput = jobPostingUrl.trim() || jobDescription.trim();
   const canSearch = savedResumeUrl && hasValidInput && !isSearching;
 
   // Handle search
@@ -165,7 +170,7 @@ const RecruiterSpreadsheetPage = () => {
     if (!canSearch || !user) return;
     setIsSearching(true);
     setProgress(0);
-    
+
     // Simulate progress
     const progressInterval = setInterval(() => {
       setProgress(prev => {
@@ -214,11 +219,11 @@ const RecruiterSpreadsheetPage = () => {
         }
       }
 
-      // Validate we have required fields
-      if (!companyName) {
+      // Validate we have required fields - only job description is required
+      if (!description || !description.trim()) {
         toast({
-          title: "Company name required",
-          description: "Please provide a company name or paste a job URL.",
+          title: "Job description required",
+          description: "Please provide a job description or paste a job URL.",
           variant: "destructive",
         });
         clearInterval(progressInterval);
@@ -332,10 +337,10 @@ const RecruiterSpreadsheetPage = () => {
             await firebaseApi.bulkCreateRecruiters(user.uid, newRecruiters);
             setTrackerCount(prev => prev + newRecruiters.length);
             console.log(`✅ Saved ${newRecruiters.length} hiring manager(s) to tracker`);
-            
+
             // Trigger refresh of RecruiterSpreadsheet component
             setRefreshKey(prev => prev + 1);
-            
+
             // Switch to tracker tab to show the saved hiring managers
             setActiveTab('hiring-manager-tracker');
           } else {
@@ -357,7 +362,7 @@ const RecruiterSpreadsheetPage = () => {
       const foundCount = response.hiringManagers?.length || 0;
       const savedCount = response.hiringManagers?.length || 0;
       setManagersFound(foundCount);
-      
+
       if (foundCount > 0) {
         toast({
           title: `Found ${foundCount} hiring manager${foundCount !== 1 ? 's' : ''}!`,
@@ -409,411 +414,342 @@ const RecruiterSpreadsheetPage = () => {
         <MainContentWrapper>
           <AppHeader title="" />
 
-          <main className="bg-gradient-to-b from-slate-50 via-white to-white min-h-screen recruiter-search-page">
-            <div className="max-w-4xl mx-auto px-6 pt-10 pb-8 recruiter-search-container">
-              
-              {/* Inspiring Header Section */}
-              <div className="text-center mb-8 animate-fadeInUp recruiter-search-header">
-                <h1 className="text-3xl font-bold text-gray-900 mb-2 recruiter-search-title">
+          <main className="w-full max-w-5xl mx-auto px-6 py-12 pb-24">
+            <div>
+
+              {/* Header Section */}
+              <div className="text-center mb-12 max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700">
+                <h1 className="text-4xl font-bold tracking-tight text-gray-900 mb-4">
                   Find Hiring Managers
                 </h1>
-                <p className="text-gray-600 text-lg recruiter-search-subtitle">
+                <p className="text-lg text-gray-500 leading-relaxed">
                   Connect directly with the people who make hiring decisions.
                 </p>
               </div>
 
-              {/* Pill-style Tabs */}
-              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mx-auto mb-8 animate-fadeInUp recruiter-search-tabs" style={{ animationDelay: '100ms' }}>
+              {/* Navigation Tabs */}
+              <div className="flex justify-center mb-10">
+                <div className="inline-flex items-center p-1 bg-white border border-gray-200 rounded-full shadow-sm">
                   <button
                     onClick={() => setActiveTab('find-hiring-managers')}
                     className={`
-                      flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
-                      ${activeTab === 'find-hiring-managers' 
-                        ? 'bg-white text-rose-600 shadow-sm' 
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                      flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-medium transition-all duration-300
+                      ${activeTab === 'find-hiring-managers'
+                        ? 'bg-indigo-600 text-white shadow-md transform scale-[1.02]'
+                        : 'text-gray-500 hover:text-blue-700 hover:bg-blue-50'
                       }
                     `}
                   >
-                    <Users className="w-4 h-4" />
+                    <Users className={`w-4 h-4 ${activeTab === 'find-hiring-managers' ? 'text-white' : 'text-current'}`} />
                     Find Hiring Managers
                   </button>
-                  
+
                   <button
                     onClick={() => setActiveTab('hiring-manager-tracker')}
                     className={`
-                      flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
-                      ${activeTab === 'hiring-manager-tracker' 
-                        ? 'bg-white text-rose-600 shadow-sm' 
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                      flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-medium transition-all duration-300
+                      ${activeTab === 'hiring-manager-tracker'
+                        ? 'bg-indigo-600 text-white shadow-md transform scale-[1.02]'
+                        : 'text-gray-500 hover:text-blue-700 hover:bg-blue-50'
                       }
                     `}
                   >
-                    <ClipboardList className="w-4 h-4" />
+                    <ClipboardList className={`w-4 h-4 ${activeTab === 'hiring-manager-tracker' ? 'text-white' : 'text-current'}`} />
                     Hiring Manager Tracker
                     {trackerCount > 0 && (
-                      <span className="ml-1 px-2 py-0.5 bg-rose-100 text-rose-700 text-xs font-semibold rounded-full">
+                      <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${activeTab === 'hiring-manager-tracker' ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700'}`}>
                         {trackerCount}
                       </span>
                     )}
                   </button>
                 </div>
+              </div>
 
-                {/* TAB 1: Find Hiring Managers */}
-                <TabsContent value="find-hiring-managers" className="mt-0">
-                  {/* Main Card */}
-                  <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp recruiter-search-form-card" style={{ animationDelay: '200ms' }}>
-                    {/* Rose/pink gradient accent at top */}
-                    <div className="h-1 bg-gradient-to-r from-rose-500 via-pink-500 to-rose-600"></div>
-                    
-                    <div className="p-8 recruiter-search-form-content">
-                      {/* Card Header with Icon */}
-                      <div className="text-center mb-8">
-                        <div className="w-14 h-14 bg-rose-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                          <Users className="w-7 h-7 text-rose-600" />
-                        </div>
-                        <h2 className="text-xl font-semibold text-gray-900 mb-2">Who are you trying to reach?</h2>
-                        <p className="text-gray-600 max-w-lg mx-auto">
-                          Paste a job posting URL or enter the role details manually to find the right hiring managers.
-                        </p>
-                      </div>
+              {/* Main Content Area */}
+              <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 delay-100">
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
 
-                      {/* Primary Method - Job Posting URL */}
-                      <div className="mb-8">
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Primary Method</span>
-                          <span className="px-2 py-0.5 bg-rose-100 text-rose-700 text-xs font-medium rounded-full">Recommended</span>
+                  {/* TAB 1: Find Hiring Managers */}
+                  <TabsContent value="find-hiring-managers" className="mt-0">
+                    {/* Main Card */}
+                    <div className="bg-white rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden animate-fadeInUp recruiter-search-form-card" style={{ animationDelay: '200ms' }}>
+                      {/* Simple gray divider */}
+                      <div className="h-1 bg-gray-100"></div>
+
+                      <div className="p-8 recruiter-search-form-content">
+                        {/* Card Header */}
+                        <div className="mb-8">
+                          <h2 className="text-xl font-semibold text-gray-900 mb-2">Find Hiring Managers</h2>
+                          <p className="text-gray-600">Paste a job posting URL to find the right hiring managers.</p>
                         </div>
-                        
-                        <div className="bg-gradient-to-r from-rose-50 to-pink-50 border border-rose-200 rounded-2xl p-6">
-                          <div className="flex items-center gap-3 mb-4">
-                            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm">
-                              <Link className="w-5 h-5 text-rose-600" />
+
+                        {/* Primary Input - Job Posting URL */}
+                        <div className="mb-6">
+                          <div className="relative group">
+                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                              <Link className="h-5 w-5 text-gray-400 group-focus-within:text-blue-600 transition-colors" />
                             </div>
-                            <div>
-                              <h3 className="font-semibold text-gray-900">Job Posting URL</h3>
-                              <p className="text-sm text-gray-600">Fastest way — we'll extract all the details automatically</p>
-                            </div>
-                          </div>
-                          
-                          <div className="relative">
                             <input
                               type="url"
                               value={jobPostingUrl}
-                              onChange={(e) => setJobPostingUrl(e.target.value)}
+                              onChange={(e) => {
+                                setJobPostingUrl(e.target.value);
+                                if (e.target.value.trim()) {
+                                  setShowManualEntry(false);
+                                }
+                              }}
                               placeholder="Paste the job posting URL (LinkedIn, Greenhouse, Lever, etc.)"
                               disabled={isSearching}
-                              className="w-full pl-4 pr-12 py-4 text-base border-2 border-rose-200 rounded-xl
-                                         text-gray-900 placeholder-gray-400 bg-white
-                                         focus:ring-2 focus:ring-rose-500 focus:border-rose-500
-                                         hover:border-rose-300 transition-all disabled:opacity-50"
+                              className="w-full pl-12 pr-12 py-4 text-base border-2 border-gray-300 rounded-2xl
+                                       text-gray-900 placeholder-gray-400 bg-white
+                                       hover:border-gray-400
+                                       focus:border-blue-400 focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20
+                                       transition-all duration-150 disabled:opacity-50"
                             />
-                            
                             {jobPostingUrl && isValidUrl(jobPostingUrl) && (
                               <div className="absolute inset-y-0 right-0 pr-4 flex items-center">
                                 <CheckCircle className="h-5 w-5 text-green-500" />
                               </div>
                             )}
                           </div>
-                          
-                          {/* Supported platforms */}
-                          <div className="mt-3 flex flex-wrap items-center gap-2">
-                            <span className="text-xs text-gray-500">Supports:</span>
-                            {['LinkedIn', 'Greenhouse', 'Lever', 'Workday', 'Indeed'].map((platform) => (
-                              <span 
-                                key={platform}
-                                className="px-2 py-0.5 bg-white/70 text-gray-600 text-xs rounded-full"
-                              >
-                                {platform}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* OR Divider */}
-                      <div className="relative py-6">
-                        <div className="absolute inset-0 flex items-center">
-                          <div className="w-full border-t border-gray-200"></div>
-                        </div>
-                        <div className="relative flex justify-center">
-                          <span className="px-4 bg-white text-sm text-gray-500">Or enter details manually</span>
-                        </div>
-                      </div>
-
-                      {/* Manual Method Section */}
-                      <div className={`transition-all duration-300 ${jobPostingUrl ? 'opacity-50 pointer-events-none' : ''}`}>
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Manual Method</span>
-                          <span className="text-xs text-gray-400">(if no job posting URL)</span>
-                        </div>
-                        
-                        <div className="bg-gray-50 border border-gray-200 rounded-2xl p-6">
-                          <p className="text-sm text-gray-600 mb-5">
-                            Use this if a job posting URL isn't available. We'll use these details to identify the most relevant hiring managers.
+                          <p className="mt-2 text-xs text-gray-400">
+                            We'll extract all details automatically from the job posting.
                           </p>
-                          
-                          {/* Three-column grid for Company, Job Title, Location */}
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Company <span className="text-red-500">*</span>
-                              </label>
-                              <div className="relative">
-                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                  <Building2 className="h-4 w-4 text-gray-400" />
-                                </div>
-                                <input
-                                  type="text"
-                                  value={company}
-                                  onChange={(e) => setCompany(e.target.value)}
-                                  placeholder="e.g. Google, Stripe"
-                                  disabled={!!jobPostingUrl || isSearching}
-                                  className="block w-full pl-9 pr-3 py-3 border border-gray-200 rounded-xl
-                                             text-gray-900 placeholder-gray-400 text-sm
-                                             focus:ring-2 focus:ring-rose-500 focus:border-rose-500
-                                             hover:border-gray-300 transition-all disabled:bg-gray-100 disabled:cursor-not-allowed"
-                                />
-                              </div>
-                            </div>
-                            
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Job Title <span className="text-red-500">*</span>
-                              </label>
-                              <div className="relative">
-                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                  <Briefcase className="h-4 w-4 text-gray-400" />
-                                </div>
-                                <input
-                                  type="text"
-                                  value={jobTitle}
-                                  onChange={(e) => setJobTitle(e.target.value)}
-                                  placeholder="e.g. Product Manager"
-                                  disabled={!!jobPostingUrl || isSearching}
-                                  className="block w-full pl-9 pr-3 py-3 border border-gray-200 rounded-xl
-                                             text-gray-900 placeholder-gray-400 text-sm
-                                             focus:ring-2 focus:ring-rose-500 focus:border-rose-500
-                                             hover:border-gray-300 transition-all disabled:bg-gray-100 disabled:cursor-not-allowed"
-                                />
-                              </div>
-                            </div>
-                            
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Location <span className="text-red-500">*</span>
-                              </label>
-                              <div className="relative">
-                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                  <MapPin className="h-4 w-4 text-gray-400" />
-                                </div>
-                                <input
-                                  type="text"
-                                  value={location}
-                                  onChange={(e) => setLocation(e.target.value)}
-                                  placeholder="e.g. New York, NY"
-                                  disabled={!!jobPostingUrl || isSearching}
-                                  className="block w-full pl-9 pr-3 py-3 border border-gray-200 rounded-xl
-                                             text-gray-900 placeholder-gray-400 text-sm
-                                             focus:ring-2 focus:ring-rose-500 focus:border-rose-500
-                                             hover:border-gray-300 transition-all disabled:bg-gray-100 disabled:cursor-not-allowed"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                          
-                          {/* Job Description textarea */}
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Job Description <span className="text-red-500">*</span>
-                            </label>
-                            <textarea
-                              value={jobDescription}
-                              onChange={(e) => setJobDescription(e.target.value)}
-                              placeholder="Paste the job description or role summary here. This helps us identify the correct hiring managers."
-                              rows={4}
-                              disabled={!!jobPostingUrl || isSearching}
-                              className="block w-full px-4 py-3 border border-gray-200 rounded-xl
-                                         text-gray-900 placeholder-gray-400 text-sm resize-none
-                                         focus:ring-2 focus:ring-rose-500 focus:border-rose-500
-                                         hover:border-gray-300 transition-all disabled:bg-gray-100 disabled:cursor-not-allowed"
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* What You'll Get Section */}
-                      <div className="mt-8 pt-8 border-t border-gray-100">
-                        <h3 className="text-center text-sm font-semibold text-gray-500 uppercase tracking-wide mb-6">What you'll get</h3>
-                        
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                          <div className="text-center p-4">
-                            <div className="w-10 h-10 bg-rose-100 rounded-xl flex items-center justify-center mx-auto mb-2">
-                              <Users className="w-5 h-5 text-rose-600" />
-                            </div>
-                            <p className="font-medium text-gray-900 text-sm">2 Hiring Managers</p>
-                            <p className="text-xs text-gray-500">Relevant decision makers</p>
-                          </div>
-                          
-                          <div className="text-center p-4">
-                            <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center mx-auto mb-2">
-                              <Mail className="w-5 h-5 text-green-600" />
-                            </div>
-                            <p className="font-medium text-gray-900 text-sm">Verified Emails</p>
-                            <p className="text-xs text-gray-500">Professional work emails</p>
-                          </div>
-                          
-                          <div className="text-center p-4">
-                            <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center mx-auto mb-2">
-                              <Sparkles className="w-5 h-5 text-purple-600" />
-                            </div>
-                            <p className="font-medium text-gray-900 text-sm">AI Draft Emails</p>
-                            <p className="text-xs text-gray-500">Personalized outreach</p>
-                          </div>
-                          
-                          <div className="text-center p-4">
-                            <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-2">
-                              <ClipboardList className="w-5 h-5 text-blue-600" />
-                            </div>
-                            <p className="font-medium text-gray-900 text-sm">Auto-Saved</p>
-                            <p className="text-xs text-gray-500">To Gmail & Tracker</p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Cost Summary & CTA */}
-                      <div className="mt-8">
-                        {/* Cost summary */}
-                        <div className="bg-gradient-to-r from-rose-50 to-pink-50 rounded-xl p-4 mb-6 flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm">
-                              <Users className="w-5 h-5 text-rose-600" />
-                            </div>
-                            <div>
-                              <p className="font-medium text-gray-900">
-                                This will find <span className="text-rose-600 font-bold">{estimatedManagers}</span> hiring managers
-                              </p>
-                              <p className="text-sm text-gray-600">
-                                Cost: <span className="font-semibold">{15 * estimatedManagers} credits</span>
-                              </p>
-                            </div>
-                          </div>
                         </div>
 
-                        {/* CTA Button */}
-                        <button
-                          onClick={handleFindHiringManagers}
-                          disabled={!canSearch}
-                          className={`
-                            w-full md:w-auto px-8 py-4 rounded-full font-semibold text-lg
-                            flex items-center justify-center gap-3 mx-auto
-                            transition-all duration-200 transform
-                            ${!canSearch
-                              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                              : 'bg-gradient-to-r from-rose-600 to-pink-500 text-white shadow-lg shadow-rose-500/30 hover:shadow-xl hover:shadow-rose-500/40 hover:scale-105 active:scale-100'
-                            }
-                          `}
-                        >
-                          {isSearching ? (
-                            <>
-                              <Loader2 className="w-5 h-5 animate-spin" />
-                              Finding...
-                            </>
-                          ) : (
-                            <>
-                              Find Hiring Managers
-                              <ArrowRight className="w-5 h-5" />
-                            </>
-                          )}
-                        </button>
-                        
-                        {/* Value props below button */}
-                        <div className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-gray-500">
-                          <span className="flex items-center gap-1.5">
-                            <Check className="w-4 h-4 text-green-500" />
-                            Draft emails saved to Gmail
-                          </span>
-                          <span className="flex items-center gap-1.5">
-                            <Check className="w-4 h-4 text-green-500" />
-                            Auto-saved to Hiring Manager Tracker
-                          </span>
+                        {/* Manual Entry Toggle */}
+                        <div className="mb-6">
+                          <button
+                            type="button"
+                            onClick={() => setShowManualEntry(!showManualEntry)}
+                            className="text-sm text-gray-600 hover:text-blue-700 transition-all duration-150 flex items-center gap-1.5 group underline decoration-gray-300 hover:decoration-blue-400"
+                          >
+                            {showManualEntry ? (
+                              <>
+                                <span>Hide manual entry</span>
+                              </>
+                            ) : (
+                              <>
+                                <span>Or enter details manually</span>
+                                <span className="text-blue-500 opacity-60 group-hover:opacity-100 transition-opacity">→</span>
+                              </>
+                            )}
+                          </button>
                         </div>
 
-                        {/* Resume required message */}
-                        {!savedResumeUrl && (
-                          <p className="text-center text-sm text-amber-600 mt-4">
-                            Please upload your resume to continue
-                          </p>
-                        )}
-                      </div>
+                        {/* Manual Entry Section - Collapsible */}
+                        {showManualEntry && !jobPostingUrl && (
+                          <div className="mb-8 pt-6 border-t border-gray-100">
+                            <p className="text-sm text-gray-600 mb-5">
+                              Use this if a job posting URL isn't available.
+                            </p>
 
-                      {/* Resume Section - Elevated */}
-                      <div className="mt-8 pt-8 border-t border-gray-100">
-                        <input
-                          type="file"
-                          accept={ACCEPTED_RESUME_TYPES.accept}
-                          onChange={handleFileUpload}
-                          className="hidden"
-                          ref={fileInputRef}
-                          disabled={isSearching || isUploadingResume}
-                        />
-                        
-                        {savedResumeUrl && savedResumeFileName ? (
-                          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                              <div className="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center">
-                                <FileText className="w-6 h-6 text-blue-600" />
-                              </div>
+                            {/* Three-column grid for Company, Job Title, Location */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                               <div>
-                                <div className="flex items-center gap-2">
-                                  <p className="font-semibold text-gray-900">Resume on file</p>
-                                  <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex items-center gap-1">
-                                    <CheckCircle className="w-3 h-3" />
-                                    Active
-                                  </span>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                  Company
+                                </label>
+                                <div className="relative">
+                                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <Building2 className="h-4 w-4 text-gray-400" />
+                                  </div>
+                                  <input
+                                    type="text"
+                                    value={company}
+                                    onChange={(e) => setCompany(e.target.value)}
+                                    placeholder="e.g. Google, Stripe"
+                                    disabled={isSearching}
+                                    className="block w-full pl-9 pr-3 py-3 border border-gray-200 rounded-xl
+                                             text-gray-900 placeholder-gray-400 text-sm
+                                             hover:border-gray-300
+                                             focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400
+                                             transition-all duration-150 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                  />
                                 </div>
-                                <p className="text-sm text-gray-600">{savedResumeFileName}</p>
-                                <p className="text-xs text-gray-500 mt-0.5">Improves match quality and email personalization</p>
+                              </div>
+
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                  Job Title
+                                </label>
+                                <div className="relative">
+                                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <Briefcase className="h-4 w-4 text-gray-400" />
+                                  </div>
+                                  <input
+                                    type="text"
+                                    value={jobTitle}
+                                    onChange={(e) => setJobTitle(e.target.value)}
+                                    placeholder="e.g. Product Manager"
+                                    disabled={isSearching}
+                                    className="block w-full pl-9 pr-3 py-3 border border-gray-200 rounded-xl
+                                             text-gray-900 placeholder-gray-400 text-sm
+                                             hover:border-gray-300
+                                             focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400
+                                             transition-all duration-150 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                  />
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                  Location
+                                </label>
+                                <div className="relative">
+                                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <MapPin className="h-4 w-4 text-gray-400" />
+                                  </div>
+                                  <input
+                                    type="text"
+                                    value={location}
+                                    onChange={(e) => setLocation(e.target.value)}
+                                    placeholder="e.g. New York, NY"
+                                    disabled={isSearching}
+                                    className="block w-full pl-9 pr-3 py-3 border border-gray-200 rounded-xl
+                                             text-gray-900 placeholder-gray-400 text-sm
+                                             hover:border-gray-300
+                                             focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400
+                                             transition-all duration-150 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                  />
+                                </div>
                               </div>
                             </div>
-                            <button 
-                              onClick={() => fileInputRef.current?.click()}
-                              disabled={isSearching || isUploadingResume}
-                              className="text-blue-600 text-sm font-medium hover:text-blue-800 hover:underline transition-colors disabled:opacity-50"
+
+                            {/* Job Description textarea */}
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Job Description <span className="text-red-400">*</span>
+                              </label>
+                              <textarea
+                                value={jobDescription}
+                                onChange={(e) => setJobDescription(e.target.value)}
+                                placeholder="Paste the job description or role summary here."
+                                rows={4}
+                                disabled={isSearching}
+                                className="block w-full px-4 py-3 border border-gray-200 rounded-xl
+                                         text-gray-900 placeholder-gray-400 text-sm resize-none
+                                         hover:border-gray-300
+                                         focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400
+                                         transition-all duration-150 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Reassurance line */}
+                        <div className="mb-8 pt-6 border-t border-gray-100">
+                          <p className="text-xs text-gray-400 text-center">
+                            Draft emails saved automatically to Gmail • Verified emails • Auto-saved to Hiring Manager Tracker
+                          </p>
+                        </div>
+
+                        {/* Cost & CTA Section */}
+                        <div className="mt-8 pt-8 border-t border-gray-100">
+                          {/* Cost info - neutral and calm */}
+                          <div className="mb-6 text-center">
+                            <p className="text-sm text-gray-500">
+                              Will find {estimatedManagers} hiring managers • {15 * estimatedManagers} credits
+                            </p>
+                          </div>
+
+                          {/* CTA Button - Clear and dominant */}
+                          <div className="flex justify-center">
+                            <button
+                              ref={originalButtonRef}
+                              onClick={handleFindHiringManagers}
+                              disabled={!canSearch}
+                              className={`
+                            w-full md:w-auto px-8 py-4 rounded-full font-semibold text-lg
+                            flex items-center justify-center gap-3
+                            transition-all duration-150
+                            ${!canSearch
+                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                : 'bg-indigo-600 text-white shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-100'
+                              }
+                          `}
                             >
-                              {isUploadingResume ? "Uploading..." : "Change"}
+                              {isSearching ? (
+                                <>
+                                  <Loader2 className="w-5 h-5 animate-spin" />
+                                  Finding...
+                                </>
+                              ) : (
+                                <>
+                                  Find Hiring Managers
+                                  <ArrowRight className="w-5 h-5" />
+                                </>
+                              )}
                             </button>
                           </div>
-                        ) : (
-                          <div 
-                            onClick={() => fileInputRef.current?.click()}
-                            className="bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-rose-400 hover:bg-rose-50/50 transition-all cursor-pointer"
-                          >
-                            <div className="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center mx-auto mb-3">
-                              <Upload className="w-6 h-6 text-gray-400" />
-                            </div>
-                            <p className="font-medium text-gray-700 mb-1">
-                              {isUploadingResume ? "Uploading..." : "Upload your resume"}
+
+                          {/* Resume required message */}
+                          {!savedResumeUrl && (
+                            <p className="text-center text-sm text-gray-500 mt-4">
+                              Please upload your resume to continue
                             </p>
-                            <p className="text-sm text-gray-500">Required • Improves match quality and email personalization</p>
-                          </div>
-                        )}
+                          )}
+                        </div>
+
+                        {/* Resume Section - Simple status row */}
+                        <div className="mt-8 pt-8 border-t border-gray-100">
+                          <input
+                            type="file"
+                            accept={ACCEPTED_RESUME_TYPES.accept}
+                            onChange={handleFileUpload}
+                            className="hidden"
+                            ref={fileInputRef}
+                            disabled={isSearching || isUploadingResume}
+                          />
+
+                          {savedResumeUrl && savedResumeFileName ? (
+                            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                              <div className="flex items-center gap-3">
+                                <CheckCircle className="w-5 h-5 text-green-500" />
+                                <div>
+                                  <p className="text-sm font-medium text-gray-900">Resume on file</p>
+                                  <p className="text-xs text-gray-500">{savedResumeFileName}</p>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={isSearching || isUploadingResume}
+                                className="text-sm text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50"
+                              >
+                                {isUploadingResume ? "Uploading..." : "Change"}
+                              </button>
+                            </div>
+                          ) : (
+                            <div
+                              onClick={() => fileInputRef.current?.click()}
+                              className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+                            >
+                              <Upload className="w-5 h-5 text-gray-400" />
+                              <div className="flex-1">
+                                <p className="text-sm font-medium text-gray-900">
+                                  {isUploadingResume ? "Uploading..." : "Upload your resume"}
+                                </p>
+                                <p className="text-xs text-gray-500">Required • Improves match quality</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </TabsContent>
+                  </TabsContent>
 
-                {/* TAB 2: Hiring Manager Tracker */}
-                <TabsContent value="hiring-manager-tracker" className="mt-0">
-                  <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
-                    <div className="h-1 bg-gradient-to-r from-rose-500 via-pink-500 to-rose-600"></div>
-                    
-                    <div className="p-8">
-                      <RecruiterSpreadsheet key={refreshKey} />
+                  {/* TAB 2: Hiring Manager Tracker */}
+                  <TabsContent value="hiring-manager-tracker" className="mt-0">
+                    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
+                      <div className="h-1 bg-gray-100"></div>
+
+                      <div className="p-8">
+                        <RecruiterSpreadsheet key={refreshKey} />
+                      </div>
                     </div>
-                  </div>
-                </TabsContent>
-              </Tabs>
+                  </TabsContent>
+                </Tabs>
+              </div>
             </div>
           </main>
         </MainContentWrapper>
@@ -822,19 +758,19 @@ const RecruiterSpreadsheetPage = () => {
         {isSearching && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
             <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-2xl">
-              <div className="w-16 h-16 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Users className="w-8 h-8 text-rose-600 animate-pulse" />
+              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Users className="w-8 h-8 text-gray-900 animate-pulse" />
               </div>
               <h3 className="text-xl font-semibold text-gray-900 mb-2">Finding hiring managers...</h3>
               <p className="text-gray-600 mb-4">
-                {jobPostingUrl 
+                {jobPostingUrl
                   ? "Analyzing the job posting and identifying decision makers"
                   : `Searching for hiring managers at ${company}`
                 }
               </p>
               <div className="w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-gradient-to-r from-rose-500 to-pink-500 h-2 rounded-full transition-all duration-300" 
+                <div
+                  className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
                   style={{ width: `${progress}%` }}
                 ></div>
               </div>
@@ -852,16 +788,16 @@ const RecruiterSpreadsheetPage = () => {
               </div>
               <h3 className="text-xl font-semibold text-gray-900 mb-1">Found {managersFound} hiring manager{managersFound !== 1 ? 's' : ''}!</h3>
               <p className="text-gray-600 mb-2">{jobTitle || 'Role'} at {company || 'Company'}</p>
-              <p className="text-sm text-rose-600 font-medium mb-6">Draft emails saved to your Gmail</p>
-              
+              <p className="text-sm text-gray-600 font-medium mb-6">Draft emails saved to your Gmail</p>
+
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                <button 
+                <button
                   onClick={handleViewResults}
-                  className="px-6 py-3 bg-gradient-to-r from-rose-600 to-pink-500 text-white font-semibold rounded-full hover:shadow-lg transition-all"
+                  className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
                 >
                   View Hiring Managers →
                 </button>
-                <button 
+                <button
                   onClick={resetForm}
                   className="px-6 py-3 bg-gray-100 text-gray-700 font-semibold rounded-full hover:bg-gray-200 transition-colors"
                 >
@@ -980,6 +916,19 @@ const RecruiterSpreadsheetPage = () => {
           }
         }
       `}</style>
+      
+      {/* Sticky CTA - Only show on find-hiring-managers tab */}
+      {activeTab === 'find-hiring-managers' && (
+        <StickyCTA
+          originalButtonRef={originalButtonRef}
+          onClick={handleFindHiringManagers}
+          isLoading={isSearching}
+          disabled={!canSearch}
+          buttonClassName="rounded-full"
+        >
+          <span>Find Hiring Managers</span>
+        </StickyCTA>
+      )}
     </SidebarProvider>
   );
 };

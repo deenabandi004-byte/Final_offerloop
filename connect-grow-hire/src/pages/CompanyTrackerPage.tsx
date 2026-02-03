@@ -40,7 +40,7 @@ export default function CompanyTrackerPage() {
   const [deletingFirmId, setDeletingFirmId] = useState<string | null>(null);
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
-  
+
   const loadAttemptedRef = useRef(false);
 
   // Load all saved firms from Firebase
@@ -119,7 +119,7 @@ export default function CompanyTrackerPage() {
     setDeletingFirmId(firm.id || firm.name);
     try {
       await apiService.deleteFirmFromSearch(firm.searchId, firm.id || firm.name);
-      
+
       // Remove from local state
       setResults(prev => prev.filter(f => {
         const currentKey = f.id || `${f.name}-${f.location?.display}`;
@@ -149,10 +149,10 @@ export default function CompanyTrackerPage() {
   // Handle deleting all firms
   const handleDeleteAllFirms = async () => {
     setShowDeleteAllDialog(false);
-    
+
     try {
       const history = await apiService.getFirmSearchHistory(100);
-      
+
       for (const historyItem of history) {
         try {
           await apiService.deleteFirmSearch(historyItem.id);
@@ -215,20 +215,21 @@ export default function CompanyTrackerPage() {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full text-foreground">
+      <div className="flex min-h-screen w-full bg-[#FAFAFA] text-foreground">
         <AppSidebar />
         <MainContentWrapper>
           <AppHeader title="" />
-          
-          <main className="bg-white min-h-screen company-tracker-page">
-            <div className="max-w-5xl mx-auto px-8 pt-10 pb-8 company-tracker-container">
-              <h1 className="text-[28px] font-semibold text-gray-900 mb-2 company-tracker-title">
-                Company Tracker
-              </h1>
-              
-              <p className="text-gray-500 text-sm mb-6 company-tracker-subtitle">
-                All companies you've found and saved.
-              </p>
+
+          <main className="w-full max-w-5xl mx-auto px-6 py-12">
+            <div>
+              <div className="text-center mb-12 max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700">
+                <h1 className="text-4xl font-bold tracking-tight text-gray-900 mb-4">
+                  Company Tracker
+                </h1>
+                <p className="text-lg text-gray-500 leading-relaxed">
+                  All companies you've found and saved.
+                </p>
+              </div>
 
               {/* Controls */}
               <div className="flex items-center justify-between gap-4 mb-6 company-tracker-controls-row">
@@ -254,7 +255,7 @@ export default function CompanyTrackerPage() {
                     )}
                     Refresh
                   </Button>
-                  
+
                   {results.length > 0 && (
                     <>
                       <Button
@@ -324,7 +325,7 @@ export default function CompanyTrackerPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete All Companies?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently remove all {results.length} {results.length === 1 ? 'company' : 'companies'} from your tracker. 
+              This will permanently remove all {results.length} {results.length === 1 ? 'company' : 'companies'} from your tracker.
               This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>

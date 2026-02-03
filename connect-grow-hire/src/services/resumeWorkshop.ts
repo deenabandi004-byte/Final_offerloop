@@ -446,7 +446,8 @@ export async function tailorResume(params: {
 
 /**
  * Apply a single recommendation to the resume
- * Costs 5 credits
+ * DEPRECATED: This endpoint is deprecated. The frontend now uses copy/paste instead.
+ * This function is kept for backward compatibility but will return an error.
  */
 export async function applyRecommendation(params: {
   recommendation: Recommendation;
@@ -454,6 +455,15 @@ export async function applyRecommendation(params: {
   current_working_resume_text?: string;
   score?: number;
 }): Promise<ApplyResponse> {
+  // Return deprecation message immediately without making API call
+  return {
+    status: 'error',
+    message: 'This endpoint is deprecated. Please use the copy/paste feature in the UI instead.',
+    error_code: 'DEPRECATED_ENDPOINT',
+  };
+  
+  // Original implementation below (commented out)
+  /*
   const firebaseUser = auth.currentUser;
   const token = firebaseUser ? await firebaseUser.getIdToken() : null;
   
@@ -499,6 +509,7 @@ export async function applyRecommendation(params: {
       message: error.message || 'Network error',
     };
   }
+  */
 }
 
 /**

@@ -33,7 +33,8 @@ _timing_stats = {
 }
 
 # Parallel verification configuration
-MAX_VERIFICATION_WORKERS = 4  # Process 4 candidates simultaneously
+# Increased from 4 to 6 for faster parallel processing
+MAX_VERIFICATION_WORKERS = 6  # Process 6 candidates simultaneously
 
 
 def verify_contacts_parallel(candidates, max_contacts, company):
@@ -209,11 +210,12 @@ def contact_search_optimized(job_title, location, max_contacts=3, user_data=None
     print(f"[ContactSearch] ========================================\n")
     
     pdl_start = time.time()
-    # Calculate smarter fetch size
-    # Use 2.5x multiplier, with min of 10 and max of 25
-    fetch_multiplier = 2.5
-    min_fetch = 10
-    max_fetch = 25
+    # Calculate smarter fetch size - optimized for faster searches
+    # Reduced multiplier from 2.5x to 2x for faster PDL queries
+    # With better ranking and parallel verification, we need fewer candidates
+    fetch_multiplier = 2.0
+    min_fetch = 8  # Reduced from 10 for smaller searches
+    max_fetch = 20  # Reduced from 25 to fetch fewer contacts
     
     fetch_size = min(max(int(max_contacts * fetch_multiplier), min_fetch), max_fetch)
     
@@ -267,7 +269,9 @@ def contact_search_optimized(job_title, location, max_contacts=3, user_data=None
     verify_start = time.time()
     print(f"\n[ContactSearch] ⏱️  === PASS 1: Verifying emails (parallel) ===")
     
-    max_attempts = min(len(candidates), max_contacts * 5)  # Try up to 5x what we need
+    # Optimized: Reduced from 5x to 3x multiplier for faster early stopping
+    # With parallel processing, we can be more aggressive with early stopping
+    max_attempts = min(len(candidates), max_contacts * 3)  # Try up to 3x what we need
     
     # Verify candidates in parallel
     verified_results, unverified_results, no_email_candidates = verify_contacts_parallel(

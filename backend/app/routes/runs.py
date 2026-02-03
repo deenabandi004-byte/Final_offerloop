@@ -3,7 +3,10 @@ Run routes - free and pro tier search endpoints
 """
 import json
 import csv
+import time
+import threading
 from datetime import datetime
+from typing import Dict, Tuple, Optional
 from app.services.pdl_client import search_contacts_with_smart_location_strategy, get_contact_identity
 from io import StringIO
 from flask import Blueprint, request, jsonify, send_file
@@ -19,6 +22,41 @@ from app.config import TIER_CONFIGS
 from app.utils.exceptions import ValidationError, OfferloopException, InsufficientCreditsError, ExternalAPIError
 from app.utils.validation import ContactSearchRequest, validate_request
 from firebase_admin import firestore
+
+# =============================================================================
+# EXCLUSION LIST CACHING (1-hour TTL for faster contact searches)
+# =============================================================================
+
+_exclusion_list_cache: Dict[str, Tuple[set, float]] = {}
+_exclusion_cache_lock = threading.Lock()
+EXCLUSION_CACHE_TTL = 3600  # 1 hour in seconds
+
+def _get_cached_exclusion_list(user_id: str) -> Optional[set]:
+    """Get cached exclusion list if not expired."""
+    with _exclusion_cache_lock:
+        if user_id in _exclusion_list_cache:
+            exclusion_set, timestamp = _exclusion_list_cache[user_id]
+            if time.time() - timestamp < EXCLUSION_CACHE_TTL:
+                print(f"[ContactSearch] ✅ Using cached exclusion list for {user_id[:8]}... ({len(exclusion_set)} contacts, age: {time.time() - timestamp:.1f}s)")
+                return exclusion_set
+            else:
+                # Cache expired, remove it
+                del _exclusion_list_cache[user_id]
+                print(f"[ContactSearch] ⏰ Exclusion list cache expired for {user_id[:8]}...")
+    return None
+
+def _set_cached_exclusion_list(user_id: str, exclusion_set: set):
+    """Cache exclusion list with current timestamp."""
+    with _exclusion_cache_lock:
+        _exclusion_list_cache[user_id] = (exclusion_set, time.time())
+        print(f"[ContactSearch] 💾 Cached exclusion list for {user_id[:8]}... ({len(exclusion_set)} contacts)")
+
+def _invalidate_exclusion_cache(user_id: str):
+    """Invalidate exclusion list cache (call when contacts are added/removed)."""
+    with _exclusion_cache_lock:
+        if user_id in _exclusion_list_cache:
+            del _exclusion_list_cache[user_id]
+            print(f"[ContactSearch] 🗑️  Invalidated exclusion list cache for {user_id[:8]}...")
 def _is_valid_email(value: str) -> bool:
     """Basic sanity check for emails."""
     if not isinstance(value, str):
@@ -85,30 +123,42 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                         user_tier = 'free'  # Fallback to free if invalid tier
                     
                     # ✅ LOAD FROM SUBCOLLECTION (not contactLibrary field)
-                    # ✅ OPTIMIZED: Only fetch fields needed for identity matching (reduces data transfer by ~70-90%)
-                    contacts_ref = db.collection('users').document(user_id).collection('contacts')
-                    contact_docs = list(contacts_ref.select(
-                        'firstName', 'lastName', 'email', 'linkedinUrl', 'company'
-                    ).stream())
+                    # ✅ OPTIMIZED: Use cached exclusion list for faster searches
+                    seen_contact_set = _get_cached_exclusion_list(user_id)
                     
-                    for doc in contact_docs:
-                        contact = doc.to_dict()
+                    if seen_contact_set is None:
+                        # Cache miss - load from database
+                        load_start = time.time()
+                        contacts_ref = db.collection('users').document(user_id).collection('contacts')
+                        contact_docs = list(contacts_ref.select(
+                            'firstName', 'lastName', 'email', 'linkedinUrl', 'company'
+                        ).stream())
                         
-                        # Standardize to match PDL format for identity matching
-                        standardized = {
-                            'FirstName': contact.get('firstName', ''),
-                            'LastName': contact.get('lastName', ''),
-                            'Email': contact.get('email', ''),
-                            'LinkedIn': contact.get('linkedinUrl', ''),
-                            'Company': contact.get('company', '')
-                        }
+                        seen_contact_set = set()
+                        for doc in contact_docs:
+                            contact = doc.to_dict()
+                            
+                            # Standardize to match PDL format for identity matching
+                            standardized = {
+                                'FirstName': contact.get('firstName', ''),
+                                'LastName': contact.get('lastName', ''),
+                                'Email': contact.get('email', ''),
+                                'LinkedIn': contact.get('linkedinUrl', ''),
+                                'Company': contact.get('company', '')
+                            }
+                            
+                            library_key = get_contact_identity(standardized)
+                            seen_contact_set.add(library_key)
                         
-                        library_key = get_contact_identity(standardized)
-                        seen_contact_set.add(library_key)
-                    
-                    print(f"📊 Exclusion list (from contacts subcollection):")
-                    print(f"   - Contacts in database: {len(contact_docs)}")
-                    print(f"   - Unique identity keys: {len(seen_contact_set)}")
+                        # Cache the exclusion list
+                        _set_cached_exclusion_list(user_id, seen_contact_set)
+                        load_time = time.time() - load_start
+                        print(f"📊 Exclusion list loaded from database ({load_time:.2f}s):")
+                        print(f"   - Contacts in database: {len(contact_docs)}")
+                        print(f"   - Unique identity keys: {len(seen_contact_set)}")
+                    else:
+                        print(f"📊 Exclusion list (from cache):")
+                        print(f"   - Unique identity keys: {len(seen_contact_set)}")
                     print(f"   💡 Deleting contacts from library will allow them to appear in searches")
                     
                     if credits_available < 15:
@@ -348,27 +398,42 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                     credits_available = check_and_reset_credits(user_ref, user_data)
                     
                     # ✅ LOAD FROM SUBCOLLECTION (not contactLibrary field)
-                    contacts_ref = db.collection('users').document(user_id).collection('contacts')
-                    contact_docs = list(contacts_ref.stream())
+                    # ✅ OPTIMIZED: Use cached exclusion list for faster searches
+                    seen_contact_set = _get_cached_exclusion_list(user_id)
                     
-                    for doc in contact_docs:
-                        contact = doc.to_dict()
+                    if seen_contact_set is None:
+                        # Cache miss - load from database
+                        load_start = time.time()
+                        contacts_ref = db.collection('users').document(user_id).collection('contacts')
+                        contact_docs = list(contacts_ref.select(
+                            'firstName', 'lastName', 'email', 'linkedinUrl', 'company'
+                        ).stream())
                         
-                        # Standardize to match PDL format for identity matching
-                        standardized = {
-                            'FirstName': contact.get('firstName', ''),
-                            'LastName': contact.get('lastName', ''),
-                            'Email': contact.get('email', ''),
-                            'LinkedIn': contact.get('linkedinUrl', ''),
-                            'Company': contact.get('company', '')
-                        }
+                        seen_contact_set = set()
+                        for doc in contact_docs:
+                            contact = doc.to_dict()
+                            
+                            # Standardize to match PDL format for identity matching
+                            standardized = {
+                                'FirstName': contact.get('firstName', ''),
+                                'LastName': contact.get('lastName', ''),
+                                'Email': contact.get('email', ''),
+                                'LinkedIn': contact.get('linkedinUrl', ''),
+                                'Company': contact.get('company', '')
+                            }
+                            
+                            library_key = get_contact_identity(standardized)
+                            seen_contact_set.add(library_key)
                         
-                        library_key = get_contact_identity(standardized)
-                        seen_contact_set.add(library_key)
-                    
-                    print(f"📊 Exclusion list (from contacts subcollection):")
-                    print(f"   - Contacts in database: {len(contact_docs)}")
-                    print(f"   - Unique identity keys: {len(seen_contact_set)}")
+                        # Cache the exclusion list
+                        _set_cached_exclusion_list(user_id, seen_contact_set)
+                        load_time = time.time() - load_start
+                        print(f"📊 Exclusion list loaded from database ({load_time:.2f}s):")
+                        print(f"   - Contacts in database: {len(contact_docs)}")
+                        print(f"   - Unique identity keys: {len(seen_contact_set)}")
+                    else:
+                        print(f"📊 Exclusion list (from cache):")
+                        print(f"   - Unique identity keys: {len(seen_contact_set)}")
                     print(f"   💡 Deleting contacts from library will allow them to appear in searches")
                     
                     tier = user_data.get('tier', 'free')

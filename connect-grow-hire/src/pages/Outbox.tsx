@@ -13,7 +13,6 @@ import {
   Search,
   ExternalLink,
   RefreshCw,
-  Sparkles,
   FileText,
   Send,
   Coins,
@@ -50,11 +49,11 @@ interface StatCardProps {
 }
 
 const StatCard = ({ icon: Icon, label, value }: StatCardProps) => (
-  <div className="flex items-center gap-3 px-4 py-3 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow">
-    <Icon className="w-5 h-5 text-muted-foreground" />
+  <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-sm">
+    <Icon className="w-4 h-4 text-muted-foreground" />
     <div>
-      <p className="text-xl font-semibold text-foreground">{value}</p>
-      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className="text-base font-medium text-foreground">{value}</p>
+      <p className="text-xs text-muted-foreground">{label}</p>
     </div>
   </div>
 );
@@ -355,7 +354,7 @@ export default function Outbox() {
                 </p>
 
                 {/* Stats Row */}
-                <div className="flex flex-wrap gap-4 mb-6">
+                <div className="flex flex-wrap gap-3 mb-6">
                   <StatCard icon={FileText} label="Drafts" value={draftCount} />
                   <StatCard icon={Send} label="Sent" value={sentCount} />
                   <StatCard icon={Coins} label="Credits" value={credits} />
@@ -456,8 +455,8 @@ export default function Outbox() {
                         }}
                         className={`w-full text-left p-4 rounded-xl transition-all duration-200 ${
                           selectedThread?.id === t.id
-                            ? "bg-gradient-to-r from-blue-50 to-indigo-50 shadow-md ring-2 ring-blue-500/30"
-                            : "bg-white shadow-sm hover:shadow-md hover:bg-gray-50/50"
+                            ? "bg-gray-50 shadow-sm"
+                            : "bg-white shadow-sm hover:bg-gray-50/50"
                         }`}
                       >
                         <div className="flex justify-between items-start">
@@ -475,12 +474,12 @@ export default function Outbox() {
                             <span className="text-[11px] text-muted-foreground">
                               {formatLastActivity(t.lastActivityAt)}
                             </span>
-                            <Badge className={`border ${statusColor[t.status]} text-[10px]`}>
+                            <Badge className={`border ${statusColor[t.status]} text-[9px] px-1.5 py-0.5 font-normal`}>
                               {statusLabel[t.status]}
                             </Badge>
                             {t.hasDraft && (
-                              <span className="text-[10px] text-blue-700 flex items-center gap-1">
-                                <Sparkles className="h-3 w-3" /> Draft ready
+                              <span className="text-[10px] text-blue-700">
+                                Draft ready
                               </span>
                             )}
                           </div>
@@ -493,10 +492,10 @@ export default function Outbox() {
               {/* RIGHT: Thread detail + Suggested reply */}
               <div className="w-1/2">
                 {!selectedThread ? (
-                  <div className="h-full rounded-2xl p-6 text-center text-muted-foreground text-sm bg-gradient-to-br from-gray-50/50 to-white shadow-inner">
+                  <div className="h-full rounded-2xl p-6 text-center text-muted-foreground text-sm bg-gray-50/30">
                     <div className="flex flex-col items-center justify-center h-full">
-                      <Inbox className="w-16 h-16 text-muted-foreground/30 mb-4" />
-                      <p>Select a conversation to view the reply and your AI-generated response draft.</p>
+                      <Inbox className="w-16 h-16 text-muted-foreground/20 mb-4" />
+                      <p className="text-xs">Select a conversation to view details</p>
                     </div>
                   </div>
                 ) : (
@@ -528,8 +527,7 @@ export default function Outbox() {
                     {/* Suggested Reply */}
                     <div className="border border-gray-100 rounded-xl p-4 bg-white flex flex-col flex-1">
                       <div className="flex justify-between items-center mb-2">
-                        <div className="flex items-center gap-2">
-                          <Sparkles className="h-4 w-4 text-primary" />
+                        <div>
                           <h3 className="text-sm font-semibold text-foreground">Suggested reply</h3>
                         </div>
                         {selectedThread.hasDraft && selectedThread.suggestedReply && (
@@ -562,7 +560,6 @@ export default function Outbox() {
                           </p>
                           <div className="flex-1 flex items-center justify-center border border-dashed border-gray-100 rounded-xl p-6 bg-white">
                             <div className="text-center">
-                              <Sparkles className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
                               <p className="text-xs text-muted-foreground">
                                 No suggested reply yet
                               </p>

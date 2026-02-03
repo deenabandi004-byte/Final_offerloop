@@ -585,7 +585,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                     className={`
                       flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
                       ${activeTab === 'coffee-chat-prep' 
-                        ? 'bg-white text-amber-600 shadow-sm' 
+                        ? 'bg-white text-indigo-600 shadow-sm' 
                         : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                       }
                     `}
@@ -599,7 +599,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                     className={`
                       flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
                       ${activeTab === 'coffee-library' 
-                        ? 'bg-white text-amber-600 shadow-sm' 
+                        ? 'bg-white text-indigo-600 shadow-sm' 
                         : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                       }
                     `}
@@ -607,7 +607,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                     <FolderOpen className="w-4 h-4" />
                     Coffee Library
                     {preps.length > 0 && (
-                      <span className="ml-1 px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-semibold rounded-full">
+                      <span className="ml-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">
                         {preps.length}
                       </span>
                     )}
@@ -634,28 +634,25 @@ const CoffeeChatPrepPage: React.FC = () => {
                   )}
 
                   {/* Main Card */}
-                  <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
-                    {/* Warm amber gradient accent at top */}
-                    <div className="h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600"></div>
+                  <div className="bg-white rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
+                    {/* Simple gray divider */}
+                    <div className="h-1 bg-gray-100"></div>
                     
                     <div className="p-8">
-                      {/* Card Header with Icon */}
+                      {/* Card Header */}
                       <div className="text-center mb-8">
-                        <div className="w-14 h-14 bg-amber-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                          <span className="text-2xl">☕</span>
-                        </div>
                         <h2 className="text-xl font-semibold text-gray-900 mb-2">Who are you meeting with?</h2>
                         <p className="text-gray-600 max-w-lg mx-auto">
-                          Enter their LinkedIn profile and we'll generate a personalized prep sheet with talking points, recent news, and conversation starters.
+                          Enter their LinkedIn profile to generate a personalized prep sheet.
                         </p>
                       </div>
 
                       {/* Enhanced URL Input with Integrated Button */}
                       <div className="max-w-2xl mx-auto">
-                        <div className="relative flex items-center">
+                        <div className="relative flex items-center group">
                           {/* LinkedIn icon inside input */}
                           <div className="absolute left-4 pointer-events-none">
-                            <Linkedin className="w-5 h-5 text-gray-400" />
+                            <Linkedin className="w-5 h-5 text-gray-400 group-focus-within:text-blue-600 transition-colors" />
                           </div>
                           
                           <input
@@ -664,10 +661,11 @@ const CoffeeChatPrepPage: React.FC = () => {
                             onChange={(e) => setLinkedinUrl(e.target.value)}
                             placeholder="https://linkedin.com/in/username"
                             disabled={coffeeChatLoading || !hasAccess}
-                            className="w-full pl-12 pr-44 py-4 text-lg border-2 border-gray-200 rounded-full
-                                       text-gray-900 placeholder-gray-400
-                                       focus:ring-2 focus:ring-amber-500 focus:border-amber-500
-                                       hover:border-gray-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="w-full pl-12 pr-44 py-4 text-lg border-2 border-gray-300 rounded-2xl
+                                       text-gray-900 placeholder-gray-400 bg-white
+                                       hover:border-gray-400
+                                       focus:border-blue-400 focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20
+                                       transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
                           />
                           
                           {/* Button inside input */}
@@ -676,9 +674,9 @@ const CoffeeChatPrepPage: React.FC = () => {
                             disabled={!linkedinUrl.trim() || coffeeChatLoading || !hasAccess || (effectiveUser.credits ?? 0) < COFFEE_CHAT_CREDITS}
                             className={`
                               absolute right-2 px-6 py-2.5 rounded-full font-semibold text-sm
-                              flex items-center gap-2 transition-all duration-200
+                              flex items-center gap-2 transition-all duration-150
                               ${linkedinUrl.trim() && !coffeeChatLoading && hasAccess
-                                ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md hover:shadow-lg hover:scale-105'
+                                ? 'bg-indigo-600 text-white shadow-md hover:shadow-lg hover:scale-[1.02]'
                                 : 'bg-gray-200 text-gray-500 cursor-not-allowed'
                               }
                             `}
@@ -698,7 +696,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                         
                         {/* Validation Feedback */}
                         {linkedinUrl && !isValidLinkedInUrl(linkedinUrl) && linkedinUrl.length > 10 && (
-                          <p className="text-center text-sm text-amber-600 mt-3 flex items-center justify-center gap-1">
+                          <p className="text-center text-sm text-gray-600 mt-3 flex items-center justify-center gap-1">
                             <AlertCircle className="w-4 h-4" />
                             Please enter a valid LinkedIn profile URL
                           </p>
@@ -713,8 +711,8 @@ const CoffeeChatPrepPage: React.FC = () => {
                         
                         {/* Helper text */}
                         {!linkedinUrl && (
-                          <p className="text-center text-sm text-gray-500 mt-4">
-                            Uses <span className="font-medium">{COFFEE_CHAT_CREDITS} credits</span> • PDF saved to your Coffee Library
+                          <p className="text-center text-xs text-gray-400 mt-3">
+                            Uses {COFFEE_CHAT_CREDITS} credits • PDF saved automatically
                           </p>
                         )}
                       </div>
@@ -740,10 +738,10 @@ const CoffeeChatPrepPage: React.FC = () => {
                               <span>{coffeeChatProgress || 'Generation failed'}</span>
                             </div>
                           ) : (
-                            <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                            <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
                               <div className="flex items-center justify-center gap-2 mb-3">
-                                <Clock className="h-5 w-5 text-amber-600" />
-                                <span className="font-medium text-amber-700">{coffeeChatProgress}</span>
+                                <Clock className="h-5 w-5 text-gray-600" />
+                                <span className="font-medium text-gray-700">{coffeeChatProgress}</span>
                               </div>
                               <SteppedLoadingBar 
                                 steps={coffeeChatSteps} 
@@ -801,34 +799,34 @@ const CoffeeChatPrepPage: React.FC = () => {
                         </div>
                       )}
 
-                      {/* What You'll Receive Section */}
+                      {/* What You'll Receive Section - Demoted */}
                       {coffeeChatStatus !== 'completed' && (
-                        <div className="mt-10 pt-8 border-t border-gray-100">
-                          <h3 className="text-center text-sm font-semibold text-gray-500 uppercase tracking-wide mb-6">What you'll receive</h3>
+                        <div className="mt-8 pt-6 border-t border-gray-100">
+                          <p className="text-center text-xs text-gray-400 mb-4">Includes curated headlines, talking points, and a PDF prep sheet</p>
                           
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-3xl mx-auto">
-                            <div className="text-center p-4">
-                              <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-3">
-                                <Newspaper className="w-6 h-6 text-blue-600" />
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl mx-auto">
+                            <div className="text-center p-3">
+                              <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-2">
+                                <Newspaper className="w-4 h-4 text-gray-500" />
                               </div>
-                              <p className="font-medium text-gray-900 text-sm">Curated Headlines</p>
-                              <p className="text-xs text-gray-500 mt-1">Recent news tied to their division and office</p>
+                              <p className="font-medium text-gray-700 text-xs">Curated Headlines</p>
+                              <p className="text-xs text-gray-400 mt-0.5">Recent news</p>
                             </div>
                             
-                            <div className="text-center p-4">
-                              <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center mx-auto mb-3">
-                                <MessageSquare className="w-6 h-6 text-purple-600" />
+                            <div className="text-center p-3">
+                              <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-2">
+                                <MessageSquare className="w-4 h-4 text-gray-500" />
                               </div>
-                              <p className="font-medium text-gray-900 text-sm">Talking Points</p>
-                              <p className="text-xs text-gray-500 mt-1">40-second similarity summary & questions to ask</p>
+                              <p className="font-medium text-gray-700 text-xs">Talking Points</p>
+                              <p className="text-xs text-gray-400 mt-0.5">Similarity summary</p>
                             </div>
                             
-                            <div className="text-center p-4">
-                              <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center mx-auto mb-3">
-                                <FileText className="w-6 h-6 text-amber-600" />
+                            <div className="text-center p-3">
+                              <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-2">
+                                <FileText className="w-4 h-4 text-gray-500" />
                               </div>
-                              <p className="font-medium text-gray-900 text-sm">PDF Prep Sheet</p>
-                              <p className="text-xs text-gray-500 mt-1">Saved to your Coffee Library for easy access</p>
+                              <p className="font-medium text-gray-700 text-xs">PDF Prep Sheet</p>
+                              <p className="text-xs text-gray-400 mt-0.5">Auto-saved</p>
                             </div>
                           </div>
                         </div>
@@ -841,7 +839,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                             <h3 className="text-sm font-semibold text-gray-700">Recent Prep Sheets</h3>
                             <button 
                               onClick={() => setActiveTab('coffee-library')}
-                              className="text-sm text-amber-600 hover:underline"
+                              className="text-sm text-blue-600 hover:underline"
                             >
                               View all ({preps.length})
                             </button>
@@ -877,16 +875,16 @@ const CoffeeChatPrepPage: React.FC = () => {
 
                 {/* COFFEE LIBRARY TAB */}
                 <TabsContent value="coffee-library" className="mt-0">
-                  <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
-                    <div className="h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600"></div>
+                  <div className="bg-white rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
+                    <div className="h-1 bg-gray-100"></div>
                     
                     <div className="p-8">
                       {libraryLoading ? (
                         <LoadingSkeleton variant="card" count={3} />
                       ) : preps.length === 0 ? (
                         <div className="text-center py-12">
-                          <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <Coffee className="h-8 w-8 text-amber-600" />
+                          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <Coffee className="h-8 w-8 text-gray-600" />
                           </div>
                           <h3 className="text-lg font-semibold text-gray-900 mb-2">No preps yet</h3>
                           <p className="text-sm text-gray-500 mb-6">
@@ -894,7 +892,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                           </p>
                           <button
                             onClick={() => setActiveTab('coffee-chat-prep')}
-                            className="px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold rounded-full hover:shadow-lg transition-all"
+                            className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
                           >
                             Create Your First Prep
                           </button>
@@ -910,7 +908,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                                 {groupedPreps.inProgress.map((prep) => (
                                   <div
                                     key={prep.id}
-                                    className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between"
+                                    className="p-4 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-between"
                                   >
                                     <div>
                                       <p className="font-medium text-gray-900">{prep.contactName}</p>
@@ -921,7 +919,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                                         Requested {prep.createdAt ? new Date(prep.createdAt).toLocaleString() : ""}
                                       </p>
                                     </div>
-                                    <div className="flex items-center gap-2 text-amber-600">
+                                    <div className="flex items-center gap-2 text-gray-600">
                                       <Loader2 className="w-4 h-4 animate-spin" />
                                       <span className="text-xs uppercase font-medium">Processing...</span>
                                     </div>
@@ -967,7 +965,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                                     <div className="flex items-center gap-3">
                                       <button
                                         onClick={() => handleLibraryDownload(prep)}
-                                        className="px-4 py-2 bg-amber-100 text-amber-700 rounded-full text-sm font-medium hover:bg-amber-200 transition-colors flex items-center gap-2"
+                                        className="px-4 py-2 bg-blue-100 text-blue-700 rounded-full text-sm font-medium hover:bg-blue-200 transition-colors flex items-center gap-2"
                                       >
                                         <Download className="h-4 w-4" />
                                         PDF

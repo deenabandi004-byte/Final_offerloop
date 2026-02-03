@@ -20,8 +20,10 @@ logger = logging.getLogger(__name__)
 SERPAPI_BASE_URL = "https://serpapi.com/search"
 
 # Create a session with connection pooling for better performance
+# Note: requests.Session is thread-safe for concurrent requests, no lock needed
 _serp_session = requests.Session()
-_serp_session_lock = Lock()
+# Lock removed - was causing serialization bottleneck (all requests queued sequentially)
+# _serp_session_lock = Lock()
 
 # In-memory cache for firm details (key: firm_name_hash, value: firm_data)
 _firm_cache = {}
@@ -51,9 +53,8 @@ def _search_linkedin_url(firm_name: str, location: Dict[str, Optional[str]] = No
     }
     
     try:
-        # Use session for connection pooling
-        with _serp_session_lock:
-            response = _serp_session.get(SERPAPI_BASE_URL, params=params, timeout=timeout)
+        # requests.Session is thread-safe for concurrent requests, no lock needed
+        response = _serp_session.get(SERPAPI_BASE_URL, params=params, timeout=timeout)
         if response.status_code == 200:
             data = response.json()
             organic_results = data.get("organic_results", [])
@@ -105,7 +106,7 @@ def _set_cached_firm(cache_key: str, firm_data: Dict[str, Any]):
 def _fetch_serp_results_only(
     firm_name: str,
     location: Dict[str, Optional[str]] = None,
-    timeout: int = 8,
+    timeout: int = 6,
     search_id: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
     """
@@ -134,8 +135,8 @@ def _fetch_serp_results_only(
     }
     
     try:
-        with _serp_session_lock:
-            response = _serp_session.get(SERPAPI_BASE_URL, params=params, timeout=timeout)
+        # requests.Session is thread-safe for concurrent requests, no lock needed
+        response = _serp_session.get(SERPAPI_BASE_URL, params=params, timeout=timeout)
         
         duration = time.time() - start_time
         
@@ -567,7 +568,7 @@ Return ONLY a JSON array (no markdown, no explanations):
 def search_firm_details_with_serp(
     firm_name: str, 
     location: Dict[str, Optional[str]] = None,
-    timeout: int = 8
+    timeout: int = 6
 ) -> Optional[Dict[str, Any]]:
     """
     Search for a specific firm using SERP API and extract its details.
@@ -576,7 +577,7 @@ def search_firm_details_with_serp(
     Args:
         firm_name: Name of the firm to search for
         location: Optional location dict to help narrow results
-        timeout: Request timeout in seconds (default: 12)
+        timeout: Request timeout in seconds (default: 6)
     
     Returns:
         Dictionary with firm details or None if not found
@@ -610,9 +611,8 @@ def search_firm_details_with_serp(
     }
     
     try:
-        # Use session for connection pooling
-        with _serp_session_lock:
-            response = _serp_session.get(SERPAPI_BASE_URL, params=params, timeout=timeout)
+        # requests.Session is thread-safe for concurrent requests, no lock needed
+        response = _serp_session.get(SERPAPI_BASE_URL, params=params, timeout=timeout)
         
         if response.status_code != 200:
             print(f"⚠️ SERP API error for {firm_name}: {response.status_code}")
@@ -1047,8 +1047,10 @@ def get_firm_details_batch(
     request_times = []  # Track individual request times
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Use 6 second timeout for HTTP requests (most complete in 2-3s)
+        serp_timeout = 6
         future_to_name = {
-            executor.submit(_fetch_serp_results_only, name, location, 8, search_id): name
+            executor.submit(_fetch_serp_results_only, name, location, serp_timeout, search_id): name
             for name in uncached_names
         }
         
@@ -1058,7 +1060,8 @@ def get_firm_details_batch(
             request_start = time.time()
             
             try:
-                serp_data = future.result(timeout=10)
+                # Future timeout should be slightly longer than HTTP timeout to account for processing
+                serp_data = future.result(timeout=serp_timeout + 2)
                 request_duration = time.time() - request_start
                 request_times.append((firm_name, request_duration))
                 
