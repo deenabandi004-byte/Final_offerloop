@@ -83,15 +83,46 @@ def generate_and_draft():
             "message": "Please connect your Gmail account to create drafts. The shared Gmail account is not available."
         }), 500
 
-    # Log if fit context is being used
-    if fit_context:
-        print(f"📧 Generating emails with fit context: {fit_context.get('job_title', 'Unknown')} at {fit_context.get('company', 'Unknown')}")
+    # ✅ FIX: Check if contacts already have emails to avoid duplicate generation
+    # Filter out contacts that already have emailSubject and emailBody
+    contacts_needing_emails = []
+    contacts_with_emails = []
+    for i, contact in enumerate(contacts):
+        has_subject = contact.get('emailSubject') or contact.get('email_subject')
+        has_body = contact.get('emailBody') or contact.get('email_body')
+        if has_subject and has_body:
+            contacts_with_emails.append((i, contact))
+        else:
+            contacts_needing_emails.append((i, contact))
+    
+    if contacts_with_emails:
+        print(f"📧 Skipping email generation for {len(contacts_with_emails)} contacts that already have emails")
+    
+    # Only generate emails for contacts that don't have them
+    results = {}
+    if contacts_needing_emails:
+        # Log if fit context is being used
+        if fit_context:
+            print(f"📧 Generating emails with fit context: {fit_context.get('job_title', 'Unknown')} at {fit_context.get('company', 'Unknown')}")
 
-    # 1) Generate emails with fit context
-    results = batch_generate_emails(contacts, resume_text, user_profile, career_interest, fit_context=fit_context)
-    print(f"🧪 batch_generate_emails returned: type={type(results)}, "
-      f"len={len(results) if hasattr(results, '__len__') else 'n/a'}, "
-      f"keys={list(results.keys())[:5] if isinstance(results, dict) else 'list'}")
+        # Extract just the contact dicts for generation
+        contacts_to_generate = [contact for _, contact in contacts_needing_emails]
+        
+        # 1) Generate emails with fit context
+        generated_results = batch_generate_emails(contacts_to_generate, resume_text, user_profile, career_interest, fit_context=fit_context)
+        print(f"🧪 batch_generate_emails returned: type={type(generated_results)}, "
+          f"len={len(generated_results) if hasattr(generated_results, '__len__') else 'n/a'}, "
+          f"keys={list(generated_results.keys())[:5] if isinstance(generated_results, dict) else 'list'}")
+        
+        # Map results back to original indices
+        for idx, (original_idx, _) in enumerate(contacts_needing_emails):
+            result_key = idx
+            if isinstance(generated_results, dict):
+                result = generated_results.get(result_key) or generated_results.get(str(result_key))
+                if result:
+                    results[original_idx] = result
+    else:
+        print(f"📧 All {len(contacts)} contacts already have emails, skipping generation")
 
 
     # 2) Create drafts with resume and formatted body
@@ -133,25 +164,38 @@ def generate_and_draft():
 
     print(f"👥 Contacts received: {len(contacts)}")
     for i, c in enumerate(contacts):
-        # --- Pull the i-th generated email robustly ---
-        r = None
-        try:
-            if isinstance(results, dict):
-                # handle both string and int keys
-                r = results.get(str(i)) or results.get(i)
-                # handle wrapped shape: {"results": [...]}
-                if r is None and "results" in results and isinstance(results["results"], list):
-                    r = results["results"][i] if i < len(results["results"]) else None
-            elif isinstance(results, list):
-                r = results[i] if i < len(results) else None
-        except Exception as e:
-            print(f"⚠️ Error reading generated email at index {i}: {e}")
+        # ✅ FIX: Check if contact already has email, otherwise use newly generated email
+        # First, check if contact already has emailSubject and emailBody
+        existing_subject = c.get('emailSubject') or c.get('email_subject')
+        existing_body = c.get('emailBody') or c.get('email_body')
+        
+        if existing_subject and existing_body:
+            # Use existing email
+            r = {
+                'subject': existing_subject,
+                'body': existing_body
+            }
+            print(f"✅ Using existing email for contact {i}: {c.get('FirstName', 'Unknown')}")
+        else:
+            # Try to get newly generated email
             r = None
+            try:
+                if isinstance(results, dict):
+                    # handle both string and int keys
+                    r = results.get(str(i)) or results.get(i)
+                    # handle wrapped shape: {"results": [...]}
+                    if r is None and "results" in results and isinstance(results["results"], list):
+                        r = results["results"][i] if i < len(results["results"]) else None
+                elif isinstance(results, list):
+                    r = results[i] if i < len(results) else None
+            except Exception as e:
+                print(f"⚠️ Error reading generated email at index {i}: {e}")
+                r = None
 
         if not r or not isinstance(r, dict) or not r.get("body") or not r.get("subject"):
             print(
-                f"⚠️ Skipping index {i}: no generated email result "
-                f"(type={type(results)}, keys={list(results.keys())[:5] if isinstance(results, dict) else 'list'})"
+                f"⚠️ Skipping index {i}: no email available (existing or generated) "
+                f"for contact {c.get('FirstName', 'Unknown')}"
             )
             continue
 

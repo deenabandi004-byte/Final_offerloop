@@ -1094,14 +1094,20 @@ def find_hiring_manager(
     
     print(f"[HiringManagerFinder] Searching for hiring managers at {cleaned_company} for {job_type} role")
     
+    # ✅ FIX: Build larger candidate pool for email verification prioritization
+    # Calculate candidate pool size: max(10, max_results * 5)
+    CANDIDATE_POOL_SIZE = max(10, max_results * 5)
+    print(f"[HiringManagerFinder] Candidate pool target: {CANDIDATE_POOL_SIZE} contacts (max_results={max_results})")
+    
     # Track all contacts found for company size detection
     all_contacts_found = []
-    final_hiring_managers = []
+    candidate_pool = []  # ✅ Changed: Build candidate pool instead of final list
     highest_tier_used = 0
     
     # Tiered search: Start with Tier 1, fallback to lower tiers if needed
+    # ✅ FIX: Collect up to CANDIDATE_POOL_SIZE instead of max_results
     for tier in range(1, 6):  # Tiers 1-5
-        if len(final_hiring_managers) >= max_results:
+        if len(candidate_pool) >= CANDIDATE_POOL_SIZE:
             break
         
         # Skip Tier 5 (executives) unless company is small
@@ -1150,76 +1156,123 @@ def find_hiring_manager(
                 all_contacts_found.extend(raw_managers)
                 highest_tier_used = tier
                 
+                # ✅ FIX: Add all managers to candidate pool (up to pool size limit)
                 # Filter for current employees first
                 current_managers = [m for m in raw_managers if m.get('IsCurrentlyAtTarget', False)]
                 historical_managers = [m for m in raw_managers if not m.get('IsCurrentlyAtTarget', True)]
                 
-                # Prioritize current employees
-                if len(current_managers) >= max_results - len(final_hiring_managers):
-                    managers_to_add = current_managers[:max_results - len(final_hiring_managers)]
-                elif len(current_managers) > 0:
-                    managers_to_add = current_managers + historical_managers[:max_results - len(final_hiring_managers) - len(current_managers)]
-                else:
-                    managers_to_add = historical_managers[:max_results - len(final_hiring_managers)]
-                
-                final_hiring_managers.extend(managers_to_add)
-                print(f"[HiringManagerFinder] Tier {tier}: Found {len(raw_managers)} total, added {len(managers_to_add)} to results")
+                # Add current employees first, then historical, up to pool size
+                remaining_slots = CANDIDATE_POOL_SIZE - len(candidate_pool)
+                if remaining_slots > 0:
+                    if len(current_managers) >= remaining_slots:
+                        managers_to_add = current_managers[:remaining_slots]
+                    elif len(current_managers) > 0:
+                        managers_to_add = current_managers + historical_managers[:remaining_slots - len(current_managers)]
+                    else:
+                        managers_to_add = historical_managers[:remaining_slots]
+                    
+                    candidate_pool.extend(managers_to_add)
+                    print(f"[HiringManagerFinder] Tier {tier}: Found {len(raw_managers)} total, added {len(managers_to_add)} to candidate pool (pool size: {len(candidate_pool)})")
             
         except Exception as e:
             print(f"[HiringManagerFinder] Error searching Tier {tier}: {e}")
             continue
     
-    # Now rank all hiring managers together
-    if final_hiring_managers:
-        final_hiring_managers = rank_hiring_managers(
-            final_hiring_managers,
+    # ✅ FIX: Rank candidate pool, then verify emails BEFORE final selection
+    if candidate_pool:
+        # Rank all candidates by title relevance
+        candidate_pool = rank_hiring_managers(
+            candidate_pool,
             job_type,
             cleaned_company,
             location,
             job_title
         )
         
-        # Limit to max_results
-        final_hiring_managers = final_hiring_managers[:max_results]
-        
         # Apply penalty to Tier 5 (executives) if company is large
         company_size = detect_company_size(cleaned_company, all_contacts_found)
         if company_size == "large":
-            # Re-rank to deprioritize executives by filtering them out if we have enough non-executives
+            # Re-rank to deprioritize executives
             non_executives = []
             executives = []
             executive_titles = ["founder", "ceo", "coo", "president"]
             
-            for manager in final_hiring_managers:
+            for manager in candidate_pool:
                 title = manager.get("Title", "").lower()
                 if any(exec_title in title for exec_title in executive_titles):
                     executives.append(manager)
                 else:
                     non_executives.append(manager)
             
-            # Prefer non-executives, only add executives if we don't have enough
-            if len(non_executives) >= max_results:
-                final_hiring_managers = non_executives[:max_results]
-            else:
-                final_hiring_managers = non_executives + executives[:max_results - len(non_executives)]
-    
-    # Hunter.io enrichment for email verification
-    if generate_emails and final_hiring_managers:
-        for manager in final_hiring_managers:
+            # Prefer non-executives in candidate pool
+            candidate_pool = non_executives + executives
+        
+        print(f"[HiringManagerFinder] Candidate pool: {len(candidate_pool)} contacts (from Tier 1-{highest_tier_used})")
+        
+        # ✅ FIX: Verify emails for the full candidate pool BEFORE selecting final results
+        # This allows us to prioritize verified emails even when not generating emails
+        for manager in candidate_pool:
             if not manager.get('Company'):
                 manager['Company'] = cleaned_company
         
-        print(f"[HiringManagerFinder] Verifying emails for {len(final_hiring_managers)} hiring managers using Hunter.io...")
+        print(f"[HiringManagerFinder] Verifying emails for {len(candidate_pool)} candidates using Hunter.io...")
+        import time
+        verify_start = time.time()
         try:
-            final_hiring_managers = enrich_contacts_with_hunter(
-                contacts=final_hiring_managers,
-                max_enrichments=len(final_hiring_managers),
+            candidate_pool = enrich_contacts_with_hunter(
+                contacts=candidate_pool,
+                max_enrichments=len(candidate_pool),  # Verify all candidates
                 target_company=cleaned_company,
                 skip_personal_emails=True
             )
-            print(f"[HiringManagerFinder] Email verification/enrichment complete")
+            verify_time = time.time() - verify_start
+            print(f"[HiringManagerFinder] Email verification complete: {verify_time:.2f}s for {len(candidate_pool)} contacts")
         except Exception as hunter_error:
             print(f"[HiringManagerFinder] Hunter.io verification failed: {hunter_error}")
+            verify_time = time.time() - verify_start
+        
+        # ✅ FIX: Sort by verified emails first, then by existing ranking
+        verified_contacts = []
+        unverified_contacts = []
+        
+        for manager in candidate_pool:
+            # Check if email is verified (enrich_contacts_with_hunter sets EmailVerified and is_verified_email)
+            email_verified = (
+                manager.get('EmailVerified', False) or 
+                manager.get('is_verified_email', False) or
+                manager.get('email_verified', False)
+            )
+            
+            # Also check if email exists and is not "Not available"
+            has_email = manager.get('Email') and manager.get('Email') != "Not available"
+            
+            # Only consider verified if both email exists and is verified
+            if has_email and email_verified:
+                verified_contacts.append(manager)
+            else:
+                unverified_contacts.append(manager)
+        
+        print(f"[HiringManagerFinder] After verification: {len(verified_contacts)} verified, {len(unverified_contacts)} unverified")
+        
+        # ✅ FIX: Select final results - verified first, then unverified as fallback
+        final_hiring_managers = []
+        
+        # Add verified contacts first (up to max_results)
+        for contact in verified_contacts[:max_results]:
+            final_hiring_managers.append(contact)
+        
+        # If we still need more, add unverified contacts
+        remaining_slots = max_results - len(final_hiring_managers)
+        if remaining_slots > 0:
+            for contact in unverified_contacts[:remaining_slots]:
+                final_hiring_managers.append(contact)
+        
+        verified_count = len([c for c in final_hiring_managers if (
+            c.get('EmailVerified', False) or 
+            c.get('is_verified_email', False) or
+            c.get('email_verified', False)
+        )])
+        print(f"[HiringManagerFinder] Selected {len(final_hiring_managers)} contacts: {verified_count} verified, {len(final_hiring_managers) - verified_count} unverified")
     
     # Generate emails if requested
     emails = []
