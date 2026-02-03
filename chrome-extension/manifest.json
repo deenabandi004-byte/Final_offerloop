@@ -1,15 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Offerloop",
-  "version": "1.0.0",
+  "version": "1.0.5",
   "description": "LinkedIn networking assistant powered by Offerloop",
   "permissions": [
-    "tabs",
     "storage",
     "activeTab",
     "contextMenus",
     "notifications",
-    "scripting",
     "identity",
     "downloads"
   ],
@@ -17,12 +15,10 @@
     "https://www.linkedin.com/*",
     "https://linkedin.com/*",
     "https://final-offerloop.onrender.com/*",
-    "https://www.offerloop.ai/*",
-    "https://*.firebaseapp.com/*",
-    "https://*.googleapis.com/*"
+    "https://offerloop-native.firebaseapp.com/*"
   ],
   "oauth2": {
-    "client_id": "184607281467-kcu9e6jfiecn5rdmep38556k6ka6sl66.apps.googleusercontent.com",
+    "client_id": "184607281467-93440cnoc8c6pv9slbentk9e9pd75sk2.apps.googleusercontent.com",
     "scopes": [
       "https://www.googleapis.com/auth/userinfo.email",
       "https://www.googleapis.com/auth/userinfo.profile"
@@ -61,8 +57,12 @@
         "https://www.ziprecruiter.com/*",
         "https://wellfound.com/*"
       ],
-      "js": ["content.js"],
-      "css": ["content.css"],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
       "run_at": "document_idle"
     }
   ],
@@ -70,9 +70,5 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  },
-  "web_accessible_resources": [{
-  "resources": ["lib/*", "popup.js"],
-  "matches": ["<all_urls>"]
-}]
+  }
 }

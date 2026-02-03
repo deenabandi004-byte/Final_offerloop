@@ -925,6 +925,26 @@ window.addEventListener('unload', () => {
 let firebaseApp = null;
 let firebaseAuth = null;
 
+// Wait for Firebase SDK to load (handles async script loading)
+function waitForFirebase(maxAttempts = 20, delay = 100) {
+  return new Promise((resolve, reject) => {
+    let attempts = 0;
+    const checkFirebase = () => {
+      if (typeof firebase !== 'undefined' && firebase.apps !== undefined) {
+        console.log('[Offerloop Popup] Firebase SDK loaded after', attempts, 'attempts');
+        resolve();
+      } else if (attempts < maxAttempts) {
+        attempts++;
+        setTimeout(checkFirebase, delay);
+      } else {
+        console.error('[Offerloop Popup] Firebase SDK failed to load after', maxAttempts, 'attempts');
+        reject(new Error('Firebase SDK failed to load'));
+      }
+    };
+    checkFirebase();
+  });
+}
+
 function initFirebase() {
   if (typeof firebase === 'undefined') {
     console.error('[Offerloop Popup] Firebase SDK not loaded');
@@ -1677,10 +1697,36 @@ async function init() {
     console.error('[Offerloop Popup] Error detecting mode:', error);
   }
   
+  // Wait for Firebase SDK to load (handles async script loading issues)
+  try {
+    await waitForFirebase();
+    console.log('[Offerloop Popup] Firebase SDK is available');
+  } catch (error) {
+    console.error('[Offerloop Popup] Firebase SDK not available:', error);
+    // Show error but don't block - allow basic UI to render
+    showError('Firebase SDK failed to load. Please reload the extension.');
+    // Show login section as fallback so user can see something
+    showSection('login');
+    // Still try to load stored auth state in case we have a token
+    await loadAuthState();
+    if (currentState.credits !== null) {
+      updateCredits(currentState.credits);
+    }
+    return; // Exit early but UI is visible
+  }
+  
   // Initialize Firebase
   if (!initFirebase()) {
-    showError('Failed to initialize Firebase. Please reload.');
-    return;
+    console.error('[Offerloop Popup] Firebase initialization failed');
+    showError('Failed to initialize Firebase. Please reload the extension.');
+    // Show login section anyway - user can try to reload
+    showSection('login');
+    // Still try to load stored auth state
+    await loadAuthState();
+    if (currentState.credits !== null) {
+      updateCredits(currentState.credits);
+    }
+    return; // Exit early but UI is visible
   }
   
   // Set up auth state listener
