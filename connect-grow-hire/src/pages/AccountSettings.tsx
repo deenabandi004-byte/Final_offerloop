@@ -115,22 +115,78 @@ interface SettingsSectionProps {
 }
 
 const SettingsSection: React.FC<SettingsSectionProps> = ({ id, icon: Icon, title, description, children, variant = 'default' }) => (
-  <div id={id} className={`bg-white rounded-2xl shadow-sm border overflow-hidden scroll-mt-6 ${variant === 'danger' ? 'border-red-200' : 'border-gray-200'}`}>
+  <div
+    id={id}
+    className="scroll-mt-6 overflow-hidden"
+    style={{
+      background: '#FFFFFF',
+      border: variant === 'danger' 
+        ? '1px solid rgba(239, 68, 68, 0.2)' 
+        : '1px solid rgba(37, 99, 235, 0.08)',
+      borderRadius: '14px',
+      boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
+    }}
+  >
     {/* Section Header */}
-    <div className={`px-6 py-5 border-b ${variant === 'danger' ? 'border-red-100 bg-red-50/50' : 'border-gray-100 bg-gray-50/50'}`}>
+    <div
+      style={{
+        padding: '20px 28px',
+        borderBottom: variant === 'danger'
+          ? '1px solid rgba(239, 68, 68, 0.1)'
+          : '1px solid rgba(37, 99, 235, 0.06)',
+        background: variant === 'danger'
+          ? 'rgba(239, 68, 68, 0.03)'
+          : 'rgba(37, 99, 235, 0.02)',
+      }}
+    >
       <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 bg-white rounded-xl border flex items-center justify-center ${variant === 'danger' ? 'border-red-200' : 'border-gray-200'}`}>
-          <Icon className={`w-5 h-5 ${variant === 'danger' ? 'text-red-600' : 'text-gray-600'}`} />
+        <div
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: '10px',
+            background: variant === 'danger'
+              ? 'rgba(239, 68, 68, 0.08)'
+              : 'rgba(37, 99, 235, 0.06)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Icon
+            className="w-5 h-5"
+            style={{ color: variant === 'danger' ? '#DC2626' : '#2563EB' }}
+          />
         </div>
         <div>
-          <h2 className={`text-lg font-semibold ${variant === 'danger' ? 'text-red-600' : 'text-gray-900'}`}>{title}</h2>
-          {description && <p className={`text-sm ${variant === 'danger' ? 'text-red-500' : 'text-gray-500'}`}>{description}</p>}
+          <h2
+            style={{
+              fontFamily: "'DM Sans', system-ui, sans-serif",
+              fontSize: '17px',
+              fontWeight: 600,
+              color: variant === 'danger' ? '#DC2626' : '#0F172A',
+            }}
+          >
+            {title}
+          </h2>
+          {description && (
+            <p
+              style={{
+                fontFamily: "'DM Sans', system-ui, sans-serif",
+                fontSize: '14px',
+                color: variant === 'danger' ? '#EF4444' : '#64748B',
+                marginTop: '2px',
+              }}
+            >
+              {description}
+            </p>
+          )}
         </div>
       </div>
     </div>
-    
+
     {/* Section Content */}
-    <div className="p-6">
+    <div style={{ padding: '28px' }}>
       {children}
     </div>
   </div>
@@ -741,13 +797,33 @@ export default function AccountSettings() {
                           e.preventDefault();
                           document.getElementById(section.id)?.scrollIntoView({ behavior: 'smooth' });
                         }}
-                        className={`
-                          flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all
-                          ${activeSection === section.id 
-                            ? section.id === 'danger' ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'
-                            : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                        className="flex items-center gap-3 px-4 py-3 text-sm font-medium transition-all"
+                        style={{
+                          borderRadius: '10px',
+                          fontFamily: "'DM Sans', system-ui, sans-serif",
+                          background: activeSection === section.id
+                            ? section.id === 'danger'
+                              ? 'rgba(239, 68, 68, 0.06)'
+                              : 'rgba(37, 99, 235, 0.08)'
+                            : 'transparent',
+                          color: activeSection === section.id
+                            ? section.id === 'danger'
+                              ? '#DC2626'
+                              : '#2563EB'
+                            : '#64748B',
+                        }}
+                        onMouseEnter={(e) => {
+                          if (activeSection !== section.id) {
+                            e.currentTarget.style.background = 'rgba(37, 99, 235, 0.04)';
+                            e.currentTarget.style.color = '#334155';
                           }
-                        `}
+                        }}
+                        onMouseLeave={(e) => {
+                          if (activeSection !== section.id) {
+                            e.currentTarget.style.background = 'transparent';
+                            e.currentTarget.style.color = '#64748B';
+                          }
+                        }}
                       >
                         <section.icon className="w-5 h-5" />
                         {section.label}
@@ -770,77 +846,218 @@ export default function AccountSettings() {
                       {/* Name Fields */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">First Name</label>
+                          <label
+                            style={{
+                              display: 'block',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '14px',
+                              fontWeight: 600,
+                              color: '#0F172A',
+                              marginBottom: '6px',
+                            }}
+                          >
+                            First Name
+                          </label>
                           <input
                             type="text"
                             value={personalInfo.firstName}
                             onChange={(e) => setPersonalInfo({ ...personalInfo, firstName: e.target.value })}
-                            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900
-                                       focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                                       hover:border-gray-300 transition-all"
+                            className="w-full transition-all"
+                            style={{
+                              padding: '12px 16px',
+                              borderRadius: '10px',
+                              border: '1px solid rgba(37, 99, 235, 0.12)',
+                              background: '#F8FAFF',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '15px',
+                              color: '#0F172A',
+                              outline: 'none',
+                            }}
+                            onFocus={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.3)';
+                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
+                            }}
+                            onBlur={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                              e.currentTarget.style.boxShadow = 'none';
+                            }}
                           />
                         </div>
                         
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Last Name</label>
+                          <label
+                            style={{
+                              display: 'block',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '14px',
+                              fontWeight: 600,
+                              color: '#0F172A',
+                              marginBottom: '6px',
+                            }}
+                          >
+                            Last Name
+                          </label>
                           <input
                             type="text"
                             value={personalInfo.lastName}
                             onChange={(e) => setPersonalInfo({ ...personalInfo, lastName: e.target.value })}
-                            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900
-                                       focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                                       hover:border-gray-300 transition-all"
+                            className="w-full transition-all"
+                            style={{
+                              padding: '12px 16px',
+                              borderRadius: '10px',
+                              border: '1px solid rgba(37, 99, 235, 0.12)',
+                              background: '#F8FAFF',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '15px',
+                              color: '#0F172A',
+                              outline: 'none',
+                            }}
+                            onFocus={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.3)';
+                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
+                            }}
+                            onBlur={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                              e.currentTarget.style.boxShadow = 'none';
+                            }}
                           />
                         </div>
                       </div>
                       
                       {/* Email Field - Read Only */}
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            color: '#0F172A',
+                            marginBottom: '6px',
+                          }}
+                        >
+                          Email
+                        </label>
                         <div className="relative">
                           <input
                             type="email"
                             value={personalInfo.email}
                             disabled
-                            className="w-full px-4 py-3 pr-10 border border-gray-200 rounded-xl text-gray-500 bg-gray-50 cursor-not-allowed"
+                            style={{
+                              padding: '12px 16px',
+                              paddingRight: '40px',
+                              borderRadius: '10px',
+                              border: '1px solid rgba(37, 99, 235, 0.08)',
+                              background: '#F0F4FD',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '15px',
+                              color: '#94A3B8',
+                              outline: 'none',
+                              cursor: 'not-allowed',
+                              width: '100%',
+                            }}
                           />
                           <div className="absolute inset-y-0 right-0 pr-4 flex items-center">
-                            <Lock className="w-4 h-4 text-gray-400" />
+                            <Lock className="w-4 h-4" style={{ color: '#94A3B8' }} />
                           </div>
                         </div>
-                        <p className="text-xs text-gray-400 mt-1">Contact support to change your email address</p>
+                        <p
+                          style={{
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '13px',
+                            color: '#94A3B8',
+                            marginTop: '6px',
+                          }}
+                        >
+                          Contact support to change your email address
+                        </p>
                       </div>
                       
                       {/* University */}
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">University</label>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            color: '#0F172A',
+                            marginBottom: '6px',
+                          }}
+                        >
+                          University
+                        </label>
                         <div className="relative">
                           <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                            <GraduationCap className="w-5 h-5 text-gray-400" />
+                            <GraduationCap className="w-5 h-5" style={{ color: '#94A3B8' }} />
                           </div>
                           <input
                             type="text"
                             value={personalInfo.university}
                             onChange={(e) => setPersonalInfo({ ...personalInfo, university: e.target.value })}
                             placeholder="e.g. University of Southern California"
-                            className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-xl text-gray-900
-                                       focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                                       hover:border-gray-300 transition-all"
+                            className="w-full transition-all"
+                            style={{
+                              padding: '12px 16px',
+                              paddingLeft: '48px',
+                              borderRadius: '10px',
+                              border: '1px solid rgba(37, 99, 235, 0.12)',
+                              background: '#F8FAFF',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '15px',
+                              color: '#0F172A',
+                              outline: 'none',
+                            }}
+                            onFocus={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.3)';
+                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
+                            }}
+                            onBlur={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                              e.currentTarget.style.boxShadow = 'none';
+                            }}
                           />
                         </div>
                       </div>
                       
                       {/* Phone */}
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Phone</label>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            color: '#0F172A',
+                            marginBottom: '6px',
+                          }}
+                        >
+                          Phone
+                        </label>
                         <input
                           type="tel"
                           value={personalInfo.phone}
                           onChange={(e) => setPersonalInfo({ ...personalInfo, phone: e.target.value })}
                           placeholder="(555) 123-4567"
-                          className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900
-                                     focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                                     hover:border-gray-300 transition-all"
+                          className="w-full transition-all"
+                          style={{
+                            padding: '12px 16px',
+                            borderRadius: '10px',
+                            border: '1px solid rgba(37, 99, 235, 0.12)',
+                            background: '#F8FAFF',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '15px',
+                            color: '#0F172A',
+                            outline: 'none',
+                          }}
+                          onFocus={(e) => {
+                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.3)';
+                            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
+                          }}
+                          onBlur={(e) => {
+                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                            e.currentTarget.style.boxShadow = 'none';
+                          }}
                         />
                       </div>
                     </div>
@@ -857,12 +1074,34 @@ export default function AccountSettings() {
                       {/* Graduation Date */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Graduation Month</label>
+                          <label
+                            style={{
+                              display: 'block',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '14px',
+                              fontWeight: 600,
+                              color: '#0F172A',
+                              marginBottom: '6px',
+                            }}
+                          >
+                            Graduation Month
+                          </label>
                           <Select
                             value={academicInfo.graduationMonth}
                             onValueChange={(value) => setAcademicInfo({ ...academicInfo, graduationMonth: value })}
                           >
-                            <SelectTrigger className="w-full px-4 py-3 border border-gray-200 rounded-xl">
+                            <SelectTrigger
+                              className="w-full"
+                              style={{
+                                padding: '12px 16px',
+                                borderRadius: '10px',
+                                border: '1px solid rgba(37, 99, 235, 0.12)',
+                                background: '#F8FAFF',
+                                fontFamily: "'DM Sans', system-ui, sans-serif",
+                                fontSize: '15px',
+                                color: '#0F172A',
+                              }}
+                            >
                               <SelectValue placeholder="Select month" />
                             </SelectTrigger>
                             <SelectContent>
@@ -876,41 +1115,117 @@ export default function AccountSettings() {
                         </div>
                         
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Graduation Year</label>
+                          <label
+                            style={{
+                              display: 'block',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '14px',
+                              fontWeight: 600,
+                              color: '#0F172A',
+                              marginBottom: '6px',
+                            }}
+                          >
+                            Graduation Year
+                          </label>
                           <input
                             type="text"
                             value={academicInfo.graduationYear}
                             onChange={(e) => setAcademicInfo({ ...academicInfo, graduationYear: e.target.value })}
                             placeholder="2027"
-                            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900
-                                       focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                                       hover:border-gray-300 transition-all"
+                            className="w-full transition-all"
+                            style={{
+                              padding: '12px 16px',
+                              borderRadius: '10px',
+                              border: '1px solid rgba(37, 99, 235, 0.12)',
+                              background: '#F8FAFF',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '15px',
+                              color: '#0F172A',
+                              outline: 'none',
+                            }}
+                            onFocus={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.3)';
+                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
+                            }}
+                            onBlur={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                              e.currentTarget.style.boxShadow = 'none';
+                            }}
                           />
                         </div>
                       </div>
                       
                       {/* Field of Study */}
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Field of Study</label>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            color: '#0F172A',
+                            marginBottom: '6px',
+                          }}
+                        >
+                          Field of Study
+                        </label>
                         <input
                           type="text"
                           value={academicInfo.fieldOfStudy}
                           onChange={(e) => setAcademicInfo({ ...academicInfo, fieldOfStudy: e.target.value })}
                           placeholder="e.g. Data Science, Computer Science"
-                          className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900
-                                     focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                                     hover:border-gray-300 transition-all"
+                          className="w-full transition-all"
+                          style={{
+                            padding: '12px 16px',
+                            borderRadius: '10px',
+                            border: '1px solid rgba(37, 99, 235, 0.12)',
+                            background: '#F8FAFF',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '15px',
+                            color: '#0F172A',
+                            outline: 'none',
+                          }}
+                          onFocus={(e) => {
+                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.3)';
+                            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
+                          }}
+                          onBlur={(e) => {
+                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                            e.currentTarget.style.boxShadow = 'none';
+                          }}
                         />
                       </div>
                       
                       {/* Current Degree */}
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Current Degree</label>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            color: '#0F172A',
+                            marginBottom: '6px',
+                          }}
+                        >
+                          Current Degree
+                        </label>
                         <Select
                           value={academicInfo.currentDegree}
                           onValueChange={(value) => setAcademicInfo({ ...academicInfo, currentDegree: value })}
                         >
-                          <SelectTrigger className="w-full px-4 py-3 border border-gray-200 rounded-xl">
+                          <SelectTrigger
+                            className="w-full"
+                            style={{
+                              padding: '12px 16px',
+                              borderRadius: '10px',
+                              border: '1px solid rgba(37, 99, 235, 0.12)',
+                              background: '#F8FAFF',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '15px',
+                              color: '#0F172A',
+                            }}
+                          >
                             <SelectValue placeholder="Select degree" />
                           </SelectTrigger>
                           <SelectContent>
@@ -934,7 +1249,18 @@ export default function AccountSettings() {
                   >
                     <div className="space-y-6">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-3">Resume</label>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            color: '#0F172A',
+                            marginBottom: '12px',
+                          }}
+                        >
+                          Resume
+                        </label>
                         
                         {resumeData ? (
                           <div className="bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-200 rounded-2xl p-5">
@@ -946,23 +1272,48 @@ export default function AccountSettings() {
                               
                               {/* File Info */}
                               <div className="flex-1 min-w-0">
-                                <h4 className="font-semibold text-gray-900 truncate">{resumeData.fileName || 'Resume.pdf'}</h4>
-                                <div className="mt-2 space-y-1 text-sm text-gray-600">
+                                <h4
+                                  style={{
+                                    fontFamily: "'DM Sans', system-ui, sans-serif",
+                                    fontWeight: 600,
+                                    color: '#0F172A',
+                                    fontSize: '15px',
+                                  }}
+                                  className="truncate"
+                                >
+                                  {resumeData.fileName || 'Resume.pdf'}
+                                </h4>
+                                <div className="mt-2 space-y-1" style={{ fontSize: '14px' }}>
                                   {resumeData.name && (
-                                    <p><span className="text-gray-400">Name:</span> {resumeData.name}</p>
+                                    <p style={{ fontFamily: "'DM Sans', system-ui, sans-serif", color: '#475569' }}>
+                                      <span style={{ color: '#94A3B8' }}>Name:</span> {resumeData.name}
+                                    </p>
                                   )}
                                   {resumeData.university && (
-                                    <p><span className="text-gray-400">University:</span> {resumeData.university}</p>
+                                    <p style={{ fontFamily: "'DM Sans', system-ui, sans-serif", color: '#475569' }}>
+                                      <span style={{ color: '#94A3B8' }}>University:</span> {resumeData.university}
+                                    </p>
                                   )}
                                   {resumeData.major && (
-                                    <p><span className="text-gray-400">Major:</span> {resumeData.major}</p>
+                                    <p style={{ fontFamily: "'DM Sans', system-ui, sans-serif", color: '#475569' }}>
+                                      <span style={{ color: '#94A3B8' }}>Major:</span> {resumeData.major}
+                                    </p>
                                   )}
                                   {resumeData.year && (
-                                    <p><span className="text-gray-400">Year:</span> {resumeData.year}</p>
+                                    <p style={{ fontFamily: "'DM Sans', system-ui, sans-serif", color: '#475569' }}>
+                                      <span style={{ color: '#94A3B8' }}>Year:</span> {resumeData.year}
+                                    </p>
                                   )}
                                 </div>
                                 {resumeData.uploadDate && (
-                                  <p className="text-xs text-gray-400 mt-2">
+                                  <p
+                                    style={{
+                                      fontFamily: "'DM Sans', system-ui, sans-serif",
+                                      fontSize: '13px',
+                                      color: '#94A3B8',
+                                      marginTop: '8px',
+                                    }}
+                                  >
                                     Uploaded: {new Date(resumeData.uploadDate).toLocaleDateString()}
                                   </p>
                                 )}
@@ -999,14 +1350,58 @@ export default function AccountSettings() {
                                   }
                                 }}
                                 disabled={!resumeUrl && !resumeFile}
-                                className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all disabled:opacity-50"
+                                className="flex items-center gap-2 transition-all disabled:opacity-50"
+                                style={{
+                                  padding: '10px 20px',
+                                  borderRadius: '10px',
+                                  border: '1px solid rgba(37, 99, 235, 0.12)',
+                                  background: 'transparent',
+                                  color: '#334155',
+                                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                                  fontSize: '14px',
+                                  fontWeight: 500,
+                                  cursor: 'pointer',
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (!(!resumeUrl && !resumeFile)) {
+                                    e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.25)';
+                                    e.currentTarget.style.color = '#2563EB';
+                                  }
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (!(!resumeUrl && !resumeFile)) {
+                                    e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                                    e.currentTarget.style.color = '#334155';
+                                  }
+                                }}
                               >
                                 <Eye className="w-4 h-4" />
                                 View Full Resume
                               </button>
                               
                               <label className="cursor-pointer">
-                                <span className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all">
+                                <span
+                                  className="flex items-center gap-2 transition-all"
+                                  style={{
+                                    padding: '10px 20px',
+                                    borderRadius: '10px',
+                                    border: '1px solid rgba(37, 99, 235, 0.12)',
+                                    background: 'transparent',
+                                    color: '#334155',
+                                    fontFamily: "'DM Sans', system-ui, sans-serif",
+                                    fontSize: '14px',
+                                    fontWeight: 500,
+                                    cursor: 'pointer',
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.25)';
+                                    e.currentTarget.style.color = '#2563EB';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                                    e.currentTarget.style.color = '#334155';
+                                  }}
+                                >
                                   <RefreshCw className="w-4 h-4" />
                                   Replace Resume
                                 </span>
@@ -1030,20 +1425,69 @@ export default function AccountSettings() {
                           </div>
                         ) : (
                           <label className="cursor-pointer">
-                            <div className="border-2 border-dashed border-gray-300 rounded-2xl p-8 text-center hover:border-blue-400 hover:bg-blue-50/50 transition-all">
-                              <div className="w-14 h-14 bg-gray-100 rounded-xl flex items-center justify-center mx-auto mb-4">
+                            <div
+                              className="text-center transition-all"
+                              style={{
+                                border: '2px dashed rgba(37, 99, 235, 0.15)',
+                                borderRadius: '12px',
+                                background: '#F8FAFF',
+                                padding: '32px',
+                                cursor: 'pointer',
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.border = '2px dashed rgba(37, 99, 235, 0.3)';
+                                e.currentTarget.style.background = 'rgba(37, 99, 235, 0.03)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.border = '2px dashed rgba(37, 99, 235, 0.15)';
+                                e.currentTarget.style.background = '#F8FAFF';
+                              }}
+                            >
+                              <div
+                                className="rounded-xl flex items-center justify-center mx-auto mb-4"
+                                style={{
+                                  width: 56,
+                                  height: 56,
+                                  background: 'rgba(37, 99, 235, 0.06)',
+                                }}
+                              >
                                 {isUploading ? (
                                   <div className="w-7 h-7 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
                                 ) : (
-                                  <Upload className="w-7 h-7 text-gray-400" />
+                                  <Upload className="w-7 h-7" style={{ color: '#64748B' }} />
                                 )}
                               </div>
-                              <p className="font-medium text-gray-700 mb-1">
+                              <p
+                                style={{
+                                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                                  fontWeight: 500,
+                                  color: '#334155',
+                                  marginBottom: '4px',
+                                  fontSize: '15px',
+                                }}
+                              >
                                 {isUploading ? "Processing resume..." : "Upload your resume"}
                               </p>
-                              <p className="text-sm text-gray-500">PDF, DOC, or DOCX up to 10MB</p>
+                              <p
+                                style={{
+                                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                                  fontSize: '14px',
+                                  color: '#64748B',
+                                }}
+                              >
+                                PDF, DOC, or DOCX up to 10MB
+                              </p>
                               {uploadError && (
-                                <p className="text-sm text-red-600 mt-2">{uploadError}</p>
+                                <p
+                                  style={{
+                                    fontFamily: "'DM Sans', system-ui, sans-serif",
+                                    fontSize: '14px',
+                                    color: '#DC2626',
+                                    marginTop: '8px',
+                                  }}
+                                >
+                                  {uploadError}
+                                </p>
                               )}
                             </div>
                             <input
@@ -1069,13 +1513,28 @@ export default function AccountSettings() {
                     <div className="space-y-6">
                       {/* Industries of Interest */}
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Industries of Interest</label>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            color: '#0F172A',
+                            marginBottom: '6px',
+                          }}
+                        >
+                          Industries of Interest
+                        </label>
                         <Popover open={industriesOpen} onOpenChange={setIndustriesOpen}>
                           <PopoverTrigger asChild>
                             <Button
                               variant="outline"
                               role="combobox"
-                              className="w-full justify-between border-gray-200 rounded-xl py-3 h-auto"
+                              className="w-full justify-between rounded-xl py-3 h-auto"
+                              style={{
+                                border: '1px solid rgba(37, 99, 235, 0.12)',
+                                borderRadius: '10px',
+                              }}
                             >
                               {careerInfo.industriesOfInterest.length > 0
                                 ? `${careerInfo.industriesOfInterest.length} selected`
@@ -1124,7 +1583,16 @@ export default function AccountSettings() {
                             {careerInfo.industriesOfInterest.map((industry) => (
                               <span 
                                 key={industry}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-100 text-blue-700 text-sm font-medium rounded-full"
+                                className="inline-flex items-center gap-1"
+                                style={{
+                                  padding: '4px 10px',
+                                  borderRadius: '6px',
+                                  background: 'rgba(37, 99, 235, 0.08)',
+                                  color: '#2563EB',
+                                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                                  fontSize: '13px',
+                                  fontWeight: 500,
+                                }}
                               >
                                 {industry}
                                 <button 
@@ -1132,7 +1600,18 @@ export default function AccountSettings() {
                                     ...careerInfo,
                                     industriesOfInterest: careerInfo.industriesOfInterest.filter(i => i !== industry)
                                   })}
-                                  className="hover:bg-blue-200 rounded-full p-0.5"
+                                  className="rounded-full p-0.5"
+                                  style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = 'rgba(37, 99, 235, 0.15)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = 'transparent';
+                                  }}
                                 >
                                   <X className="w-3.5 h-3.5" />
                                 </button>
@@ -1144,27 +1623,69 @@ export default function AccountSettings() {
                       
                       {/* Preferred Job Roles */}
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Preferred Job Roles/Titles</label>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            color: '#0F172A',
+                            marginBottom: '6px',
+                          }}
+                        >
+                          Preferred Job Roles/Titles
+                        </label>
                         <input
                           type="text"
                           value={careerInfo.preferredJobRole}
                           onChange={(e) => setCareerInfo({ ...careerInfo, preferredJobRole: e.target.value })}
                           placeholder="e.g. Associate Consultant, Analyst"
-                          className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900
-                                     focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                                     hover:border-gray-300 transition-all"
+                          className="w-full transition-all"
+                          style={{
+                            padding: '12px 16px',
+                            borderRadius: '10px',
+                            border: '1px solid rgba(37, 99, 235, 0.12)',
+                            background: '#F8FAFF',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '15px',
+                            color: '#0F172A',
+                            outline: 'none',
+                          }}
+                          onFocus={(e) => {
+                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.3)';
+                            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
+                          }}
+                          onBlur={(e) => {
+                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                            e.currentTarget.style.boxShadow = 'none';
+                          }}
                         />
                       </div>
                       
                       {/* Preferred Locations */}
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Preferred Locations</label>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            color: '#0F172A',
+                            marginBottom: '6px',
+                          }}
+                        >
+                          Preferred Locations
+                        </label>
                         <Popover open={locationsOpen} onOpenChange={setLocationsOpen}>
                           <PopoverTrigger asChild>
                             <Button
                               variant="outline"
                               role="combobox"
-                              className="w-full justify-between border-gray-200 rounded-xl py-3 h-auto"
+                              className="w-full justify-between rounded-xl py-3 h-auto"
+                              style={{
+                                border: '1px solid rgba(37, 99, 235, 0.12)',
+                                borderRadius: '10px',
+                              }}
                             >
                               {careerInfo.preferredLocations.length > 0
                                 ? `${careerInfo.preferredLocations.length} selected`
@@ -1213,7 +1734,16 @@ export default function AccountSettings() {
                             {careerInfo.preferredLocations.map((location) => (
                               <span 
                                 key={location}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-100 text-blue-700 text-sm font-medium rounded-full"
+                                className="inline-flex items-center gap-1"
+                                style={{
+                                  padding: '4px 10px',
+                                  borderRadius: '6px',
+                                  background: 'rgba(37, 99, 235, 0.08)',
+                                  color: '#2563EB',
+                                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                                  fontSize: '13px',
+                                  fontWeight: 500,
+                                }}
                               >
                                 {location}
                                 <button 
@@ -1221,7 +1751,18 @@ export default function AccountSettings() {
                                     ...careerInfo,
                                     preferredLocations: careerInfo.preferredLocations.filter(l => l !== location)
                                   })}
-                                  className="hover:bg-blue-200 rounded-full p-0.5"
+                                  className="rounded-full p-0.5"
+                                  style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = 'rgba(37, 99, 235, 0.15)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = 'transparent';
+                                  }}
                                 >
                                   <X className="w-3.5 h-3.5" />
                                 </button>
@@ -1233,25 +1774,38 @@ export default function AccountSettings() {
                       
                       {/* Job Types */}
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-3">Job Type(s) Interested in</label>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            color: '#0F172A',
+                            marginBottom: '12px',
+                          }}
+                        >
+                          Job Type(s) Interested in
+                        </label>
                         <div className="space-y-3">
                           {jobTypesOptions.map((jobType) => (
                             <label 
                               key={jobType}
                               className="flex items-center gap-3 cursor-pointer group"
                             >
-                              <div className={`
-                                w-5 h-5 rounded border-2 flex items-center justify-center transition-all
-                                ${careerInfo.jobTypes.includes(jobType)
-                                  ? 'bg-blue-600 border-blue-600'
-                                  : 'border-gray-300 group-hover:border-blue-400'
-                                }
-                              `}>
+                              <div
+                                className="w-5 h-5 rounded border-2 flex items-center justify-center transition-all"
+                                style={{
+                                  borderColor: careerInfo.jobTypes.includes(jobType)
+                                    ? '#2563EB'
+                                    : 'rgba(37, 99, 235, 0.2)',
+                                  background: careerInfo.jobTypes.includes(jobType) ? '#2563EB' : 'transparent',
+                                }}
+                              >
                                 {careerInfo.jobTypes.includes(jobType) && (
                                   <Check className="w-3.5 h-3.5 text-white" />
                                 )}
                               </div>
-                              <span className="text-gray-700">{jobType}</span>
+                              <span style={{ fontFamily: "'DM Sans', system-ui, sans-serif", color: '#334155' }}>{jobType}</span>
                               <input
                                 type="checkbox"
                                 checked={careerInfo.jobTypes.includes(jobType)}
@@ -1280,7 +1834,31 @@ export default function AccountSettings() {
                         <button 
                           onClick={handleSaveOnboardingData}
                           disabled={isSaving}
-                          className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 hover:shadow-lg hover:shadow-blue-500/30 transition-all disabled:opacity-50 flex items-center gap-2"
+                          className="flex items-center gap-2 transition-all disabled:opacity-50"
+                          style={{
+                            padding: '12px 28px',
+                            borderRadius: '10px',
+                            border: 'none',
+                            background: '#2563EB',
+                            color: 'white',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '15px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            boxShadow: '0 1px 3px rgba(37, 99, 235, 0.2)',
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isSaving) {
+                              e.currentTarget.style.background = '#1d4ed8';
+                              e.currentTarget.style.boxShadow = '0 2px 8px rgba(37, 99, 235, 0.3)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isSaving) {
+                              e.currentTarget.style.background = '#2563EB';
+                              e.currentTarget.style.boxShadow = '0 1px 3px rgba(37, 99, 235, 0.2)';
+                            }
+                          }}
                         >
                           {isSaving ? (
                             <>
@@ -1304,23 +1882,87 @@ export default function AccountSettings() {
                   >
                     <div className="space-y-4">
                       {/* Subscription */}
-                      <div className="flex flex-col md:flex-row items-start md:items-center justify-between p-5 bg-gray-50 rounded-xl gap-4">
+                      <div
+                        className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
+                        style={{
+                          padding: '20px',
+                          borderRadius: '12px',
+                          background: '#F8FAFF',
+                          border: '1px solid rgba(37, 99, 235, 0.06)',
+                        }}
+                      >
                         <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center">
-                            <CreditCard className="w-6 h-6 text-white" />
+                          <div
+                            style={{
+                              width: 48,
+                              height: 48,
+                              borderRadius: '12px',
+                              background: 'rgba(37, 99, 235, 0.08)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <CreditCard className="w-6 h-6" style={{ color: '#2563EB' }} />
                           </div>
                           <div>
-                            <h4 className="font-semibold text-gray-900">Subscription</h4>
-                            <p className="text-sm text-gray-500">Manage your subscription plan and billing settings</p>
+                            <h4
+                              style={{
+                                fontFamily: "'DM Sans', system-ui, sans-serif",
+                                fontWeight: 600,
+                                color: '#0F172A',
+                                fontSize: '15px',
+                              }}
+                            >
+                              Subscription
+                            </h4>
+                            <p
+                              style={{
+                                fontFamily: "'DM Sans', system-ui, sans-serif",
+                                fontSize: '14px',
+                                color: '#64748B',
+                                marginTop: '2px',
+                              }}
+                            >
+                              Manage your subscription plan and billing settings
+                            </p>
                             {user?.tier && (
-                              <p className="text-sm text-gray-400 mt-0.5">Current: <span className="font-medium text-gray-700 capitalize">{user.tier} Tier</span></p>
+                              <p
+                                style={{
+                                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                                  fontSize: '13px',
+                                  color: '#94A3B8',
+                                  marginTop: '4px',
+                                }}
+                              >
+                                Current: <span style={{ fontWeight: 500, color: '#334155', textTransform: 'capitalize' }}>{user.tier} Tier</span>
+                              </p>
                             )}
                           </div>
                         </div>
                         
                         <button 
                           onClick={handleManageSubscription}
-                          className="flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all"
+                          className="flex items-center gap-2 transition-all"
+                          style={{
+                            padding: '10px 20px',
+                            borderRadius: '10px',
+                            border: '1px solid rgba(37, 99, 235, 0.12)',
+                            background: 'transparent',
+                            color: '#334155',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '14px',
+                            fontWeight: 500,
+                            cursor: 'pointer',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.25)';
+                            e.currentTarget.style.color = '#2563EB';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                            e.currentTarget.style.color = '#334155';
+                          }}
                         >
                           <CreditCard className="w-4 h-4" />
                           Manage Subscription
@@ -1328,20 +1970,75 @@ export default function AccountSettings() {
                       </div>
                       
                       {/* Sign Out */}
-                      <div className="flex flex-col md:flex-row items-start md:items-center justify-between p-5 bg-gray-50 rounded-xl gap-4">
+                      <div
+                        className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
+                        style={{
+                          padding: '20px',
+                          borderRadius: '12px',
+                          background: '#F8FAFF',
+                          border: '1px solid rgba(37, 99, 235, 0.06)',
+                        }}
+                      >
                         <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 bg-gray-200 rounded-xl flex items-center justify-center">
-                            <LogOut className="w-6 h-6 text-gray-600" />
+                          <div
+                            style={{
+                              width: 48,
+                              height: 48,
+                              borderRadius: '12px',
+                              background: 'rgba(37, 99, 235, 0.06)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <LogOut className="w-6 h-6" style={{ color: '#64748B' }} />
                           </div>
                           <div>
-                            <h4 className="font-semibold text-gray-900">Sign Out</h4>
-                            <p className="text-sm text-gray-500">Sign out of your account on this device</p>
+                            <h4
+                              style={{
+                                fontFamily: "'DM Sans', system-ui, sans-serif",
+                                fontWeight: 600,
+                                color: '#0F172A',
+                                fontSize: '15px',
+                              }}
+                            >
+                              Sign Out
+                            </h4>
+                            <p
+                              style={{
+                                fontFamily: "'DM Sans', system-ui, sans-serif",
+                                fontSize: '14px',
+                                color: '#64748B',
+                                marginTop: '2px',
+                              }}
+                            >
+                              Sign out of your account on this device
+                            </p>
                           </div>
                         </div>
                         
                         <button 
                           onClick={handleSignOut}
-                          className="flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all"
+                          className="flex items-center gap-2 transition-all"
+                          style={{
+                            padding: '10px 20px',
+                            borderRadius: '10px',
+                            border: '1px solid rgba(37, 99, 235, 0.12)',
+                            background: 'transparent',
+                            color: '#334155',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '14px',
+                            fontWeight: 500,
+                            cursor: 'pointer',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.25)';
+                            e.currentTarget.style.color = '#2563EB';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                            e.currentTarget.style.color = '#334155';
+                          }}
                         >
                           <LogOut className="w-4 h-4" />
                           Sign Out
@@ -1360,14 +2057,51 @@ export default function AccountSettings() {
                   >
                     <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                       <div>
-                        <h4 className="font-semibold text-red-600">Delete your account</h4>
-                        <p className="text-sm text-gray-600 mt-1 max-w-md">
+                        <h4
+                          style={{
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontWeight: 600,
+                            color: '#DC2626',
+                            fontSize: '15px',
+                          }}
+                        >
+                          Delete your account
+                        </h4>
+                        <p
+                          style={{
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '14px',
+                            color: '#475569',
+                            marginTop: '4px',
+                            maxWidth: '448px',
+                          }}
+                        >
                           This will permanently delete your account and all your data. This action cannot be undone.
                         </p>
                       </div>
                       
                       <button 
-                        className="flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white font-medium rounded-xl hover:bg-red-700 hover:shadow-lg hover:shadow-red-500/30 transition-all"
+                        className="flex items-center gap-2 transition-all"
+                        style={{
+                          padding: '10px 20px',
+                          borderRadius: '10px',
+                          border: 'none',
+                          background: '#DC2626',
+                          color: 'white',
+                          fontFamily: "'DM Sans', system-ui, sans-serif",
+                          fontSize: '14px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          boxShadow: '0 1px 3px rgba(220, 38, 38, 0.2)',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#B91C1C';
+                          e.currentTarget.style.boxShadow = '0 2px 8px rgba(220, 38, 38, 0.3)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = '#DC2626';
+                          e.currentTarget.style.boxShadow = '0 1px 3px rgba(220, 38, 38, 0.2)';
+                        }}
                       >
                         <Trash2 className="w-4 h-4" />
                         Delete account
@@ -1386,19 +2120,55 @@ export default function AccountSettings() {
       {/* Success Toast */}
       {showSaveToast && (
         <div className="fixed bottom-6 right-6 z-50 animate-fadeInUp">
-          <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-4 flex items-center gap-3">
-            <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-              <CheckCircle className="w-6 h-6 text-green-600" />
+          <div
+            style={{
+              background: '#FFFFFF',
+              borderRadius: '12px',
+              border: '1px solid rgba(37, 99, 235, 0.08)',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
+              padding: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+            }}
+          >
+            <div
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: '50%',
+                background: 'rgba(34, 197, 94, 0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <CheckCircle className="w-6 h-6" style={{ color: '#22C55E' }} />
             </div>
             <div>
-              <p className="font-medium text-gray-900">Changes saved!</p>
-              <p className="text-sm text-gray-500">Your settings have been updated</p>
+              <p style={{ fontFamily: "'DM Sans'", fontWeight: 600, color: '#0F172A', fontSize: '14px' }}>
+                Changes saved!
+              </p>
+              <p style={{ fontFamily: "'DM Sans'", color: '#64748B', fontSize: '13px' }}>
+                Your settings have been updated
+              </p>
             </div>
             <button 
               onClick={() => setShowSaveToast(false)}
-              className="p-1 hover:bg-gray-100 rounded-lg ml-2"
+              className="p-1 rounded-lg ml-2"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#F8FAFF';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+              }}
             >
-              <X className="w-5 h-5 text-gray-400" />
+              <X className="w-5 h-5" style={{ color: '#94A3B8' }} />
             </button>
           </div>
         </div>

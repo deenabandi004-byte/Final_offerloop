@@ -395,22 +395,6 @@ const Index = () => {
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-[1fr_1.15fr] gap-[72px] items-center">
           {/* Left Column - Text */}
           <div style={{ marginTop: '-40px' }}>
-            {/* Social proof line */}
-            <div
-              className="hero-fade-up hero-fade-up-delay-0"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                marginBottom: 28,
-                fontSize: 13,
-                fontWeight: 500,
-                color: 'var(--text-tertiary)',
-                letterSpacing: '0.02em',
-                fontFamily: 'var(--font-body)',
-              }}
-            >
-              USC, UCLA, NYU, UC Berkeley, UCSD, UC Irvine &amp; more
-            </div>
             <h1
               className="hero-fade-up hero-fade-up-delay-1 hero-headline"
               style={{
