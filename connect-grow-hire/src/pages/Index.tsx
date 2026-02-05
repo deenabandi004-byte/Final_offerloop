@@ -1,590 +1,342 @@
 // src/pages/Index.tsx
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Check, ArrowRight, Twitter, Linkedin, Instagram, Menu, X, Calendar as CalendarIconLucide, ChevronDown, Play } from 'lucide-react';
-// Removed SidebarProvider and AppSidebar - landing page should be public without sidebar
+import { ArrowRight, Menu, X, Check, Search } from 'lucide-react';
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
-import { ExpandablePrivacyLock } from '@/components/ExpandablePrivacyLock';
-import { GranolaBackground } from '@/components/GranolaBackground';
 import OfferloopLogo from '@/assets/offerloop_logo2.png';
-import AnimatedDots from '@/components/AnimatedDots';
-import TextType from '@/components/TextType';
-import Marquee from "react-fast-marquee";
-import UniversityLogos from '@/components/UniversityLogos';
-import ExtensionShowcase from '@/components/ExtensionShowcase';
-import ScoutAsleep from '@/assets/ScoutAsleep.mp4';
-import ScaredScout from '@/assets/scaredscout.mp4';
-import ScoutGirlSad from '@/assets/Scoutgirlsad.mp4';
-import WebsiteFeatureWalkthrough from '@/assets/Website Feature Walkthrough.mp4';
-// How It Works video imports
-import HowItWorksCompanies from '@/assets/howitworkscompanies.mp4';
-import HowItWorksContactSearch from '@/assets/howitworkscontactsearch.mp4';
-import HowItWorksCoffeeChat from '@/assets/howitworkscoffeechat.mp4';
-import HowItWorksHiringManager from '@/assets/howitworkshiringmanager.mp4';
-import HowItWorksResumeCV from '@/assets/howitworksresume&cv.mp4';
-import HowItWorksInterviewPrep from '@/assets/howitworksinterviewprep.mp4';
-// Testimonials imports
-import DylanRoby from "@/assets/DylanRoby.png";
-import SaraUcuzoglu from "@/assets/SaraU.png";
-import JacksonLeck from "@/assets/JacksonLeck.png";
-import FiveStarReview from "@/assets/5StarReview.png";
-import EliHamou from "@/assets/EliHamou.png";
-import LucasTurcuato from "@/assets/LucasTurcuato.png";
-import McKinseyLogo from "@/assets/McKinsey.png";
-import EvercoreLogo from "@/assets/Evercore.png";
-import GoldmanSachsLogo from "@/assets/GoldmanSachs.png";
-import BainLogo from "@/assets/McKinsey.png";
-import MorganStanleyLogo from "@/assets/MorganStanley.png";
-import BlackstoneLogo from "@/assets/Blackstone.png";
-import PwCLogo from "@/assets/PwC.png";
-import JPMorganLogo from "@/assets/JPMorgan.png";
-import BarclaysLogo from "@/assets/Barclays.png";
-// Logo imports for Works With section
-import LinkedInLogo from '@/assets/LinkedIn_logo.png';
-import GoogleLogo from '@/assets/Googlelogo.png';
-import ExcelLogo from '@/assets/excel_logo.png';
-import OutlookLogo from '@/assets/outlook_logo.png';
-import ZoomLogo from '@/assets/zoom_logo.png';
-import AppleMailLogo from '@/assets/applemail.png';
-import AppleNumbersLogo from '@/assets/applenumberslogo-removebg-preview.png';
-import AppleCalendarLogo from '@/assets/applecalendarlogo.png';
-import GoogleCalendarLogo from '@/assets/Googlecalendar.png';
-import GmailLogo from '@/assets/Gmaillogopng.png';
-import GoogleSheetsLogo from '@/assets/sheetslogo.png';
+import ContactSearchSS from '@/assets/contactsearchss .png';
+import CoffeeChatPrepSS from '@/assets/coffeechatprepss.png';
+import SearchIcon from '@/assets/sidebaricons/icons8-magnifying-glass-50.png';
+import TrackIcon from '@/assets/sidebaricons/icons8-important-mail-48.png';
+import CoffeeIcon from '@/assets/sidebaricons/icons8-cup-48.png';
+import InterviewIcon from '@/assets/sidebaricons/icons8-briefcase-48.png';
 
-// Sidebar icons for Features mega-menu
-import BriefcaseIcon from '@/assets/sidebaricons/icons8-briefcase-48.png';
-import BuildingIcon from '@/assets/sidebaricons/icons8-building-50.png';
-import BuildingIcon2 from '@/assets/sidebaricons/icons8-building-50 2.png';
-import CupIcon from '@/assets/sidebaricons/icons8-cup-48.png';
-import FindUserIcon from '@/assets/sidebaricons/icons8-find-user-male-48 (1).png';
-import MailIcon from '@/assets/sidebaricons/icons8-important-mail-48.png';
-import MagnifyingGlassIcon from '@/assets/sidebaricons/icons8-magnifying-glass-50.png';
-import PaperIcon from '@/assets/sidebaricons/icons8-paper-48.png';
-import PeopleIcon from '@/assets/sidebaricons/icons8-people-working-together-48.png';
-import WriteIcon from '@/assets/sidebaricons/icons8-write-48.png';
-import ScheduleIcon from '@/assets/icons8-schedule-50.png';
-
-// Feature item component for mega-menu
-const FeatureItem = ({ icon, title, description, onClick }: { icon: string; title: string; description: string; onClick?: () => void }) => (
-  <button
-    onClick={onClick}
-    className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors w-full text-left group"
-  >
-    <div className="w-10 h-10 rounded-lg bg-[#3B82F6] flex items-center justify-center flex-shrink-0">
-      <img 
-        src={icon} 
-        alt="" 
-        className="w-5 h-5"
-        style={{ filter: 'brightness(0) invert(1)' }}
-      />
-    </div>
-    <div className="flex flex-col min-w-0">
-      <span className="font-medium text-gray-800 group-hover:text-[#3B82F6] transition-colors">{title}</span>
-      <span className="text-sm text-gray-500 line-clamp-3">{description}</span>
-    </div>
-  </button>
-);
-
-// Calendar icon feature item (using custom schedule icon)
-const FeatureItemCalendar = ({ title, description, onClick }: { title: string; description: string; onClick?: () => void }) => (
-  <button
-    onClick={onClick}
-    className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors w-full text-left group"
-  >
-    <div className="w-10 h-10 rounded-lg bg-[#3B82F6] flex items-center justify-center flex-shrink-0">
-      <img 
-        src={ScheduleIcon} 
-        alt="" 
-        className="w-5 h-5"
-        style={{ filter: 'brightness(0) invert(1)' }}
-      />
-    </div>
-    <div className="flex flex-col min-w-0">
-      <span className="font-medium text-gray-800 group-hover:text-[#3B82F6] transition-colors">{title}</span>
-      <span className="text-sm text-gray-500 line-clamp-3">{description}</span>
-    </div>
-  </button>
-);
-
-// Wrapper component to retrigger typing animation on scroll
-const RetriggerableTextType = ({ text, className, ...props }: { text: string; className?: string; [key: string]: any }) => {
-  const [key, setKey] = useState(0);
-  const wasOutOfViewRef = useRef(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            // If it was previously out of view and now comes back, retrigger the animation
-            if (wasOutOfViewRef.current) {
-              setKey((prev) => prev + 1);
-              wasOutOfViewRef.current = false;
-            }
-          } else {
-            // Mark that it went out of view
-            wasOutOfViewRef.current = true;
-          }
-        });
-      },
-      { threshold: 0.1 }
-    );
-
-    observer.observe(containerRef.current);
-
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <div ref={containerRef}>
-      <TextType
-        key={key}
-        text={text}
-        as="span"
-        className={className}
-        typingSpeed={100}
-        loop={false}
-        startOnVisible={true}
-        showCursor={false}
-        {...props}
-      />
-    </div>
-  );
-};
-// TODO: Add your three background images to the assets folder and import them here:
-// import cityscapeImage from '@/assets/cityscape.jpg';
-// import officeImage from '@/assets/office.jpg';
-// import coffeeShopImage from '@/assets/coffee-shop.jpg';
-
-
-// Environment scene backgrounds - Visible cityscape layers for glass effect (unused but kept for potential future use)
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const SCENE_BACKGROUNDS = [
-  `radial-gradient(ellipse 800px 600px at 25% 65%, rgba(13, 148, 136, 0.4) 0%, transparent 50%),
-   radial-gradient(ellipse 600px 500px at 75% 55%, rgba(6, 182, 212, 0.35) 0%, transparent 50%),
-   radial-gradient(ellipse 500px 400px at 50% 75%, rgba(16, 185, 129, 0.3) 0%, transparent 45%),
-   linear-gradient(180deg, #0a2e2e 0%, #0d3838 50%, #0a2a2a 100%)`,
-  `radial-gradient(ellipse 700px 550px at 20% 70%, rgba(16, 185, 129, 0.38) 0%, transparent 48%),
-   radial-gradient(ellipse 650px 500px at 80% 50%, rgba(13, 148, 136, 0.36) 0%, transparent 47%),
-   radial-gradient(ellipse 550px 450px at 45% 80%, rgba(6, 182, 212, 0.32) 0%, transparent 46%),
-   linear-gradient(180deg, #0c2f2f 0%, #0e3636 50%, #0b2b2b 100%)`,
-  `radial-gradient(ellipse 750px 600px at 50% 60%, rgba(6, 182, 212, 0.42) 0%, transparent 50%),
-   radial-gradient(ellipse 600px 480px at 30% 50%, rgba(13, 148, 136, 0.35) 0%, transparent 48%),
-   radial-gradient(ellipse 520px 420px at 70% 70%, rgba(16, 185, 129, 0.33) 0%, transparent 45%),
-   linear-gradient(180deg, #0a2d2d 0%, #0d3535 50%, #0a2929 100%)`,
-  `radial-gradient(ellipse 680px 580px at 60% 68%, rgba(13, 148, 136, 0.39) 0%, transparent 49%),
-   radial-gradient(ellipse 620px 510px at 35% 55%, rgba(16, 185, 129, 0.34) 0%, transparent 46%),
-   radial-gradient(ellipse 560px 460px at 75% 75%, rgba(6, 182, 212, 0.31) 0%, transparent 44%),
-   linear-gradient(180deg, #0b2e2e 0%, #0e3737 50%, #0b2a2a 100%)`,
-  `radial-gradient(ellipse 720px 590px at 40% 65%, rgba(6, 182, 212, 0.4) 0%, transparent 50%),
-   radial-gradient(ellipse 660px 520px at 72% 58%, rgba(13, 148, 136, 0.37) 0%, transparent 48%),
-   radial-gradient(ellipse 580px 470px at 55% 78%, rgba(16, 185, 129, 0.32) 0%, transparent 46%),
-   linear-gradient(180deg, #0a2c2c 0%, #0d3434 50%, #0a2828 100%)`,
-  `radial-gradient(ellipse 690px 570px at 48% 67%, rgba(16, 185, 129, 0.38) 0%, transparent 49%),
-   radial-gradient(ellipse 630px 505px at 68% 52%, rgba(6, 182, 212, 0.35) 0%, transparent 47%),
-   radial-gradient(ellipse 570px 465px at 32% 73%, rgba(13, 148, 136, 0.33) 0%, transparent 45%),
-   linear-gradient(180deg, #0b2d2d 0%, #0e3636 50%, #0b2929 100%)`,
-];
-
+const TYPING_TEXT = 'land a job.';
 
 const Index = () => {
-  console.log("🏠 [INDEX] Component rendering");
   const navigate = useNavigate();
   const { user } = useFirebaseAuth();
-  console.log("🏠 [INDEX] User state:", { hasUser: !!user, email: user?.email || "none" });
-  const effectiveUser = user || {
-    credits: 0,
-    maxCredits: 0,
-    name: "User",
-    email: "user@example.com",
-    tier: "free",
-  } as const;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [activeScene, setActiveScene] = useState(0);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [parallaxOffset, setParallaxOffset] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [featuresMenuOpen, setFeaturesMenuOpen] = useState(false);
-  const [isDesktop, setIsDesktop] = useState(false);
-  const featuresMenuTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const sectionRefs = useRef<(HTMLElement | null)[]>([]);
-  
-  // Helper functions for features menu hover
-  const handleFeaturesMenuEnter = () => {
-    if (featuresMenuTimeoutRef.current) {
-      clearTimeout(featuresMenuTimeoutRef.current);
-      featuresMenuTimeoutRef.current = null;
-    }
-    setFeaturesMenuOpen(true);
-  };
-  
-  const handleFeaturesMenuLeave = () => {
-    featuresMenuTimeoutRef.current = setTimeout(() => {
-      setFeaturesMenuOpen(false);
-    }, 150);
-  };
+  const [navbarScrolled, setNavbarScrolled] = useState(false);
+  const [displayedText, setDisplayedText] = useState('');
+  const [showCursor, setShowCursor] = useState(true);
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const [showBackToTop, setShowBackToTop] = useState(false);
+  const [konamiActivated, setKonamiActivated] = useState(false);
+  const heroRef = useRef<HTMLDivElement>(null);
+  const dashboardRef = useRef<HTMLDivElement>(null);
 
-  // Track window size for responsive zigzag effect
-  useEffect(() => {
-    const checkDesktop = () => {
-      setIsDesktop(window.innerWidth >= 768);
-    };
-    
-    checkDesktop();
-    window.addEventListener('resize', checkDesktop);
-    return () => window.removeEventListener('resize', checkDesktop);
-  }, []);
-
-  // Handle scroll for scene transitions and parallax
+  // Navbar scroll behavior, scroll progress, and back to top
   useEffect(() => {
     const handleScroll = () => {
-      const scrollY = window.scrollY;
-      const windowHeight = window.innerHeight;
+      setNavbarScrolled(window.scrollY > 50);
+      setShowBackToTop(window.scrollY > 600); // Show after scrolling past hero
       
-      // Parallax effect (Layer 1 moves slower)
-      setParallaxOffset(scrollY * 0.3);
-      
-      // Determine active scene based on scroll position
-      sectionRefs.current.forEach((section, index) => {
-        if (section) {
-          const rect = section.getBoundingClientRect();
-          if (rect.top <= windowHeight * 0.5 && rect.bottom >= windowHeight * 0.5) {
-            setActiveScene(index);
-          }
-        }
-      });
+      // Scroll progress tracking
+      const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
+      const progress = (window.scrollY / totalHeight) * 100;
+      setScrollProgress(progress);
     };
-
+    
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Background images array - add your three images here once they're in the assets folder
-  const backgroundImages: string[] = [
-    // Uncomment and update these once you add the images:
-    // cityscapeImage,
-    // officeImage,
-    // coffeeShopImage,
-  ];
+  // Hero 3D tilt effect
+  useEffect(() => {
+    if (!dashboardRef.current || window.innerWidth <= 900) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!heroRef.current || !dashboardRef.current) return;
+      const rect = heroRef.current.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width - 0.5;
+      const y = (e.clientY - rect.top) / rect.height - 0.5;
+      
+      const productElement = dashboardRef.current.querySelector('.hero-product') as HTMLElement;
+      if (productElement) {
+        productElement.style.transform = `rotateY(${x * 3}deg) rotateX(${-y * 2}deg)`;
+      }
+    };
+
+    const handleMouseLeave = () => {
+      if (dashboardRef.current) {
+        const productElement = dashboardRef.current.querySelector('.hero-product') as HTMLElement;
+        if (productElement) {
+          productElement.style.transform = 'rotateY(0deg) rotateX(0deg)';
+        }
+      }
+    };
+
+    const hero = heroRef.current;
+    if (hero) {
+      hero.addEventListener('mousemove', handleMouseMove);
+      hero.addEventListener('mouseleave', handleMouseLeave);
+      return () => {
+        hero.removeEventListener('mousemove', handleMouseMove);
+        hero.removeEventListener('mouseleave', handleMouseLeave);
+      };
+    }
+  }, []);
+
+  // Scroll reveal animations
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+          }
+        });
+      },
+      { threshold: 0.1, rootMargin: '0px 0px -30px 0px' }
+    );
+
+    const elements = document.querySelectorAll('.reveal');
+    elements.forEach((el) => observer.observe(el));
+
+    return () => {
+      elements.forEach((el) => observer.unobserve(el));
+    };
+  }, []);
+
+  // Typing animation
+  useEffect(() => {
+    // Delay before starting (let hero fade in first)
+    const startDelay = setTimeout(() => {
+      let currentIndex = 0;
+      
+      const typeNextLetter = () => {
+        if (currentIndex <= TYPING_TEXT.length) {
+          setDisplayedText(TYPING_TEXT.slice(0, currentIndex));
+          currentIndex++;
+          
+          // Variable speed: slower for spaces and punctuation
+          const currentChar = TYPING_TEXT[currentIndex - 1];
+          let delay = 90; // Base speed (ms per character)
+          
+          if (currentChar === ' ') delay = 120;
+          if (currentChar === '.') delay = 200;
+          
+          if (currentIndex <= TYPING_TEXT.length) {
+            setTimeout(typeNextLetter, delay);
+          } else {
+            // Typing complete, hide cursor after a moment
+            setTimeout(() => setShowCursor(false), 800);
+          }
+        }
+      };
+      
+      typeNextLetter();
+    }, 600); // Start after 600ms (hero fade-in)
+    
+    return () => clearTimeout(startDelay);
+  }, []);
+
+  // Konami code easter egg
+  useEffect(() => {
+    const konamiCode = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'KeyB', 'KeyA'];
+    let konamiIndex = 0;
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === konamiCode[konamiIndex]) {
+        konamiIndex++;
+        if (konamiIndex === konamiCode.length) {
+          setKonamiActivated(true);
+          konamiIndex = 0;
+          // Reset after animation
+          setTimeout(() => setKonamiActivated(false), 3000);
+        }
+      } else {
+        konamiIndex = 0;
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const scrollToFeatures = () => {
+    const element = document.getElementById('features');
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
 
   return (
-    <GranolaBackground>
-      {/* Fixed Floating Privacy Lock */}
-      <ExpandablePrivacyLock />
+    <div className="min-h-screen w-full" style={{ fontFamily: 'var(--font-body)', background: 'var(--bg-white)' }}>
+      {/* Scroll Progress Bar */}
+      <div 
+        className="scroll-progress" 
+        style={{ width: `${scrollProgress}%` }} 
+      />
       
-      <div className="min-h-screen w-full text-slate-900">
-        {/* Public Landing Page - No Sidebar */}
-        <div className="flex-1 flex flex-col">
-        <header className="fixed top-4 left-1/2 -translate-x-1/2 h-14 md:h-16 flex items-center justify-between px-6 md:px-8 bg-white/90 backdrop-blur-md shadow-lg rounded-full border border-slate-200/50 z-50 w-[90%] max-w-4xl">
-          <div className="flex items-center gap-2 md:gap-4">
-            <img 
-              src={OfferloopLogo} 
-              alt="Offerloop" 
-              className="h-12 md:h-[80px] cursor-pointer"
-              onClick={() => navigate("/")}
+      {/* Konami Code Confetti */}
+      {konamiActivated && (
+        <>
+          {[...Array(50)].map((_, i) => (
+            <div
+              key={i}
+              className="confetti"
+              style={{
+                left: `${Math.random() * 100}vw`,
+                backgroundColor: ['#2563EB', '#3B82F6', '#60A5FA', '#93C5FD', '#DBEAFE'][Math.floor(Math.random() * 5)],
+                animationDelay: `${Math.random() * 0.5}s`,
+                borderRadius: Math.random() > 0.5 ? '50%' : '0',
+              }}
             />
-          </div>
-          {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center gap-6">
-            {/* Features Mega Menu */}
-            <div 
-              className="relative"
-              onMouseEnter={handleFeaturesMenuEnter}
-              onMouseLeave={handleFeaturesMenuLeave}
-            >
-              <button
-                className="text-base font-medium text-slate-700 hover:text-blue-600 transition-colors flex items-center gap-1"
-              >
-                Features
-                <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${featuresMenuOpen ? 'rotate-180' : ''}`} />
-              </button>
-              
-              {/* Mega Menu Dropdown */}
-              <div 
-                className={`fixed left-1/2 -translate-x-1/2 top-20 bg-white rounded-2xl shadow-xl border border-gray-100 p-6 transition-all duration-200 ${
-                  featuresMenuOpen 
-                    ? 'opacity-100 visible translate-y-0' 
-                    : 'opacity-0 invisible -translate-y-2'
-                }`}
-                style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem', width: '1020px' }}
-                onMouseEnter={handleFeaturesMenuEnter}
-                onMouseLeave={handleFeaturesMenuLeave}
-              >
-                {/* Column 1: Find */}
-                <div className="space-y-1">
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 whitespace-nowrap">Find</h3>
-                  <FeatureItem 
-                    icon={MagnifyingGlassIcon} 
-                    title="People"
-                    description="Discover professionals at your target companies"
-                    onClick={() => {
-                      navigate('/contact-search');
-                      setFeaturesMenuOpen(false);
-                    }}
-                  />
-                  <FeatureItem 
-                    icon={BuildingIcon} 
-                    title="Companies"
-                    description="Research companies hiring for your dream roles"
-                    onClick={() => {
-                      navigate('/firm-search');
-                      setFeaturesMenuOpen(false);
-                    }}
-                  />
-                  <FeatureItem 
-                    icon={FindUserIcon} 
-                    title="Hiring Managers"
-                    description="Connect directly with decision makers"
-                    onClick={() => {
-                      navigate('/recruiter-spreadsheet');
-                      setFeaturesMenuOpen(false);
-                    }}
-                  />
-                </div>
-                
-                {/* Column 2: Prepare */}
-                <div className="space-y-1">
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 whitespace-nowrap">Prepare</h3>
-                  <FeatureItem 
-                    icon={CupIcon} 
-                    title="Coffee Chat"
-                    description="Get smart talking points for any conversation"
-                    onClick={() => {
-                      navigate('/coffee-chat-prep');
-                      setFeaturesMenuOpen(false);
-                    }}
-                  />
-                  <FeatureItem 
-                    icon={BriefcaseIcon} 
-                    title="Interview"
-                    description="Ace interviews with personalized prep"
-                    onClick={() => {
-                      navigate('/interview-prep');
-                      setFeaturesMenuOpen(false);
-                    }}
-                  />
-                </div>
-                
-                {/* Column 3: Write */}
-                <div className="space-y-1">
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 whitespace-nowrap">Write</h3>
-                  <FeatureItem 
-                    icon={PaperIcon} 
-                    title="Resume"
-                    description="Craft tailored resumes that stand out"
-                    onClick={() => {
-                      navigate('/write/resume');
-                      setFeaturesMenuOpen(false);
-                    }}
-                  />
-                  <FeatureItem 
-                    icon={WriteIcon} 
-                    title="Cover Letter"
-                    description="Generate compelling letters for each role"
-                    onClick={() => {
-                      navigate('/write/cover-letter');
-                      setFeaturesMenuOpen(false);
-                    }}
-                  />
-                </div>
-                
-                {/* Column 4: Track */}
-                <div className="space-y-1">
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 whitespace-nowrap">Track</h3>
-                  <FeatureItem 
-                    icon={MailIcon} 
-                    title="Email Outreach"
-                    description="Send personalized emails that get responses"
-                    onClick={() => {
-                      navigate('/outbox');
-                      setFeaturesMenuOpen(false);
-                    }}
-                  />
-                  <FeatureItemCalendar 
-                    title="Calendar"
-                    description="Never miss a deadline or follow-up"
-                    onClick={() => {
-                      navigate('/calendar');
-                      setFeaturesMenuOpen(false);
-                    }}
-                  />
-                  <FeatureItem 
-                    icon={PeopleIcon} 
-                    title="Networking"
-                    description="Manage all your professional connections"
-                    onClick={() => {
-                      navigate('/contact-directory');
-                      setFeaturesMenuOpen(false);
-                    }}
-                  />
-                  <FeatureItem 
-                    icon={FindUserIcon} 
-                    title="Hiring Managers"
-                    description="Track outreach to key decision makers"
-                    onClick={() => {
-                      navigate('/hiring-manager-tracker');
-                      setFeaturesMenuOpen(false);
-                    }}
-                  />
-                  <FeatureItem 
-                    icon={BuildingIcon2} 
-                    title="Companies"
-                    description="Monitor application status across all targets"
-                    onClick={() => {
-                      navigate('/company-tracker');
-                      setFeaturesMenuOpen(false);
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                const element = document.getElementById('pricing');
-                if (element) {
-                  element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-                setMobileMenuOpen(false);
-              }}
-              className="text-base font-medium text-slate-700 hover:text-blue-600 transition-colors"
-            >
-              Pricing
-            </button>
-            <button
-              onClick={() => {
-                const element = document.getElementById('about');
-                if (element) {
-                  element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-                setMobileMenuOpen(false);
-              }}
-              className="text-base font-medium text-slate-700 hover:text-blue-600 transition-colors"
-            >
-              About Us
-            </button>
-            <button
-              onClick={() => {
-                // Scroll to privacy lock and set hash to trigger animation
-                window.location.hash = '#privacy-lock';
-                const element = document.getElementById('privacy-lock');
-                if (element) {
-                  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
-                setMobileMenuOpen(false);
-              }}
-              className="text-base font-medium text-slate-700 hover:text-blue-600 transition-colors"
-            >
-              Privacy
-            </button>
-          </nav>
-          {/* Desktop Auth Buttons */}
-          <div className="hidden md:flex items-center gap-4">
-            {user ? (
-              <button
-                onClick={() => navigate("/dashboard")}
-                className="btn-secondary-glass px-4 py-2 text-sm font-bold"
-              >
-                Go to Dashboard
-              </button>
-            ) : (
-              <>
-                <button
-                  onClick={() => navigate("/signin?mode=signin")}
-                  className="btn-secondary-glass px-4 py-2 text-sm font-bold"
-                >
-                  Sign In
-                </button>
-                <button
-                  onClick={() => navigate("/signin?mode=signup")}
-                  className="btn-primary-glass px-4 py-2 text-sm font-bold"
-                >
-                  Sign Up
-                </button>
-              </>
-            )}
-          </div>
-          {/* Mobile Menu Button */}
+          ))}
+        </>
+      )}
+      
+      {/* NAVBAR */}
+      <header
+        className="fixed top-0 left-0 right-0 z-50 h-16 flex items-center justify-between px-6 md:px-12"
+        style={{
+          background: navbarScrolled
+            ? 'rgba(248, 250, 255, 0.96)'
+            : 'rgba(248, 250, 255, 0.88)',
+          backdropFilter: 'blur(16px) saturate(1.4)',
+          WebkitBackdropFilter: 'blur(16px) saturate(1.4)',
+          borderBottom: `1px solid ${navbarScrolled ? 'rgba(214, 222, 240, 0.8)' : 'rgba(214, 222, 240, 0.6)'}`,
+          transition: 'all 0.3s ease',
+        }}
+      >
+        <div className="flex items-center">
+          <img
+            src={OfferloopLogo}
+            alt="Offerloop"
+            className="h-12 cursor-pointer logo-animate"
+            onClick={() => navigate('/')}
+          />
+        </div>
+
+        {/* Desktop Navigation */}
+        <nav className="hidden md:flex items-center gap-8">
           <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 text-slate-700 hover:text-blue-600 transition-colors"
-            aria-label="Toggle menu"
+            onClick={scrollToFeatures}
+            className="nav-link text-sm font-medium relative"
+            style={{
+              color: 'var(--text-secondary)',
+              fontFamily: 'var(--font-body)',
+            }}
           >
-            {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+            Features
           </button>
-        </header>
-        
-        {/* Mobile Menu Overlay */}
-        {mobileMenuOpen && (
-          <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setMobileMenuOpen(false)} />
-        )}
-        
-        {/* Mobile Menu */}
-        <div className={`fixed top-16 left-2 right-2 md:hidden bg-[#ECF4FF] backdrop-blur-md shadow-xl rounded-xl border border-blue-200/50 z-50 transition-all duration-300 ${
-          mobileMenuOpen ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'
-        }`}>
+          <button
+            onClick={() => {
+              const element = document.getElementById('testimonials');
+              if (element) element.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="nav-link text-sm font-medium relative"
+            style={{
+              color: 'var(--text-secondary)',
+              fontFamily: 'var(--font-body)',
+            }}
+          >
+            Reviews
+          </button>
+          <button
+            onClick={() => navigate('/signin?mode=signup')}
+            className="nav-link text-sm font-medium relative"
+            style={{
+              color: 'var(--text-secondary)',
+              fontFamily: 'var(--font-body)',
+            }}
+          >
+            Get started
+          </button>
+        </nav>
+
+        {/* Desktop Auth Buttons */}
+        <div className="hidden md:flex items-center gap-4">
+          {user ? (
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="btn-ghost"
+            >
+              Go to Dashboard
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => navigate('/signin?mode=signin')}
+                className="btn-ghost"
+              >
+                Sign in
+              </button>
+              <button
+                onClick={() => navigate('/signin?mode=signup')}
+                className="btn-primary-lg"
+                style={{
+                  background: '#2563EB',
+                }}
+              >
+                Create account
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Mobile Menu Button */}
+        <button
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          className="md:hidden p-2"
+          style={{ color: 'var(--text-secondary)' }}
+        >
+          {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+        </button>
+      </header>
+
+      {/* Mobile Menu */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed top-16 left-0 right-0 md:hidden z-40"
+          style={{
+            background: 'var(--bg-white)',
+            borderBottom: '1px solid var(--border-light)',
+            backdropFilter: 'blur(16px)',
+          }}
+        >
           <nav className="flex flex-col p-4 gap-2">
             <button
               onClick={() => {
-                const element = document.getElementById('features');
-                if (element) {
-                  element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
+                scrollToFeatures();
                 setMobileMenuOpen(false);
               }}
-              className="text-left px-4 py-3 text-sm font-medium text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+              className="text-left px-4 py-3 text-sm font-medium"
+              style={{ color: 'var(--text-secondary)' }}
             >
               Features
             </button>
             <button
               onClick={() => {
-                const element = document.getElementById('pricing');
-                if (element) {
-                  element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
+                const element = document.getElementById('testimonials');
+                if (element) element.scrollIntoView({ behavior: 'smooth' });
                 setMobileMenuOpen(false);
               }}
-              className="text-left px-4 py-3 text-sm font-medium text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+              className="text-left px-4 py-3 text-sm font-medium"
+              style={{ color: 'var(--text-secondary)' }}
             >
-              Pricing
+              Reviews
             </button>
             <button
               onClick={() => {
-                const element = document.getElementById('about');
-                if (element) {
-                  element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
+                navigate('/signin?mode=signup');
                 setMobileMenuOpen(false);
               }}
-              className="text-left px-4 py-3 text-sm font-medium text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+              className="text-left px-4 py-3 text-sm font-medium"
+              style={{ color: 'var(--text-secondary)' }}
             >
-              About Us
+              Get started
             </button>
-            <button
-              onClick={() => {
-                window.location.hash = '#privacy-lock';
-                const element = document.getElementById('privacy-lock');
-                if (element) {
-                  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
-                setMobileMenuOpen(false);
-              }}
-              className="text-left px-4 py-3 text-sm font-medium text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-            >
-              Privacy
-            </button>
-            <div className="border-t border-blue-200/50 mt-2 pt-2 flex flex-col gap-2">
+            <div className="border-t border-light mt-2 pt-2 flex flex-col gap-2">
               {user ? (
                 <button
                   onClick={() => {
-                    navigate("/dashboard");
+                    navigate('/dashboard');
                     setMobileMenuOpen(false);
                   }}
-                  className="btn-secondary-glass px-4 py-2 text-sm font-bold w-full"
+                  className="btn-primary-lg w-full"
                 >
                   Go to Dashboard
                 </button>
@@ -592,626 +344,1286 @@ const Index = () => {
                 <>
                   <button
                     onClick={() => {
-                      navigate("/signin?mode=signin");
+                      navigate('/signin?mode=signin');
                       setMobileMenuOpen(false);
                     }}
-                    className="btn-secondary-glass px-4 py-2 text-sm font-bold w-full"
+                    className="btn-ghost w-full text-left px-4 py-3"
                   >
-                    Sign In
+                    Sign in
                   </button>
                   <button
                     onClick={() => {
-                      navigate("/signin?mode=signup");
+                      navigate('/signin?mode=signup');
                       setMobileMenuOpen(false);
                     }}
-                    className="btn-primary-glass px-4 py-2 text-sm font-bold w-full"
+                    className="btn-primary-lg w-full"
                   >
-                    Sign Up
+                    Create account
                   </button>
                 </>
               )}
             </div>
           </nav>
         </div>
-        
-        {/* Spacer to account for fixed header with margin */}
-        <div className="h-20 md:h-24"></div>
+      )}
 
-          <div className="flex-1 relative z-10">
+      {/* Spacer for fixed header */}
+      <div className="h-16" />
 
-        {/* Hero, Tagline, and How It Works Container - Unified Blue Gradient Background */}
-        <div className="relative overflow-hidden">
-          {/* Background gradient */}
-          <div className="absolute inset-0 bg-gradient-to-b from-blue-50 via-blue-100/50 to-white" />
-          
-          {/* Decorative blue blotches/blobs */}
-          <div className="absolute top-0 left-0 w-[500px] h-[500px] bg-blue-200/30 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/4" />
-          <div className="absolute top-1/4 right-0 w-[600px] h-[600px] bg-blue-300/20 rounded-full blur-3xl translate-x-1/3" />
-          <div className="absolute top-1/2 left-1/4 w-[400px] h-[400px] bg-blue-200/25 rounded-full blur-3xl" />
-          <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-blue-100/30 rounded-full blur-3xl" />
+      {/* SECTION 1: HERO */}
+      <section
+        ref={heroRef}
+        className="relative py-[130px] pb-[100px] px-6 md:px-12"
+        style={{
+          background: 'var(--bg-white)',
+        }}
+      >
+        {/* Subtle radial glow - soft color accents */}
+        <div
+          className="absolute top-[-120px] right-[-200px] w-[700px] h-[700px] rounded-full pointer-events-none"
+          style={{
+            background: 'radial-gradient(circle, rgba(37, 99, 235, 0.08) 0%, rgba(59, 130, 246, 0.04) 40%, transparent 70%)',
+          }}
+        />
+        <div
+          className="absolute top-[150px] left-[-100px] w-[400px] h-[400px] rounded-full pointer-events-none opacity-60"
+          style={{
+            background: 'radial-gradient(circle, rgba(6, 182, 212, 0.05) 0%, transparent 70%)',
+          }}
+        />
 
-          {/* Hero Section */}
-          <section 
-            ref={(el) => { sectionRefs.current[0] = el; }}
-            className="min-h-screen pt-12 md:pt-24 pb-12 md:pb-24 relative z-10 w-full overflow-hidden"
-            data-scene="0"
-          >
-            {/* Hero Text - Centered */}
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-12 mb-12 md:mb-20">
-              <div className="max-w-5xl mx-auto text-center">
-                <h1 className="text-[70px] md:text-[84px] lg:text-[96px] font-bold mb-6 font-instrument" style={{ overflow: 'visible', lineHeight: '1.1', letterSpacing: '-0.02em' }}>
-                  <span className="text-hero-primary tracking-tight">
-                    Land Job Offers.
-                    <br />
-                    <span style={{ color: '#3B82F6' }}>No busywork.</span>
-                </span>
-              </h1>
-                <p className="text-lg md:text-xl text-slate-500 font-semibold mb-12 max-w-3xl mx-auto leading-relaxed">
-                  Stop wasting time finding contact information, writing emails, scouring company websites, writing cover letters, etc. Just use Offerloop.
-              </p>
-              <button
-                onClick={() => navigate("/signin?mode=signup")}
-                className="btn-primary-glass px-10 md:px-16 py-3 md:py-4 text-base md:text-lg font-bold rounded-full pulse-glow inline-flex items-center gap-3"
-              >
-                Try it out <ArrowRight className="h-4 w-4 md:h-5 md:w-5 stroke-[3]" />
-              </button>
-              </div>
+        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-[1fr_1.15fr] gap-[72px] items-center">
+          {/* Left Column - Text */}
+          <div style={{ marginTop: '-40px' }}>
+            {/* Social proof line */}
+            <div
+              className="hero-fade-up hero-fade-up-delay-0"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                marginBottom: 28,
+                fontSize: 13,
+                fontWeight: 500,
+                color: 'var(--text-tertiary)',
+                letterSpacing: '0.02em',
+                fontFamily: 'var(--font-body)',
+              }}
+            >
+              USC, UCLA, NYU, UC Berkeley, UCSD, UC Irvine &amp; more
             </div>
-            
-            {/* Website Feature Walkthrough Video */}
-            <div className="w-full overflow-hidden">
-              <div className="max-w-[1400px] mx-auto px-4 md:px-[60px]">
-                <div className="aspect-video rounded-lg md:rounded-2xl overflow-hidden border border-blue-500/20 border-blue-300/60 bg-gradient-to-br from-blue-500/5 to-cyan-500/5 shadow-lg shadow-blue-100/50">
-                  <video
-                    src={WebsiteFeatureWalkthrough}
-                    autoPlay
-                    loop
-                    muted
-                    playsInline
-                    className="w-full h-full object-cover"
-                  >
-                    Your browser does not support the video tag.
-                  </video>
+            <h1
+              className="hero-fade-up hero-fade-up-delay-1 hero-headline"
+              style={{
+                fontFamily: "'Instrument Serif', Georgia, serif",
+                fontSize: '68px',
+                fontWeight: 400,
+                lineHeight: 1.04,
+                letterSpacing: '-0.035em',
+                color: 'var(--text-primary)',
+                marginBottom: '28px',
+              }}
+            >
+              One system to<br />
+              <span style={{ color: '#2563EB' }}>
+                {displayedText}
+                {showCursor && (
+                  <span 
+                    className="typing-cursor"
+                    style={{
+                      display: 'inline-block',
+                      width: '3px',
+                      height: '0.9em',
+                      backgroundColor: '#2563EB',
+                      marginLeft: '2px',
+                      verticalAlign: 'baseline',
+                      position: 'relative',
+                      top: '0.1em',
+                      animation: 'cursor-blink 1s ease-in-out infinite',
+                    }}
+                  />
+                )}
+              </span>
+            </h1>
+            <p
+              className="hero-fade-up hero-fade-up-delay-3"
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: '17px',
+                lineHeight: 1.7,
+                color: 'var(--text-secondary)',
+                marginBottom: 40,
+                maxWidth: '440px',
+              }}
+            >
+              Find the right people, send the right message, and walk into every conversation prepared. Offerloop replaces your spreadsheets, your browser tabs, and your guesswork.
+            </p>
+            <div className="hero-fade-up hero-fade-up-delay-4 flex flex-col sm:flex-row gap-3">
+              <button
+                onClick={() => navigate('/signin?mode=signup')}
+                className="btn-primary-lg"
+                style={{
+                  background: '#2563EB',
+                }}
+              >
+                Create free account
+              </button>
+              <button
+                onClick={scrollToFeatures}
+                className="btn-ghost flex items-center gap-2 group"
+                style={{
+                  padding: '14px 12px',
+                  fontSize: '14px',
+                }}
+              >
+                See how it works
+                <ArrowRight className="h-3.5 w-3.5 group-hover:translate-y-[3px] transition-transform" />
+              </button>
+            </div>
+          </div>
+
+          {/* Right Column - Product Visual */}
+          <div
+            ref={dashboardRef}
+            className="hero-fade-up hero-fade-up-delay-3 relative"
+            style={{
+              perspective: '1200px',
+              transition: 'transform 0.3s ease-out',
+            }}
+          >
+            {/* Soft glow behind screenshot */}
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background: 'radial-gradient(ellipse at center, rgba(37, 99, 235, 0.08) 0%, transparent 70%)',
+                transform: 'scale(1.3)',
+                filter: 'blur(40px)',
+                zIndex: 0,
+              }}
+            />
+            <div
+              className="hero-product relative rounded-[14px] overflow-hidden"
+              style={{
+                background: 'var(--bg-off)',
+                border: '1px solid var(--border)',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.04), 0 16px 40px rgba(0,0,0,0.06)',
+                display: 'flex',
+                flexDirection: 'column',
+                transition: 'transform 0.4s ease, box-shadow 0.4s ease',
+                position: 'relative',
+                zIndex: 1,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.06), 0 24px 60px rgba(37, 99, 235, 0.12)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.04), 0 16px 40px rgba(0,0,0,0.06)';
+              }}
+            >
+              {/* Browser chrome bar */}
+              <div style={{
+                height: 36,
+                background: 'var(--bg-white)',
+                borderBottom: '1px solid var(--border-light)',
+                display: 'flex',
+                alignItems: 'center',
+                padding: '0 14px',
+                gap: 6,
+                flexShrink: 0,
+              }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FCA5A5' }} />
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FDE68A' }} />
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#86EFAC' }} />
+                <div style={{
+                  flex: 1,
+                  height: 22,
+                  background: 'var(--border-light)',
+                  borderRadius: 5,
+                  marginLeft: 12,
+                  maxWidth: 220,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 500,
+                    color: 'var(--text-tertiary)',
+                    letterSpacing: '0.01em',
+                    fontFamily: 'var(--font-body)',
+                  }}>offerloop.ai</span>
                 </div>
               </div>
-            </div>
-          </section>
 
-          {/* How It Works Section */}
-          <section className="py-20 px-6 relative z-10">
-          <div className="max-w-7xl mx-auto">
-            <h2 className="text-4xl md:text-5xl lg:text-6xl font-bold text-center mb-4 text-section-heading">
-              How It Works
-            </h2>
-            <p className="text-lg md:text-xl text-slate-600 max-w-2xl mx-auto text-center mb-16">
-              Offerloop replaces scattered recruiting work with one clear system, so progress feels manageable instead of overwhelming.
-            </p>
-            
+              {/* Screenshot */}
+              <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+                <img
+                  src={ContactSearchSS}
+                  alt="Offerloop contact search"
+                  style={{
+                    width: '100%',
+                    display: 'block',
+                    objectFit: 'cover',
+                    objectPosition: 'top left',
+                  }}
+                />
+                {/* Soft bottom fade */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: 80,
+                    background: 'linear-gradient(to top, var(--bg-off) 0%, transparent 100%)',
+                    pointerEvents: 'none',
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Floating annotations */}
+            <div
+              className="absolute flex items-center float-animation"
+              style={{
+                top: '-8px',
+                right: '-12px',
+                background: 'var(--bg-white)',
+                border: '1px solid var(--border)',
+                borderRadius: '10px',
+                padding: '10px 14px',
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.06)',
+                fontSize: '12.5px',
+                fontWeight: 600,
+                color: 'var(--text-primary)',
+                zIndex: 2,
+                pointerEvents: 'none',
+                gap: '10px',
+              }}
+            >
+              <div style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '7px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                background: 'rgba(34, 197, 94, 0.1)',
+                color: '#16A34A',
+              }}>
+                <Check className="h-[15px] w-[15px]" />
+              </div>
+              Email sent
+            </div>
+            <div
+              className="absolute flex items-center float-animation-delay"
+              style={{
+                bottom: '12%',
+                left: '-12px',
+                background: 'var(--bg-white)',
+                border: '1px solid var(--border)',
+                borderRadius: '10px',
+                padding: '10px 14px',
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.06)',
+                fontSize: '12.5px',
+                fontWeight: 600,
+                color: 'var(--text-primary)',
+                zIndex: 2,
+                pointerEvents: 'none',
+                gap: '10px',
+              }}
+            >
+              <div style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '7px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                background: 'var(--blue-subtle)',
+                color: 'var(--blue)',
+              }}>
+                <Search className="h-[15px] w-[15px]" />
+              </div>
+              3 contacts found
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 2: TRUST */}
+      <section
+        className="px-6 md:px-12"
+        style={{
+          padding: '56px 0 64px',
+          background: 'var(--bg-white)',
+          borderTop: '1px solid var(--border-light)',
+        }}
+      >
+        <div className="max-w-7xl mx-auto">
+          <p
+            className="text-center reveal"
+            style={{
+              fontSize: '12px',
+              fontWeight: 600,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: 'var(--text-tertiary)',
+              marginBottom: '24px',
+            }}
+          >
+            TRUSTED BY STUDENTS FROM
+          </p>
+            <div className="flex flex-wrap items-center justify-center reveal" style={{ gap: '32px 44px', marginBottom: '16px' }}>
             {[
-              {
-                title: "Find Your Target Companies",
-                description: "Discover companies that match your goals. Search by industry, location, and size to build a focused list of dream employers.",
-                number: "01",
-                videoSrc: HowItWorksCompanies
-              },
-              {
-                title: "Find the Right Contacts",
-                description: "Search our database of professionals by company, role, and school to find the perfect people to reach out to.",
-                number: "02",
-                videoSrc: HowItWorksContactSearch
-              },
-              {
-                title: "Prep for Coffee Chats",
-                description: "Get AI-generated talking points, conversation starters, and background research so you walk into every coffee chat confident and prepared.",
-                number: "03",
-                videoSrc: HowItWorksCoffeeChat
-              },
-              {
-                title: "Find Hiring Managers",
-                description: "Identify the decision-makers at your target companies. Skip the gatekeepers and connect directly with people who can hire you.",
-                number: "04",
-                videoSrc: HowItWorksHiringManager
-              },
-              {
-                title: "Generate Resumes & Cover Letters",
-                description: "Create tailored resumes and cover letters optimized for each opportunity—personalized by AI in seconds.",
-                number: "05",
-                videoSrc: HowItWorksResumeCV
-              },
-              {
-                title: "Ace Your Interviews",
-                description: "Prepare with AI-powered interview prep: company-specific questions, practice prompts, and guidance to help you land the offer.",
-                number: "06",
-                videoSrc: HowItWorksInterviewPrep
-              }
-            ].map((feature, index) => {
-              const isEven = index % 2 === 1;
-              // Zigzag offset: each row shifts slightly to create diagonal effect
-              const offsetAmount = index * 1.5; // Percentage offset for zigzag
-              
-              return (
-                <motion.div
-                  key={index}
-                  initial={{ opacity: 0, y: 50 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, margin: "-100px" }}
-                  transition={{ duration: 0.6, ease: "easeOut" }}
-                  className={`flex flex-col md:flex-row items-center gap-8 md:gap-12 mb-16 md:mb-20 ${
-                    isEven ? 'md:flex-row-reverse' : ''
-                  }`}
+              { name: 'USC', colors: ['#990000', '#FFCC00'] }, // Cardinal Red & Gold
+              { name: 'UCLA', colors: ['#2774AE', '#FFD100'] }, // Blue & Gold
+              { name: 'NYU', colors: ['#57068C'] }, // Purple
+              { name: 'Michigan', colors: ['#00274C', '#FFCB05'] }, // Blue & Maize
+              { name: 'UC Berkeley', colors: ['#003262', '#FDB515'] }, // Blue & Gold
+              { name: 'UCSD', colors: ['#182B49', '#C69214'] }, // Blue & Gold
+              { name: 'UC Irvine', colors: ['#0064A4', '#FFC72C'] }, // Blue & Gold
+            ].map((school, index) => (
+              <div
+                key={school.name}
+                className="stagger-item text-base font-bold transition-all cursor-default"
+                style={{
+                  opacity: 0.7,
+                  fontFamily: 'var(--font-body)',
+                  fontWeight: 600,
+                  letterSpacing: '-0.01em',
+                  background: school.colors.length > 1 
+                    ? `linear-gradient(135deg, ${school.colors[0]} 0%, ${school.colors[1]} 100%)`
+                    : school.colors[0],
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  backgroundClip: 'text',
+                  color: 'transparent',
+                  animationDelay: `${index * 60}ms`,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.opacity = '1';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.opacity = '0.7';
+                }}
+              >
+                {school.name}
+              </div>
+            ))}
+          </div>
+          <div
+            className="reveal"
+            style={{ 
+              width: '40px', 
+              height: '2px',
+              background: 'linear-gradient(90deg, transparent, var(--border), transparent)',
+              margin: '36px auto',
+            }}
+          />
+          <p
+            className="text-center reveal"
+            style={{
+              fontSize: '12px',
+              fontWeight: 600,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: 'var(--text-tertiary)',
+              marginBottom: '24px',
+            }}
+          >
+            PREPARING FOR ROLES AT
+          </p>
+          <div className="flex flex-wrap items-center justify-center reveal" style={{ gap: '32px 44px', marginBottom: '16px' }}>
+            {[
+              'Goldman Sachs',
+              'McKinsey',
+              'Evercore', 
+              'Blackstone',
+              'J.P. Morgan',
+              'PwC',
+              'Barclays',
+              'Morgan Stanley',
+            ].map((company, index) => (
+              <div
+                key={company}
+                className="stagger-item transition-all cursor-default"
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: '15px',
+                  fontWeight: 600,
+                  letterSpacing: '-0.02em',
+                  color: 'var(--text-primary)',
+                  opacity: 0.25,
+                  animationDelay: `${(index + 7) * 60}ms`, // Continue from schools
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.opacity = '0.6';
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.opacity = '0.25';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
+              >
+                {company}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Confidence statement */}
+      <div
+        className="reveal"
+        style={{ padding: '48px 24px', background: 'var(--bg-white)' }}
+      >
+        <p
+          className="text-center mx-auto"
+          style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: '22px',
+            fontWeight: 400,
+            fontStyle: 'italic',
+            color: 'var(--text-secondary)',
+            letterSpacing: '-0.01em',
+            maxWidth: 520,
+            lineHeight: 1.5,
+          }}
+        >
+          Built for students who take recruiting seriously.
+        </p>
+      </div>
+
+      {/* SECTION 3: PROBLEM → SOLUTION */}
+      <section
+        className="py-[110px] px-6 md:px-12"
+        style={{ background: 'var(--bg-white)' }}
+      >
+        <div className="max-w-7xl mx-auto">
+          <h2
+            className="text-center mb-16 reveal"
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: '40px',
+              fontWeight: 400,
+              letterSpacing: '-0.025em',
+              color: 'var(--text-primary)',
+            }}
+          >
+            Why this exists
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_48px_1fr] gap-8 max-w-[860px] mx-auto">
+            {/* Left Column - Problem */}
+            <div className="reveal-stagger">
+              <h3
+                className="text-xs font-bold mb-6 reveal"
+                style={{
+                  fontSize: '13px',
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  color: 'var(--text-tertiary)',
+                  fontFamily: 'var(--font-body)',
+                }}
+              >
+                RECRUITING TODAY
+              </h3>
+              {[
+                "LinkedIn for contacts, but no emails",
+                "Spreadsheets to track who you've reached out to",
+                "Google to research every company before a call",
+                "ChatGPT to draft each email individually",
+                "Sticky notes, calendar reminders, and hope",
+                "Hours lost before talking to a single person",
+              ].map((item, i) => (
+                <div
+                  key={i}
+                  className="relative mb-4 reveal"
+                  style={{
+                    paddingLeft: '24px',
+                    fontSize: '15px',
+                    lineHeight: 1.7,
+                    color: 'var(--text-secondary)',
+                    fontFamily: 'var(--font-body)',
+                  }}
                 >
-                  {/* Video Container */}
-                  <div 
-                    className="w-full md:w-[55%] relative"
-                    style={{
-                      transform: isDesktop 
-                        ? `translateX(${isEven ? offsetAmount : -offsetAmount}%)` 
-                        : 'none'
+                  <div
+                    className="absolute left-0 top-[9px] w-1.5 h-1.5 rounded-full"
+                    style={{ background: 'var(--border)' }}
+                  />
+                  <span
+                    className="relative"
+                    onMouseEnter={(e) => {
+                      const text = e.currentTarget;
+                      text.style.color = 'var(--text-tertiary)';
+                      const line = text.querySelector('.strikethrough') as HTMLElement;
+                      if (line) line.style.width = '100%';
+                    }}
+                    onMouseLeave={(e) => {
+                      const text = e.currentTarget;
+                      text.style.color = 'var(--text-secondary)';
+                      const line = text.querySelector('.strikethrough') as HTMLElement;
+                      if (line) line.style.width = '0%';
                     }}
                   >
-                    <div className="aspect-video rounded-2xl overflow-hidden border border-blue-500/20 border-blue-300/60 bg-gradient-to-br from-blue-500/10 to-cyan-500/10 shadow-lg shadow-blue-100/50 relative">
-                      {/* Video Element */}
-                      <video
-                        src={feature.videoSrc}
-                        className="w-full h-full object-cover"
-                        autoPlay
-                        loop
-                        muted
-                        playsInline
-                      >
-                        Your browser does not support the video tag.
-                      </video>
-                      {/* Decorative blur effect */}
-                      <div className="absolute -bottom-4 -left-4 w-24 h-24 bg-blue-500/10 rounded-full blur-3xl"></div>
-                    </div>
+                    {item}
+                    <span
+                      className="strikethrough absolute left-0 top-1/2 h-px transition-all"
+                      style={{
+                        background: 'var(--text-tertiary)',
+                        opacity: 0.35,
+                        width: '0%',
+                        transform: 'translateY(-50%)',
+                      }}
+                    />
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Center Divider */}
+            <div className="hidden md:block reveal">
+              <div
+                className="w-px h-full mx-auto"
+                style={{
+                  background: 'linear-gradient(180deg, var(--border-light) 0%, var(--border) 50%, var(--border-light) 100%)',
+                }}
+              />
+            </div>
+
+            {/* Right Column - Solution */}
+            <div className="reveal-stagger">
+              <h3
+                className="text-xs font-bold mb-6 reveal"
+                style={{
+                  fontSize: '13px',
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  color: 'var(--blue)',
+                  fontFamily: 'var(--font-body)',
+                }}
+              >
+                WITH OFFERLOOP
+              </h3>
+              {[
+                "Search contacts with verified emails in one step",
+                "Track every outreach, follow-up, and response",
+                "Get AI-generated prep for every coffee chat",
+                "Draft personalized emails in seconds, not hours",
+                "One dashboard for your entire pipeline",
+                "More conversations, less busywork",
+              ].map((item, i) => (
+                <div
+                  key={i}
+                  className="relative mb-4 reveal transition-all"
+                  style={{
+                    paddingLeft: '24px',
+                    fontSize: '15px',
+                    lineHeight: 1.7,
+                    color: 'var(--text-secondary)',
+                    fontFamily: 'var(--font-body)',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'translateX(4px)';
+                    e.currentTarget.style.color = 'var(--text-primary)';
+                    const bullet = e.currentTarget.querySelector('.bullet') as HTMLElement;
+                    if (bullet) {
+                      bullet.style.opacity = '0.8';
+                      bullet.style.transform = 'scale(1.4)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateX(0)';
+                    e.currentTarget.style.color = 'var(--text-secondary)';
+                    const bullet = e.currentTarget.querySelector('.bullet') as HTMLElement;
+                    if (bullet) {
+                      bullet.style.opacity = '0.4';
+                      bullet.style.transform = 'scale(1)';
+                    }
+                  }}
+                >
+                  <div
+                    className="bullet absolute left-0 top-[9px] w-1.5 h-1.5 rounded-full transition-all"
+                    style={{
+                      background: 'var(--blue)',
+                      opacity: 0.4,
+                    }}
+                  />
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* How it works — 3 steps */}
+      <section className="bg-dots section-fade-bottom" style={{
+        padding: '72px 0',
+        background: 'var(--bg-off)',
+        borderBottom: '1px solid var(--border-light)',
+      }}>
+        <div className="max-w-[720px] mx-auto px-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center" style={{ position: 'relative', gap: '32px' }}>
+            {/* Connecting line — hidden on mobile - subtle gradient */}
+            <div
+              className="hidden md:block absolute"
+              style={{
+                top: 20,
+                left: '20%',
+                right: '20%',
+                height: 1.5,
+                background: 'linear-gradient(90deg, transparent 0%, rgba(37, 99, 235, 0.2) 20%, rgba(59, 130, 246, 0.2) 50%, rgba(96, 165, 250, 0.2) 80%, transparent 100%)',
+                opacity: 0.6,
+                zIndex: 0,
+                borderRadius: '1px',
+              }}
+            />
+            {[
+              { step: '01', label: 'Search', desc: 'Find contacts at any company' },
+              { step: '02', label: 'Reach out', desc: 'Send personalized emails in seconds' },
+              { step: '03', label: 'Prepare', desc: 'Walk into every conversation ready' },
+            ].map((item, i) => (
+              <div key={i} className="reveal relative" style={{ position: 'relative', zIndex: 1 }}>
+                <div style={{
+                  fontFamily: 'var(--font-display)',
+                  fontSize: 32,
+                  background: i === 0 
+                    ? 'linear-gradient(135deg, #2563EB, #3B82F6)'
+                    : i === 1
+                    ? 'linear-gradient(135deg, #3B82F6, #60A5FA)'
+                    : 'linear-gradient(135deg, #60A5FA, #06B6D4)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  backgroundClip: 'text',
+                  opacity: 0.25,
+                  marginBottom: 8,
+                }}>{item.step}</div>
+                <div style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 16,
+                  fontWeight: 600,
+                  color: 'var(--text-primary)',
+                  marginBottom: 4,
+                }}>{item.label}</div>
+                <div style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 14,
+                  color: 'var(--text-secondary)',
+                }}>{item.desc}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 4: CORE WORKFLOWS */}
+      <section
+        id="features"
+        className="py-[110px] px-6 md:px-12 bg-dots section-fade-top relative"
+        style={{ background: 'var(--bg-off)' }}
+      >
+        <div className="max-w-7xl mx-auto relative z-10">
+          <h2
+            className="text-center mb-4 reveal"
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: '40px',
+              fontWeight: 400,
+              letterSpacing: '-0.025em',
+              color: 'var(--text-primary)',
+            }}
+          >
+            Everything you need, nothing you don't
+          </h2>
+          <p
+            className="text-center mb-16 reveal"
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: '16px',
+              color: 'var(--text-secondary)',
+              maxWidth: '460px',
+              margin: '0 auto',
+            }}
+          >
+            Four workflows that mirror how recruiting actually works.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 max-w-[960px] mx-auto" style={{ marginTop: '24px' }}>
+            {[
+              {
+                icon: SearchIcon,
+                title: 'Find people & companies',
+                description: "Search by firm, role, school, or location. Get verified contact info without digging through LinkedIn.",
+                accent: 'rgba(37, 99, 235, 0.08)',
+              },
+              {
+                icon: TrackIcon,
+                title: 'Track outreach & follow-ups',
+                description: "See who you've emailed, who replied, and who needs a nudge. No more spreadsheet chaos.",
+                accent: 'rgba(59, 130, 246, 0.08)',
+              },
+              {
+                icon: CoffeeIcon,
+                title: 'Coffee chat prep',
+                description: "AI-generated talking points, background research, and conversation starters for every call.",
+                accent: 'rgba(96, 165, 250, 0.08)',
+              },
+              {
+                icon: InterviewIcon,
+                title: 'Interview prep',
+                description: "Company-specific questions, behavioral prompts, and guides personalized to each role.",
+                accent: 'rgba(6, 182, 212, 0.08)',
+              },
+            ].map((workflow, i) => {
+              return (
+                <div
+                  key={i}
+                  className="reveal relative overflow-hidden p-6 rounded-[14px] transition-all cursor-pointer"
+                  style={{
+                    background: 'rgba(248, 250, 255, 0.88)',
+                    backdropFilter: 'blur(8px)',
+                    border: '1px solid var(--border-light)',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-6px)';
+                    e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.18)';
+                    e.currentTarget.style.boxShadow = '0 12px 40px rgba(37, 99, 235, 0.10), 0 0 0 1px rgba(37, 99, 235, 0.05)';
+                    e.currentTarget.style.background = `linear-gradient(135deg, rgba(248, 250, 255, 0.95) 0%, ${workflow.accent} 100%)`;
+                    const iconContainer = e.currentTarget.querySelector('.icon-container') as HTMLElement;
+                    const topLine = e.currentTarget.querySelector('.top-line') as HTMLElement;
+                    if (iconContainer) {
+                      iconContainer.style.background = 'var(--blue-subtle)';
+                      iconContainer.style.transform = 'scale(1.05)';
+                    }
+                    if (topLine) {
+                      topLine.style.transform = 'scaleX(1)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.borderColor = 'var(--border-light)';
+                    e.currentTarget.style.boxShadow = 'none';
+                    e.currentTarget.style.background = 'rgba(248, 250, 255, 0.88)';
+                    const iconContainer = e.currentTarget.querySelector('.icon-container') as HTMLElement;
+                    const topLine = e.currentTarget.querySelector('.top-line') as HTMLElement;
+                    if (iconContainer) {
+                      iconContainer.style.background = 'var(--border-light)';
+                      iconContainer.style.transform = 'scale(1)';
+                    }
+                    if (topLine) {
+                      topLine.style.transform = 'scaleX(0)';
+                    }
+                  }}
+                >
+                  <div
+                    className="top-line absolute top-0 left-0 right-0 h-0.5 transition-transform origin-left"
+                    style={{
+                      background: 'var(--blue)',
+                      transform: 'scaleX(0)',
+                      borderRadius: '14px 14px 0 0',
+                    }}
+                  />
+                  <div
+                    className="icon-container w-10 h-10 rounded-[10px] flex items-center justify-center mb-4 transition-all"
+                    style={{ background: 'var(--border-light)', transition: 'all 0.2s ease' }}
+                  >
+                    <img src={workflow.icon} alt="" style={{ width: 28, height: 28 }} />
                   </div>
-                  
-                  {/* Text Container */}
-                  <div className="w-full md:w-[45%] space-y-4">
-                    <div className="text-sm font-semibold text-blue-600 mb-2">
-                      {feature.number}
-                    </div>
-                    <h3 className="text-3xl md:text-4xl font-bold text-section-heading">
-                      {feature.title}
-                    </h3>
-                    <p className="text-lg text-section-body leading-relaxed">
-                      {feature.description}
-                    </p>
-                  </div>
-                </motion.div>
+                  <h3
+                    className="text-base font-semibold mb-2"
+                    style={{
+                      fontFamily: 'var(--font-body)',
+                      fontSize: '15px',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    {workflow.title}
+                  </h3>
+                  <p
+                    className="text-sm leading-relaxed"
+                    style={{
+                      fontFamily: 'var(--font-body)',
+                      fontSize: '13.5px',
+                      lineHeight: 1.65,
+                      color: 'var(--text-secondary)',
+                      opacity: 0.85,
+                    }}
+                  >
+                    {workflow.description}
+                  </p>
+                </div>
               );
             })}
           </div>
-        </section>
-        </div>
 
-        {/* University Logos Section */}
-        <UniversityLogos />
-
-        {/* Extension Showcase Section */}
-        <ExtensionShowcase />
-
-        {/* Hear from our Customers Section */}
-        <section className="py-24 px-6 overflow-hidden bg-white">
-          <div className="max-w-full mx-auto">
-            <div className="text-center mb-16">
-              <h2 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-4 text-section-heading">
-                Hear from our <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-500 to-teal-500">Real Customers</span>
-              </h2>
-              <p className="text-xl text-section-body">
-                Used by hundreds of students across the country with offers received from top tier firms
-              </p>
-            </div>
-
-            {/* Company Logos */}
-            <div className="mb-16">
-              <Marquee 
-                gradient={true} 
-                gradientColor="#ffffff" 
-                gradientWidth={200} 
-                speed={50} 
-                direction="right"
-              >
-                {[
-                  { src: McKinseyLogo, alt: 'McKinsey' },
-                  { src: EvercoreLogo, alt: 'Evercore' },
-                  { src: GoldmanSachsLogo, alt: 'Goldman Sachs' },
-                  { src: BainLogo, alt: 'Bain' },
-                  { src: MorganStanleyLogo, alt: 'Morgan Stanley' },
-                  { src: BlackstoneLogo, alt: 'Blackstone' },
-                  { src: PwCLogo, alt: 'PwC' },
-                  { src: JPMorganLogo, alt: 'J.P. Morgan' },
-                  { src: BarclaysLogo, alt: 'Barclays' },
-                ].map(({ src, alt }) => (
-                  <div key={alt} className="flex items-center mx-12">
-                    <img src={src} alt={alt} className="h-12 md:h-14 w-auto opacity-60 hover:opacity-100 transition-opacity" />
-                  </div>
-                ))}
-              </Marquee>
-            </div>
-
-            {/* Reviews */}
-            <Marquee 
-              gradient={true} 
-              gradientColor="#ffffff" 
-              gradientWidth={300} 
-              speed={80} 
-              pauseOnHover={true}
+          {/* Second product screenshot */}
+          <div
+            className="max-w-[700px] mx-auto mt-20 reveal"
+            style={{ perspective: '1000px', position: 'relative' }}
+          >
+            {/* Soft glow behind screenshot */}
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background: 'radial-gradient(ellipse at center, rgba(37, 99, 235, 0.06) 0%, transparent 70%)',
+                transform: 'scale(1.2)',
+                filter: 'blur(40px)',
+                zIndex: 0,
+              }}
+            />
+            <div
+              className="rounded-[14px] overflow-hidden"
+              style={{
+                background: 'var(--bg-white)',
+                border: '1px solid var(--border)',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.04), 0 16px 40px rgba(0,0,0,0.06)',
+                position: 'relative',
+                zIndex: 1,
+              }}
             >
-              {[
-                { name: 'Dylan Roby', role: 'Evercore, Investment Banking Analyst', img: DylanRoby, quote: "Offerloop does the work that I had spent hundreds of hours doing to land my internship… in mere minutes." },
-                { name: 'Sarah Ucuzoglu', role: 'PwC, Financial Advisory Intern', img: SaraUcuzoglu, quote: "Having the ability to automate the cold reach out process allows for more time spent face to face with a professional." },
-                { name: 'Jackson Leck', role: 'Blackstone, Private Equity Intern', img: JacksonLeck, quote: "I would have so many recruiting tabs open... with Offerloop I have one. Everything I need in a single place." },
-                { name: 'Eli Hamou', role: 'Deloitte, Audit Intern', img: EliHamou, quote: "This platform completely transformed how I approach networking. The time I save allows me to focus on what really matters." },
-                { name: 'Lucas Turcuato', role: 'Barclays, Investment Banking Analyst', img: LucasTurcuato, quote: "Game changer for recruiting season. I went from stressed to organized in minutes." },
-              ].map(({ name, role, img, quote }) => {
-                const color = { light: 'rgba(59, 130, 246, 0.08)', border: 'rgba(59, 130, 246, 0.25)' };
-                return (
-                  <div 
-                    key={name} 
-                    className="bg-white rounded-2xl p-8 mx-4 w-[420px] h-[380px] flex flex-col justify-between relative overflow-hidden shadow-sm border"
-                    style={{
-                      borderColor: color.border,
-                    }}
-                  >
-                    {/* Color accent overlay */}
-                    <div 
-                      className="absolute inset-0 pointer-events-none rounded-2xl"
-                      style={{
-                        background: `linear-gradient(135deg, ${color.light} 0%, transparent 50%)`,
-                      }}
-                    />
-                    <div className="relative z-10 flex flex-col h-full">
-                      <div className="flex-1">
-                        <img src={FiveStarReview} alt="5 star rating" className="w-24 mb-4" />
-                        <p className="text-section-body italic text-lg leading-relaxed">"{quote}"</p>
-                      </div>
-                      <div className="flex items-center gap-4 mt-auto pt-6">
-                        <img 
-                          src={img} 
-                          alt={name} 
-                          className="w-14 h-14 rounded-full object-cover border"
-                          style={{
-                            borderColor: color.border,
-                          }}
-                        />
-                        <div>
-                          <div className="font-semibold text-section-heading">{name}</div>
-                          <div className="text-sm text-section-body">{role}</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </Marquee>
-          </div>
-        </section>
-
-        {/* Works With Section - White Background */}
-        <section className="relative">
-          {/* White background container */}
-          <div className="absolute inset-0 bg-white" style={{ top: '-50px', bottom: '-50px' }} />
-          
-          <div className="relative z-10 py-24">
-            {/* Works With Header */}
-            <div className="text-center mb-8">
-              <h2 className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold text-section-heading font-instrument">
-                Works With
-              </h2>
-              <p className="text-lg md:text-xl text-section-body max-w-4xl mx-auto mt-6 px-4">
-                Our product seamlessly integrates with your existing workflow: connect with professionals on LinkedIn, manage outreach through Gmail or Outlook, organize data in Google Sheets or Excel, schedule meetings via Apple or Google Calendar, and connect on Zoom.
-              </p>
-            </div>
-
-            {/* Works With Logos - Sliding Marquee */}
-            <div className="relative overflow-hidden">
-              {/* Left fade gradient */}
-              <div className="absolute left-0 top-0 bottom-0 w-32 bg-gradient-to-r from-white to-transparent z-10 pointer-events-none" />
-              {/* Right fade gradient */}
-              <div className="absolute right-0 top-0 bottom-0 w-32 bg-gradient-to-l from-white to-transparent z-10 pointer-events-none" />
-              
-              {/* Scrolling container */}
-              <div className="flex animate-marquee">
-                {/* First set of logos */}
-                <div className="flex items-center gap-12 px-6 shrink-0">
-                  <img src={LinkedInLogo} alt="LinkedIn" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={GoogleLogo} alt="Google" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={ExcelLogo} alt="Excel" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={OutlookLogo} alt="Outlook" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={ZoomLogo} alt="Zoom" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={AppleMailLogo} alt="Apple Mail" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={AppleNumbersLogo} alt="Apple Numbers" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={AppleCalendarLogo} alt="Apple Calendar" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={GoogleCalendarLogo} alt="Google Calendar" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={GmailLogo} alt="Gmail" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={GoogleSheetsLogo} alt="Google Sheets" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                </div>
-                {/* Duplicate set for seamless loop */}
-                <div className="flex items-center gap-12 px-6 shrink-0">
-                  <img src={LinkedInLogo} alt="LinkedIn" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={GoogleLogo} alt="Google" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={ExcelLogo} alt="Excel" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={OutlookLogo} alt="Outlook" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={ZoomLogo} alt="Zoom" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={AppleMailLogo} alt="Apple Mail" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={AppleNumbersLogo} alt="Apple Numbers" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={AppleCalendarLogo} alt="Apple Calendar" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={GoogleCalendarLogo} alt="Google Calendar" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={GmailLogo} alt="Gmail" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                  <img src={GoogleSheetsLogo} alt="Google Sheets" className="h-10 md:h-12 lg:h-14 w-auto object-contain" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Pricing Section */}
-        <section 
-          ref={(el) => { sectionRefs.current[4] = el; }}
-          id="pricing" 
-          className="py-24 px-6 relative"
-          data-scene="4"
-          style={{ marginTop: '-1px' }}
-        >
-          <div className="max-w-7xl mx-auto">
-            <h2 className="text-display-lg text-center mb-16 text-section-heading font-instrument">
-              Start <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-cyan-500">Connecting</span> Today
-            </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              {/* Free Plan */}
-              <div className="glass-card p-8 rounded-3xl">
-                <div className="mb-6">
-                  <h3 className="text-2xl font-bold text-section-heading">Free</h3>
-                  <p className="text-section-body">Try it out for free</p>
-                </div>
-                <div className="space-y-3 mb-8">
-                  {[
-                    '300 credits (~20 contacts)',
-                    'Basic contact search',
-                    'AI-powered email drafts',
-                    'Gmail integration',
-                    'Directory saves all contacts',
-                    '10 alumni searches',
-                    '3 Coffee Chat Preps',
-                    '2 Interview Preps',
-                    'Exports disabled',
-                    'Estimated time saved: ~300 minutes'
-                  ].map((item) => (
-                    <div key={item} className="flex items-center gap-3">
-                      <Check className="h-5 w-5 text-blue-400 text-blue-600" />
-                      <span className="text-section-body">{item}</span>
-                    </div>
-                  ))}
-                </div>
-                <button 
-                  onClick={() => navigate("/signin?mode=signup")}
-                  className="btn-secondary-glass w-full py-4"
-                >
-                  Start for Free
-                </button>
-              </div>
-
-              {/* Pro Plan - Emphasized */}
-              <div className="relative">
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full text-xs font-semibold text-white z-10">
-                  MOST POPULAR
-                </div>
-                <div className="glass-card p-8 rounded-3xl border-blue-500/30 border-blue-300/50 glow-teal shadow-xl scale-105">
-                  <div className="mb-6">
-                    <h3 className="text-2xl font-bold text-section-heading">Pro</h3>
-                    <p className="text-section-body mb-2">Best for Students</p>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-muted-foreground line-through text-lg">$19.99</span>
-                      <span className="text-3xl font-bold text-blue-400 text-blue-600">$14.99</span>
-                      <span className="text-section-body">/month</span>
-                    </div>
-                    <p className="text-section-body">1,500 credits</p>
-                  </div>
-                  <div className="space-y-3 mb-8">
-                    {[
-                      '1,500 credits (~100 contacts)',
-                      'Everything in Free, plus:',
-                      'Full Firm Search',
-                      '10 Coffee Chat Preps/month',
-                      '5 Interview Preps/month',
-                      'Smart school/major/career filters',
-                      'Unlimited directory saving',
-                      'Bulk drafting to Gmail',
-                      'Export unlocked (CSV + Gmail Drafts)',
-                      'Estimated time saved: ~2,500 minutes/month'
-                    ].map((item) => (
-                      <div key={item} className="flex items-center gap-3">
-                        <Check className="h-5 w-5 text-blue-400 text-blue-600" />
-                        <span className="text-section-body">{item}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <button 
-                    onClick={() => navigate("/signin?mode=signup")}
-                    className="btn-primary-glass w-full py-4"
-                  >
-                    Upgrade to Pro
-                  </button>
+              {/* Browser chrome bar */}
+              <div style={{
+                height: 36,
+                background: 'var(--bg-white)',
+                borderBottom: '1px solid var(--border-light)',
+                display: 'flex',
+                alignItems: 'center',
+                padding: '0 14px',
+                gap: 6,
+                flexShrink: 0,
+              }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FCA5A5' }} />
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FDE68A' }} />
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#86EFAC' }} />
+                <div style={{
+                  flex: 1,
+                  height: 22,
+                  background: 'var(--border-light)',
+                  borderRadius: 5,
+                  marginLeft: 12,
+                  maxWidth: 220,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 500,
+                    color: 'var(--text-tertiary)',
+                    letterSpacing: '0.01em',
+                    fontFamily: 'var(--font-body)',
+                  }}>offerloop.ai/coffee-chat</span>
                 </div>
               </div>
 
-              {/* Elite Plan */}
-              <div className="glass-card p-8 rounded-3xl">
-                <div className="mb-6">
-                  <h3 className="text-2xl font-bold text-section-heading">Elite</h3>
-                  <p className="text-section-body">For serious recruiting season</p>
-                </div>
-                <div className="mb-4">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-bold text-section-heading">$34.99</span>
-                    <span className="text-section-body">/month</span>
-                  </div>
-                  <p className="text-section-body mt-1">3,000 credits</p>
-                </div>
-                <div className="space-y-3 mb-8">
-                  {[
-                    '3,000 credits (~200 contacts)',
-                    'Everything in Pro, plus:',
-                    'Unlimited Coffee Chat Prep',
-                    'Unlimited Interview Prep',
-                    'Priority queue for contact generation',
-                    'Personalized outreach templates (tailored to resume)',
-                    'Weekly personalized firm insights',
-                    'Early access to new AI tools',
-                    'Estimated time saved: ~5,000 minutes/month'
-                  ].map((item) => (
-                    <div key={item} className="flex items-center gap-3">
-                      <Check className="h-5 w-5 text-blue-400 text-blue-600" />
-                      <span className="text-section-body">{item}</span>
-                    </div>
-                  ))}
-                </div>
-                <button 
-                  onClick={() => navigate("/signin?mode=signup")}
-                  className="btn-secondary-glass w-full py-4"
-                >
-                  Go Elite
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* About Section */}
-        <section 
-          ref={(el) => { sectionRefs.current[5] = el; }}
-          id="about" 
-          className="py-24 px-6 relative"
-          data-scene="5"
-          style={{ marginTop: '-1px' }}
-        >
-          <div className="max-w-7xl mx-auto">
-            <div className="grid md:grid-cols-2 gap-16">
-              {/* Mission */}
-              <div className="glass-card p-10 rounded-3xl">
-                <h2 className="text-4xl font-bold mb-6 text-section-heading font-instrument">
-                  Our <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-cyan-500">Mission</span>
-                </h2>
-                <p className="text-lg text-section-body leading-relaxed mb-6">
-                  To make it easier for students and young professionals to connect, stand out and land better opportunities.
-                </p>
-                <p className="text-section-body leading-relaxed">
-                  By cutting down the time to send emails and prep for calls by 90%, we save our users hundreds of hours of work and stress, giving them back time to focus on what matters: learning, growing and enjoying your best years.
-                </p>
-              </div>
-
-              {/* Story */}
-              <div className="glass-card p-10 rounded-3xl">
-                <h3 className="text-3xl font-bold mb-6 text-section-heading font-instrument">Our Story</h3>
-                <div className="space-y-4 text-section-body leading-relaxed">
-                  <p>
-                    Offerloop is a platform built by students, for students and young professionals, with one goal: to make it easier to connect with professionals, stand out, and land great opportunities.
-                  </p>
-                  <p>
-                    At USC, we saw countless students spending hours filling out spreadsheets and sending emails. Networking is essential — but the process is slow, stressful, and exhausting.
-                  </p>
-                  <p>
-                    We built Offerloop to fix that. Our platform automates outreach and organizes your recruiting workflow, helping you spend less time on tedious work and more time building real connections.
-                  </p>
-                </div>
-                <button
-                  onClick={() => navigate("/signin?mode=signup")}
-                  className="btn-primary-glass mt-8 px-6 py-3"
-                >
-                  Get started today →
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Footer */}
-        <footer className="py-16 px-6 border-t border-white/5 border-slate-300/20">
-          <div className="max-w-7xl mx-auto">
-            <div className="grid md:grid-cols-4 gap-8 mb-12">
-              <div className="md:col-span-2">
-                <div className="flex items-center gap-2 mb-6">
-                  <img 
-                    src={OfferloopLogo} 
-                    alt="Offerloop" 
-                    className="h-10 md:h-12 cursor-pointer"
-                    onClick={() => navigate("/")}
-                  />
-                </div>
-                <p className="text-section-body mb-6 max-w-md">
-                  Fundamentally changing how you recruit by taking the tedious, repetitive work out of the process. Connect with professionals and build the career you're excited about.
-                </p>
-                <div>
-                  <h4 className="font-semibold text-section-heading mb-3">Follow Us</h4>
-                  <div className="flex gap-4">
-                    <a 
-                      href="https://twitter.com/offerloop" 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="w-10 h-10 glass-card-light rounded-lg flex items-center justify-center hover:bg-blue-500/10 hover:border-blue-400/30 transition-all group"
-                    >
-                      <Twitter className="h-4 w-4 text-section-body group-hover:text-blue-400 transition-colors" />
-                    </a>
-                    <a 
-                      href="https://linkedin.com/company/offerloop-ai" 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="w-10 h-10 glass-card-light rounded-lg flex items-center justify-center hover:bg-blue-500/10 hover:border-blue-400/30 transition-all group"
-                    >
-                      <Linkedin className="h-4 w-4 text-section-body group-hover:text-blue-400 transition-colors" />
-                    </a>
-                    <a 
-                      href="https://instagram.com/offerloop.ai" 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="w-10 h-10 glass-card-light rounded-lg flex items-center justify-center hover:bg-blue-500/10 hover:border-blue-400/30 transition-all group"
-                    >
-                      <Instagram className="h-4 w-4 text-section-body group-hover:text-blue-400 transition-colors" />
-                    </a>
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-16">
-                <h3 className="font-semibold text-section-heading mb-4">Company</h3>
-                <ul className="space-y-2">
-                  <li>
-                    <Link to="/about" className="text-section-body hover:text-blue-400 transition-colors text-sm link-slide">About Us</Link>
-                  </li>
-                </ul>
-              </div>
-
-              <div className="pt-16">
-                <h3 className="font-semibold text-section-heading mb-4">Support</h3>
-                <ul className="space-y-2">
-                  <li>
-                    <Link to="/contact-us" className="text-section-body hover:text-blue-400 transition-colors text-sm link-slide">Contact Us</Link>
-                  </li>
-                  <li>
-                    <Link to="/contact-us" className="text-section-body hover:text-blue-400 transition-colors text-sm link-slide">Help Center</Link>
-                  </li>
-                  <li>
-                    <Link to="/privacy" className="text-section-body hover:text-blue-400 transition-colors text-sm link-slide">Privacy Policy</Link>
-                  </li>
-                  <li>
-                    <Link to="/terms-of-service" className="text-section-body hover:text-blue-400 transition-colors text-sm link-slide">Terms of Service</Link>
-                  </li>
-                </ul>
+              {/* Screenshot with bottom fade */}
+              <div style={{ overflow: 'hidden', position: 'relative' }}>
+                <img
+                  src={CoffeeChatPrepSS}
+                  alt="Offerloop Coffee Chat Prep"
+                  style={{
+                    width: '100%',
+                    display: 'block',
+                    objectFit: 'cover',
+                    objectPosition: 'top center',
+                  }}
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: 80,
+                    background: 'linear-gradient(to top, var(--bg-white) 0%, transparent 100%)',
+                    pointerEvents: 'none',
+                  }}
+                />
               </div>
             </div>
 
-            <p className="text-center text-muted-foreground text-sm">
-              © 2025 offerloop. All rights reserved. Connecting talent with opportunity through intelligent recruiting solutions.
+            {/* Caption */}
+            <p
+              className="text-center mt-5"
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: '13px',
+                color: 'var(--text-tertiary)',
+                letterSpacing: '0.01em',
+              }}
+            >
+              Coffee Chat Prep — AI-generated talking points from a LinkedIn URL
             </p>
           </div>
-        </footer>
-
         </div>
-      </div>
+      </section>
+
+      {/* SECTION 5: HOW IT FEELS */}
+      <section
+        className="py-[130px] px-6 md:px-12"
+        style={{ background: 'var(--bg-white)' }}
+      >
+        <div className="max-w-[780px] mx-auto">
+          <h2
+            className="text-center mb-16 reveal"
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: '40px',
+              fontWeight: 400,
+              letterSpacing: '-0.025em',
+              color: 'var(--text-primary)',
+            }}
+          >
+            Recruiting, without the busywork
+          </h2>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '40px' }}>
+            {[
+              { text: "Stop spending ", highlight: "40 minutes", rest: " writing a single cold email. Draft personalized outreach in seconds." },
+              { text: "Stop ", highlight: "researching every person", rest: " before a coffee chat. Walk in prepared, automatically." },
+              { text: "Stop juggling ", highlight: "five different tools", rest: ". One system from first email to final round." },
+            ].map((statement, i) => (
+              <div key={i} className="text-center reveal">
+                {i > 0 && (
+                  <div
+                    className="w-1 h-1 rounded-full mx-auto mb-8"
+                    style={{ width: '4px', height: '4px', background: 'var(--border)' }}
+                  />
+                )}
+                <p
+                  className="statement-text text-xl leading-relaxed max-w-[540px] mx-auto"
+                  style={{
+                    fontFamily: 'var(--font-body)',
+                    fontSize: '20px',
+                    lineHeight: 1.6,
+                    color: 'var(--text-secondary)',
+                  }}
+                >
+                  {statement.text}
+                  <em className="statement-em" style={{
+                    fontStyle: 'normal',
+                    color: 'var(--blue)',
+                    fontWeight: 600,
+                  }}>
+                    {statement.highlight}
+                  </em>
+                  {statement.rest}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 6: TESTIMONIALS */}
+      <section
+        id="testimonials"
+        className="py-[110px] px-6 md:px-12 bg-dots"
+        style={{ background: 'var(--bg-off)' }}
+      >
+        <div className="max-w-7xl mx-auto">
+          <h2
+            className="text-center mb-14 reveal"
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: '40px',
+              fontWeight: 400,
+              letterSpacing: '-0.025em',
+              color: 'var(--text-primary)',
+            }}
+          >
+            People like you use this
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 max-w-[960px] mx-auto" style={{ gap: '20px', padding: '0 24px' }}>
+            {[
+              {
+                name: 'Dylan Roby',
+                role: 'Investment Banking Analyst, Evercore',
+                quote: 'Offerloop does the work I spent hundreds of hours doing to land my internship — in minutes.',
+              },
+              {
+                name: 'Jackson Leck',
+                role: 'Private Equity Intern, Blackstone',
+                quote: "I had so many recruiting tabs open. Now I have one. Everything I need in a single place.",
+              },
+              {
+                name: 'Sarah Ucuzoglu',
+                role: 'Financial Advisory Intern, PwC',
+                quote: 'Automating cold outreach gave me more time spent face to face with professionals who could actually help.',
+              },
+            ].map((testimonial, i) => (
+              <div
+                key={i}
+                className="reveal rounded-[14px] transition-all"
+                style={{
+                  background: 'var(--bg-white)',
+                  border: '1px solid var(--border-light)',
+                  padding: '32px 28px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-6px)';
+                  e.currentTarget.style.boxShadow = '0 12px 40px rgba(37, 99, 235, 0.08)';
+                  e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.2)';
+                  const quote = e.currentTarget.querySelector('.quote-mark') as HTMLElement;
+                  if (quote) quote.style.color = 'rgba(37, 99, 235, 0.35)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = 'none';
+                  e.currentTarget.style.borderColor = 'var(--border-light)';
+                  const quote = e.currentTarget.querySelector('.quote-mark') as HTMLElement;
+                  if (quote) quote.style.color = 'var(--blue-soft)';
+                }}
+              >
+                <div>
+                  <div
+                    className="quote-mark text-5xl font-normal transition-colors"
+                    style={{
+                      fontFamily: 'var(--font-display)',
+                      fontSize: '48px',
+                      color: 'var(--blue-soft)',
+                      lineHeight: 1,
+                      marginBottom: '8px',
+                      userSelect: 'none',
+                    }}
+                  >
+                    "
+                  </div>
+                  <p
+                    className="text-base leading-relaxed"
+                    style={{
+                      fontFamily: 'var(--font-body)',
+                      fontSize: '15px',
+                      lineHeight: 1.75,
+                      color: 'var(--text-secondary)',
+                      opacity: 0.85,
+                      marginBottom: '28px',
+                    }}
+                  >
+                    {testimonial.quote}
+                  </p>
+                </div>
+                <div>
+                  <div
+                    className="text-sm font-semibold"
+                    style={{
+                      fontFamily: 'var(--font-body)',
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      color: 'var(--text-primary)',
+                      letterSpacing: '-0.01em',
+                    }}
+                  >
+                    {testimonial.name}
+                  </div>
+                  <div
+                    className="text-sm font-medium"
+                    style={{
+                      fontFamily: 'var(--font-body)',
+                      fontSize: '13px',
+                      color: 'var(--blue)',
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                      backgroundClip: 'text',
+                      marginTop: '3px',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {testimonial.role}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 7: FINAL CTA */}
+      <section
+        className="py-[100px] pb-[110px] px-6 md:px-12"
+        style={{ background: 'var(--bg-white)' }}
+      >
+        <div className="max-w-[640px] mx-auto">
+            <div
+              className="relative rounded-[20px] transition-all reveal"
+              style={{
+                background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.04) 0%, rgba(59, 130, 246, 0.06) 50%, rgba(37, 99, 235, 0.04) 100%)',
+                border: '1px solid rgba(37, 99, 235, 0.12)',
+                padding: '80px 48px',
+                textAlign: 'center',
+                maxWidth: '640px',
+                margin: '0 auto',
+                position: 'relative',
+                overflow: 'hidden',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.22)';
+                e.currentTarget.style.boxShadow = '0 12px 48px rgba(37, 99, 235, 0.14)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                e.currentTarget.style.boxShadow = 'none';
+              }}
+            >
+            {/* Decorative circles - soft blue accents */}
+            <div
+              className="absolute pointer-events-none"
+              style={{
+                width: '80px',
+                height: '80px',
+                border: '1.5px solid rgba(37, 99, 235, 0.15)',
+                borderRadius: '50%',
+                opacity: 0.4,
+                top: '-30px',
+                right: '-30px',
+                background: 'radial-gradient(circle, rgba(37, 99, 235, 0.05) 0%, transparent 70%)',
+              }}
+            />
+            <div
+              className="absolute pointer-events-none"
+              style={{
+                width: '60px',
+                height: '60px',
+                border: '1.5px solid rgba(59, 130, 246, 0.15)',
+                borderRadius: '50%',
+                opacity: 0.4,
+                bottom: '-25px',
+                left: '-25px',
+                background: 'radial-gradient(circle, rgba(59, 130, 246, 0.05) 0%, transparent 70%)',
+              }}
+            />
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: '13px',
+                fontWeight: 500,
+                color: 'var(--text-tertiary)',
+                letterSpacing: '0.02em',
+                marginBottom: 20,
+              }}
+            >
+              Join 113 students from USC, Georgetown, NYU &amp; more
+            </p>
+            <h2
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: '38px',
+                fontWeight: 400,
+                letterSpacing: '-0.025em',
+                color: 'var(--text-primary)',
+                marginBottom: '12px',
+              }}
+            >
+              Start recruiting with clarity.
+            </h2>
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: '15px',
+                color: 'var(--text-secondary)',
+                marginBottom: '32px',
+              }}
+            >
+              Free to start. Set up in under two minutes.
+            </p>
+            <div>
+              <button
+                onClick={() => navigate('/signin?mode=signup')}
+                className="btn-primary-lg btn-pulse"
+                style={{
+                  background: '#2563EB',
+                }}
+              >
+                Create free account
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* FOOTER */}
+      <footer
+        className="py-12 px-6 md:px-12"
+        style={{
+          background: 'var(--bg-white)',
+          borderTop: '1px solid var(--border-light)',
+        }}
+      >
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+          <p
+            className="text-sm"
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: '13px',
+              color: 'var(--text-tertiary)',
+            }}
+          >
+            © 2025 Offerloop. All rights reserved.
+          </p>
+          <div className="flex gap-6">
+            {[
+              { label: 'About', path: '/about' },
+              { label: 'Contact', path: '/contact-us' },
+              { label: 'Privacy', path: '/privacy' },
+              { label: 'Terms', path: '/terms-of-service' },
+            ].map((link) => (
+              <Link
+                key={link.path}
+                to={link.path}
+                className="footer-link text-sm relative"
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: '13px',
+                  color: 'var(--text-tertiary)',
+                }}
+              >
+                {link.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+      </footer>
+
+      {/* Back to Top Button */}
+      <button
+        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        className="fixed bottom-8 right-8 z-50 transition-all duration-300"
+        style={{
+          width: 44,
+          height: 44,
+          borderRadius: '50%',
+          background: 'var(--bg-white)',
+          border: '1px solid var(--border)',
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          opacity: showBackToTop ? 1 : 0,
+          pointerEvents: showBackToTop ? 'auto' : 'none',
+          transform: showBackToTop ? 'translateY(0)' : 'translateY(16px)',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.3)';
+          e.currentTarget.style.boxShadow = '0 6px 24px rgba(37, 99, 235, 0.15)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = 'var(--border)';
+          e.currentTarget.style.boxShadow = '0 4px 20px rgba(0, 0, 0, 0.08)';
+        }}
+      >
+        <ArrowRight 
+          className="h-5 w-5" 
+          style={{ 
+            color: 'var(--text-secondary)',
+            transform: 'rotate(-90deg)',
+          }} 
+        />
+      </button>
     </div>
-    </GranolaBackground>
   );
 };
 

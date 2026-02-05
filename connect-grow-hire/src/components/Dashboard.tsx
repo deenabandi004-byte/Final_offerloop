@@ -42,17 +42,18 @@ const formatTimeAgo = (timestamp: any): string => {
 };
 
 const getActivityIcon = (type: string) => {
+  const iconStyle = { color: 'var(--text-tertiary)' };
   switch (type) {
     case 'firmSearch':
-      return <Building2 size={14} className="text-gray-500" />;
+      return <Building2 size={14} style={iconStyle} />;
     case 'contactSearch':
-      return <Users size={14} className="text-gray-500" />;
+      return <Users size={14} style={iconStyle} />;
     case 'coffeePrep':
-      return <Coffee size={14} className="text-gray-500" />;
+      return <Coffee size={14} style={iconStyle} />;
     case 'interviewPrep':
-      return <Briefcase size={14} className="text-gray-500" />;
+      return <Briefcase size={14} style={iconStyle} />;
     default:
-      return <Clock size={14} className="text-gray-500" />;
+      return <Clock size={14} style={iconStyle} />;
   }
 };
 
@@ -435,182 +436,385 @@ export function Dashboard() {
       {/* PERSONALIZED GREETING */}
       {/* ================================================================== */}
       <div className="animate-fadeInUp">
-        <h1 className="text-2xl font-bold text-gray-900">
+        <h1
+          style={{
+            fontFamily: "'Instrument Serif', Georgia, serif",
+            fontSize: '36px',
+            fontWeight: 400,
+            letterSpacing: '-0.025em',
+            color: 'var(--text-primary)',
+            marginBottom: '6px',
+          }}
+        >
           {getTimeOfDayGreeting()}, {firstName}
         </h1>
-        <p className="text-gray-600 mt-1">
-          {followUps.length > 0 ? (
-            <>
-              You have <span className="font-semibold text-blue-600">{followUps.length} follow-ups</span> pending
-              {firmCount > 0 && (
-                <> and <span className="font-semibold text-blue-600">{firmCount} companies</span> to explore</>
-              )}.
-            </>
-          ) : (
-            <>Ready to make some connections today?</>
-          )}
+        <p
+          style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: '15px',
+            color: 'var(--text-secondary)',
+          }}
+        >
+          You have <span style={{ color: '#2563EB', fontWeight: 600 }}>{followUps.length} follow-ups</span> pending.
         </p>
       </div>
 
       {/* ================================================================== */}
-      {/* NEXT BEST ACTION HERO CARD */}
+      {/* RECOMMENDED ACTION - COMPACT */}
       {/* ================================================================== */}
-      <div 
-        className="bg-gradient-to-r from-blue-600 to-blue-400 rounded-2xl p-8 shadow-lg text-white animate-fadeInUp"
-        style={{ animationDelay: '100ms' }}
+      <div
+        style={{
+          background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.06) 0%, rgba(37, 99, 235, 0.10) 100%)',
+          border: '1px solid rgba(37, 99, 235, 0.12)',
+          borderRadius: '14px',
+          padding: '24px 28px',
+          marginTop: '28px',
+          marginBottom: '32px',
+        }}
       >
-        <div className="mb-2">
-          <span className="text-sm font-medium uppercase tracking-wide opacity-90">Recommended Action</span>
-        </div>
-        
+        <p
+          style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: '11px',
+            fontWeight: 600,
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            color: '#2563EB',
+            marginBottom: '8px',
+          }}
+        >
+          RECOMMENDED ACTION
+        </p>
         {topFollowUp ? (
-          <>
-            <h2 className="text-2xl font-bold mb-2">Follow up with {topFollowUp.personName}</h2>
-            <p className="text-blue-100 mb-1">{topFollowUp.title} at {topFollowUp.company}</p>
-            
-            <div className="flex items-center gap-4 text-sm text-blue-100 mb-6 flex-wrap">
-              <span>Last contacted {topFollowUp.daysSinceContact} days ago</span>
-              <span className="bg-white/20 px-2 py-0.5 rounded-full">{topFollowUp.priority} Priority</span>
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div>
+              <p
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: '17px',
+                  fontWeight: 600,
+                  color: 'var(--text-primary)',
+                  marginBottom: '2px',
+                }}
+              >
+                Follow up with {topFollowUp.personName}
+              </p>
+              <p
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: '14px',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                at {topFollowUp.company} · Last contacted {topFollowUp.daysSinceContact} days ago
+              </p>
             </div>
-            
-            <div className="flex items-center gap-4 flex-wrap">
-              <button 
+            <div className="flex items-center gap-3">
+              <button
                 onClick={() => navigate('/outbox')}
-                className="dashboard-send-followup-btn bg-white text-blue-600 font-semibold px-6 py-3 rounded-full hover:bg-blue-50 transition-colors"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-[10px] text-sm font-medium transition-all"
+                style={{
+                  background: '#2563EB',
+                  color: 'white',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
               >
                 Send Follow-up →
               </button>
-              <button 
+              <button
                 onClick={() => navigate('/contact-search')}
-                className="dashboard-find-contacts-link text-white/80 hover:text-white underline text-sm"
+                className="text-sm font-medium transition-colors"
+                style={{
+                  color: 'var(--text-tertiary)',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: '14px',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
               >
                 Or find new contacts
               </button>
             </div>
-          </>
+          </div>
         ) : (
-          <>
-            <h2 className="text-2xl font-bold mb-2">Start building your network</h2>
-            <p className="text-blue-100 mb-6">Find people at companies you're interested in and start reaching out.</p>
-            
-            <div className="flex items-center gap-4 flex-wrap">
-              <button 
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div>
+              <p
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: '17px',
+                  fontWeight: 600,
+                  color: 'var(--text-primary)',
+                  marginBottom: '2px',
+                }}
+              >
+                Start building your network
+              </p>
+              <p
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: '14px',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                Find people at companies you're interested in and start reaching out
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
                 onClick={() => navigate('/contact-search')}
-                className="dashboard-send-followup-btn bg-white text-blue-600 font-semibold px-6 py-3 rounded-full hover:bg-blue-50 transition-colors"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-[10px] text-sm font-medium transition-all"
+                style={{
+                  background: '#2563EB',
+                  color: 'white',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
               >
                 Find People →
               </button>
-              <button 
+              <button
                 onClick={() => navigate('/firm-search')}
-                className="dashboard-find-contacts-link text-white/80 hover:text-white underline text-sm"
+                className="text-sm font-medium transition-colors"
+                style={{
+                  color: 'var(--text-tertiary)',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: '14px',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
               >
                 Or explore companies
               </button>
             </div>
-          </>
+          </div>
         )}
       </div>
 
       {/* ================================================================== */}
-      {/* SECONDARY WORKFLOW OPTIONS */}
+      {/* WORKFLOW SHORTCUTS */}
       {/* ================================================================== */}
       <div className="animate-fadeInUp dashboard-workflow-section" style={{ animationDelay: '200ms' }}>
-        <p className="text-sm text-gray-500 mb-3">Or start a new workflow</p>
-        <div className="flex gap-3 flex-wrap dashboard-workflow-buttons">
-          <button 
-            onClick={() => navigate('/contact-search')}
-            className="dashboard-workflow-btn flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors"
-          >
-            <Search className="w-4 h-4 text-gray-500" />
-            <span className="text-gray-700">Find People</span>
-          </button>
-          <button 
-            onClick={() => navigate('/firm-search')}
-            className="dashboard-workflow-btn flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors"
-          >
-            <Building2 className="w-4 h-4 text-gray-500" />
-            <span className="text-gray-700">Find Companies</span>
-          </button>
-          <button 
-            onClick={() => navigate('/outbox')}
-            className="dashboard-workflow-btn flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors"
-          >
-            <Mail className="w-4 h-4 text-gray-500" />
-            <span className="text-gray-700">Review Outreach</span>
-          </button>
-          <button 
-            onClick={() => navigate('/coffee-chat-prep')}
-            className="dashboard-workflow-btn flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors"
-          >
-            <Coffee className="w-4 h-4 text-gray-500" />
-            <span className="text-gray-700">Prep for Chat</span>
-          </button>
+        <p
+          style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: '14px',
+            color: 'var(--text-tertiary)',
+            marginBottom: '12px',
+          }}
+        >
+          Or start a new workflow
+        </p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[
+            { icon: <Search className="w-4 h-4" />, label: 'Find People', route: '/contact-search' },
+            { icon: <Building2 className="w-4 h-4" />, label: 'Find Companies', route: '/firm-search' },
+            { icon: <Mail className="w-4 h-4" />, label: 'Review Outreach', route: '/outbox' },
+            { icon: <Coffee className="w-4 h-4" />, label: 'Prep for Chat', route: '/coffee-chat-prep' },
+          ].map((shortcut, i) => (
+            <button
+              key={i}
+              onClick={() => navigate(shortcut.route)}
+              className="flex items-center gap-3 px-4 py-3 rounded-[10px] transition-all text-left"
+              style={{
+                background: 'var(--bg-white)',
+                border: '1px solid var(--border-light)',
+                cursor: 'pointer',
+                fontFamily: 'var(--font-body)',
+                fontSize: '14px',
+                fontWeight: 500,
+                color: 'var(--text-secondary)',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.2)';
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 4px 16px rgba(37, 99, 235, 0.08)';
+                e.currentTarget.style.color = 'var(--text-primary)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-light)';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = 'none';
+                e.currentTarget.style.color = 'var(--text-secondary)';
+              }}
+            >
+              <span>{shortcut.icon}</span>
+              {shortcut.label}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* ================================================================== */}
-      {/* TWO COLUMN LAYOUT */}
+      {/* MAIN CONTENT */}
       {/* ================================================================== */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* Left column - 2/3 width */}
-        <div className="lg:col-span-2 space-y-8">
+      <div className="space-y-8">
           
           {/* QUICK WINS SECTION */}
           <div className="animate-fadeInUp" style={{ animationDelay: '300ms' }}>
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Wins</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 dashboard-quick-wins">
-              {/* Show cards immediately, with loading state for outbox */}
-              <div 
-                onClick={() => navigate('/outbox')}
-                className={`dashboard-quick-win-card bg-green-50 border border-green-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.emailsReady === 0 ? 'opacity-50' : ''}`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <Mail className="w-6 h-6 text-gray-400" />
-                  <span className="text-xs bg-green-200 text-green-800 px-2 py-0.5 rounded-full">2 min</span>
-                </div>
-                <p className="font-semibold text-gray-900">
-                  {outboxLoading ? '...' : `${quickWins.emailsReady} emails ready`}
-                </p>
-                <p className="text-sm text-gray-600">Review and send with one click</p>
-              </div>
-              
-              <div 
-                onClick={() => navigate('/coffee-chat-prep')}
-                className={`dashboard-quick-win-card bg-purple-50 border border-purple-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.coffeeChatsNeedPrep === 0 ? 'opacity-50' : ''}`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <Coffee className="w-6 h-6 text-gray-400" />
-                  <span className="text-xs bg-purple-200 text-purple-800 px-2 py-0.5 rounded-full">5 min</span>
-                </div>
-                <p className="font-semibold text-gray-900">{quickWins.coffeeChatsNeedPrep} coffee chats</p>
-                <p className="text-sm text-gray-600">Need quick prep before calls</p>
-              </div>
-          
-              <div 
-                onClick={() => navigate('/firm-search')}
-                className={`dashboard-quick-win-card bg-blue-50 border border-blue-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer ${quickWins.newMatches === 0 ? 'opacity-50' : ''}`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <Building2 className="w-6 h-6 text-gray-400" />
-                  <span className="text-xs bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full">New</span>
-                </div>
-                <p className="font-semibold text-gray-900">{quickWins.newMatches} companies</p>
-                <p className="text-sm text-gray-600">Match your search criteria</p>
-              </div>
-
-              {quickWins.emailsReady === 0 && quickWins.coffeeChatsNeedPrep === 0 && quickWins.newMatches === 0 && (
-                    <div 
-                      onClick={() => navigate('/contact-search')}
-                      className="bg-gray-50 border border-gray-200 rounded-xl p-4 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer col-span-full"
+            <h2
+              style={{
+                fontFamily: "'Instrument Serif', Georgia, serif",
+                fontSize: '24px',
+                fontWeight: 400,
+                letterSpacing: '-0.02em',
+                color: 'var(--text-primary)',
+                marginTop: '40px',
+                marginBottom: '16px',
+              }}
+            >
+              Quick Wins
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {[
+                {
+                  icon: <Mail className="w-5 h-5" style={{ color: 'var(--text-secondary)' }} />,
+                  title: outboxLoading ? '...' : `${quickWins.emailsReady} emails ready`,
+                  description: 'Review and send with one click',
+                  badge: '2 min',
+                  route: '/outbox',
+                  disabled: quickWins.emailsReady === 0,
+                },
+                {
+                  icon: <Coffee className="w-5 h-5" style={{ color: 'var(--text-secondary)' }} />,
+                  title: `${quickWins.coffeeChatsNeedPrep} coffee chats`,
+                  description: 'Need quick prep before calls',
+                  badge: '5 min',
+                  route: '/coffee-chat-prep',
+                  disabled: quickWins.coffeeChatsNeedPrep === 0,
+                },
+                {
+                  icon: <Building2 className="w-5 h-5" style={{ color: 'var(--text-secondary)' }} />,
+                  title: `${quickWins.newMatches} companies`,
+                  description: 'Match your search criteria',
+                  badge: 'New',
+                  route: '/firm-search',
+                  disabled: quickWins.newMatches === 0,
+                },
+              ].map((win, i) => (
+                <div
+                  key={i}
+                  onClick={() => !win.disabled && navigate(win.route)}
+                  className="px-5 py-4 rounded-[12px] transition-all cursor-pointer"
+                  style={{
+                    background: 'var(--bg-white)',
+                    border: '1px solid var(--border-light)',
+                    opacity: win.disabled ? 0.5 : 1,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!win.disabled) {
+                      e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.15)';
+                      e.currentTarget.style.boxShadow = '0 4px 16px rgba(37, 99, 235, 0.06)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--border-light)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span style={{ fontSize: '20px' }}>{win.icon}</span>
+                    <span
+                      style={{
+                        fontFamily: 'var(--font-body)',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        color: '#2563EB',
+                        background: 'rgba(37, 99, 235, 0.08)',
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                      }}
                     >
-                      <div className="flex items-center justify-between mb-2">
-                        <Search className="w-6 h-6 text-gray-400" />
-                        <span className="text-xs bg-gray-200 text-gray-800 px-2 py-0.5 rounded-full">Get started</span>
-                      </div>
-                      <p className="font-semibold text-gray-900">Find your first contacts</p>
-                      <p className="text-sm text-gray-600">Search for people at companies you're targeting</p>
-                    </div>
+                      {win.badge}
+                    </span>
+                  </div>
+                  <p
+                    style={{
+                      fontFamily: 'var(--font-body)',
+                      fontSize: '15px',
+                      fontWeight: 600,
+                      color: 'var(--text-primary)',
+                      marginBottom: '2px',
+                    }}
+                  >
+                    {win.title}
+                  </p>
+                  <p
+                    style={{
+                      fontFamily: 'var(--font-body)',
+                      fontSize: '13px',
+                      color: 'var(--text-secondary)',
+                    }}
+                  >
+                    {win.description}
+                  </p>
+                </div>
+              ))}
+              {quickWins.emailsReady === 0 && quickWins.coffeeChatsNeedPrep === 0 && quickWins.newMatches === 0 && (
+                <div 
+                  onClick={() => navigate('/contact-search')}
+                  className="px-5 py-4 rounded-[12px] transition-all cursor-pointer col-span-full"
+                  style={{
+                    background: 'var(--bg-white)',
+                    border: '1px solid var(--border-light)',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.15)';
+                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(37, 99, 235, 0.06)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--border-light)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span style={{ fontSize: '20px' }}>
+                      <Search className="w-5 h-5" style={{ color: 'var(--text-secondary)' }} />
+                    </span>
+                    <span
+                      style={{
+                        fontFamily: 'var(--font-body)',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        color: '#2563EB',
+                        background: 'rgba(37, 99, 235, 0.08)',
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                      }}
+                    >
+                      Get started
+                    </span>
+                  </div>
+                  <p
+                    style={{
+                      fontFamily: 'var(--font-body)',
+                      fontSize: '15px',
+                      fontWeight: 600,
+                      color: 'var(--text-primary)',
+                      marginBottom: '2px',
+                    }}
+                  >
+                    Find your first contacts
+                  </p>
+                  <p
+                    style={{
+                      fontFamily: 'var(--font-body)',
+                      fontSize: '13px',
+                      color: 'var(--text-secondary)',
+                    }}
+                  >
+                    Search for people at companies you're targeting
+                  </p>
+                </div>
               )}
             </div>
           </div>
@@ -618,80 +822,143 @@ export function Dashboard() {
           {/* FOLLOW-UP QUEUE */}
           <div className="animate-fadeInUp" style={{ animationDelay: '400ms' }}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Your Follow-up Queue</h2>
+              <h2
+                style={{
+                  fontFamily: "'Instrument Serif', Georgia, serif",
+                  fontSize: '24px',
+                  fontWeight: 400,
+                  letterSpacing: '-0.02em',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                Your Follow-up Queue
+              </h2>
               {followUps.length > 0 && (
-                <span className="text-sm text-gray-500">{followUps.length} pending</span>
+                <span
+                  style={{
+                    fontFamily: 'var(--font-body)',
+                    fontSize: '14px',
+                    color: 'var(--text-tertiary)',
+                  }}
+                >
+                  {followUps.length} pending
+                </span>
               )}
             </div>
             
             {followUps.length === 0 ? (
-              <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 text-center">
-                <p className="text-sm text-gray-600 mb-2">No follow-ups needed right now</p>
-                <p className="text-xs text-gray-500">
+              <div
+                className="rounded-[12px] p-6 text-center"
+                style={{
+                  background: 'var(--bg-off)',
+                  border: '1px solid var(--border-light)',
+                }}
+              >
+                <p
+                  style={{
+                    fontFamily: 'var(--font-body)',
+                    fontSize: '14px',
+                    color: 'var(--text-secondary)',
+                    marginBottom: '8px',
+                  }}
+                >
+                  No follow-ups needed right now
+                </p>
+                <p
+                  style={{
+                    fontFamily: 'var(--font-body)',
+                    fontSize: '12px',
+                    color: 'var(--text-tertiary)',
+                  }}
+                >
                   Follow-ups appear here when contacts haven't replied after 3+ days
                 </p>
               </div>
             ) : (
               <>
-              
               <div className="space-y-3 dashboard-followup-list">
                 {followUps.slice(0, 4).map((followUp) => (
                   <div 
                     key={followUp.id}
                     onClick={() => navigate('/outbox')}
-                    className={`
-                      dashboard-followup-card group relative flex items-center justify-between p-4 bg-white border rounded-xl
-                      hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer
-                      border-l-4 ${getPriorityBorderColor(followUp.priority)}
-                    `}
+                    className="dashboard-followup-card group relative flex items-center justify-between p-4 rounded-[12px] transition-all cursor-pointer"
+                    style={{
+                      background: 'var(--bg-white)',
+                      border: '1px solid var(--border-light)',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.15)';
+                      e.currentTarget.style.boxShadow = '0 4px 16px rgba(37, 99, 235, 0.06)';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--border-light)';
+                      e.currentTarget.style.boxShadow = 'none';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                    }}
                   >
                     <div className="flex items-center gap-4">
-                      {/* Company logo placeholder */}
-                      <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
-                        <Building2 className="w-5 h-5 text-gray-400" />
+                      <div
+                        className="w-10 h-10 rounded-[10px] flex items-center justify-center"
+                        style={{
+                          background: 'var(--bg-off)',
+                        }}
+                      >
+                        <Building2 className="w-5 h-5" style={{ color: 'var(--text-tertiary)' }} />
                       </div>
                       
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-gray-900">{followUp.personName}</span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${getPriorityBadgeStyles(followUp.priority)}`}>
+                          <span
+                            style={{
+                              fontFamily: 'var(--font-body)',
+                              fontSize: '15px',
+                              fontWeight: 600,
+                              color: 'var(--text-primary)',
+                            }}
+                          >
+                            {followUp.personName}
+                          </span>
+                          <span
+                            style={{
+                              fontFamily: 'var(--font-body)',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              color: '#2563EB',
+                              background: 'rgba(37, 99, 235, 0.08)',
+                              padding: '2px 8px',
+                              borderRadius: '6px',
+                            }}
+                          >
                             {followUp.priority}
                           </span>
                         </div>
-                        <p className="text-sm text-gray-600">{followUp.title} at {followUp.company}</p>
-                        <p className="text-xs text-gray-400 mt-1">
+                        <p
+                          style={{
+                            fontFamily: 'var(--font-body)',
+                            fontSize: '13px',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          {followUp.title} at {followUp.company}
+                        </p>
+                        <p
+                          style={{
+                            fontFamily: 'var(--font-body)',
+                            fontSize: '12px',
+                            color: 'var(--text-tertiary)',
+                            marginTop: '4px',
+                          }}
+                        >
                           Last contacted {followUp.daysSinceContact} days ago
-                          {followUp.emailOpened && <span className="ml-2 text-green-600">Email opened</span>}
+                          {followUp.emailOpened && (
+                            <span style={{ marginLeft: '8px', color: '#16A34A' }}>Email opened</span>
+                          )}
                         </p>
                       </div>
                     </div>
                     
-                    {/* Quick actions - visible on hover */}
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); navigate('/outbox'); }}
-                        className="p-2 hover:bg-blue-50 rounded-lg text-blue-600" 
-                        title="Send Email"
-                      >
-                        <Mail className="w-4 h-4" />
-                      </button>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); navigate('/coffee-chat-prep'); }}
-                        className="p-2 hover:bg-green-50 rounded-lg text-green-600" 
-                        title="Prep"
-                      >
-                        <FileText className="w-4 h-4" />
-                      </button>
-                      <button 
-                        onClick={(e) => e.stopPropagation()}
-                        className="p-2 hover:bg-gray-100 rounded-lg text-gray-400" 
-                        title="Skip"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                    
-                    <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-gray-500 transition-colors" />
+                    <ChevronRight className="w-5 h-5" style={{ color: 'var(--border)' }} />
                   </div>
                 ))}
               </div>
@@ -699,7 +966,15 @@ export function Dashboard() {
                 {followUps.length > 4 && (
                   <button 
                     onClick={() => navigate('/outbox')}
-                    className="dashboard-view-all-followups mt-4 text-sm text-blue-600 hover:underline flex items-center gap-1"
+                    className="dashboard-view-all-followups mt-4 flex items-center gap-1"
+                    style={{
+                      fontFamily: 'var(--font-body)',
+                      fontSize: '14px',
+                      color: '#2563EB',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                    }}
                   >
                     View all {followUps.length} follow-ups <ArrowRight className="w-4 h-4" />
                   </button>
@@ -707,148 +982,6 @@ export function Dashboard() {
               </>
             )}
           </div>
-        </div>
-        
-        {/* Right column - 1/3 width */}
-        <div className="space-y-6">
-          
-          {/* Stats summary card */}
-          <div 
-            className="bg-white border border-gray-200 rounded-xl p-6 animate-fadeInUp"
-            style={{ animationDelay: '300ms' }}
-          >
-            <h3 className="font-semibold text-gray-900 mb-4">This Week</h3>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Emails Sent</span>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-gray-900">{outreachSent}</span>
-                  {outreachSent > 0 && (
-                    <span className="text-xs text-green-600 flex items-center">
-                      <TrendingUp className="w-3 h-3 mr-0.5" />+{outreachSent}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Replies Received</span>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-gray-900">{repliesReceived}</span>
-                  {repliesReceived > 0 && (
-                    <span className="text-xs text-green-600 flex items-center">
-                      <TrendingUp className="w-3 h-3 mr-0.5" />+{repliesReceived}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Coffee Chats</span>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-gray-900">{coffeeChatCount}</span>
-                  {coffeeChatCount > 0 && (
-                    <span className="text-xs text-green-600 flex items-center">
-                      <TrendingUp className="w-3 h-3 mr-0.5" />+{coffeeChatCount}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                <span className="text-sm text-gray-600">Time Saved</span>
-                <span className="font-semibold text-gray-900">{timeSavedHours}h</span>
-              </div>
-            </div>
-          </div>
-          
-          {/* Recent Activity */}
-          <div 
-            className="bg-white border border-gray-200 rounded-xl p-6 animate-fadeInUp"
-            style={{ animationDelay: '400ms' }}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-gray-900">Recent Activity</h3>
-              {activities.length > 4 && (
-                <button className="text-sm text-blue-600 hover:underline">View all</button>
-              )}
-            </div>
-            {activities.length === 0 ? (
-              <p className="text-sm text-gray-400">No recent activity yet</p>
-            ) : (
-              <div className="space-y-3">
-                {activities.slice(0, 5).map((activity) => (
-                  <div
-                    key={activity.id}
-                    className="flex items-start gap-2.5 cursor-pointer hover:bg-gray-50 p-2 -mx-2 rounded-lg transition-colors"
-                    onClick={() => navigate(getActivityRoute(activity.type))}
-                  >
-                    <div className="mt-0.5">{getActivityIcon(activity.type)}</div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-gray-600 line-clamp-2">{activity.summary}</p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">{formatTimeAgo(activity.timestamp)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          
-          {/* Outreach Trends mini chart */}
-          <div 
-            className="bg-white border border-gray-200 rounded-xl p-6 animate-fadeInUp"
-            style={{ animationDelay: '500ms' }}
-          >
-            <h3 className="font-semibold text-gray-900 mb-4">Outreach Trends</h3>
-            {timeSeriesData.length > 0 ? (
-              <div className="h-[140px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={timeSeriesData} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
-                    <XAxis 
-                      dataKey="month" 
-                      stroke="#9CA3AF" 
-                      fontSize={9}
-                      tickLine={false}
-                      axisLine={{ stroke: '#E5E7EB' }}
-                    />
-                    <YAxis 
-                      stroke="#9CA3AF" 
-                      fontSize={9}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: 'white', 
-                        border: '1px solid #E5E7EB',
-                        borderRadius: '8px',
-                        fontSize: '10px',
-                      }}
-                    />
-                    <Line 
-                      type="monotone" 
-                      dataKey="outreach" 
-                      stroke="#3B82F6" 
-                      strokeWidth={2} 
-                      dot={{ fill: '#3B82F6', r: 2 }}
-                      name="Outreach"
-                    />
-                    <Line 
-                      type="monotone" 
-                      dataKey="replies" 
-                      stroke="#10B981" 
-                      strokeWidth={2} 
-                      dot={{ fill: '#10B981', r: 2 }}
-                      name="Replies"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="h-[140px] flex items-center justify-center">
-                <p className="text-xs text-gray-400 text-center">Chart data will appear<br />after you send outreach</p>
-              </div>
-            )}
-          </div>
-        </div>
-        
       </div>
 
       {/* Mobile-only CSS overrides */}

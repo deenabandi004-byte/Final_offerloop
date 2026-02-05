@@ -86,7 +86,7 @@ export const ProductTour: React.FC = () => {
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             {/* Video - Left Side */}
             <div className="relative">
-              <div className="aspect-video rounded-2xl overflow-hidden border border-purple-500/20 border-purple-300/60 bg-gradient-to-br from-purple-500/5 to-indigo-500/5 from-purple-50/80 to-indigo-50/80 shadow-lg shadow-purple-100/50">
+              <div className="aspect-video rounded-2xl overflow-hidden border border-blue-500/20 border-blue-300/60 bg-gradient-to-br from-blue-500/5 to-blue-500/5 from-blue-50/80 to-blue-50/80 shadow-lg shadow-blue-100/50">
                 <video
                   src={contactSearchVideo}
                   autoPlay
@@ -156,7 +156,7 @@ export const ProductTour: React.FC = () => {
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             {/* Video - Left Side */}
             <div className="relative">
-              <div className="aspect-video rounded-2xl overflow-hidden border border-purple-500/20 border-purple-300/60 bg-gradient-to-br from-purple-500/5 to-indigo-500/5 from-purple-50/80 to-indigo-50/80 shadow-lg shadow-purple-100/50">
+              <div className="aspect-video rounded-2xl overflow-hidden border border-blue-500/20 border-blue-300/60 bg-gradient-to-br from-blue-500/5 to-blue-500/5 from-blue-50/80 to-blue-50/80 shadow-lg shadow-blue-100/50">
                 <video
                   src={interviewPrepVideo}
                   autoPlay

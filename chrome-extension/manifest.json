@@ -18,7 +18,7 @@
     "https://offerloop-native.firebaseapp.com/*"
   ],
   "oauth2": {
-    "client_id": "184607281467-93440cnoc8c6pv9slbentk9e9pd75sk2.apps.googleusercontent.com",
+    "client_id": "184607281467-8dgepdp9ksteio6n0dk3tgueaeoigpua.apps.googleusercontent.com",
     "scopes": [
       "https://www.googleapis.com/auth/userinfo.email",
       "https://www.googleapis.com/auth/userinfo.profile"

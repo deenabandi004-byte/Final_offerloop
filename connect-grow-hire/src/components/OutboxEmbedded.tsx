@@ -480,7 +480,7 @@ export function OutboxEmbedded() {
                   }}
                     className={`w-full text-left p-4 rounded-xl transition-all duration-200 ${
                     selectedThread?.id === t.id
-                        ? "bg-gradient-to-r from-blue-50 to-indigo-50 shadow-md ring-2 ring-blue-500/30"
+                        ? "bg-gradient-to-r from-blue-50 to-blue-50 shadow-md ring-2 ring-blue-500/30"
                         : "bg-white shadow-sm hover:shadow-md hover:bg-gray-50/50"
                   }`}
                 >

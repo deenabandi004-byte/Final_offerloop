@@ -1293,24 +1293,49 @@ const ContactSearchPage: React.FC = () => {
             onJobTitleSuggestion={handleJobTitleSuggestion}
           />
 
-          <main className="w-full max-w-5xl mx-auto px-6 py-12 pb-24">
+          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', padding: '48px 24px', paddingBottom: '96px' }}>
             {/* Header Section */}
-            <div className="text-center mb-12 max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700">
-              <h1 className="text-4xl font-bold tracking-tight text-gray-900 mb-4">
+            <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px' }}>
+              <h1
+                style={{
+                  fontFamily: "'Instrument Serif', Georgia, serif",
+                  fontSize: '42px',
+                  fontWeight: 400,
+                  letterSpacing: '-0.025em',
+                  color: '#0F172A',
+                  textAlign: 'center',
+                  marginBottom: '10px',
+                  lineHeight: 1.1,
+                }}
+              >
                 Find your next connection
               </h1>
-              <p className="text-lg text-gray-500 leading-relaxed">
+              <p
+                style={{
+                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                  fontSize: '16px',
+                  color: '#64748B',
+                  textAlign: 'center',
+                  marginBottom: '28px',
+                  lineHeight: 1.5,
+                }}
+              >
                 Discover professionals who can open doors at your target companies.
-                <br className="hidden md:block" />
-                <span className="text-gray-400 text-base mt-2 block">
-                  Reaching out to 10+ contacts triples your interview chances.
-                </span>
               </p>
             </div>
 
             {/* Navigation Tabs */}
-            <div className="flex justify-center mb-10">
-              <div className="inline-flex items-center p-1 bg-white border border-gray-200 rounded-full shadow-sm">
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '36px' }}>
+              <div
+                style={{
+                  display: 'inline-flex',
+                  gap: '0',
+                  background: '#F0F4FD',
+                  borderRadius: '12px',
+                  padding: '4px',
+                  margin: '0 auto',
+                }}
+              >
                 {[
                   { id: 'contact-search', label: 'Search', icon: Search },
                   { id: 'import', label: 'Import', icon: Upload },
@@ -1320,15 +1345,24 @@ const ContactSearchPage: React.FC = () => {
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`
-                      flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-medium transition-all duration-300
-                      ${activeTab === tab.id
-                        ? 'bg-indigo-600 text-white shadow-md transform scale-[1.02]'
-                        : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-                      }
-                    `}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 20px',
+                      borderRadius: '9px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontFamily: "'DM Sans', system-ui, sans-serif",
+                      fontSize: '14px',
+                      fontWeight: 500,
+                      transition: 'all 0.15s ease',
+                      background: activeTab === tab.id ? '#2563EB' : 'transparent',
+                      color: activeTab === tab.id ? 'white' : '#64748B',
+                      boxShadow: activeTab === tab.id ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
+                    }}
                   >
-                    <tab.icon className={`w-4 h-4 ${activeTab === tab.id ? 'text-white' : 'text-current'}`} />
+                    <tab.icon className="h-4 w-4" />
                     {tab.label}
                   </button>
                 ))}
@@ -1341,7 +1375,18 @@ const ContactSearchPage: React.FC = () => {
                 <TabsContent value="contact-search" className="mt-0 focus-visible:outline-none">
 
                   {/* Search Card */}
-                  <div className="bg-white rounded-[2rem] shadow-xl shadow-gray-200/50 border border-gray-100 overflow-hidden">
+                  <div 
+                    style={{
+                      background: '#FFFFFF',
+                      border: '1px solid rgba(37, 99, 235, 0.08)',
+                      borderRadius: '14px',
+                      padding: '36px 40px',
+                      maxWidth: '900px',
+                      margin: '0 auto',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
+                    }}
+                    className="overflow-hidden"
+                  >
 
                     {/* Progress Bar (if searching) */}
                     {isSearching && (
@@ -1391,11 +1436,11 @@ const ContactSearchPage: React.FC = () => {
                               onClick={() => !isSearching && !isUploadingResume && document.getElementById('resume-upload')?.click()}
                               className="flex items-center gap-4 cursor-pointer group"
                             >
-                              <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center border border-gray-200 group-hover:border-indigo-300 group-hover:bg-indigo-50 transition-colors">
-                                <Upload className="w-5 h-5 text-gray-400 group-hover:text-indigo-500 transition-colors" />
+                              <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center border border-gray-200 group-hover:border-blue-300 group-hover:bg-blue-50 transition-colors">
+                                <Upload className="w-5 h-5 text-gray-400 group-hover:text-blue-500 transition-colors" />
                               </div>
                               <div>
-                                <p className="font-medium text-gray-900 group-hover:text-indigo-600 transition-colors">Upload Resume</p>
+                                <p className="font-medium text-gray-900 group-hover:text-blue-600 transition-colors">Upload Resume</p>
                                 <p className="text-sm text-gray-500">For better matching</p>
                               </div>
                             </div>
@@ -1434,7 +1479,7 @@ const ContactSearchPage: React.FC = () => {
                         <div className="mb-8 bg-gray-50 border border-gray-100 rounded-2xl p-4 flex items-center justify-between animate-in fade-in slide-in-from-top-2">
                           <div className="flex items-center gap-3">
                             <div className="p-2 bg-white border border-gray-200 rounded-lg">
-                              <Sparkles className="w-4 h-4 text-indigo-600" />
+                              <Sparkles className="w-4 h-4 text-blue-600" />
                             </div>
                             <div className="text-sm">
                               <span className="font-medium text-gray-900">Targeted Search:</span>
@@ -1607,7 +1652,7 @@ const ContactSearchPage: React.FC = () => {
                             h-14 px-12 rounded-full text-lg font-medium shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300
                             ${isSearching
                               ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
-                              : 'bg-indigo-600 text-white hover:bg-indigo-700 hover:scale-[1.02]'
+                              : 'bg-blue-600 text-white hover:bg-blue-700 hover:scale-[1.02]'
                             }
                           `}
                         >
@@ -1637,7 +1682,19 @@ const ContactSearchPage: React.FC = () => {
                 </TabsContent>
 
                 <TabsContent value="linkedin-email" className="mt-6">
-                  <div className="bg-white rounded-[2rem] shadow-xl shadow-gray-200/50 border border-gray-100 overflow-hidden p-12 text-center">
+                  <div 
+                    style={{
+                      background: '#FFFFFF',
+                      border: '1px solid rgba(37, 99, 235, 0.08)',
+                      borderRadius: '14px',
+                      padding: '48px 40px',
+                      maxWidth: '900px',
+                      margin: '0 auto',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
+                      textAlign: 'center',
+                    }}
+                    className="overflow-hidden"
+                  >
                     <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
                       <Linkedin className="w-8 h-8 text-blue-600" />
                     </div>
@@ -1657,7 +1714,7 @@ const ContactSearchPage: React.FC = () => {
                             placeholder="https://linkedin.com/in/username"
                             value={linkedInUrl}
                             onChange={(e) => setLinkedInUrl(e.target.value)}
-                            className="w-full h-12 pl-12 pr-4 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all outline-none"
+                            className="w-full h-12 pl-12 pr-4 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all outline-none"
                           />
                         </div>
                         <Button
@@ -1687,7 +1744,19 @@ const ContactSearchPage: React.FC = () => {
                 </TabsContent>
 
                 <TabsContent value="contact-library" className="mt-6">
-                  <div className="bg-white rounded-[2rem] shadow-xl shadow-gray-200/50 border border-gray-100 overflow-hidden min-h-[600px]">
+                  <div 
+                    style={{
+                      background: '#FFFFFF',
+                      border: '1px solid rgba(37, 99, 235, 0.08)',
+                      borderRadius: '14px',
+                      padding: '36px 40px',
+                      maxWidth: '900px',
+                      margin: '0 auto',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
+                      minHeight: '600px',
+                    }}
+                    className="overflow-hidden"
+                  >
                     <ContactDirectoryComponent />
                   </div>
                 </TabsContent>

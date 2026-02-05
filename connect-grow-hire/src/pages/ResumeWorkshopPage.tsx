@@ -194,7 +194,7 @@ const ReplaceResumeModal: React.FC<ConfirmModalProps> = ({ isOpen, onClose, onCo
           <Button 
             onClick={onConfirm} 
             disabled={isLoading}
-            className="bg-indigo-600 hover:bg-indigo-700 hover:shadow-lg rounded-full px-6"
+            className="bg-blue-600 hover:bg-blue-700 hover:shadow-lg rounded-full px-6"
           >
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
             Replace Resume
@@ -821,55 +821,117 @@ export default function ResumeWorkshopPage() {
         <AppSidebar />
         <MainContentWrapper>
           <AppHeader title="" />
-          <main className="bg-gradient-to-b from-slate-50 via-white to-white min-h-screen pb-24">
-            <div className="max-w-7xl mx-auto px-6 pt-10 pb-8">
+          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
+            <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px' }}>
               
-              {/* Inspiring Header Section */}
-              <div className="text-center mb-8 animate-fadeInUp">
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">
-                  Write Resumes
+              {/* Header Section */}
+              <div>
+                <h1
+                  style={{
+                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontSize: '42px',
+                    fontWeight: 400,
+                    letterSpacing: '-0.025em',
+                    color: '#0F172A',
+                    textAlign: 'center',
+                    marginBottom: '10px',
+                    lineHeight: 1.1,
+                  }}
+                >
+                  Resume
                 </h1>
-                <p className="text-gray-600 text-lg">
+                <p
+                  style={{
+                    fontFamily: "'DM Sans', system-ui, sans-serif",
+                    fontSize: '16px',
+                    color: '#64748B',
+                    textAlign: 'center',
+                    marginBottom: '28px',
+                    lineHeight: 1.5,
+                  }}
+                >
                   Optimize your resume to stand out and pass ATS screening.
                 </p>
               </div>
 
               {/* Pill-style Tabs */}
-              <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-                <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mx-auto mb-8 animate-fadeInUp" style={{ animationDelay: '100ms' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '36px' }}>
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    gap: '0',
+                    background: '#F0F4FD',
+                    borderRadius: '12px',
+                    padding: '4px',
+                    margin: '0 auto',
+                  }}
+                >
                   <button
                     onClick={() => handleTabChange('resume-workshop')}
-                    className={`
-                      flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
-                      ${activeTab === 'resume-workshop' 
-                        ? 'bg-white text-indigo-600 shadow-sm' 
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                      }
-                    `}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 20px',
+                      borderRadius: '9px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontFamily: "'DM Sans', system-ui, sans-serif",
+                      fontSize: '14px',
+                      fontWeight: 500,
+                      transition: 'all 0.15s ease',
+                      background: activeTab === 'resume-workshop' ? '#2563EB' : 'transparent',
+                      color: activeTab === 'resume-workshop' ? 'white' : '#64748B',
+                      boxShadow: activeTab === 'resume-workshop' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
+                    }}
                   >
-                    <Wrench className="w-4 h-4" />
+                    <Wrench className="h-4 w-4" />
                     Resume Workshop
                   </button>
                   
                   <button
                     onClick={() => handleTabChange('resume-library')}
-                    className={`
-                      flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
-                      ${activeTab === 'resume-library' 
-                        ? 'bg-white text-indigo-600 shadow-sm' 
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                      }
-                    `}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 20px',
+                      borderRadius: '9px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontFamily: "'DM Sans', system-ui, sans-serif",
+                      fontSize: '14px',
+                      fontWeight: 500,
+                      transition: 'all 0.15s ease',
+                      background: activeTab === 'resume-library' ? '#2563EB' : 'transparent',
+                      color: activeTab === 'resume-library' ? 'white' : '#64748B',
+                      boxShadow: activeTab === 'resume-library' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
+                    }}
                   >
-                    <FolderOpen className="w-4 h-4" />
+                    <FolderOpen className="h-4 w-4" />
                     Resume Library
                     {libraryEntries.length > 0 && (
-                      <span className="ml-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">
+                      <span
+                        style={{
+                          marginLeft: '6px',
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          background: activeTab === 'resume-library' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(37, 99, 235, 0.08)',
+                          color: activeTab === 'resume-library' ? 'white' : '#2563EB',
+                          fontFamily: "'DM Sans', system-ui, sans-serif",
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          letterSpacing: '0.03em',
+                        }}
+                      >
                         {libraryEntries.length}
                       </span>
                     )}
                   </button>
                 </div>
+              </div>
+              
+              <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
 
                 <div className="animate-fadeInUp" style={{ animationDelay: '200ms' }}>
                   {error && (
@@ -1096,7 +1158,7 @@ export default function ResumeWorkshopPage() {
                                       w-full py-4 px-6 rounded-xl font-semibold transition-all duration-200
                                       flex items-center justify-center gap-3
                                       ${hasJobContext && !isProcessing
-                                        ? 'text-white bg-indigo-600 shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-100'
+                                        ? 'text-white bg-blue-600 shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-100'
                                         : 'text-gray-400 bg-gray-100 cursor-not-allowed'
                                       }
                                     `}
@@ -1232,7 +1294,7 @@ export default function ResumeWorkshopPage() {
                             </p>
                             <button 
                               onClick={() => handleTabChange('resume-workshop')} 
-                              className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
+                              className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
                             >
                               Go to Resume Workshop
                             </button>
@@ -1336,7 +1398,7 @@ export default function ResumeWorkshopPage() {
             </p>
             <div className="w-full bg-gray-200 rounded-full h-2">
               <div 
-                className="h-2 rounded-full transition-all duration-300 bg-indigo-600"
+                className="h-2 rounded-full transition-all duration-300 bg-blue-600"
                 style={{ width: '60%' }}
               ></div>
             </div>

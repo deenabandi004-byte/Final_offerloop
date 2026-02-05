@@ -86,7 +86,7 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
   return (
     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
       {/* Header with Score */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 border-b border-gray-200">
+      <div className="bg-gradient-to-r from-blue-50 to-blue-50 p-4 border-b border-gray-200">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="font-semibold text-gray-900">

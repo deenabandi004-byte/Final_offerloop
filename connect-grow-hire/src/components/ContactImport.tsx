@@ -317,7 +317,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
         {/* Main Upload Card */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
           {/* Gradient accent at top */}
-          <div className="h-1 bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600"></div>
+          <div className="h-1 bg-gradient-to-r from-blue-500 via-blue-600 to-blue-600"></div>
           
           <div className="p-8">
             {/* Card Header with Template Download */}
@@ -576,7 +576,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
         {/* Main Preview Card */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp">
           {/* Gradient accent at top */}
-          <div className="h-1 bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600"></div>
+          <div className="h-1 bg-gradient-to-r from-blue-500 via-blue-600 to-blue-600"></div>
           
           <div className="p-8">
             {/* Header */}
@@ -604,7 +604,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
                 <p className="text-2xl font-bold text-green-600">{previewData.valid_rows}</p>
                 <p className="text-sm text-gray-500">Valid contacts</p>
               </div>
-              <div className="bg-gradient-to-br from-blue-50 to-indigo-100 rounded-xl p-4 text-center">
+              <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 text-center">
                 <p className="text-2xl font-bold text-blue-600">{previewData.credits.available}</p>
                 <p className="text-sm text-gray-500">Credits available</p>
               </div>
@@ -786,7 +786,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
                 <p className="text-2xl font-bold text-gray-500">{importResult.skipped.invalid}</p>
                 <p className="text-sm text-gray-500">Invalid</p>
               </div>
-              <div className="bg-gradient-to-br from-blue-50 to-indigo-100 rounded-xl p-4 text-center">
+              <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 text-center">
                 <p className="text-2xl font-bold text-blue-600">{importResult.credits.remaining}</p>
                 <p className="text-sm text-gray-500">Credits Left</p>
               </div>

@@ -13,15 +13,37 @@ export default function HiringManagerTrackerPage() {
         <MainContentWrapper>
           <AppHeader title="" />
           
-          <main className="bg-white min-h-screen hiring-manager-tracker-page">
-            {/* Page Header Container - Matching Find People exactly */}
-            <div className="max-w-5xl mx-auto px-8 pt-10 pb-8 hiring-manager-tracker-container">
-              <h1 className="text-[28px] font-semibold text-gray-900 mb-2 hiring-manager-tracker-title">
+          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }} className="hiring-manager-tracker-page">
+            {/* Page Header Container */}
+            <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px' }} className="hiring-manager-tracker-container">
+              <h1
+                style={{
+                  fontFamily: "'Instrument Serif', Georgia, serif",
+                  fontSize: '42px',
+                  fontWeight: 400,
+                  letterSpacing: '-0.025em',
+                  color: '#0F172A',
+                  textAlign: 'center',
+                  marginBottom: '10px',
+                  lineHeight: 1.1,
+                }}
+                className="hiring-manager-tracker-title"
+              >
                 Hiring Manager Tracker
               </h1>
               
               {/* Helper text */}
-              <p className="text-gray-500 text-sm mb-6 hiring-manager-tracker-subtitle">
+              <p
+                style={{
+                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                  fontSize: '16px',
+                  color: '#64748B',
+                  textAlign: 'center',
+                  marginBottom: '28px',
+                  lineHeight: 1.5,
+                }}
+                className="hiring-manager-tracker-subtitle"
+              >
                 All hiring managers you've found, saved, or contacted.
               </p>
               

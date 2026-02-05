@@ -157,10 +157,10 @@ export const StickyAlignedCTA: React.FC<StickyCTAProps> = ({
         disabled={isLoading || disabled}
         className={`
           pointer-events-auto w-full h-11 px-6 rounded-full text-sm font-medium shadow-sm
-          transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500
+          transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500
           ${isLoading || disabled
             ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
-            : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-[0.98]'
+            : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.98]'
           }
           ${buttonClassName}
         `}

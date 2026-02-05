@@ -414,50 +414,109 @@ const RecruiterSpreadsheetPage = () => {
         <MainContentWrapper>
           <AppHeader title="" />
 
-          <main className="w-full max-w-5xl mx-auto px-6 py-12 pb-24">
+          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', padding: '48px 24px', paddingBottom: '96px' }}>
             <div>
 
               {/* Header Section */}
-              <div className="text-center mb-12 max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700">
-                <h1 className="text-4xl font-bold tracking-tight text-gray-900 mb-4">
+              <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px 0' }}>
+                <h1
+                  style={{
+                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontSize: '42px',
+                    fontWeight: 400,
+                    letterSpacing: '-0.025em',
+                    color: '#0F172A',
+                    textAlign: 'center',
+                    marginBottom: '10px',
+                    lineHeight: 1.1,
+                  }}
+                >
                   Find Hiring Managers
                 </h1>
-                <p className="text-lg text-gray-500 leading-relaxed">
+                <p
+                  style={{
+                    fontFamily: "'DM Sans', system-ui, sans-serif",
+                    fontSize: '16px',
+                    color: '#64748B',
+                    textAlign: 'center',
+                    marginBottom: '28px',
+                    lineHeight: 1.5,
+                  }}
+                >
                   Connect directly with the people who make hiring decisions.
                 </p>
               </div>
 
               {/* Navigation Tabs */}
-              <div className="flex justify-center mb-10">
-                <div className="inline-flex items-center p-1 bg-white border border-gray-200 rounded-full shadow-sm">
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '36px' }}>
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    gap: '0',
+                    background: '#F0F4FD',
+                    borderRadius: '12px',
+                    padding: '4px',
+                    margin: '0 auto',
+                  }}
+                >
                   <button
                     onClick={() => setActiveTab('find-hiring-managers')}
-                    className={`
-                      flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-medium transition-all duration-300
-                      ${activeTab === 'find-hiring-managers'
-                        ? 'bg-indigo-600 text-white shadow-md transform scale-[1.02]'
-                        : 'text-gray-500 hover:text-blue-700 hover:bg-blue-50'
-                      }
-                    `}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 20px',
+                      borderRadius: '9px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontFamily: "'DM Sans', system-ui, sans-serif",
+                      fontSize: '14px',
+                      fontWeight: 500,
+                      transition: 'all 0.15s ease',
+                      background: activeTab === 'find-hiring-managers' ? '#2563EB' : 'transparent',
+                      color: activeTab === 'find-hiring-managers' ? 'white' : '#64748B',
+                      boxShadow: activeTab === 'find-hiring-managers' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
+                    }}
                   >
-                    <Users className={`w-4 h-4 ${activeTab === 'find-hiring-managers' ? 'text-white' : 'text-current'}`} />
+                    <Users className="h-4 w-4" />
                     Find Hiring Managers
                   </button>
 
                   <button
                     onClick={() => setActiveTab('hiring-manager-tracker')}
-                    className={`
-                      flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-medium transition-all duration-300
-                      ${activeTab === 'hiring-manager-tracker'
-                        ? 'bg-indigo-600 text-white shadow-md transform scale-[1.02]'
-                        : 'text-gray-500 hover:text-blue-700 hover:bg-blue-50'
-                      }
-                    `}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 20px',
+                      borderRadius: '9px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontFamily: "'DM Sans', system-ui, sans-serif",
+                      fontSize: '14px',
+                      fontWeight: 500,
+                      transition: 'all 0.15s ease',
+                      background: activeTab === 'hiring-manager-tracker' ? '#2563EB' : 'transparent',
+                      color: activeTab === 'hiring-manager-tracker' ? 'white' : '#64748B',
+                      boxShadow: activeTab === 'hiring-manager-tracker' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
+                    }}
                   >
-                    <ClipboardList className={`w-4 h-4 ${activeTab === 'hiring-manager-tracker' ? 'text-white' : 'text-current'}`} />
+                    <ClipboardList className="h-4 w-4" />
                     Hiring Manager Tracker
                     {trackerCount > 0 && (
-                      <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${activeTab === 'hiring-manager-tracker' ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700'}`}>
+                      <span
+                        style={{
+                          marginLeft: '6px',
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          background: activeTab === 'hiring-manager-tracker' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(37, 99, 235, 0.08)',
+                          color: activeTab === 'hiring-manager-tracker' ? 'white' : '#2563EB',
+                          fontFamily: "'DM Sans', system-ui, sans-serif",
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          letterSpacing: '0.03em',
+                        }}
+                      >
                         {trackerCount}
                       </span>
                     )}
@@ -665,7 +724,7 @@ const RecruiterSpreadsheetPage = () => {
                             transition-all duration-150
                             ${!canSearch
                                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                : 'bg-indigo-600 text-white shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-100'
+                                : 'bg-blue-600 text-white shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-100'
                               }
                           `}
                             >
@@ -770,7 +829,7 @@ const RecruiterSpreadsheetPage = () => {
               </p>
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div
-                  className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
+                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
                   style={{ width: `${progress}%` }}
                 ></div>
               </div>
@@ -793,7 +852,7 @@ const RecruiterSpreadsheetPage = () => {
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <button
                   onClick={handleViewResults}
-                  className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
+                  className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
                 >
                   View Hiring Managers →
                 </button>

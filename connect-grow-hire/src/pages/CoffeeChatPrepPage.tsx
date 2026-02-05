@@ -564,55 +564,117 @@ const CoffeeChatPrepPage: React.FC = () => {
         <MainContentWrapper>
           <AppHeader title="" />
 
-          <main className="bg-gradient-to-b from-slate-50 via-white to-white min-h-screen">
+          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }}>
             <div className="max-w-4xl mx-auto px-6 pt-10 pb-8">
               
-              {/* Inspiring Header Section */}
-              <div className="text-center mb-8 animate-fadeInUp">
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              {/* Header Section */}
+              <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px 0' }}>
+                <h1
+                  style={{
+                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontSize: '42px',
+                    fontWeight: 400,
+                    letterSpacing: '-0.025em',
+                    color: '#0F172A',
+                    textAlign: 'center',
+                    marginBottom: '10px',
+                    lineHeight: 1.1,
+                  }}
+                >
                   Coffee Chat Prep
                 </h1>
-                <p className="text-gray-600 text-lg">
+                <p
+                  style={{
+                    fontFamily: "'DM Sans', system-ui, sans-serif",
+                    fontSize: '16px',
+                    color: '#64748B',
+                    textAlign: 'center',
+                    marginBottom: '28px',
+                    lineHeight: 1.5,
+                  }}
+                >
                   Walk into every conversation confident and prepared.
                 </p>
               </div>
 
               {/* Pill-style Tabs */}
-              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mx-auto mb-8 animate-fadeInUp" style={{ animationDelay: '100ms' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '36px' }}>
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    gap: '0',
+                    background: '#F0F4FD',
+                    borderRadius: '12px',
+                    padding: '4px',
+                    margin: '0 auto',
+                  }}
+                >
                   <button
                     onClick={() => setActiveTab('coffee-chat-prep')}
-                    className={`
-                      flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
-                      ${activeTab === 'coffee-chat-prep' 
-                        ? 'bg-white text-indigo-600 shadow-sm' 
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                      }
-                    `}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 20px',
+                      borderRadius: '9px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontFamily: "'DM Sans', system-ui, sans-serif",
+                      fontSize: '14px',
+                      fontWeight: 500,
+                      transition: 'all 0.15s ease',
+                      background: activeTab === 'coffee-chat-prep' ? '#2563EB' : 'transparent',
+                      color: activeTab === 'coffee-chat-prep' ? 'white' : '#64748B',
+                      boxShadow: activeTab === 'coffee-chat-prep' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
+                    }}
                   >
-                    <MessageSquare className="w-4 h-4" />
+                    <MessageSquare className="h-4 w-4" />
                     Coffee Chat Prep
                   </button>
                   
                   <button
                     onClick={() => setActiveTab('coffee-library')}
-                    className={`
-                      flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
-                      ${activeTab === 'coffee-library' 
-                        ? 'bg-white text-indigo-600 shadow-sm' 
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                      }
-                    `}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 20px',
+                      borderRadius: '9px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontFamily: "'DM Sans', system-ui, sans-serif",
+                      fontSize: '14px',
+                      fontWeight: 500,
+                      transition: 'all 0.15s ease',
+                      background: activeTab === 'coffee-library' ? '#2563EB' : 'transparent',
+                      color: activeTab === 'coffee-library' ? 'white' : '#64748B',
+                      boxShadow: activeTab === 'coffee-library' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
+                    }}
                   >
-                    <FolderOpen className="w-4 h-4" />
+                    <FolderOpen className="h-4 w-4" />
                     Coffee Library
                     {preps.length > 0 && (
-                      <span className="ml-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">
+                      <span
+                        style={{
+                          marginLeft: '6px',
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          background: activeTab === 'coffee-library' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(37, 99, 235, 0.08)',
+                          color: activeTab === 'coffee-library' ? 'white' : '#2563EB',
+                          fontFamily: "'DM Sans', system-ui, sans-serif",
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          letterSpacing: '0.03em',
+                        }}
+                      >
                         {preps.length}
                       </span>
                     )}
                   </button>
                 </div>
+              </div>
+              
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
 
                 {/* COFFEE CHAT PREP TAB */}
                 <TabsContent value="coffee-chat-prep" className="mt-0">
@@ -676,7 +738,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                               absolute right-2 px-6 py-2.5 rounded-full font-semibold text-sm
                               flex items-center gap-2 transition-all duration-150
                               ${linkedinUrl.trim() && !coffeeChatLoading && hasAccess
-                                ? 'bg-indigo-600 text-white shadow-md hover:shadow-lg hover:scale-[1.02]'
+                                ? 'bg-blue-600 text-white shadow-md hover:shadow-lg hover:scale-[1.02]'
                                 : 'bg-gray-200 text-gray-500 cursor-not-allowed'
                               }
                             `}
@@ -854,7 +916,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                               >
                                 <div className="flex items-center gap-3 mb-2">
                                   <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center border border-gray-200">
-                                    <span className="text-sm">☕</span>
+                                    <MessageSquare className="h-4 w-4 text-gray-600" />
                                   </div>
                                   <div className="flex-1 min-w-0">
                                     <p className="font-medium text-gray-900 text-sm truncate">{prep.contactName}</p>
@@ -892,7 +954,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                           </p>
                           <button
                             onClick={() => setActiveTab('coffee-chat-prep')}
-                            className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
+                            className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
                           >
                             Create Your First Prep
                           </button>

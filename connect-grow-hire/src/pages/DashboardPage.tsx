@@ -13,39 +13,60 @@ import { calculateWeeklySummary } from '@/utils/dashboardStats';
 // Stats component for the header
 function DashboardHeaderStats({ 
   sent, 
-  replies, 
-  chats, 
   timeSaved,
   streak 
 }: { 
   sent: number; 
-  replies: number; 
-  chats: number; 
   timeSaved: number;
   streak: number;
 }) {
   return (
     <div className="flex items-center gap-6">
       <div className="flex items-center gap-1.5">
-        <span className="text-lg font-semibold text-gray-700">{sent}</span>
-        <span className="text-sm text-gray-400">sent</span>
+        <span 
+          className="text-lg font-semibold" 
+          style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-body)' }}
+        >
+          {sent}
+        </span>
+        <span 
+          className="text-sm" 
+          style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-body)' }}
+        >
+          sent
+        </span>
       </div>
       <div className="flex items-center gap-1.5">
-        <span className="text-lg font-semibold text-gray-700">{replies}</span>
-        <span className="text-sm text-gray-400">replies</span>
+        <span 
+          className="text-lg font-semibold" 
+          style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-body)' }}
+        >
+          {timeSaved}h
+        </span>
+        <span 
+          className="text-sm" 
+          style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-body)' }}
+        >
+          saved
+        </span>
       </div>
-      <div className="flex items-center gap-1.5">
-        <span className="text-lg font-semibold text-gray-700">{chats}</span>
-        <span className="text-sm text-gray-400">chats</span>
-      </div>
-      <div className="flex items-center gap-1.5">
-        <span className="text-lg font-semibold text-gray-700">{timeSaved}h</span>
-        <span className="text-sm text-gray-400">saved</span>
-      </div>
-      <div className="flex items-center gap-1.5 ml-2 pl-4 border-l border-gray-200">
-        <Flame className="h-5 w-5 text-orange-500" />
-        <span className="text-lg font-semibold text-gray-700">{streak}</span>
-        <span className="text-sm text-gray-400">day streak</span>
+      <div 
+        className="flex items-center gap-1.5 ml-2 pl-4"
+        style={{ borderLeft: '1px solid var(--border-light)' }}
+      >
+        <Flame className="h-4 w-4 text-orange-500" />
+        <span 
+          className="text-lg font-semibold" 
+          style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-body)' }}
+        >
+          {streak}
+        </span>
+        <span 
+          className="text-sm" 
+          style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-body)' }}
+        >
+          day streak
+        </span>
       </div>
     </div>
   );
@@ -233,15 +254,13 @@ export default function DashboardPage() {
             centerContent={
               <DashboardHeaderStats
                 sent={outreachSent}
-                replies={repliesReceived}
-                chats={coffeeChatsBooked}
                 timeSaved={timeSavedHours}
                 streak={streak}
               />
             }
           />
 
-          <main className="flex-1 overflow-y-auto p-6 bg-gradient-to-b from-gray-50 to-white">
+          <main className="flex-1 overflow-y-auto p-6" style={{ background: 'var(--bg-white)' }}>
             <div style={{ width: '100%', minWidth: 'fit-content' }}>
               <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%' }}>
                 {/* Dashboard Content - Greeting replaces the heading */}

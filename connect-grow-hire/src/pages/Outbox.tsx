@@ -340,16 +340,36 @@ export default function Outbox() {
           <AppHeader title="" />
 
           {/* Main content */}
-          <main className="flex-1 overflow-y-auto p-6 bg-white">
+          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', padding: '48px 24px' }}>
             <div style={{ width: '100%', minWidth: 'fit-content' }}>
-              <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%' }}>
-                {/* Page Title - Matching Find People styling */}
-                <h1 className="text-[28px] font-semibold text-gray-900 mb-2">
+              <div style={{ maxWidth: '900px', margin: '0 auto', width: '100%' }}>
+                {/* Page Title */}
+                <h1
+                  style={{
+                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontSize: '42px',
+                    fontWeight: 400,
+                    letterSpacing: '-0.025em',
+                    color: '#0F172A',
+                    textAlign: 'center',
+                    marginBottom: '10px',
+                    lineHeight: 1.1,
+                  }}
+                >
                   Track Email Outreach
                 </h1>
                 
                 {/* Helper text */}
-                <p className="text-gray-500 text-sm mb-6">
+                <p
+                  style={{
+                    fontFamily: "'DM Sans', system-ui, sans-serif",
+                    fontSize: '16px',
+                    color: '#64748B',
+                    textAlign: 'center',
+                    marginBottom: '28px',
+                    lineHeight: 1.5,
+                  }}
+                >
                   Track outreach, responses, and generate follow-ups automatically.
                 </p>
 

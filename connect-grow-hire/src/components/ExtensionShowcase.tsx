@@ -90,7 +90,7 @@ const ExtensionShowcase: React.FC = () => {
   }, [activeIndex]);
 
   return (
-    <section className="py-20 px-5 bg-gradient-to-b from-slate-50 to-indigo-100 w-full">
+    <section className="py-20 px-5 bg-gradient-to-b from-slate-50 to-blue-100 w-full">
       <h2 className="text-center text-[70px] md:text-[84px] lg:text-[96px] font-bold mb-12 font-instrument" style={{ color: '#3B82F6', lineHeight: '1.1', letterSpacing: '-0.02em' }}>
         Extension Out Now!
       </h2>

@@ -104,7 +104,7 @@ export function SuggestionsView({ result, isOpen, onClose }: SuggestionsViewProp
 
         <div className="flex-1 overflow-y-auto space-y-6 pr-2">
           {/* Header with Score */}
-          <div className="flex items-center justify-between p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg">
+          <div className="flex items-center justify-between p-4 bg-gradient-to-r from-blue-50 to-blue-50 rounded-lg">
             <div>
               <p className="text-sm text-gray-600">
                 Apply these changes to your resume to improve ATS matching.

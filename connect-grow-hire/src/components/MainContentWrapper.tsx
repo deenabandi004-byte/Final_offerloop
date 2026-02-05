@@ -20,9 +20,10 @@ export function MainContentWrapper({ children, className }: MainContentWrapperPr
     <div className="flex-1 flex flex-col p-3 min-h-0">
       <div 
         className={cn(
-          "flex-1 flex flex-col bg-white rounded-2xl shadow-sm overflow-hidden min-h-0",
+          "flex-1 flex flex-col rounded-2xl shadow-sm overflow-hidden min-h-0",
           className
         )}
+        style={{ background: '#F8FAFF' }}
       >
         {children}
       </div>

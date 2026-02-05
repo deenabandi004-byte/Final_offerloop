@@ -220,13 +220,33 @@ export default function CompanyTrackerPage() {
         <MainContentWrapper>
           <AppHeader title="" />
 
-          <main className="w-full max-w-5xl mx-auto px-6 py-12">
+          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', padding: '48px 24px' }}>
             <div>
-              <div className="text-center mb-12 max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700">
-                <h1 className="text-4xl font-bold tracking-tight text-gray-900 mb-4">
+              <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px 0' }}>
+                <h1
+                  style={{
+                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontSize: '42px',
+                    fontWeight: 400,
+                    letterSpacing: '-0.025em',
+                    color: '#0F172A',
+                    textAlign: 'center',
+                    marginBottom: '10px',
+                    lineHeight: 1.1,
+                  }}
+                >
                   Company Tracker
                 </h1>
-                <p className="text-lg text-gray-500 leading-relaxed">
+                <p
+                  style={{
+                    fontFamily: "'DM Sans', system-ui, sans-serif",
+                    fontSize: '16px',
+                    color: '#64748B',
+                    textAlign: 'center',
+                    marginBottom: '28px',
+                    lineHeight: 1.5,
+                  }}
+                >
                   All companies you've found and saved.
                 </p>
               </div>

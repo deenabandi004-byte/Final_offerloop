@@ -567,55 +567,117 @@ const InterviewPrepPage: React.FC = () => {
         <MainContentWrapper>
           <AppHeader title="" />
 
-          <main className="bg-gradient-to-b from-slate-50 via-white to-white min-h-screen pb-24">
+          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
             <div className="max-w-4xl mx-auto px-6 pt-10 pb-8">
               
-              {/* Inspiring Header Section */}
-              <div className="text-center mb-8 animate-fadeInUp">
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              {/* Header Section */}
+              <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px 0' }}>
+                <h1
+                  style={{
+                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontSize: '42px',
+                    fontWeight: 400,
+                    letterSpacing: '-0.025em',
+                    color: '#0F172A',
+                    textAlign: 'center',
+                    marginBottom: '10px',
+                    lineHeight: 1.1,
+                  }}
+                >
                   Interview Prep
                 </h1>
-                <p className="text-gray-600 text-lg">
+                <p
+                  style={{
+                    fontFamily: "'DM Sans', system-ui, sans-serif",
+                    fontSize: '16px',
+                    color: '#64748B',
+                    textAlign: 'center',
+                    marginBottom: '28px',
+                    lineHeight: 1.5,
+                  }}
+                >
                   Go into every interview knowing exactly what to expect.
                 </p>
               </div>
 
               {/* Pill-style Tabs */}
-              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mx-auto mb-8 animate-fadeInUp" style={{ animationDelay: '100ms' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '36px' }}>
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    gap: '0',
+                    background: '#F0F4FD',
+                    borderRadius: '12px',
+                    padding: '4px',
+                    margin: '0 auto',
+                  }}
+                >
                   <button
                     onClick={() => setActiveTab('interview-prep')}
-                    className={`
-                      flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
-                      ${activeTab === 'interview-prep' 
-                        ? 'bg-white text-indigo-600 shadow-sm' 
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                      }
-                    `}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 20px',
+                      borderRadius: '9px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontFamily: "'DM Sans', system-ui, sans-serif",
+                      fontSize: '14px',
+                      fontWeight: 500,
+                      transition: 'all 0.15s ease',
+                      background: activeTab === 'interview-prep' ? '#2563EB' : 'transparent',
+                      color: activeTab === 'interview-prep' ? 'white' : '#64748B',
+                      boxShadow: activeTab === 'interview-prep' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
+                    }}
                   >
-                    <Briefcase className="w-4 h-4" />
+                    <Briefcase className="h-4 w-4" />
                     Interview Prep
                   </button>
                   
                   <button
                     onClick={() => setActiveTab('interview-library')}
-                    className={`
-                      flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
-                      ${activeTab === 'interview-library' 
-                        ? 'bg-white text-indigo-600 shadow-sm' 
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                      }
-                    `}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 20px',
+                      borderRadius: '9px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontFamily: "'DM Sans', system-ui, sans-serif",
+                      fontSize: '14px',
+                      fontWeight: 500,
+                      transition: 'all 0.15s ease',
+                      background: activeTab === 'interview-library' ? '#2563EB' : 'transparent',
+                      color: activeTab === 'interview-library' ? 'white' : '#64748B',
+                      boxShadow: activeTab === 'interview-library' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
+                    }}
                   >
-                    <FolderOpen className="w-4 h-4" />
+                    <FolderOpen className="h-4 w-4" />
                     Interview Library
                     {preps.length > 0 && (
-                      <span className="ml-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">
+                      <span
+                        style={{
+                          marginLeft: '6px',
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          background: activeTab === 'interview-library' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(37, 99, 235, 0.08)',
+                          color: activeTab === 'interview-library' ? 'white' : '#2563EB',
+                          fontFamily: "'DM Sans', system-ui, sans-serif",
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          letterSpacing: '0.03em',
+                        }}
+                      >
                         {preps.length}
                       </span>
                     )}
                   </button>
                 </div>
+              </div>
+              
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
 
                 {/* INTERVIEW PREP TAB */}
                 <TabsContent value="interview-prep" className="mt-0">
@@ -943,7 +1005,7 @@ const InterviewPrepPage: React.FC = () => {
                             transition-all duration-200 transform
                             ${(!canGenerate || interviewPrepLoading || !hasAccess)
                               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                              : 'bg-indigo-600 text-white shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-100'
+                              : 'bg-blue-600 text-white shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-100'
                             }
                           `}
                         >
@@ -982,7 +1044,7 @@ const InterviewPrepPage: React.FC = () => {
                               </div>
                               <button
                                 onClick={() => downloadInterviewPrepPDF()}
-                                className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-full hover:bg-indigo-700 transition-colors flex items-center gap-2"
+                                className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-full hover:bg-blue-700 transition-colors flex items-center gap-2"
                               >
                                 <Download className="h-5 w-5" />
                                 Download Full PDF
@@ -1102,7 +1164,7 @@ const InterviewPrepPage: React.FC = () => {
                           </p>
                           <button
                             onClick={() => setActiveTab('interview-prep')}
-                            className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
+                            className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
                           >
                             Create Your First Prep
                           </button>

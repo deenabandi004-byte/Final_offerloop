@@ -14,12 +14,36 @@ const ContactDirectory: React.FC = () => {
         <MainContentWrapper>
           <AppHeader title="" />
           
-          <main className="bg-white min-h-screen networking-tracker-page">
-            {/* Page Header Container - Matching Find People exactly */}
-            <div className="max-w-5xl mx-auto px-8 pt-10 pb-8 networking-tracker-container">
-              <h1 className="text-[28px] font-semibold text-gray-900 mb-4 networking-tracker-title">
+          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }} className="networking-tracker-page">
+            {/* Page Header Container */}
+            <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px' }} className="networking-tracker-container">
+              <h1
+                style={{
+                  fontFamily: "'Instrument Serif', Georgia, serif",
+                  fontSize: '42px',
+                  fontWeight: 400,
+                  letterSpacing: '-0.025em',
+                  color: '#0F172A',
+                  textAlign: 'center',
+                  marginBottom: '10px',
+                  lineHeight: 1.1,
+                }}
+                className="networking-tracker-title"
+              >
                 Networking Tracker
               </h1>
+              <p
+                style={{
+                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                  fontSize: '16px',
+                  color: '#64748B',
+                  textAlign: 'center',
+                  marginBottom: '28px',
+                  lineHeight: 1.5,
+                }}
+              >
+                All contacts you've found, saved, or contacted.
+              </p>
               
               {/* Contact Directory Component */}
               <ContactDirectoryComponent />

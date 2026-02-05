@@ -694,29 +694,37 @@ export default function AccountSettings() {
         <MainContentWrapper>
           <AppHeader title="" />
           
-          <main className="bg-gray-50 min-h-screen">
-            <div className="max-w-5xl mx-auto px-6 py-10">
+          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }}>
+            <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px' }}>
               
-              {/* Back Navigation */}
-              <div className="mb-6 animate-fadeInUp">
-                <button
-                  onClick={() => navigate('/dashboard')}
-                  className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors group"
+              {/* Header Section */}
+              <div style={{ textAlign: 'center', marginBottom: '48px' }}>
+                <h1
+                  style={{
+                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontSize: '42px',
+                    fontWeight: 400,
+                    letterSpacing: '-0.025em',
+                    color: '#0F172A',
+                    textAlign: 'center',
+                    marginBottom: '10px',
+                    lineHeight: 1.1,
+                  }}
                 >
-                  <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-                  <span className="font-medium">Back to Dashboard</span>
-                </button>
-              </div>
-
-              {/* Header with Avatar */}
-              <div className="flex items-center gap-6 mb-10 animate-fadeInUp" style={{ animationDelay: '50ms' }}>
-                <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl flex items-center justify-center text-white text-2xl font-bold shadow-lg">
-                  {userInitials}
-                </div>
-                <div>
-                  <h1 className="text-3xl font-bold text-gray-900">Account Settings</h1>
-                  <p className="text-gray-500 mt-1">Manage your account and preferences</p>
-                </div>
+                  Account Settings
+                </h1>
+                <p
+                  style={{
+                    fontFamily: "'DM Sans', system-ui, sans-serif",
+                    fontSize: '16px',
+                    color: '#64748B',
+                    textAlign: 'center',
+                    marginBottom: '28px',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Manage your account and preferences
+                </p>
               </div>
 
               {/* Main Content with Sidebar */}

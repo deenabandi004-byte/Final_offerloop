@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import {
   ChevronRight,
   ChevronDown,
@@ -27,122 +27,170 @@ import PlayIcon from "@/assets/icons8-play-50.png";
 import WalletIcon from "@/assets/sidebaricons/icons8-wallet-48.png";
 
 // Custom image-based icon component for Interview Prep
-const InterviewPrepIcon = ({ className }: { className?: string }) => (
+const InterviewPrepIcon = ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
   <img 
     src={BriefcaseIcon} 
     alt="" 
     className={className}
-    style={{ filter: 'brightness(0) invert(1)', opacity: 'inherit' }}
+    style={{ 
+      filter: 'brightness(0) saturate(100%)',
+      opacity: 0.45,
+      ...style,
+    }}
   />
 );
 
 // Custom image-based icon component for Find Companies
-const FindCompaniesIcon = ({ className }: { className?: string }) => (
+const FindCompaniesIcon = ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
   <img 
     src={BuildingIcon} 
     alt="" 
     className={className}
-    style={{ filter: 'brightness(0) invert(1)', opacity: 'inherit' }}
+    style={{ 
+      filter: 'brightness(0) saturate(100%)',
+      opacity: 0.45,
+      ...style,
+    }}
   />
 );
 
 // Custom image-based icon component for Companies (under TRACK)
-const TrackCompaniesIcon = ({ className }: { className?: string }) => (
+const TrackCompaniesIcon = ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
   <img 
     src={BuildingIcon2} 
     alt="" 
     className={className}
-    style={{ filter: 'brightness(0) invert(1)', opacity: 'inherit' }}
+    style={{ 
+      filter: 'brightness(0) saturate(100%)',
+      opacity: 0.45,
+      ...style,
+    }}
   />
 );
 
 // Custom image-based icon component for Coffee Chat Prep
-const CoffeeChatIcon = ({ className }: { className?: string }) => (
+const CoffeeChatIcon = ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
   <img 
     src={CupIcon} 
     alt="" 
     className={className}
-    style={{ filter: 'brightness(0) invert(1)', opacity: 'inherit' }}
+    style={{ 
+      filter: 'brightness(0) saturate(100%)',
+      opacity: 0.45,
+      ...style,
+    }}
   />
 );
 
 // Custom image-based icon component for Find People (magnifying glass)
-const FindPeopleIcon = ({ className }: { className?: string }) => (
+const FindPeopleIcon = ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
   <img 
     src={MagnifyingGlassIcon} 
     alt="" 
     className={className}
-    style={{ filter: 'brightness(0) invert(1)', opacity: 'inherit' }}
+    style={{ 
+      filter: 'brightness(0) saturate(100%)',
+      opacity: 0.45,
+      ...style,
+    }}
   />
 );
 
 // Custom image-based icon component for Find Hiring Managers
-const FindHiringManagersIcon = ({ className }: { className?: string }) => (
+const FindHiringManagersIcon = ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
   <img 
     src={FindUserIcon} 
     alt="" 
     className={className}
-    style={{ filter: 'brightness(0) invert(1)', opacity: 'inherit' }}
+    style={{ 
+      filter: 'brightness(0) saturate(100%)',
+      opacity: 0.45,
+      ...style,
+    }}
   />
 );
 
 // Custom image-based icon component for Email Outreach
-const EmailOutreachIcon = ({ className }: { className?: string }) => (
+const EmailOutreachIcon = ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
   <img 
     src={MailIcon} 
     alt="" 
     className={className}
-    style={{ filter: 'brightness(0) invert(1)', opacity: 'inherit' }}
+    style={{ 
+      filter: 'brightness(0) saturate(100%)',
+      opacity: 0.45,
+      ...style,
+    }}
   />
 );
 
 // Custom image-based icon component for Resume
-const ResumeIcon = ({ className }: { className?: string }) => (
+const ResumeIcon = ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
   <img 
     src={PaperIcon} 
     alt="" 
     className={className}
-    style={{ filter: 'brightness(0) invert(1)', opacity: 'inherit' }}
+    style={{ 
+      filter: 'brightness(0) saturate(100%)',
+      opacity: 0.45,
+      ...style,
+    }}
   />
 );
 
 // Custom image-based icon component for Networking
-const NetworkingIcon = ({ className }: { className?: string }) => (
+const NetworkingIcon = ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
   <img 
     src={PeopleIcon} 
     alt="" 
     className={className}
-    style={{ filter: 'brightness(0) invert(1)', opacity: 'inherit' }}
+    style={{ 
+      filter: 'brightness(0) saturate(100%)',
+      opacity: 0.45,
+      ...style,
+    }}
   />
 );
 
 // Custom image-based icon component for Cover Letter
-const CoverLetterIcon = ({ className }: { className?: string }) => (
+const CoverLetterIcon = ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
   <img 
     src={WriteIcon} 
     alt="" 
     className={className}
-    style={{ filter: 'brightness(0) invert(1)', opacity: 'inherit' }}
+    style={{ 
+      filter: 'brightness(0) saturate(100%)',
+      opacity: 0.45,
+      ...style,
+    }}
   />
 );
 
 // Custom image-based icon component for Documentation
-const DocumentationIcon = ({ className }: { className?: string }) => (
+const DocumentationIcon = ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
   <img 
     src={PlayIcon} 
     alt="" 
     className={className}
-    style={{ filter: 'brightness(0) invert(1)', opacity: 'inherit' }}
+    style={{ 
+      filter: 'brightness(0) saturate(100%)',
+      opacity: 0.45,
+      ...style,
+    }}
   />
 );
 
 // Custom image-based icon component for Pricing
-const PricingIcon = ({ className }: { className?: string }) => (
+const PricingIcon = ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
   <img 
     src={WalletIcon} 
     alt="" 
     className={className}
-    style={{ filter: 'brightness(0) invert(1)', opacity: 'inherit' }}
+    style={{ 
+      filter: 'brightness(0) saturate(100%)',
+      opacity: 0.45,
+      ...style,
+    }}
   />
 );
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -273,7 +321,13 @@ export function AppSidebar() {
   return (
     <TooltipProvider>
       <Sidebar className={isCollapsed ? "w-16" : "w-64"} collapsible="icon">
-        <SidebarContent className="bg-[#3B82F6] flex flex-col h-full overflow-hidden">
+        <SidebarContent 
+          className="flex flex-col h-full overflow-hidden" 
+          style={{ 
+            background: '#F0F4FD',
+            borderRight: '1px solid rgba(37, 99, 235, 0.08)',
+          }}
+        >
           {/* Sidebar Toggle (Always Visible) & User Profile */}
           <div className="px-3 pt-3 pb-1 flex-shrink-0">
             {/* Collapsed State: Only Toggle Button */}
@@ -283,10 +337,19 @@ export function AppSidebar() {
                   <TooltipTrigger asChild>
                     <button
                       onClick={toggleSidebar}
-                      className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                      className="p-2 rounded-lg transition-colors"
+                      style={{ color: '#94A3B8' }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(37, 99, 235, 0.05)';
+                        e.currentTarget.style.color = '#64748B';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.color = '#94A3B8';
+                      }}
                       aria-label="Expand sidebar"
                     >
-                      <PanelLeft className="h-5 w-5 text-white/70" />
+                      <PanelLeft className="h-5 w-5" style={{ color: '#94A3B8' }} />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="right">
@@ -302,29 +365,45 @@ export function AppSidebar() {
                   <button
                     onClick={() => setUserDropdownOpen(!userDropdownOpen)}
                     className={cn(
-                      "flex-1 flex items-center gap-3 px-2 py-2 rounded-lg transition-colors",
-                      "hover:bg-white/10",
-                      userDropdownOpen && "bg-white/10"
+                      "flex-1 flex items-center gap-3 px-2 py-2 rounded-lg transition-all",
                     )}
+                    style={{
+                      background: userDropdownOpen ? 'rgba(37, 99, 235, 0.05)' : 'transparent',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(37, 99, 235, 0.05)';
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!userDropdownOpen) {
+                        e.currentTarget.style.background = 'transparent';
+                      }
+                    }}
                   >
-                    <Avatar className="h-8 w-8 flex-shrink-0 ring-2 ring-white/20">
+                    <Avatar className="h-8 w-8 flex-shrink-0 ring-2 ring-blue-100">
                       {user?.picture && (
                         <AvatarImage src={user.picture} alt={user.name} />
                       )}
-                      <AvatarFallback className="bg-white/20 text-white text-xs font-medium">
+                      <AvatarFallback 
+                        className="text-xs font-medium"
+                        style={{ background: 'rgba(37, 99, 235, 0.10)', color: '#2563EB' }}
+                      >
                         {user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || user?.email?.[0]?.toUpperCase() || "U"}
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex-1 min-w-0 text-left">
-                      <p className="text-sm font-medium text-white truncate">
+                      <p 
+                        className="text-sm font-medium truncate"
+                        style={{ color: '#1E293B', fontFamily: 'var(--font-body)' }}
+                      >
                         {user?.name || "User"}
                       </p>
                     </div>
                     <ChevronDown 
                       className={cn(
-                        "h-3.5 w-3.5 text-white/50 transition-transform flex-shrink-0",
+                        "h-3.5 w-3.5 transition-transform flex-shrink-0",
                         userDropdownOpen && "rotate-180"
                       )} 
+                      style={{ color: '#94A3B8' }}
                     />
                   </button>
 
@@ -333,10 +412,19 @@ export function AppSidebar() {
                     <TooltipTrigger asChild>
                       <button
                         onClick={toggleSidebar}
-                        className="p-2 rounded-lg hover:bg-white/10 transition-colors flex-shrink-0"
+                        className="p-2 rounded-lg transition-colors flex-shrink-0"
+                        style={{ color: '#94A3B8' }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(37, 99, 235, 0.05)';
+                          e.currentTarget.style.color = '#64748B';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                          e.currentTarget.style.color = '#94A3B8';
+                        }}
                         aria-label="Collapse sidebar"
                       >
-                        <PanelLeft className="h-4 w-4 text-white/60" />
+                        <PanelLeft className="h-4 w-4" />
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="right">
@@ -360,7 +448,7 @@ export function AppSidebar() {
                       cn(
                         "flex items-center gap-3 px-3 py-2 text-sm transition-colors",
                         isActive
-                          ? "text-[#3B82F6] bg-blue-50"
+                          ? "text-[#2563EB] bg-blue-50"
                           : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
                       )
                     }
@@ -395,14 +483,28 @@ export function AppSidebar() {
                       onClick={() => {
                         trackNavClick(dashboardItem.title, 'sidebar', 'top_level');
                       }}
-                      className={cn(
-                        "flex items-center justify-center gap-2.5 px-2 py-2 rounded-md text-sm transition-colors",
-                        isActive(dashboardItem.url)
-                          ? "bg-white/20 text-white font-medium"
-                          : "text-white/70 hover:text-white hover:bg-white/10"
-                      )}
+                      className="flex items-center justify-center gap-2.5 px-2 py-2 rounded-[8px] text-sm transition-all"
+                      style={{
+                        background: isActive(dashboardItem.url) ? 'rgba(37, 99, 235, 0.10)' : 'transparent',
+                        color: isActive(dashboardItem.url) ? '#2563EB' : '#64748B',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isActive(dashboardItem.url)) {
+                          e.currentTarget.style.background = 'rgba(37, 99, 235, 0.05)';
+                          e.currentTarget.style.color = '#334155';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isActive(dashboardItem.url)) {
+                          e.currentTarget.style.background = 'transparent';
+                          e.currentTarget.style.color = '#64748B';
+                        }
+                      }}
                     >
-                      <dashboardItem.icon className={cn("h-5 w-5 flex-shrink-0", isActive(dashboardItem.url) ? "text-white" : "text-white/70")} />
+                      <dashboardItem.icon 
+                        className="h-5 w-5 flex-shrink-0" 
+                        style={{ color: isActive(dashboardItem.url) ? '#2563EB' : '#94A3B8' }}
+                      />
                     </NavLink>
                   </TooltipTrigger>
                   <TooltipContent side="right">
@@ -415,14 +517,28 @@ export function AppSidebar() {
                   onClick={() => {
                     trackNavClick(dashboardItem.title, 'sidebar', 'top_level');
                   }}
-                  className={cn(
-                    "flex items-center gap-2.5 px-2 py-2 rounded-md text-sm font-medium transition-colors",
-                    isActive(dashboardItem.url)
-                      ? "bg-white/20 text-white"
-                      : "text-white/90 hover:text-white hover:bg-white/10"
-                  )}
+                  className="flex items-center gap-2.5 px-2.5 py-2 rounded-[8px] text-sm font-medium transition-all"
+                  style={{
+                    background: isActive(dashboardItem.url) ? 'rgba(37, 99, 235, 0.10)' : 'transparent',
+                    color: isActive(dashboardItem.url) ? '#2563EB' : '#64748B',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isActive(dashboardItem.url)) {
+                      e.currentTarget.style.background = 'rgba(37, 99, 235, 0.05)';
+                      e.currentTarget.style.color = '#334155';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive(dashboardItem.url)) {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.color = '#64748B';
+                    }
+                  }}
                 >
-                  <dashboardItem.icon className={cn("h-5 w-5 flex-shrink-0", isActive(dashboardItem.url) ? "text-white" : "text-white/80")} />
+                  <dashboardItem.icon 
+                    className="h-5 w-5 flex-shrink-0" 
+                    style={{ color: isActive(dashboardItem.url) ? '#2563EB' : '#94A3B8' }}
+                  />
                   <span>{dashboardItem.title}</span>
                 </NavLink>
               )}
@@ -435,25 +551,39 @@ export function AppSidebar() {
                   onClick={() => toggleSection(section.id)}
                   className={cn(
                     "w-full flex items-center justify-between px-2 py-1.5 rounded-md transition-colors",
-                    "hover:bg-white/10",
                     isCollapsed && "justify-center"
                   )}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(37, 99, 235, 0.04)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                 >
                   {!isCollapsed && (
                     <>
-                      <span className="text-xs font-medium text-white/80 tracking-wide">
+                      <span 
+                        style={{ 
+                          fontSize: '11px', 
+                          fontWeight: 600, 
+                          letterSpacing: '0.06em', 
+                          color: '#94A3B8',
+                          fontFamily: 'var(--font-body)',
+                        }}
+                      >
                         {section.title}
                       </span>
                       <ChevronRight
-                        className={cn(
-                          "h-3.5 w-3.5 text-white/50 transition-transform",
-                          expandedSections.includes(section.id) && "rotate-90"
-                        )}
+                        className={cn("h-3.5 w-3.5 transition-transform", expandedSections.includes(section.id) && "rotate-90")} 
+                        style={{ color: '#94A3B8' }}
                       />
                     </>
                   )}
                   {isCollapsed && (
-                    <span className="text-xs font-medium text-white/80">
+                    <span 
+                      style={{ 
+                        fontSize: '11px', 
+                        fontWeight: 600, 
+                        color: '#94A3B8',
+                        fontFamily: 'var(--font-body)',
+                      }}
+                    >
                       {section.title.charAt(0)}
                     </span>
                   )}
@@ -470,14 +600,34 @@ export function AppSidebar() {
                           trackNavClick(item.title, 'sidebar', section.id);
                         }}
                         className={cn(
-                          "flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors",
-                          isActive(item.url)
-                            ? "bg-white/20 text-white font-medium"
-                            : "text-white/70 hover:text-white hover:bg-white/10",
+                          "flex items-center gap-2.5 px-2.5 py-1.5 rounded-[8px] text-sm transition-all",
                           isCollapsed && "justify-center px-2"
                         )}
+                        style={{
+                          background: isActive(item.url) ? 'rgba(37, 99, 235, 0.10)' : 'transparent',
+                          color: isActive(item.url) ? '#2563EB' : '#64748B',
+                          fontWeight: isActive(item.url) ? 500 : 400,
+                          fontFamily: 'var(--font-body)',
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isActive(item.url)) {
+                            e.currentTarget.style.background = 'rgba(37, 99, 235, 0.05)';
+                            e.currentTarget.style.color = '#334155';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isActive(item.url)) {
+                            e.currentTarget.style.background = 'transparent';
+                            e.currentTarget.style.color = '#64748B';
+                          }
+                        }}
                       >
-                        <item.icon className={cn("h-4 w-4 flex-shrink-0", isActive(item.url) ? "text-white" : "text-white/70")} />
+                        <item.icon 
+                          className={cn("h-4 w-4 flex-shrink-0")} 
+                          style={{ 
+                            opacity: isActive(item.url) ? 0.7 : 0.35,
+                          }}
+                        />
                         {!isCollapsed && <span>{item.title}</span>}
                       </NavLink>
                     ))}
@@ -487,7 +637,7 @@ export function AppSidebar() {
             ))}
 
             {/* Standalone Items (Pricing, Documentation) */}
-            <div className="mt-4 pt-3 border-t border-white/20">
+            <div className="mt-4 pt-3" style={{ borderTop: '1px solid rgba(37, 99, 235, 0.08)' }}>
               {standaloneItems.map((item) => (
                 item.external ? (
                   <a
@@ -499,12 +649,27 @@ export function AppSidebar() {
                       trackNavClick(item.title, 'sidebar', 'standalone');
                     }}
                     className={cn(
-                      "flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors",
-                      "text-white/70 hover:text-white hover:bg-white/10",
+                      "flex items-center gap-2.5 px-2.5 py-1.5 rounded-[8px] text-sm transition-all",
                       isCollapsed && "justify-center px-2"
                     )}
+                    style={{
+                      color: '#64748B',
+                      fontWeight: 400,
+                      fontFamily: 'var(--font-body)',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(37, 99, 235, 0.05)';
+                      e.currentTarget.style.color = '#334155';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.color = '#64748B';
+                    }}
                   >
-                    <item.icon className="h-4 w-4 flex-shrink-0 text-white/70" />
+                    <item.icon 
+                      className="h-4 w-4 flex-shrink-0" 
+                      style={{ opacity: 0.35 }}
+                    />
                     {!isCollapsed && <span>{item.title}</span>}
                   </a>
                 ) : (
@@ -515,14 +680,34 @@ export function AppSidebar() {
                       trackNavClick(item.title, 'sidebar', 'standalone');
                     }}
                     className={cn(
-                      "flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors",
-                      isActive(item.url)
-                        ? "bg-white/20 text-white font-medium"
-                        : "text-white/70 hover:text-white hover:bg-white/10",
+                      "flex items-center gap-2.5 px-2.5 py-1.5 rounded-[8px] text-sm transition-all",
                       isCollapsed && "justify-center px-2"
                     )}
+                    style={{
+                      background: isActive(item.url) ? 'rgba(37, 99, 235, 0.10)' : 'transparent',
+                      color: isActive(item.url) ? '#2563EB' : '#64748B',
+                      fontWeight: isActive(item.url) ? 500 : 400,
+                      fontFamily: 'var(--font-body)',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isActive(item.url)) {
+                        e.currentTarget.style.background = 'rgba(37, 99, 235, 0.05)';
+                        e.currentTarget.style.color = '#334155';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive(item.url)) {
+                        e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.color = '#64748B';
+                      }
+                    }}
                   >
-                    <item.icon className={cn("h-4 w-4 flex-shrink-0", isActive(item.url) ? "text-white" : "text-white/70")} />
+                    <item.icon 
+                      className={cn("h-4 w-4 flex-shrink-0")} 
+                      style={{ 
+                        opacity: isActive(item.url) ? 0.7 : 0.35,
+                      }}
+                    />
                     {!isCollapsed && <span>{item.title}</span>}
                   </NavLink>
                 )
@@ -532,21 +717,35 @@ export function AppSidebar() {
         </SidebarContent>
 
         {/* Footer - Credits & Upgrade */}
-        <SidebarFooter className="border-t border-white/20 bg-[#3B82F6] p-3">
+        <SidebarFooter 
+          className="p-3" 
+          style={{ 
+            borderTop: '1px solid rgba(37, 99, 235, 0.08)', 
+            background: '#E8EDF8',
+          }}
+        >
           {!isCollapsed ? (
             <div className="space-y-4">
               {/* Credits Display */}
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm font-medium text-white/90">Credits</span>
-                  <span className="text-sm font-semibold text-white">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span style={{ fontSize: '13px', fontWeight: 500, color: '#64748B', fontFamily: 'var(--font-body)' }}>
+                    Credits
+                  </span>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#1E293B', fontFamily: 'var(--font-body)' }}>
                     {credits}/{maxCredits}
                   </span>
                 </div>
-                <div className="h-2 bg-white/20 rounded-full overflow-hidden">
+                <div 
+                  className="h-1.5 rounded-full overflow-hidden" 
+                  style={{ background: 'rgba(37, 99, 235, 0.10)' }}
+                >
                   <div
-                    className="h-full bg-white rounded-full transition-all duration-300"
-                    style={{ width: `${creditPercentage}%` }}
+                    className="h-full rounded-full transition-all duration-300"
+                    style={{ 
+                      width: `${creditPercentage}%`,
+                      background: '#2563EB',
+                    }}
                   />
                 </div>
               </div>
@@ -557,7 +756,22 @@ export function AppSidebar() {
                   trackUpgradeClick('sidebar', { from_location: 'sidebar' });
                   navigate("/pricing");
                 }}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-gray-50 text-[#3B82F6] text-sm font-medium rounded-lg transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-[8px] transition-all"
+                style={{
+                  background: '#2563EB',
+                  color: 'white',
+                  fontFamily: 'var(--font-body)',
+                  border: 'none',
+                  boxShadow: '0 1px 3px rgba(37, 99, 235, 0.2)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#1d4ed8';
+                  e.currentTarget.style.boxShadow = '0 2px 6px rgba(37, 99, 235, 0.3)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#2563EB';
+                  e.currentTarget.style.boxShadow = '0 1px 3px rgba(37, 99, 235, 0.2)';
+                }}
               >
                 <Zap className="h-4 w-4" />
                 <span>Upgrade Plan</span>
@@ -571,7 +785,21 @@ export function AppSidebar() {
                     trackUpgradeClick('sidebar', { from_location: 'sidebar' });
                     navigate("/pricing");
                   }}
-                  className="w-full flex items-center justify-center p-2 bg-white hover:bg-gray-50 text-[#3B82F6] rounded-lg transition-colors"
+                  className="w-full flex items-center justify-center p-2 rounded-[8px] transition-all"
+                  style={{
+                    background: '#2563EB',
+                    color: 'white',
+                    border: 'none',
+                    boxShadow: '0 1px 3px rgba(37, 99, 235, 0.2)',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#1d4ed8';
+                    e.currentTarget.style.boxShadow = '0 2px 6px rgba(37, 99, 235, 0.3)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#2563EB';
+                    e.currentTarget.style.boxShadow = '0 1px 3px rgba(37, 99, 235, 0.2)';
+                  }}
                 >
                   <Zap className="h-5 w-5" />
                 </button>

@@ -355,11 +355,8 @@ const Pricing = () => {
     : null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-cyan-50 relative">
-      {/* Subtle dot pattern overlay */}
-      <div className="absolute inset-0 bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:20px_20px] opacity-30"></div>
-      
-      <div className="relative max-w-6xl mx-auto px-6 py-10">
+    <div style={{ background: '#F8FAFF', minHeight: '100vh' }}>
+      <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px' }}>
         
         {/* Back Navigation */}
         <div className="mb-8 animate-fadeInUp">
@@ -403,12 +400,32 @@ const Pricing = () => {
         )}
 
         {/* Header Section */}
-        <div className="text-center mb-12 animate-fadeInUp" style={{ animationDelay: '100ms' }}>
-          <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
-            Choose <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-500 to-blue-600">your plan</span> today
+        <div style={{ textAlign: 'center', marginBottom: '48px' }}>
+          <h1
+            style={{
+              fontFamily: "'Instrument Serif', Georgia, serif",
+              fontSize: '42px',
+              fontWeight: 400,
+              letterSpacing: '-0.025em',
+              color: '#0F172A',
+              textAlign: 'center',
+              marginBottom: '10px',
+              lineHeight: 1.1,
+            }}
+          >
+            Pricing
           </h1>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            15 credits per contact. When you run out of credits, no more contacts.
+          <p
+            style={{
+              fontFamily: "'DM Sans', system-ui, sans-serif",
+              fontSize: '16px',
+              color: '#64748B',
+              textAlign: 'center',
+              marginBottom: '28px',
+              lineHeight: 1.5,
+            }}
+          >
+            Choose the plan that works best for you.
           </p>
         </div>
 
@@ -459,9 +476,22 @@ const Pricing = () => {
           {/* Pro Plan Card (Featured) */}
           <div className="relative bg-gradient-to-b from-cyan-500 to-blue-600 rounded-2xl p-[2px] flex flex-col hover:shadow-xl hover:shadow-blue-500/20 transition-all duration-300 md:scale-105 z-10 hover:-translate-y-1">
             {/* Most Popular Badge */}
-            <div className="absolute -top-4 left-1/2 -translate-x-1/2 z-20">
-              <span className="px-4 py-1.5 bg-gray-900 text-white text-sm font-semibold rounded-full shadow-lg">
-                {currentTier === 'pro' ? 'ACTIVE' : 'MOST POPULAR'}
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20">
+              <span
+                style={{
+                  padding: '6px 16px',
+                  background: currentTier === 'pro' ? '#10B981' : '#0F172A',
+                  color: 'white',
+                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  letterSpacing: '0.05em',
+                  borderRadius: '8px',
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+                  textTransform: 'uppercase',
+                }}
+              >
+                {currentTier === 'pro' ? 'Active' : 'Most Popular'}
               </span>
             </div>
             

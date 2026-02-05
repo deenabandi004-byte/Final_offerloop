@@ -790,50 +790,109 @@ const FirmSearchPage: React.FC = () => {
         <MainContentWrapper>
           <AppHeader />
 
-          <main className="w-full max-w-5xl mx-auto px-6 py-12 pb-24">
+          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', padding: '48px 24px', paddingBottom: '96px' }}>
             <div>
 
               {/* Header Section */}
-              <div className="text-center mb-12 max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700">
-                <h1 className="text-4xl font-bold tracking-tight text-gray-900 mb-4">
+              <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px 0' }}>
+                <h1
+                  style={{
+                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontSize: '42px',
+                    fontWeight: 400,
+                    letterSpacing: '-0.025em',
+                    color: '#0F172A',
+                    textAlign: 'center',
+                    marginBottom: '10px',
+                    lineHeight: 1.1,
+                  }}
+                >
                   Find Companies
                 </h1>
-                <p className="text-lg text-gray-500 leading-relaxed">
+                <p
+                  style={{
+                    fontFamily: "'DM Sans', system-ui, sans-serif",
+                    fontSize: '16px',
+                    color: '#64748B',
+                    textAlign: 'center',
+                    marginBottom: '28px',
+                    lineHeight: 1.5,
+                  }}
+                >
                   Discover companies that match your target criteria and career goals.
                 </p>
               </div>
 
               {/* Navigation Tabs */}
-              <div className="flex justify-center mb-10">
-                <div className="inline-flex items-center p-1 bg-white border border-gray-200 rounded-full shadow-sm">
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '36px' }}>
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    gap: '0',
+                    background: '#F0F4FD',
+                    borderRadius: '12px',
+                    padding: '4px',
+                    margin: '0 auto',
+                  }}
+                >
                   <button
                     onClick={() => setActiveTab('firm-search')}
-                    className={`
-                      flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-medium transition-all duration-300
-                      ${activeTab === 'firm-search'
-                        ? 'bg-indigo-600 text-white shadow-md transform scale-[1.02]'
-                        : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-                      }
-                    `}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 20px',
+                      borderRadius: '9px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontFamily: "'DM Sans', system-ui, sans-serif",
+                      fontSize: '14px',
+                      fontWeight: 500,
+                      transition: 'all 0.15s ease',
+                      background: activeTab === 'firm-search' ? '#2563EB' : 'transparent',
+                      color: activeTab === 'firm-search' ? 'white' : '#64748B',
+                      boxShadow: activeTab === 'firm-search' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
+                    }}
                   >
-                    <Search className={`w-4 h-4 ${activeTab === 'firm-search' ? 'text-white' : 'text-current'}`} />
+                    <Search className="h-4 w-4" />
                     Find Companies
                   </button>
 
                   <button
                     onClick={() => setActiveTab('firm-library')}
-                    className={`
-                      flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-medium transition-all duration-300
-                      ${activeTab === 'firm-library'
-                        ? 'bg-indigo-600 text-white shadow-md transform scale-[1.02]'
-                        : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-                      }
-                    `}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 20px',
+                      borderRadius: '9px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontFamily: "'DM Sans', system-ui, sans-serif",
+                      fontSize: '14px',
+                      fontWeight: 500,
+                      transition: 'all 0.15s ease',
+                      background: activeTab === 'firm-library' ? '#2563EB' : 'transparent',
+                      color: activeTab === 'firm-library' ? 'white' : '#64748B',
+                      boxShadow: activeTab === 'firm-library' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
+                    }}
                   >
-                    <Building2 className={`w-4 h-4 ${activeTab === 'firm-library' ? 'text-white' : 'text-current'}`} />
+                    <Building2 className="h-4 w-4" />
                     Company Tracker
                     {results.length > 0 && (
-                      <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${activeTab === 'firm-library' ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                      <span
+                        style={{
+                          marginLeft: '6px',
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          background: activeTab === 'firm-library' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(37, 99, 235, 0.08)',
+                          color: activeTab === 'firm-library' ? 'white' : '#2563EB',
+                          fontFamily: "'DM Sans', system-ui, sans-serif",
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          letterSpacing: '0.03em',
+                        }}
+                      >
                         {results.length}
                       </span>
                     )}
@@ -856,7 +915,19 @@ const FirmSearchPage: React.FC = () => {
                     )}
 
                     {/* Main Card */}
-                    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp firm-search-form-card" style={{ animationDelay: '200ms' }}>
+                    <div 
+                      style={{
+                        background: '#FFFFFF',
+                        border: '1px solid rgba(37, 99, 235, 0.08)',
+                        borderRadius: '14px',
+                        padding: '36px 40px',
+                        maxWidth: '900px',
+                        margin: '0 auto',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
+                        animationDelay: '200ms',
+                      }}
+                      className="overflow-hidden animate-fadeInUp firm-search-form-card"
+                    >
                       {/* Simple gray divider instead of gradient */}
                       <div className="h-1 bg-gray-100"></div>
 
@@ -924,7 +995,7 @@ const FirmSearchPage: React.FC = () => {
                             absolute bottom-4 right-4 w-10 h-10 rounded-full
                             flex items-center justify-center transition-all duration-200
                             ${isValidQuery && !isSearching && user
-                                ? 'bg-indigo-600 text-white shadow-md hover:scale-105'
+                                ? 'bg-blue-600 text-white shadow-md hover:scale-105'
                                 : 'bg-gray-100 text-gray-300 cursor-not-allowed'
                               }
                           `}
@@ -984,7 +1055,7 @@ const FirmSearchPage: React.FC = () => {
                                     className={`
                                   px-4 py-2 rounded-lg font-semibold text-sm transition-all duration-150 firm-search-quantity-btn flex-1
                                   ${batchSize === option.value
-                                        ? 'bg-indigo-600 text-white shadow-sm'
+                                        ? 'bg-blue-600 text-white shadow-sm'
                                         : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                                       }
                                   ${option.value > maxBatchSize ? 'opacity-50 cursor-not-allowed' : ''}
@@ -1023,7 +1094,7 @@ const FirmSearchPage: React.FC = () => {
                             transition-all duration-200 transform
                             ${(!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm))
                                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                : 'bg-indigo-600 text-white shadow-lg hover:shadow-xl hover:scale-105 active:scale-100'
+                                : 'bg-blue-600 text-white shadow-lg hover:shadow-xl hover:scale-105 active:scale-100'
                               }
                           `}
                           >
@@ -1100,7 +1171,19 @@ const FirmSearchPage: React.FC = () => {
 
                   {/* TAB 2: Company Tracker */}
                   <TabsContent value="firm-library" className="mt-0">
-                    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
+                    <div 
+                      style={{
+                        background: '#FFFFFF',
+                        border: '1px solid rgba(37, 99, 235, 0.08)',
+                        borderRadius: '14px',
+                        padding: '36px 40px',
+                        maxWidth: '900px',
+                        margin: '0 auto',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
+                        animationDelay: '200ms',
+                      }}
+                      className="overflow-hidden animate-fadeInUp"
+                    >
                       <div className="h-1 bg-gray-100"></div>
 
                       <div className="p-8">
@@ -1182,7 +1265,7 @@ const FirmSearchPage: React.FC = () => {
                             </p>
                             <button
                               onClick={() => setActiveTab('firm-search')}
-                              className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
+                              className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
                             >
                               Find Companies
                             </button>
@@ -1265,7 +1348,7 @@ const FirmSearchPage: React.FC = () => {
               <div className="mb-4">
                 <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden shadow-inner">
                   <div
-                    className="bg-indigo-600 h-3 rounded-full transition-all duration-500 ease-out relative overflow-hidden"
+                    className="bg-blue-600 h-3 rounded-full transition-all duration-500 ease-out relative overflow-hidden"
                     style={{
                       width: searchProgress
                         ? `${Math.max(2, Math.min(98, (searchProgress.current / searchProgress.total) * 100))}%`
@@ -1279,7 +1362,7 @@ const FirmSearchPage: React.FC = () => {
 
                 {/* Progress Text */}
                 <div className="flex items-center justify-between mt-3 text-xs">
-                  <span className="font-medium text-indigo-600">
+                  <span className="font-medium text-blue-600">
                     {searchProgress
                       ? `${searchProgress.current} of ${searchProgress.total} companies`
                       : 'Starting...'}
@@ -1309,12 +1392,12 @@ const FirmSearchPage: React.FC = () => {
               </div>
               <h3 className="text-xl font-semibold text-gray-900 mb-1">Found {results.length} companies!</h3>
               <p className="text-gray-600 mb-2">Matching your criteria</p>
-              <p className="text-sm text-indigo-600 font-medium mb-6">Saved to your Company Tracker</p>
+              <p className="text-sm text-blue-600 font-medium mb-6">Saved to your Company Tracker</p>
 
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <button
                   onClick={() => { setSearchComplete(false); setActiveTab('firm-library'); }}
-                  className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
+                  className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
                 >
                   View Companies →
                 </button>
@@ -1364,7 +1447,7 @@ const FirmSearchPage: React.FC = () => {
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction
                 onClick={handleUpgrade}
-                className="bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-600"
+                className="bg-blue-600 hover:bg-blue-700 focus:ring-blue-600"
               >
                 Upgrade to Pro/Elite
               </AlertDialogAction>
