@@ -12,8 +12,9 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { X, Send, Loader2, Trash2 } from 'lucide-react';
 import { useScout, SearchHelpResponse } from '@/contexts/ScoutContext';
 import { useScoutChat, formatMessage } from '@/hooks/useScoutChat';
-import { SUGGESTED_QUESTIONS } from '@/data/scout-knowledge';
+import { SUGGESTED_QUESTIONS, SCOUT_CHIPS_BY_PAGE, getPageByRoute } from '@/data/scout-knowledge';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
+import { toast } from '@/hooks/use-toast';
 import ScoutWavingWhite from '@/assets/ScoutWavingWhite.mp4';
 
 // Backend URL configuration
@@ -23,6 +24,13 @@ const BACKEND_URL = window.location.hostname === 'localhost'
 
 // Session storage key for auto-populate
 const AUTO_POPULATE_KEY = 'scout_auto_populate';
+
+const SCOUT_LOADING_MESSAGES = [
+  "One sec…",
+  "Looking that up…",
+  "Let me check…",
+  "On it…",
+];
 
 export function ScoutSidePanel() {
   const navigate = useNavigate();
@@ -199,11 +207,20 @@ export function ScoutSidePanel() {
   
   // Handle navigation - navigate AND close panel
   const handleNavigate = (route: string, autoPopulate?: any) => {
-    // Store auto-populate data if present
+    // Store auto-populate so Contact Search / Firm Search can pre-fill (sessionStorage + state)
     if (autoPopulate) {
       sessionStorage.setItem('scout_auto_populate', JSON.stringify(autoPopulate));
     }
-    navigate(route);
+    const pageName = getPageByRoute(route)?.name ?? 'that page';
+    const isAlreadyOnPage = location.pathname === route || location.pathname === route.split('?')[0];
+    if (isAlreadyOnPage && autoPopulate) {
+      window.dispatchEvent(new CustomEvent('scout-auto-populate'));
+    }
+    navigate(route, { state: autoPopulate ? { scoutAutoPopulate: autoPopulate } : undefined });
+    toast({
+      title: `Taking you to ${pageName}`,
+      description: "Let me know if you need help once you're there.",
+    });
     closePanel();
   };
   
@@ -393,15 +410,15 @@ export function ScoutSidePanel() {
                         <div className="max-w-[85%]">
                           <div className="bg-gray-100 rounded-2xl rounded-tl-md px-4 py-3">
                             <p className="text-sm text-gray-900 leading-relaxed">
-                              Ask me anything about Offerloop.
+                              Need help finding people, companies, or something else?
                             </p>
                           </div>
                         </div>
                       </div>
                       
-                      {/* Suggested questions - 2 column grid */}
+                      {/* Suggested questions - context-aware chips with fallback */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 ml-10">
-                        {SUGGESTED_QUESTIONS.map((question, idx) => (
+                        {(SCOUT_CHIPS_BY_PAGE[location.pathname] ?? SUGGESTED_QUESTIONS).map((question, idx) => (
                           <button
                             key={idx}
                             onClick={() => handleSuggestionClick(question)}
@@ -500,7 +517,7 @@ export function ScoutSidePanel() {
                           <div className="bg-gray-100 rounded-2xl rounded-tl-md px-4 py-3">
                             <div className="flex items-center gap-2 text-gray-500">
                               <Loader2 className="h-4 w-4 animate-spin" />
-                              <span className="text-sm">Thinking...</span>
+                              <span className="text-sm">{SCOUT_LOADING_MESSAGES[Math.floor(Math.random() * SCOUT_LOADING_MESSAGES.length)]}</span>
                             </div>
                           </div>
                         </div>

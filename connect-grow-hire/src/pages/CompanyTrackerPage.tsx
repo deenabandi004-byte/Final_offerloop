@@ -43,7 +43,7 @@ export default function CompanyTrackerPage() {
 
   const loadAttemptedRef = useRef(false);
 
-  // Load all saved firms from Firebase
+  // Load all saved firms from Firebase (single request with includeFirms, like Firm Search tab)
   const loadAllSavedFirms = useCallback(async () => {
     if (!user) {
       setIsLoading(false);
@@ -52,27 +52,22 @@ export default function CompanyTrackerPage() {
 
     setIsLoading(true);
     try {
-      const history = await apiService.getFirmSearchHistory(100);
+      const history = await apiService.getFirmSearchHistory(100, true);
       const allFirms: Firm[] = [];
       const seenFirmIds = new Set<string>();
 
       for (const historyItem of history) {
-        try {
-          const searchData = await apiService.getFirmSearchById(historyItem.id);
-          if (searchData && searchData.firms) {
-            for (const firm of searchData.firms) {
-              const firmKey = firm.id || `${firm.name}-${firm.location?.display}`;
-              if (!seenFirmIds.has(firmKey)) {
-                seenFirmIds.add(firmKey);
-                allFirms.push({
-                  ...firm,
-                  searchId: historyItem.id,
-                });
-              }
+        if (historyItem.results && Array.isArray(historyItem.results)) {
+          for (const firm of historyItem.results) {
+            const firmKey = firm.id || `${firm.name}-${firm.location?.display}`;
+            if (!seenFirmIds.has(firmKey)) {
+              seenFirmIds.add(firmKey);
+              allFirms.push({
+                ...firm,
+                searchId: historyItem.id,
+              });
             }
           }
-        } catch (err) {
-          console.error(`Failed to load search ${historyItem.id}:`, err);
         }
       }
 

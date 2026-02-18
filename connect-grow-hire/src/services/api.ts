@@ -15,6 +15,27 @@ export interface UserProfile {
   careerInterests?: string[];
 }
 
+/** Email template for outreach (purpose + style + optional custom instructions) */
+export interface EmailTemplate {
+  purpose: string | null;
+  stylePreset: string | null;
+  customInstructions: string;
+}
+
+export interface PresetOption {
+  id: string;
+  name: string;
+  description: string;
+}
+
+/** True if template has at least one value set (so we should send it in the request) */
+export function hasEmailTemplateValues(t: EmailTemplate | null | undefined): boolean {
+  if (!t) return false;
+  return (t.purpose != null && t.purpose !== '') ||
+    (t.stylePreset != null && t.stylePreset !== '') ||
+    (t.customInstructions != null && t.customInstructions.trim() !== '');
+}
+
 export interface ContactSearchRequest {
   jobTitle: string;
   company?: string; // Optional - company is not required for contact search
@@ -25,6 +46,7 @@ export interface ContactSearchRequest {
   careerInterests?: string[];
   collegeAlumni?: string; // ✅ NEW: Added collegeAlumni field
   batchSize?: number;
+  emailTemplate?: EmailTemplate | null;
 }
 
 export interface ProContactSearchRequest extends ContactSearchRequest {
@@ -921,7 +943,7 @@ class ApiService {
   async runFreeSearch(request: ContactSearchRequest): Promise<SearchResult> {
     const headers = await this.getAuthHeaders();
 
-    const backendRequest = {
+    const backendRequest: Record<string, unknown> = {
       jobTitle: request.jobTitle,
       company: request.company,
       location: request.location,
@@ -931,9 +953,15 @@ class ApiService {
       collegeAlumni: request.collegeAlumni || '', // ✅ Include collegeAlumni
       batchSize: request.batchSize, // ✅ Include batch size
     };
+    if (request.emailTemplate && hasEmailTemplateValues(request.emailTemplate)) {
+      backendRequest.emailTemplate = request.emailTemplate;
+    }
 
     const isDev = import.meta.env.DEV;
-    if (isDev) console.log(`Free Search Request:`, backendRequest);
+    if (isDev) {
+      console.log(`Free Search Request:`, backendRequest);
+      if (backendRequest.emailTemplate) console.log(`[EmailTemplate] Sending template:`, backendRequest.emailTemplate);
+    }
 
     return this.makeRequest<SearchResult>('/free-run', {
       method: 'POST',
@@ -968,6 +996,10 @@ class ApiService {
       formData.append('careerInterests', JSON.stringify(request.careerInterests));
     }
 
+    if (request.emailTemplate && hasEmailTemplateValues(request.emailTemplate)) {
+      formData.append('emailTemplate', JSON.stringify(request.emailTemplate));
+    }
+
     const isDev = import.meta.env.DEV;
     if (isDev) {
       console.log(`Pro Search Request - FormData contents:`);
@@ -979,6 +1011,9 @@ class ApiService {
       console.log(`  userProfile: ${JSON.stringify(request.userProfile)}`);
       console.log(`  careerInterests: ${JSON.stringify(request.careerInterests)}`);
       console.log(`  collegeAlumni: "${request.collegeAlumni || ''}"`);
+      if (request.emailTemplate && hasEmailTemplateValues(request.emailTemplate)) {
+        console.log(`[EmailTemplate] Sending template:`, request.emailTemplate);
+      }
     }
 
     return this.makeRequest<SearchResult>('/pro-run', {
@@ -1043,6 +1078,33 @@ class ApiService {
       },
       body: formData,
     });
+  }
+
+  // ================================
+  // Email Template Endpoints
+  // ================================
+
+  async getEmailTemplate(): Promise<EmailTemplate> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<EmailTemplate>('/email-template', { method: 'GET', headers });
+  }
+
+  async saveEmailTemplate(template: EmailTemplate): Promise<{ success: boolean }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ success: boolean }>('/email-template', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        purpose: template.purpose,
+        stylePreset: template.stylePreset,
+        customInstructions: template.customInstructions || '',
+      }),
+    });
+  }
+
+  async getEmailTemplatePresets(): Promise<{ styles: PresetOption[]; purposes: PresetOption[] }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ styles: PresetOption[]; purposes: PresetOption[] }>('/email-template/presets', { method: 'GET', headers });
   }
 
   // ---- Deprecated shims ----

@@ -6,8 +6,8 @@ import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { 
   Briefcase, Download, Loader2, BadgeCheck, Calendar, CheckCircle, XCircle,
-  Link, Building2, MessageSquare, Lightbulb, AlertTriangle,   FileText,
-  ClipboardList, FolderOpen, ArrowRight, CreditCard, ChevronDown
+  Link, Building2, MessageSquare, Lightbulb, AlertTriangle, FileText,
+  ClipboardList, FolderOpen, ArrowRight, ChevronDown
 } from "lucide-react";
 import { UpgradeBanner } from "@/components/UpgradeBanner";
 import { apiService } from "@/services/api";
@@ -45,7 +45,7 @@ const InterviewPrepPage: React.FC = () => {
         'interviewPreps',
         currentUsage
       )
-    : effectiveUser.tier === 'elite';
+    : (tier as 'free' | 'pro' | 'elite') === 'elite';
   
   const hasEnoughCredits = (effectiveUser.credits ?? 0) >= INTERVIEW_PREP_CREDITS;
   const hasAccess = hasMonthlyAccess && hasEnoughCredits;
@@ -57,7 +57,7 @@ const InterviewPrepPage: React.FC = () => {
   const [interviewPrepLoading, setInterviewPrepLoading] = useState(false);
   const [interviewPrepProgress, setInterviewPrepProgress] = useState<string>("");
   const [interviewPrepId, setInterviewPrepId] = useState<string | null>(null);
-  const [interviewPrepResult, setInterviewPrepResult] = useState<InterviewPrepStatus | null>(null);
+  const [, setInterviewPrepResult] = useState<InterviewPrepStatus | null>(null);
   const [interviewPrepStatus, setInterviewPrepStatus] = useState<'idle' | 'processing' | 'completed' | 'failed'>('idle');
   const [currentPrepStatus, setCurrentPrepStatus] = useState<string>('processing');
   const [progressPercent, setProgressPercent] = useState(0);
@@ -596,7 +596,7 @@ const InterviewPrepPage: React.FC = () => {
                     lineHeight: 1.5,
                   }}
                 >
-                  Go into every interview knowing exactly what to expect.
+                  Paste a job posting URL and get a full interview guide with likely questions and a prep plan.
                 </p>
               </div>
 

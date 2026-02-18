@@ -40,10 +40,23 @@ export const PAGES = {
     keywords: ["contact", "search", "find", "people", "professionals", "network", "networking", "email", "outreach", "connect"]
   },
 
+  recruiterSpreadsheet: {
+    route: "/recruiter-spreadsheet",
+    name: "Find Hiring Managers",
+    description: "Paste a job posting URL and we'll find the recruiters and hiring managers for that role.",
+    tabs: ["Find Hiring Managers"],
+    features: [
+      "Paste job posting URL",
+      "Find recruiters and hiring managers",
+      "Export or save results"
+    ],
+    keywords: ["recruiter", "hiring manager", "job posting", "find recruiters", "HR"]
+  },
+
   firmSearch: {
     route: "/firm-search",
     name: "Firm Search",
-    description: "Discover companies and firms matching your criteria. Search by industry, location, and size to find potential employers.",
+    description: "Discover companies and firms matching your criteria. Search by industry, location, and size to find potential employers. Describe the type of companies you're looking for in plain English.",
     tabs: ["Firm Search", "Saved Firms", "Search History"],
     features: [
       "Natural language search for companies",
@@ -76,7 +89,7 @@ export const PAGES = {
   coffeeChatPrep: {
     route: "/coffee-chat-prep",
     name: "Coffee Chat Prep",
-    description: "Generate comprehensive preparation materials for networking conversations. Get talking points, questions to ask, and research on your contact.",
+    description: "Generate comprehensive preparation materials for networking conversations. Includes talking points, questions to ask, and research on the person and their company.",
     tabs: ["Generate Prep", "Prep Library"],
     features: [
       "Paste LinkedIn URL to generate prep",
@@ -93,7 +106,7 @@ export const PAGES = {
   interviewPrep: {
     route: "/interview-prep",
     name: "Interview Prep",
-    description: "Generate interview preparation guides based on job postings. Get insights on company culture, common questions, and success tips.",
+    description: "Generate interview preparation guides based on job postings. Scrapes Reddit and other sources for real interview experiences at that company.",
     tabs: ["Generate Prep", "Prep Library"],
     features: [
       "Paste job posting URL to generate prep",
@@ -177,7 +190,7 @@ export const PAGES = {
   outbox: {
     route: "/home?tab=outbox",
     name: "Outbox",
-    description: "Manage your email threads and track responses. View drafts, sent emails, and replies.",
+    description: "Manage your email threads and track responses. View drafts, sent emails, and replies. Use the calendar and networking tabs to stay organized.",
     features: [
       "View all email threads",
       "Track reply status",
@@ -635,12 +648,45 @@ export const ROUTE_MAPPING = {
 // ============================================================================
 
 export const SUGGESTED_QUESTIONS = [
-  "How do I find contacts?",
-  "What does each plan include?",
-  "How do I connect my Gmail?",
-  "How do credits work?"
+  "I want to find people to reach out to",
+  "What do I get on each plan?",
+  "Help me set up my Gmail",
+  "What's the deal with credits?"
 ] as const;
 
+/** Context-aware suggestion chips by route. Fallback to SUGGESTED_QUESTIONS for unmapped pages. */
+export const SCOUT_CHIPS_BY_PAGE: Record<string, readonly string[]> = {
+  "/contact-search": [
+    "Help me narrow my search",
+    "What filters work best?",
+    "I'm not getting good results",
+    "How do credits work with searches?",
+  ],
+  "/firm-search": [
+    "How do I find firms in my industry?",
+    "What info do firm profiles show?",
+    "Help me narrow these results",
+    "What's the deal with credits?",
+  ],
+  "/job-board": [
+    "Find contacts at these companies",
+    "How do I prep for a role?",
+    "Help me find similar jobs",
+    "What do I get on each plan?",
+  ],
+  "/coffee-chat-prep": [
+    "What questions should I ask?",
+    "Help me research this person",
+    "How do I follow up after?",
+    "What do I get on each plan?",
+  ],
+  "/interview-prep": [
+    "Help me prep for this role",
+    "What questions should I expect?",
+    "How do I research the company?",
+    "What do I get on each plan?",
+  ],
+};
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -717,6 +763,7 @@ export default {
   TROUBLESHOOTING,
   ROUTE_MAPPING,
   SUGGESTED_QUESTIONS,
+  SCOUT_CHIPS_BY_PAGE,
   findRouteForIntent,
   getPageByRoute,
   formatKnowledgeForPrompt

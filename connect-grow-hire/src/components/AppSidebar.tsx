@@ -10,7 +10,6 @@ import {
   Shield,
   ScrollText,
   PanelLeft,
-  LayoutDashboard,
   Calendar as CalendarIcon,
 } from "lucide-react";
 import BriefcaseIcon from "@/assets/sidebaricons/icons8-briefcase-48.png";
@@ -212,37 +211,30 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-// Top-level Dashboard item (shown above sections)
-const dashboardItem = {
-  title: "Dashboard",
-  url: "/dashboard",
-  icon: LayoutDashboard,
-};
-
-// Navigation sections with collapsible groups
+// Navigation sections with collapsible groups (dataTour = product tour target id)
 const navigationSections = [
   {
     id: "find",
     title: "FIND",
     items: [
       { title: "Find People", url: "/contact-search", icon: FindPeopleIcon },
-      { title: "Find Companies", url: "/firm-search", icon: FindCompaniesIcon },
-      { title: "Find Hiring Managers", url: "/recruiter-spreadsheet", icon: FindHiringManagersIcon },
+      { title: "Find Companies", url: "/firm-search", icon: FindCompaniesIcon, dataTour: "tour-find-companies" },
+      { title: "Find Hiring Managers", url: "/recruiter-spreadsheet", icon: FindHiringManagersIcon, dataTour: "tour-find-hiring-managers" },
     ],
   },
   {
     id: "prepare",
     title: "PREPARE",
     items: [
-      { title: "Coffee Chat Prep", url: "/coffee-chat-prep", icon: CoffeeChatIcon },
-      { title: "Interview Prep", url: "/interview-prep", icon: InterviewPrepIcon },
+      { title: "Coffee Chat Prep", url: "/coffee-chat-prep", icon: CoffeeChatIcon, dataTour: "tour-coffee-chat-prep" },
+      { title: "Interview Prep", url: "/interview-prep", icon: InterviewPrepIcon, dataTour: "tour-interview-prep" },
     ],
   },
   {
     id: "write",
     title: "WRITE",
     items: [
-      { title: "Resume", url: "/write/resume", icon: ResumeIcon },
+      { title: "Resume", url: "/write/resume", icon: ResumeIcon, dataTour: "tour-resume" },
       { title: "Cover Letter", url: "/write/cover-letter", icon: CoverLetterIcon },
     ],
   },
@@ -250,7 +242,7 @@ const navigationSections = [
     id: "track",
     title: "TRACK",
     items: [
-      { title: "Track Email Outreach", url: "/outbox", icon: EmailOutreachIcon },
+      { title: "Track Email Outreach", url: "/outbox", icon: EmailOutreachIcon, dataTour: "tour-track-email" },
       { title: "Calendar", url: "/calendar", icon: CalendarIcon },
       { title: "Networking", url: "/contact-directory", icon: NetworkingIcon },
       { title: "Hiring Managers", url: "/hiring-manager-tracker", icon: FindHiringManagersIcon },
@@ -473,77 +465,6 @@ export function AppSidebar() {
 
           {/* Navigation Sections */}
           <nav className="flex-1 overflow-y-auto px-3 pt-1 pb-3">
-            {/* Dashboard - Top-level item above sections */}
-            <div className="mb-3">
-              {isCollapsed ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <NavLink
-                      to={dashboardItem.url}
-                      onClick={() => {
-                        trackNavClick(dashboardItem.title, 'sidebar', 'top_level');
-                      }}
-                      className="flex items-center justify-center gap-2.5 px-2 py-2 rounded-[8px] text-sm transition-all"
-                      style={{
-                        background: isActive(dashboardItem.url) ? 'rgba(37, 99, 235, 0.10)' : 'transparent',
-                        color: isActive(dashboardItem.url) ? '#2563EB' : '#64748B',
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isActive(dashboardItem.url)) {
-                          e.currentTarget.style.background = 'rgba(37, 99, 235, 0.05)';
-                          e.currentTarget.style.color = '#334155';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isActive(dashboardItem.url)) {
-                          e.currentTarget.style.background = 'transparent';
-                          e.currentTarget.style.color = '#64748B';
-                        }
-                      }}
-                    >
-                      <dashboardItem.icon 
-                        className="h-5 w-5 flex-shrink-0" 
-                        style={{ color: isActive(dashboardItem.url) ? '#2563EB' : '#94A3B8' }}
-                      />
-                    </NavLink>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    {dashboardItem.title}
-                  </TooltipContent>
-                </Tooltip>
-              ) : (
-                <NavLink
-                  to={dashboardItem.url}
-                  onClick={() => {
-                    trackNavClick(dashboardItem.title, 'sidebar', 'top_level');
-                  }}
-                  className="flex items-center gap-2.5 px-2.5 py-2 rounded-[8px] text-sm font-medium transition-all"
-                  style={{
-                    background: isActive(dashboardItem.url) ? 'rgba(37, 99, 235, 0.10)' : 'transparent',
-                    color: isActive(dashboardItem.url) ? '#2563EB' : '#64748B',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isActive(dashboardItem.url)) {
-                      e.currentTarget.style.background = 'rgba(37, 99, 235, 0.05)';
-                      e.currentTarget.style.color = '#334155';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive(dashboardItem.url)) {
-                      e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.color = '#64748B';
-                    }
-                  }}
-                >
-                  <dashboardItem.icon 
-                    className="h-5 w-5 flex-shrink-0" 
-                    style={{ color: isActive(dashboardItem.url) ? '#2563EB' : '#94A3B8' }}
-                  />
-                  <span>{dashboardItem.title}</span>
-                </NavLink>
-              )}
-            </div>
-            
             {navigationSections.map((section) => (
               <div key={section.id} className="mb-1">
                 {/* Section Header */}
@@ -596,6 +517,7 @@ export function AppSidebar() {
                       <NavLink
                         key={item.title}
                         to={item.url}
+                        data-tour={(item as { dataTour?: string }).dataTour}
                         onClick={() => {
                           trackNavClick(item.title, 'sidebar', section.id);
                         }}

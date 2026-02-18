@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import {
   Briefcase,
-  Sparkles,
   MapPin,
   Building2,
   Clock,
@@ -14,19 +13,12 @@ import {
   ChevronUp,
   Search,
   FileText,
-  Wand2,
-  CheckCircle2,
   Download,
   Copy,
-  Link,
-  Target,
   Bookmark,
   BookmarkCheck,
   RefreshCw,
-  X,
-  Zap,
   FileCheck,
-  PenTool,
   AlertTriangle,
   Users,
   Linkedin,
@@ -63,19 +55,17 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
-import { apiService, type OptimizeResumeRequest, type GenerateCoverLetterRequest, type Recruiter, type FindRecruiterRequest, type SuggestionsResult, type TemplateRebuildResult } from "@/services/api";
+import { apiService, type GenerateCoverLetterRequest, type Recruiter, type SuggestionsResult, type TemplateRebuildResult } from "@/services/api";
 import { ResumeOptimizationModal } from '@/components/ResumeOptimizationModal';
 import { SuggestionsView } from '@/components/SuggestionsView';
 import { firebaseApi, type Recruiter as FirebaseRecruiter } from "../services/firebaseApi";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
-import { CreditPill } from "@/components/credits";
 import { cn } from "@/lib/utils";
 import { InlineLoadingBar } from "@/components/ui/LoadingBar";
 import { doc, getDoc, collection, getDocs, setDoc, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import ResumeRenderer from "@/components/ResumeRenderer";
 import ResumeActions from "@/components/ResumeActions";
-import ResumeRendererSkeleton from "@/components/ResumeRendererSkeleton";
 import RecruiterSpreadsheet from "@/components/RecruiterSpreadsheet";
 import "@/components/ResumeRenderer.css";
 import { downloadCoverLetterAsPDF } from "@/utils/pdfGenerator";
@@ -404,10 +394,9 @@ const EmptyState: React.FC<{
 
 const JobBoardPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
   const { user, isLoading: authLoading, updateCredits } = useFirebaseAuth();
 
-  // Determine user tier
+  // Determine user tier (cast to include elite for subscription-backed tier)
   const effectiveUser = user || {
     credits: 0,
     maxCredits: 0,
@@ -417,7 +406,7 @@ const JobBoardPage: React.FC = () => {
   } as const;
 
   const userTier: "free" | "pro" | "elite" = useMemo(() => {
-    const tier = effectiveUser?.tier;
+    const tier = effectiveUser?.tier as "free" | "pro" | "elite" | undefined;
     if (tier === "pro" || tier === "elite") return tier;
     return "free";
   }, [effectiveUser?.tier]);
@@ -446,24 +435,24 @@ const JobBoardPage: React.FC = () => {
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [jobUrl, setJobUrl] = useState("");
   const [jobDescription, setJobDescription] = useState("");
-  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [isOptimizing, _setIsOptimizing] = useState(false);
   const [isGeneratingCoverLetter, setIsGeneratingCoverLetter] = useState(false);
   const [optimizedResume, setOptimizedResume] = useState<OptimizedResume | null>(null);
   const [coverLetter, setCoverLetter] = useState<CoverLetter | null>(null);
   const [recruiters, setRecruiters] = useState<Recruiter[]>([]);
   const [recruitersLoading, setRecruitersLoading] = useState(false);
   const [recruitersError, setRecruitersError] = useState<string | null>(null);
-  const [recruitersCount, setRecruitersCount] = useState(0);
+  const [, setRecruitersCount] = useState(0);
   const [recruitersHasMore, setRecruitersHasMore] = useState(false);
   const [recruitersMoreAvailable, setRecruitersMoreAvailable] = useState(0);
   const [recruiterEmails, setRecruiterEmails] = useState<any[]>([]);
   const [draftsCreated, setDraftsCreated] = useState<any[]>([]);
   const [maxRecruitersRequested, setMaxRecruitersRequested] = useState<number>(2);
-  const [lastSearchResult, setLastSearchResult] = useState<{requestedCount: number; foundCount: number; creditsCharged: number; error?: string} | null>(null);
+  const [, setLastSearchResult] = useState<{requestedCount: number; foundCount: number; creditsCharged: number; error?: string} | null>(null);
   const [expandedEmail, setExpandedEmail] = useState<number | null>(null);
-  const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
-  const [checkingGmail, setCheckingGmail] = useState(false);
-  const [parsedJobData, setParsedJobData] = useState<{title?: string; company?: string; location?: string; description?: string} | null>(null);
+  const [, setGmailConnected] = useState<boolean | null>(null);
+  const [, setCheckingGmail] = useState(false);
+  const [parsedJobData, _setParsedJobData] = useState<{title?: string; company?: string; location?: string; description?: string} | null>(null);
   const [showJobDetails, setShowJobDetails] = useState(false);
   const resumeRef = useRef<HTMLDivElement>(null);
 
@@ -471,7 +460,7 @@ const JobBoardPage: React.FC = () => {
   const [showOptimizationModal, setShowOptimizationModal] = useState(false);
   const [suggestionsResult, setSuggestionsResult] = useState<SuggestionsResult | null>(null);
   const [showSuggestionsView, setShowSuggestionsView] = useState(false);
-  const [templateRebuildResult, setTemplateRebuildResult] = useState<TemplateRebuildResult | null>(null);
+  const [, setTemplateRebuildResult] = useState<TemplateRebuildResult | null>(null);
 
   // Calculate hasJobInfo reactively
   const hasJobInfo = useMemo(() => {
@@ -570,7 +559,7 @@ const JobBoardPage: React.FC = () => {
 
   // Track if we're in a search state (vs recommended jobs)
   const [isSearchState, setIsSearchState] = useState(false);
-  const [lastSearchQuery, setLastSearchQuery] = useState("");
+  const [, setLastSearchQuery] = useState("");
 
   // Helper to merge jobs with saved jobs (saved at top)
   const mergeJobsWithSaved = useCallback((newJobs: Job[]): Job[] => {
@@ -922,108 +911,6 @@ const JobBoardPage: React.FC = () => {
     }
   };
 
-  const handleOptimizeResume = async () => {
-    if (!user?.uid) return;
-    if ((user?.credits ?? 0) < OPTIMIZATION_CREDIT_COST) {
-      toast({ title: "Insufficient Credits", description: `You need ${OPTIMIZATION_CREDIT_COST} credits.`, variant: "destructive" });
-      return;
-    }
-    if (!jobUrl && !jobDescription) {
-      toast({ title: "Job Information Required", variant: "destructive" });
-      return;
-    }
-
-    setIsOptimizing(true);
-    try {
-      // Prepare parameters for v2 endpoint
-      const jobDesc = jobDescription || '';
-      const mode: 'direct_edit' | 'suggestions' | 'template_rebuild' = 'direct_edit';
-      const jobTitleParam = selectedJob?.title || undefined;
-      const companyParam = selectedJob?.company || undefined;
-      const jobUrlParam = jobUrl || undefined;
-      
-      // Use v2 endpoint (format-preserving)
-      const result = await apiService.optimizeResumeV2(
-        jobDesc,
-        mode,
-        jobTitleParam,
-        companyParam,
-        jobUrlParam
-      );
-      
-      // Check if result is a Blob (PDF) or other type
-      if (result instanceof Blob) {
-      // Download the PDF
-        const url = URL.createObjectURL(result);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'optimized_resume.pdf';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      } else {
-        // Handle SuggestionsResult or TemplateRebuildResult
-        // For now, just show a message
-        toast({
-          title: "Optimization Complete",
-          description: "Check the suggestions or template rebuild result.",
-        });
-      }
-      
-      // Update credits (deduct 20)
-      const currentCredits = user?.credits ?? 0;
-      await updateCredits(Math.max(0, currentCredits - OPTIMIZATION_CREDIT_COST));
-      
-      toast({ 
-        title: "Resume Optimized!", 
-        description: "Your optimized resume has been downloaded. Original formatting preserved!",
-        duration: 5000,
-      });
-      
-      // Clear any old optimized resume state since we're not showing it inline anymore
-      setOptimizedResume(null);
-      
-    } catch (error: any) {
-      // Handle error responses
-      let errorMessage = "Optimization failed";
-      let creditsRefunded = false;
-      let errorCode: string | undefined;
-      
-      if (error.message) {
-        errorMessage = error.message;
-      } else if (error.response?.data) {
-        const errorData = error.response.data;
-        errorMessage = errorData.message || errorData.error || errorMessage;
-        creditsRefunded = errorData.credits_refunded || false;
-        errorCode = errorData.errorCode || errorData.error_code;
-      }
-      
-      // Show appropriate error message
-      if (creditsRefunded) {
-        toast({ 
-          title: errorMessage, 
-          description: "Don't worry, your credits have been refunded.",
-          variant: "destructive",
-          duration: 5000,
-        });
-      } else {
-        toast({ 
-          title: "Optimization Failed", 
-          description: errorMessage,
-          variant: "destructive",
-        });
-      }
-      
-      // If URL is not supported, suggest using job description instead
-      if (errorCode === "url_not_supported" || errorCode === "url_parse_failed") {
-        // Job description textarea is already visible, user can paste there
-      }
-    } finally {
-      setIsOptimizing(false);
-    }
-  };
-
   // Helper function to save recruiters to Recruiter Spreadsheet
   const saveRecruitersToSpreadsheet = async (apiRecruiters: Recruiter[], job: Job | null) => {
     if (!user || !apiRecruiters.length) return;
@@ -1037,7 +924,7 @@ const JobBoardPage: React.FC = () => {
         email: apiRecruiter.Email || apiRecruiter.WorkEmail || '',
         company: apiRecruiter.Company || '',
         jobTitle: apiRecruiter.Title || '',
-        location: `${apiRecruiter.City || ''}${apiRecruiter.City && apiRecruiter.State ? ', ' : ''}${apiRecruiter.State || ''}`.trim() || undefined,
+        location: `${apiRecruiter.City || ''}${apiRecruiter.City && apiRecruiter.State ? ', ' : ''}${apiRecruiter.State || ''}`.trim() || '',
         phone: apiRecruiter.Phone,
         workEmail: apiRecruiter.WorkEmail,
         personalEmail: apiRecruiter.PersonalEmail,
@@ -1360,27 +1247,6 @@ const JobBoardPage: React.FC = () => {
     }
   };
 
-  // Helper to normalize resume data from API response
-  const normalizeResumeData = (data: any): any => {
-    // Handle both 'Summary' and 'summary', 'Experience' and 'experience', etc.
-    // If it has content field, it's the old format (text), return as-is
-    if (data.content && typeof data.content === 'string') {
-      return data.content;
-    }
-    
-    // Otherwise, normalize JSON format
-    return {
-      name: data.name || data.Name,
-      contact: data.contact || data.Contact,
-      Summary: data.Summary || data.summary,
-      Experience: data.Experience || data.experience,
-      Education: data.Education || data.education,
-      Skills: data.Skills || data.skills,
-      Projects: data.Projects || data.projects,
-      Extracurriculars: data.Extracurriculars || data.extracurriculars,
-    };
-  };
-
   // Helper to normalize LinkedIn URLs
   const normalizeLinkedInUrl = (url: string): string => {
     if (!url || url.trim() === '') return '';
@@ -1473,6 +1339,11 @@ const JobBoardPage: React.FC = () => {
                 </TabsList>
                 </Tabs>
               </div>
+              {activeTab === "jobs" && (
+                <p className="text-center text-muted-foreground text-sm max-w-xl mx-auto pb-4">
+                  Browse job listings tailored to your profile. Optimize your resume for specific jobs, generate cover letters, and find recruiters.
+                </p>
+              )}
             </div>
           )}
 
@@ -2398,9 +2269,8 @@ const JobBoardPage: React.FC = () => {
                         <div className="flex items-center justify-between mb-4">
                           <h3 className="text-xl font-bold text-foreground">Optimized Resume</h3>
                           <ResumeActions
-                            resume={optimizedResume}
-                            onDownload={() => {}}
-                            onCopy={() => {}}
+                            resumeData={optimizedResume}
+                            resumeRef={resumeRef}
                           />
                                 </div>
                         {optimizedResume.atsScore && (

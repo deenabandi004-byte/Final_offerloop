@@ -11,13 +11,13 @@ import {
   Briefcase, Building2, MapPin, GraduationCap, User, Check, CheckCircle,
   FileText, Upload, Mail, Inbox, AlertCircle
 } from "lucide-react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 // ScoutBubble removed - now using ScoutHeaderButton in PageHeaderActions
 import { Button } from "@/components/ui/button";
 import ContactDirectoryComponent from "@/components/ContactDirectory";
 import { Progress } from "@/components/ui/progress";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
-import { apiService, isErrorResponse } from "@/services/api";
+import { apiService, isErrorResponse, type EmailTemplate, hasEmailTemplateValues } from "@/services/api";
 import { firebaseApi } from "../services/firebaseApi";
 import type { Contact as ContactApi } from '../services/firebaseApi';
 import { toast } from "@/hooks/use-toast";
@@ -117,6 +117,7 @@ const ContactSearchPage: React.FC = () => {
   const { user, checkCredits, updateCredits } = useFirebaseAuth();
   const { openPanelWithSearchHelp } = useScout();
   const navigate = useNavigate();
+  const routerLocation = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const effectiveUser = user || {
     credits: 0,
@@ -185,7 +186,7 @@ const ContactSearchPage: React.FC = () => {
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<string>("contact-search");
+  const [activeTab, setActiveTab] = useState<string>("linkedin-email");
 
   // LinkedIn Import state
   const [linkedInUrl, setLinkedInUrl] = useState('');
@@ -193,8 +194,21 @@ const ContactSearchPage: React.FC = () => {
   const [linkedInError, setLinkedInError] = useState<string | null>(null);
   const [linkedInSuccess, setLinkedInSuccess] = useState<string | null>(null);
 
+  // Email template state (saved default + session override)
+  const [savedEmailTemplate, setSavedEmailTemplate] = useState<EmailTemplate | null>(null);
+  const [sessionEmailTemplate, setSessionEmailTemplate] = useState<EmailTemplate | null>(null);
+  const activeEmailTemplate = sessionEmailTemplate ?? savedEmailTemplate;
+
   // Fallback to 'free' config if tier not found (safety for new tiers)
   const currentTierConfig = TIER_CONFIGS[userTier] || TIER_CONFIGS.free;
+
+  // Sync activeTab from URL ?tab= (for product tour)
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'linkedin-email' || tabParam === 'contact-search' || tabParam === 'contact-library') {
+      setActiveTab(tabParam);
+    }
+  }, [searchParams]);
 
   // Read URL parameters (e.g., from "View Contacts" in Firm Library)
   useEffect(() => {
@@ -220,37 +234,84 @@ const ContactSearchPage: React.FC = () => {
     }
   }, []); // Run once on mount
 
-  // Handle Scout auto-populate from failed search or chat requests
+  // Load saved email template on mount (contact search tab)
   useEffect(() => {
+    if (!user?.uid) return;
+    apiService.getEmailTemplate().then((t) => {
+      setSavedEmailTemplate({
+        purpose: t.purpose ?? null,
+        stylePreset: t.stylePreset ?? null,
+        customInstructions: t.customInstructions ?? "",
+      });
+    }).catch(() => {});
+  }, [user?.uid]);
+
+  // When returning from Email Templates page with "Apply to this search", apply the template and clear state
+  useEffect(() => {
+    const state = (routerLocation.state as { appliedEmailTemplate?: EmailTemplate } | undefined)?.appliedEmailTemplate;
+    if (state) {
+      setSessionEmailTemplate(state);
+      try {
+        sessionStorage.removeItem("offerloop_applied_email_template");
+      } catch {
+        // ignore
+      }
+      navigate("/contact-search", { replace: true, state: {} });
+      return;
+    }
+    // Fallback: template may have been stored in sessionStorage if navigation state was lost
+    try {
+      const raw = sessionStorage.getItem("offerloop_applied_email_template");
+      if (raw) {
+        const parsed = JSON.parse(raw) as EmailTemplate;
+        if (parsed && (parsed.purpose != null || parsed.stylePreset != null || (parsed.customInstructions && parsed.customInstructions.trim()))) {
+          setSessionEmailTemplate(parsed);
+        }
+        sessionStorage.removeItem("offerloop_applied_email_template");
+      }
+    } catch {
+      // ignore
+    }
+  }, [routerLocation.state]);
+
+  // Handle Scout auto-populate from failed search, chat "Take me there", or navigation state
+  useEffect(() => {
+    const applyPopulate = (populateData: { job_title?: string; company?: string; location?: string }) => {
+      const { job_title, company: autoCompany, location: autoLocation } = populateData;
+      if (job_title != null && job_title !== '') setJobTitle(job_title);
+      if (autoCompany != null && autoCompany !== '') setCompany(autoCompany);
+      if (autoLocation != null && autoLocation !== '') setLocation(autoLocation);
+      toast({
+        title: "Search pre-filled",
+        description: "Scout has filled in your search fields. Click Search to find contacts.",
+      });
+    };
+
     const handleAutoPopulate = () => {
       try {
+        // Prefer navigation state (set when clicking "Take me there" from Scout panel)
+        const stateData = (routerLocation.state as { scoutAutoPopulate?: { search_type?: string; job_title?: string; company?: string; location?: string } } | undefined)?.scoutAutoPopulate;
+        if (stateData?.search_type === 'contact') {
+          applyPopulate(stateData);
+          sessionStorage.removeItem(SCOUT_AUTO_POPULATE_KEY);
+          navigate(routerLocation.pathname, { replace: true, state: {} });
+          return;
+        }
+
         const stored = sessionStorage.getItem(SCOUT_AUTO_POPULATE_KEY);
         if (stored) {
           const data = JSON.parse(stored);
 
           // Handle both formats: search help format (nested) and chat format (flat)
-          let populateData;
+          let populateData: { job_title?: string; company?: string; location?: string };
           if (data.search_type === 'contact') {
             if (data.auto_populate) {
-              // Search help format (nested)
               populateData = data.auto_populate;
             } else {
-              // Chat format (flat)
               populateData = data;
             }
-
-            const { job_title, company: autoCompany, location: autoLocation } = populateData;
-            if (job_title) setJobTitle(job_title);
-            if (autoCompany) setCompany(autoCompany);
-            if (autoLocation) setLocation(autoLocation);
-
-            // Clear the stored data
+            applyPopulate(populateData);
             sessionStorage.removeItem(SCOUT_AUTO_POPULATE_KEY);
-
-            toast({
-              title: "Search pre-filled",
-              description: "Scout has filled in your search fields. Click Search to find contacts.",
-            });
           }
         }
       } catch (e) {
@@ -258,13 +319,11 @@ const ContactSearchPage: React.FC = () => {
       }
     };
 
-    // Run on mount
     handleAutoPopulate();
 
-    // Also listen for custom event (for when already on page)
     window.addEventListener('scout-auto-populate', handleAutoPopulate);
     return () => window.removeEventListener('scout-auto-populate', handleAutoPopulate);
-  }, []);
+  }, [routerLocation.state, routerLocation.pathname, navigate]);
 
   // Helper function to trigger Scout on 0 results
   const triggerScoutForNoResults = useCallback(() => {
@@ -876,6 +935,7 @@ const ContactSearchPage: React.FC = () => {
           careerInterests: userProfile?.careerInterests || [],
           collegeAlumni: (collegeAlumni || '').trim(),
           batchSize: batchSize,
+          ...(activeEmailTemplate && hasEmailTemplateValues(activeEmailTemplate) ? { emailTemplate: activeEmailTemplate } : {}),
         };
 
         setProgressValue(40); // Progress update before API call
@@ -990,6 +1050,7 @@ const ContactSearchPage: React.FC = () => {
           careerInterests: userProfile?.careerInterests || [],
           collegeAlumni: (collegeAlumni || '').trim(),
           batchSize: batchSize,
+          ...(activeEmailTemplate && hasEmailTemplateValues(activeEmailTemplate) ? { emailTemplate: activeEmailTemplate } : {}),
         };
 
         setProgressValue(40); // Progress update before API call
@@ -1291,10 +1352,31 @@ const ContactSearchPage: React.FC = () => {
           <AppHeader
             title=""
             onJobTitleSuggestion={handleJobTitleSuggestion}
+            rightContent={
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => navigate("/contact-search/templates")}
+                className="h-8 px-3 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200"
+                data-tour="tour-templates-button"
+              >
+                <FileText className="h-4 w-4 mr-1.5" />
+                {activeEmailTemplate && hasEmailTemplateValues(activeEmailTemplate)
+                  ? (() => {
+                      const p = activeEmailTemplate.purpose;
+                      const s = activeEmailTemplate.stylePreset;
+                      const purposeLabel = p ? (p.charAt(0).toUpperCase() + p.slice(1).replace(/_/g, " ")) : "";
+                      const styleLabel = s ? (s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ")) : "";
+                      return purposeLabel && styleLabel ? `Templates: ${purposeLabel} + ${styleLabel}` : purposeLabel || styleLabel ? `Templates: ${purposeLabel || styleLabel}` : "Templates";
+                    })()
+                  : "Create Your Email Template"}
+              </Button>
+            }
           />
 
           <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', padding: '48px 24px', paddingBottom: '96px' }}>
-            {/* Header Section */}
+            {/* Header Section - per-tab copy from FEATURE_DESCRIPTIONS */}
             <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px' }}>
               <h1
                 style={{
@@ -1308,7 +1390,11 @@ const ContactSearchPage: React.FC = () => {
                   lineHeight: 1.1,
                 }}
               >
-                Find your next connection
+                {activeTab === 'linkedin-email' && 'Import from LinkedIn'}
+                {activeTab === 'contact-search' && 'Find People'}
+                {activeTab === 'import' && 'Find People'}
+                {activeTab === 'contact-library' && 'Track Your Contacts'}
+                {!['linkedin-email', 'contact-search', 'import', 'contact-library'].includes(activeTab) && 'Find your next connection'}
               </h1>
               <p
                 style={{
@@ -1320,7 +1406,10 @@ const ContactSearchPage: React.FC = () => {
                   lineHeight: 1.5,
                 }}
               >
-                Discover professionals who can open doors at your target companies.
+                {activeTab === 'linkedin-email' && 'Paste a LinkedIn URL to instantly find their email, generate an email draft and save their details in a spreadsheet.'}
+                {(activeTab === 'contact-search' || activeTab === 'import') && 'Enter a job title and location to discover professionals at your target companies. We\'ll find their emails and draft outreach for you.'}
+                {activeTab === 'contact-library' && 'Everyone you find lands here. Update their status, open email drafts, and export to CSV.'}
+                {!['linkedin-email', 'contact-search', 'import', 'contact-library'].includes(activeTab) && 'Discover professionals who can open doors at your target companies.'}
               </p>
             </div>
 
@@ -1337,9 +1426,9 @@ const ContactSearchPage: React.FC = () => {
                 }}
               >
                 {[
+                  { id: 'linkedin-email', label: 'LinkedIn', icon: Linkedin },
                   { id: 'contact-search', label: 'Search', icon: Search },
                   { id: 'import', label: 'Import', icon: Upload },
-                  { id: 'linkedin-email', label: 'LinkedIn', icon: Linkedin },
                   { id: 'contact-library', label: 'Tracker', icon: User },
                 ].map((tab) => (
                   <button
@@ -1376,6 +1465,7 @@ const ContactSearchPage: React.FC = () => {
 
                   {/* Search Card */}
                   <div 
+                    data-tour="tour-search-form"
                     style={{
                       background: '#FFFFFF',
                       border: '1px solid rgba(37, 99, 235, 0.08)',
@@ -1447,8 +1537,8 @@ const ContactSearchPage: React.FC = () => {
                           )}
                         </div>
 
-                        {/* Quick Start Chips */}
-                        <div className="flex flex-wrap gap-2 justify-end">
+                        {/* Quick Start */}
+                        <div className="flex flex-wrap gap-2 justify-end items-center">
                           {quickStartTemplates.map((template) => (
                             <button
                               key={template.id}
@@ -1669,11 +1759,11 @@ const ContactSearchPage: React.FC = () => {
                           )}
                         </Button>
 
-
                       </div>
 
                     </div>
                   </div>
+
                 </TabsContent>
 
                 {/* Other Tabs content would go here, preserved as placeholders or real components if needed */}
@@ -1683,6 +1773,7 @@ const ContactSearchPage: React.FC = () => {
 
                 <TabsContent value="linkedin-email" className="mt-6">
                   <div 
+                    data-tour="tour-linkedin-input"
                     style={{
                       background: '#FFFFFF',
                       border: '1px solid rgba(37, 99, 235, 0.08)',
@@ -1700,7 +1791,7 @@ const ContactSearchPage: React.FC = () => {
                     </div>
                     <h2 className="text-2xl font-bold text-gray-900 mb-2">Import from LinkedIn</h2>
                     <p className="text-gray-500 mb-8 max-w-md mx-auto">
-                      Paste a LinkedIn profile URL to instantly import their details and generate a draft.
+                      Paste a LinkedIn URL to instantly find their email, generate an email draft and save their details in a spreadsheet.
                     </p>
 
                     <div className="max-w-xl mx-auto">
@@ -1745,6 +1836,7 @@ const ContactSearchPage: React.FC = () => {
 
                 <TabsContent value="contact-library" className="mt-6">
                   <div 
+                    data-tour="tour-tracker-table"
                     style={{
                       background: '#FFFFFF',
                       border: '1px solid rgba(37, 99, 235, 0.08)',

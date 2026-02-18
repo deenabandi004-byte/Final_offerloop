@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
@@ -66,6 +66,7 @@ const getQuantityMessage = (qty: number) => {
 
 const FirmSearchPage: React.FC = () => {
   const navigate = useNavigate();
+  const routerLocation = useLocation();
   const { user, checkCredits } = useFirebaseAuth();
   const { openPanelWithSearchHelp } = useScout();
   const effectiveUser = user || {
@@ -134,36 +135,45 @@ const FirmSearchPage: React.FC = () => {
     resultsRef.current = results;
   }, [results]);
 
-  // Handle Scout auto-populate from failed search or chat requests
+  // Handle Scout auto-populate from failed search, chat "Take me there", or navigation state
   useEffect(() => {
+    const applyPopulate = (populateData: { industry?: string; location?: string; size?: string }) => {
+      const { industry, location: autoLocation, size } = populateData;
+      let newQuery = '';
+      if (industry) newQuery += industry;
+      if (autoLocation) newQuery += (newQuery ? ' in ' : '') + autoLocation;
+      if (size) newQuery += (newQuery ? ', ' : '') + size;
+      if (newQuery) {
+        setQuery(newQuery);
+        toast({
+          title: "Search pre-filled",
+          description: "Scout has filled in your search fields. Click Search to find firms.",
+        });
+      }
+    };
+
     const handleAutoPopulate = () => {
       try {
+        const stateData = (routerLocation.state as { scoutAutoPopulate?: { search_type?: string; industry?: string; location?: string; size?: string } } | undefined)?.scoutAutoPopulate;
+        if (stateData?.search_type === 'firm') {
+          applyPopulate(stateData);
+          sessionStorage.removeItem(SCOUT_AUTO_POPULATE_KEY);
+          navigate(routerLocation.pathname, { replace: true, state: {} });
+          return;
+        }
+
         const stored = sessionStorage.getItem(SCOUT_AUTO_POPULATE_KEY);
         if (stored) {
           const data = JSON.parse(stored);
-
-          let populateData;
+          let populateData: { industry?: string; location?: string; size?: string };
           if (data.search_type === 'firm') {
             if (data.auto_populate) {
               populateData = data.auto_populate;
             } else {
               populateData = data;
             }
-
-            const { industry, location: autoLocation } = populateData;
-            let newQuery = '';
-            if (industry) newQuery += industry;
-            if (autoLocation) newQuery += (newQuery ? ' in ' : '') + autoLocation;
-
-            if (newQuery) {
-              setQuery(newQuery);
-              sessionStorage.removeItem(SCOUT_AUTO_POPULATE_KEY);
-
-              toast({
-                title: "Search pre-filled",
-                description: "Scout has filled in your search fields. Click Search to find firms.",
-              });
-            }
+            applyPopulate(populateData);
+            sessionStorage.removeItem(SCOUT_AUTO_POPULATE_KEY);
           }
         }
       } catch (e) {
@@ -174,7 +184,7 @@ const FirmSearchPage: React.FC = () => {
     handleAutoPopulate();
     window.addEventListener('scout-auto-populate', handleAutoPopulate);
     return () => window.removeEventListener('scout-auto-populate', handleAutoPopulate);
-  }, []);
+  }, [routerLocation.state, routerLocation.pathname, navigate]);
 
   // Track recently deleted firm IDs to filter them out during reload
   const recentlyDeletedFirmIds = useRef<Set<string>>(new Set());
@@ -819,7 +829,7 @@ const FirmSearchPage: React.FC = () => {
                     lineHeight: 1.5,
                   }}
                 >
-                  Discover companies that match your target criteria and career goals.
+                  Describe the type of companies you're looking for in plain English and we'll find them for you.
                 </p>
               </div>
 
@@ -937,7 +947,7 @@ const FirmSearchPage: React.FC = () => {
                           <div className="flex items-center gap-4 firm-search-header-content">
                             <div>
                               <h2 className="text-xl font-semibold text-gray-900 firm-search-form-title">What type of companies are you looking for?</h2>
-                              <p className="text-gray-600 mt-1 firm-search-form-subtitle">Describe your ideal companies in natural language</p>
+                              <p className="text-gray-600 mt-1 firm-search-form-subtitle">Describe the type of companies you're looking for in plain English</p>
                             </div>
                           </div>
 

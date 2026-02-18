@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { FirebaseAuthProvider, useFirebaseAuth } from "./contexts/FirebaseAuthContext";
 import { ScoutProvider, useScout } from "./contexts/ScoutContext";
+import { TourProvider } from "./contexts/TourContext";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DynamicGradientBackground } from "./components/background/DynamicGradientBackground";
 import { LoadingSkeleton } from "./components/LoadingSkeleton";
@@ -43,6 +44,7 @@ const PaymentSuccess = React.lazy(() => import("./pages/PaymentSuccess"));
 // Feature Pages - These are the largest, most important to lazy load
 const CoffeeChatPrepPage = React.lazy(() => import("./pages/CoffeeChatPrepPage"));
 const ContactSearchPage = React.lazy(() => import("./pages/ContactSearchPage"));
+const EmailTemplatesPage = React.lazy(() => import("./pages/EmailTemplatesPage"));
 const InterviewPrepPage = React.lazy(() => import("./pages/InterviewPrepPage"));
 const FirmSearchPage = React.lazy(() => import("./pages/FirmSearchPage"));
 const ApplicationLabPage = React.lazy(() => import("./pages/ApplicationLabPage"));
@@ -224,6 +226,7 @@ const AppRoutes: React.FC = () => {
       {/* Feature Pages - Largest pages, most important to lazy load */}
       <Route path="/coffee-chat-prep" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoffeeChatPrepPage /></Suspense></ProtectedRoute>} />
       <Route path="/contact-search" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ContactSearchPage /></Suspense></ProtectedRoute>} />
+      <Route path="/contact-search/templates" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><EmailTemplatesPage /></Suspense></ProtectedRoute>} />
       <Route path="/interview-prep" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><InterviewPrepPage /></Suspense></ProtectedRoute>} />
       <Route path="/firm-search" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><FirmSearchPage /></Suspense></ProtectedRoute>} />
       <Route path="/job-board" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><JobBoardPage /></Suspense></ProtectedRoute>} />
@@ -331,9 +334,11 @@ const App: React.FC = () => {
                 <Toaster />
                 <Sonner />
                 <ScoutProvider>
-                  <KeyboardShortcutHandler />
-                  <AppRoutes />
-                  <ScoutSidePanel />
+                  <TourProvider>
+                    <KeyboardShortcutHandler />
+                    <AppRoutes />
+                    <ScoutSidePanel />
+                  </TourProvider>
                 </ScoutProvider>
               </ConditionalBackground>
             </BrowserRouter>

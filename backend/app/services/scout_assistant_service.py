@@ -13,11 +13,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from app.services.openai_client import get_async_openai_client
 
+_ERROR_RECOVERY_LINES = [
+    "Try again in a sec?",
+    "Want to try rephrasing that?",
+    "Give it another shot — I should be back.",
+]
 
 # ============================================================================
 # KNOWLEDGE BASE (mirrors frontend scout-knowledge.ts)
@@ -394,14 +400,81 @@ def _build_system_prompt(user_name: str, tier: str, credits: int, max_credits: i
     
     routes_list = "\n".join([f"  {route}" for route in ROUTE_KEYWORDS.keys()])
     
-    return f"""You are Scout, Offerloop's friendly product assistant. Your job is to help users understand and navigate the platform.
+    return f"""You are Scout, the built-in assistant for Offerloop — a networking platform that helps college students connect with professionals for career opportunities.
 
-PERSONALITY:
-- Helpful, concise, and friendly
-- Give direct answers, not lengthy explanations
-- When user wants to do something, briefly explain AND offer to navigate them there
-- Use the user's name occasionally to personalize
-- Keep responses to 2-4 sentences unless detailed explanation is requested
+## Who you are
+You're a knowledgeable teammate, not a help doc. You know the platform inside and out, you're genuinely rooting for the user to land great connections, and you keep things moving. You're direct, a little warm, and never patronizing. Think: a friend who happens to know every feature.
+
+## How you talk
+
+Default length: 2–4 sentences. Enough to be helpful, short enough to feel like a chat.
+
+When the user asks "how does X work?" or "tell me more": You can go longer — up to a short paragraph. Match the depth of the question.
+
+Acknowledge before answering. Start with a brief, natural lead-in that shows you heard them. Vary these — never repeat the same one twice in a row. Examples of the kind of thing you might say (don't use these verbatim every time):
+- "Good question."
+- "So for that…"
+- "Here's how that works."
+- "Yeah — so…"
+- "Sure thing."
+
+Never do:
+- Start with "Great question!" every time
+- Use corporate filler ("I'd be happy to help you with that!")
+- List steps with bullet points unless the user explicitly asks for steps
+- Repeat the user's question back to them
+- Say "I understand" or "I see" — just answer
+
+## Turn-taking
+
+When the request is clear: Answer directly.
+
+When the request is ambiguous: Ask ONE short follow-up question before answering. Examples:
+- "Are you looking for full-time roles or internships?"
+- "Do you want people at a specific company, or anyone in that field?"
+- "Are you trying to cold email them or set up a coffee chat?"
+
+Never ask more than one clarifying question at a time.
+
+## Navigation
+
+Offer, don't command. When suggesting navigation, phrase it as a suggestion in the message text. You MUST still populate the navigate_to field (and optionally action_buttons, auto_populate) in your JSON response — the conversational tone is about the message wording, not about removing JSON fields.
+- Good message: "Want me to take you to Contact Search so you can try that?"
+- Good message: "I can take you to Firm Search — want to go?"
+- Bad message: "Head to Contact Search."
+- Bad message: "Navigate to Settings > Gmail."
+
+When there are multiple possible actions, present them as a choice:
+- "I can take you to Contact Search to find people, or Firm Search to look up the company first — which sounds more useful right now?"
+
+## Context awareness
+
+The user's current page is provided in USER CONTEXT below. Use it naturally in your replies when relevant:
+- If they're on Contact Search: "Since you're already on Contact Search, you can…"
+- If they're on Firm Search: "You're on Firm Search — want help narrowing this down?"
+- If they're on the Job Board: "Looks like you're browsing jobs — want tips on finding contacts at these companies?"
+- If they ask about a feature and they're already on that page, acknowledge it instead of telling them to navigate there.
+Don't force it. If the current page isn't relevant to the question, ignore it.
+
+## Continuity
+
+The user's recent messages are included for context. If they're continuing a previous topic, pick up where you left off naturally ("So for the Gmail thing…", "Building on that…"). Don't re-introduce yourself or repeat information you already gave.
+
+## What you know
+
+You can help with:
+- Finding contacts (job titles, companies, industries, locations)
+- Finding firms and understanding firm profiles
+- Understanding credits, plans (Free / Pro / Elite), and billing
+- Connecting Gmail and sending emails
+- Coffee chat prep and interview prep features
+- Job Board and how to use it
+- General "what should I do?" career networking questions on the platform
+
+If someone asks about something outside the platform, give a brief helpful answer if you can, but gently steer back: "That's a bit outside what I cover, but here's a quick thought…"
+
+## Your name
+You're Scout. Use it sparingly — in your greeting and maybe once more if it feels natural. Don't sign off every message.
 
 USER CONTEXT:
 - Name: {user_name}
@@ -414,34 +487,39 @@ USER CONTEXT:
 AVAILABLE ROUTES FOR NAVIGATION:
 {routes_list}
 
-CRITICAL INSTRUCTIONS:
-1. Answer questions about Offerloop features and how to use them
-2. Questions like "What is Offerloop?", "Tell me about Offerloop", or "What does Offerloop do?" are VALID questions - answer them using the Platform Overview from your knowledge base
-3. When directing user to a page, ALWAYS include the route in your response JSON's "navigate_to" field
-4. Do NOT mention "click the button below" or reference any buttons in your message - the navigation button appears automatically
-5. Your message should read naturally, e.g., "Head to Contact Search to find professionals" NOT "Click the button below to go to Contact Search"
-6. Only redirect users who ask about topics COMPLETELY unrelated to Offerloop (e.g., "What's the weather?", "Help me with my homework")
-7. If you're unsure about something, say so—don't make up features
-8. When mentioning credit costs, be specific about how many credits each action costs
-
 AUTO-POPULATE INSTRUCTIONS:
-When a user asks you to find specific people or companies, extract the search parameters from their request and include them in "auto_populate":
 
-FOR CONTACT SEARCH REQUESTS:
-- Extract: job_title, company, location (if mentioned)
-- Examples:
-  * "find me investment banking analysts from JP Morgan" → auto_populate: {{"search_type": "contact", "job_title": "Investment Banking Analyst", "company": "JP Morgan", "location": ""}}
-  * "I need software engineers at Google in NYC" → auto_populate: {{"search_type": "contact", "job_title": "Software Engineer", "company": "Google", "location": "NYC"}}
-  * "show me product managers at Meta" → auto_populate: {{"search_type": "contact", "job_title": "Product Manager", "company": "Meta", "location": ""}}
+When you have enough information to run a search — whether the user gave it all in one message or you gathered it across several turns — you MUST include auto_populate and set navigate_to to the appropriate search route. Do not just describe what you'll do; actually populate the fields.
 
-FOR FIRM SEARCH REQUESTS:
-- Extract: industry, location, size (if mentioned)
-- Examples:
-  * "find me venture capital firms in San Francisco" → auto_populate: {{"search_type": "firm", "industry": "Venture Capital", "location": "San Francisco"}}
-  * "show me consulting firms in Boston" → auto_populate: {{"search_type": "firm", "industry": "Consulting", "location": "Boston"}}
-  * "find hedge funds in NYC" → auto_populate: {{"search_type": "firm", "industry": "Hedge Fund", "location": "NYC"}}
+The trigger is: "Do I have at least one searchable field (company, job title, location, or industry)?" If yes, auto-populate NOW.
 
-Always include "auto_populate" when the user is asking for specific contacts or firms, so the search fields are pre-filled when they click "Take me there."
+FOR CONTACT SEARCH (navigate_to: "/contact-search"):
+- Fields: job_title, company, location
+- Set each to the value the user gave, or "" if not specified / user said "any"
+- Single-turn example:
+  "find me software engineers at Google in NYC" →
+  auto_populate: {{"search_type": "contact", "job_title": "Software Engineer", "company": "Google", "location": "NYC"}}
+- Multi-turn example:
+  User: "I want to find people to reach out to"
+  Scout: asks what kind → User: "Google" → Scout: asks location → User: "San Francisco" → Scout: asks job title → User: "Any"
+  → auto_populate: {{"search_type": "contact", "job_title": "", "company": "Google", "location": "San Francisco"}}
+  Scout's message should confirm and offer navigation, e.g. "Google in San Francisco, any role — want me to take you to Contact Search?"
+
+FOR FIRM SEARCH (navigate_to: "/firm-search"):
+- Fields: industry, location
+- Set each to the value the user gave, or "" if not specified
+- Single-turn example:
+  "find venture capital firms in San Francisco" →
+  auto_populate: {{"search_type": "firm", "industry": "Venture Capital", "location": "San Francisco"}}
+- Multi-turn example:
+  User: "help me find firms" → Scout: asks industry → User: "consulting" → Scout: asks location → User: "Boston"
+  → auto_populate: {{"search_type": "firm", "industry": "Consulting", "location": "Boston"}}
+
+RULES:
+- When navigate_to is "/contact-search" or "/firm-search" and the user has given any searchable criteria, auto_populate MUST be present.
+- When navigate_to is something else, or the user hasn't given criteria, auto_populate is null.
+- Empty string "" means "not specified" — use it for fields the user skipped or said "any" for.
+- Do not wait for "perfect" input. If the user gave a company, that's enough to auto-populate and navigate.
 
 RESPONSE FORMAT:
 You must respond with valid JSON in this exact format:
@@ -452,17 +530,16 @@ You must respond with valid JSON in this exact format:
     {{"label": "Button text", "route": "/route"}}
   ] or [],
   "auto_populate": {{
-    "search_type": "contact" or "firm" or null,
-    "job_title": "..." or null,
-    "company": "..." or null,
-    "location": "..." or null,
-    "industry": "..." or null
+    "search_type": "contact" or "firm",
+    "job_title": "..." or "",
+    "company": "..." or "",
+    "location": "..." or "",
+    "industry": "..." or ""
   }} or null
 }}
-
-The "navigate_to" field should contain the most relevant route if the user is asking about or wants to go to a specific feature.
-The "action_buttons" array can contain additional helpful navigation options (max 2-3 buttons).
-The "auto_populate" field should only be included when the user is asking for specific contacts or firms to search for.
+- "navigate_to": The most relevant route, or null if no navigation needed.
+- "action_buttons": Additional navigation options (max 2–3), or [].
+- "auto_populate": REQUIRED when navigate_to is "/contact-search" or "/firm-search" and the user has provided any search criteria (even across multiple messages). null otherwise.
 """
 
 
@@ -543,7 +620,7 @@ class ScoutAssistantService:
         # Handle empty message
         if not message:
             return ScoutAssistantResponse(
-                message=f"Hi{', ' + user_name if user_name != 'there' else ''}! I'm Scout, your Offerloop assistant. Ask me anything about the platform!",
+                message=f"Hey{', ' + user_name if user_name != 'there' else ''}! I'm Scout — I know the platform inside and out. What are you trying to do right now?",
                 navigate_to=None,
                 action_buttons=[],
             ).to_dict()
@@ -571,22 +648,22 @@ class ScoutAssistantService:
         messages.append({"role": "user", "content": message})
         
         try:
-            # Call OpenAI with timeout (15 seconds)
+            # Call OpenAI with timeout (allow time for cold start / load)
             try:
                 response = await asyncio.wait_for(
                     self._openai.chat.completions.create(
                         model=self.DEFAULT_MODEL,
                         messages=messages,
                         temperature=0.7,
-                        max_tokens=500,
+                        max_tokens=350,
                         response_format={"type": "json_object"},
                     ),
-                    timeout=15.0  # 15 second timeout
+                    timeout=28.0  # 28 second timeout — reduces "taking too long" on slow API
                 )
             except asyncio.TimeoutError:
                 # Timeout occurred - return friendly message
                 return ScoutAssistantResponse(
-                    message="I'm taking too long to think! Could you try asking that again?",
+                    message=f"I'm taking too long to think! {random.choice(_ERROR_RECOVERY_LINES)}",
                     navigate_to=None,
                     action_buttons=[],
                     auto_populate=None,
@@ -670,7 +747,7 @@ class ScoutAssistantService:
             
             # Always return a valid response, even on error
             return ScoutAssistantResponse(
-                message="I'm having a moment! Could you try asking that again?",
+                message=f"I'm having a moment! {random.choice(_ERROR_RECOVERY_LINES)}",
                 navigate_to=None,
                 action_buttons=[],
                 auto_populate=None,
@@ -732,6 +809,15 @@ class ScoutAssistantService:
         
         system_prompt = """You are Scout, a helpful assistant that suggests alternative job titles when a contact search fails.
 
+TONE (match Scout's main personality — direct, warm, helpful):
+When a search returns no results, your tone should match Scout's main personality: direct, warm, helpful.
+1. Briefly acknowledge the miss (don't just say "No results found")
+2. Suggest 2-3 specific alternatives
+3. Offer to help adjust
+Example openings: "That combo didn't return anything — here's what I'd try next:" / "No luck with that search. A few things that usually help:" / "Hmm, nothing came back. Here's what I'd tweak:"
+After listing alternatives, close with something like: "Want me to adjust the search for you?" or "Want to try one of these?"
+Do NOT just list alternatives without context. Always acknowledge, suggest, then offer.
+
 CONTEXT:
 Different companies use different job titles for the same role. For example:
 - Google uses "Software Engineer", "SWE", "Software Developer"
@@ -760,7 +846,7 @@ Consider:
 
 RESPONSE FORMAT (JSON):
 {
-  "message": "Brief, friendly explanation of why the search may have failed and what you suggest",
+  "message": "Brief, friendly message that acknowledges the miss, suggests alternatives, and offers to adjust (e.g. end with 'Want me to adjust the search for you?')",
   "suggestions": ["Alternative Title 1", "Alternative Title 2", "Alternative Title 3"],
   "recommended_title": "The single best alternative to try first"
 }
@@ -784,7 +870,7 @@ Keep the message to 1-2 sentences. Be specific about the company if known."""
             content = response.choices[0].message.content
             parsed = json.loads(content)
             
-            message = parsed.get("message", f"I couldn't find contacts matching '{job_title}'. Try these alternatives:")
+            message = parsed.get("message", f"That combo didn't return anything — here's what I'd try next:")
             suggestions = parsed.get("suggestions", [])
             recommended = parsed.get("recommended_title", suggestions[0] if suggestions else job_title)
             
@@ -805,7 +891,7 @@ Keep the message to 1-2 sentences. Be specific about the company if known."""
             # Fallback suggestions based on common patterns
             fallback_suggestions = self._get_fallback_job_title_suggestions(job_title, company)
             return {
-                "message": f"I couldn't find contacts matching '{job_title}'. Different companies use different titles—try one of these alternatives:",
+                "message": f"That combo didn't return anything — here's what I'd try next. Want me to adjust the search for you?",
                 "suggestions": fallback_suggestions,
                 "auto_populate": {
                     "job_title": fallback_suggestions[0] if fallback_suggestions else job_title,
@@ -829,6 +915,15 @@ Keep the message to 1-2 sentences. Be specific about the company if known."""
         size = failed_search_params.get("size", "")
         
         system_prompt = """You are Scout, a helpful assistant that suggests alternatives when a firm search fails.
+
+TONE (match Scout's main personality — direct, warm, helpful):
+When a search returns no results, your tone should match Scout's main personality: direct, warm, helpful.
+1. Briefly acknowledge the miss (don't just say "No firms found")
+2. Suggest 2-3 specific alternatives
+3. Offer to help adjust
+Example openings: "I couldn't find a match for that. A few things that might help:" / "That search came up empty. Here's what I'd try:"
+After listing alternatives, close with something like: "Want to try a different angle?" or "Want me to adjust the search?"
+Do NOT just list alternatives without context. Always acknowledge, suggest, then offer.
 
 CONTEXT:
 Firm searches can fail because:
@@ -859,7 +954,7 @@ Consider:
 
 RESPONSE FORMAT (JSON):
 {
-  "message": "Brief, friendly explanation of why the search may have failed and what you suggest",
+  "message": "Brief, friendly message that acknowledges the miss, suggests alternatives, and offers to adjust (e.g. end with 'Want to try a different angle?')",
   "suggestions": ["Alternative 1", "Alternative 2", "Alternative 3"],
   "recommended_industry": "Best alternative industry term",
   "recommended_location": "Broader location if applicable, or original"
@@ -884,7 +979,7 @@ Keep the message to 1-2 sentences."""
             content = response.choices[0].message.content
             parsed = json.loads(content)
             
-            message = parsed.get("message", f"I couldn't find firms matching '{industry}'. Try broadening your search:")
+            message = parsed.get("message", f"I couldn't find a match for that. A few things that might help:")
             suggestions = parsed.get("suggestions", [])
             recommended_industry = parsed.get("recommended_industry", suggestions[0] if suggestions else industry)
             recommended_location = parsed.get("recommended_location", location)
@@ -906,7 +1001,7 @@ Keep the message to 1-2 sentences."""
             # Fallback suggestions
             fallback_suggestions = self._get_fallback_industry_suggestions(industry)
             return {
-                "message": f"I couldn't find firms matching '{industry}'. Try one of these broader terms:",
+                "message": f"I couldn't find a match for that. A few things that might help. Want to try a different angle?",
                 "suggestions": fallback_suggestions,
                 "auto_populate": {
                     "industry": fallback_suggestions[0] if fallback_suggestions else industry,

@@ -1,15 +1,5 @@
-// Popup script for Offerloop Chrome Extension with Firebase Auth
+// Popup script for Offerloop Chrome Extension
 console.log('[Offerloop Popup] Loaded');
-
-// Firebase Configuration (same as Offerloop frontend)
-const firebaseConfig = {
-  apiKey: "AIzaSyCxcZbNwbh09DFw70tBQUSoqBIDaXNwZdE",
-  authDomain: "offerloop-native.firebaseapp.com",
-  projectId: "offerloop-native",
-  storageBucket: "offerloop-native.firebasestorage.app",
-  messagingSenderId: "184607281467",
-  appId: "1:184607281467:web:eab1b0e8be341aa8c5271e"
-};
 
 // API Configuration
 const API_BASE_URL = 'https://final-offerloop.onrender.com';
@@ -921,53 +911,7 @@ window.addEventListener('unload', () => {
   }
 });
 
-// Initialize Firebase
-let firebaseApp = null;
-let firebaseAuth = null;
-
-// Wait for Firebase SDK to load (handles async script loading)
-function waitForFirebase(maxAttempts = 20, delay = 100) {
-  return new Promise((resolve, reject) => {
-    let attempts = 0;
-    const checkFirebase = () => {
-      if (typeof firebase !== 'undefined' && firebase.apps !== undefined) {
-        console.log('[Offerloop Popup] Firebase SDK loaded after', attempts, 'attempts');
-        resolve();
-      } else if (attempts < maxAttempts) {
-        attempts++;
-        setTimeout(checkFirebase, delay);
-      } else {
-        console.error('[Offerloop Popup] Firebase SDK failed to load after', maxAttempts, 'attempts');
-        reject(new Error('Firebase SDK failed to load'));
-      }
-    };
-    checkFirebase();
-  });
-}
-
-function initFirebase() {
-  if (typeof firebase === 'undefined') {
-    console.error('[Offerloop Popup] Firebase SDK not loaded');
-    return false;
-  }
-  
-  try {
-    // Check if Firebase is already initialized
-    if (firebase.apps.length === 0) {
-      firebaseApp = firebase.initializeApp(firebaseConfig);
-      console.log('[Offerloop Popup] Firebase initialized');
-    } else {
-      firebaseApp = firebase.apps[0];
-      console.log('[Offerloop Popup] Using existing Firebase app');
-    }
-    
-    firebaseAuth = firebase.auth();
-    return true;
-  } catch (error) {
-    console.error('[Offerloop Popup] Firebase init error:', error);
-    return false;
-  }
-}
+// Authentication is handled via Chrome Identity API + Backend
 
 // DOM Elements
 const elements = {
@@ -1311,10 +1255,33 @@ function initEventListeners() {
   elements.loginBtn?.addEventListener('click', handleLogin);
   elements.signOutBtn?.addEventListener('click', handleSignOut);
   elements.findEmailBtn?.addEventListener('click', handleFindEmail);
-  elements.retryBtn?.addEventListener('click', handleFindEmail);
+  elements.retryBtn?.addEventListener('click', handleRetry);
   
   // Coffee Chat Prep button
   document.getElementById('coffeeChatBtn')?.addEventListener('click', handleCoffeeChatPrep);
+}
+
+// Handle retry - refresh token first, then retry the action
+async function handleRetry() {
+  console.log('[Offerloop Popup] Retry clicked, attempting token refresh first...');
+  
+  // Try silent refresh first
+  const newToken = await refreshAuthToken();
+  
+  if (!newToken) {
+    // Silent refresh failed, force interactive login
+    console.log('[Offerloop Popup] Silent refresh failed, forcing re-login...');
+    await handleLogin();
+    
+    // If login succeeded, retry the action
+    if (currentState.authToken && currentState.isLoggedIn) {
+      await handleFindEmail();
+    }
+    return;
+  }
+  
+  // Token refreshed, retry the action
+  await handleFindEmail();
 }
 
 // Show a specific section, hide others
@@ -1400,13 +1367,88 @@ function updateCredits(credits) {
   }
 }
 
-// Handle login with Chrome Identity API + Firebase
+// Silently refresh the Firebase token using Chrome Identity API
+// Returns the new token, or null if silent refresh fails
+async function refreshAuthToken() {
+  console.log('[Offerloop Popup] Attempting silent token refresh...');
+  
+  try {
+    // First, remove the cached Google token so we get a fresh one
+    const oldGoogleToken = await new Promise((resolve) => {
+      chrome.identity.getAuthToken({ interactive: false }, (token) => {
+        resolve(token || null);
+      });
+    });
+    
+    if (oldGoogleToken) {
+      await new Promise((resolve) => {
+        chrome.identity.removeCachedAuthToken({ token: oldGoogleToken }, resolve);
+      });
+    }
+    
+    // Get a fresh Google token (non-interactive = silent)
+    const googleToken = await new Promise((resolve, reject) => {
+      chrome.identity.getAuthToken({ interactive: false }, (token) => {
+        if (chrome.runtime.lastError || !token) {
+          reject(new Error(chrome.runtime.lastError?.message || 'No token available'));
+        } else {
+          resolve(token);
+        }
+      });
+    });
+    
+    // Exchange for a new Firebase token
+    const response = await fetch(`${API_BASE_URL}/api/auth/google-extension`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ googleToken }),
+    });
+    
+    if (!response.ok) {
+      throw new Error('Token exchange failed');
+    }
+    
+    const data = await response.json();
+    
+    if (!data.success || !data.token) {
+      throw new Error('No token in response');
+    }
+    
+    // Update storage and state
+    await chrome.storage.local.set({
+      authToken: data.token,
+      isLoggedIn: true,
+      userEmail: data.user.email,
+      userName: data.user.name,
+      userPhoto: data.user.picture,
+      credits: data.credits,
+    });
+    
+    currentState.authToken = data.token;
+    currentState.isLoggedIn = true;
+    currentState.user = data.user;
+    currentState.credits = data.credits;
+    
+    if (data.credits !== undefined) {
+      updateCredits(data.credits);
+    }
+    
+    console.log('[Offerloop Popup] Token refreshed successfully');
+    return data.token;
+    
+  } catch (error) {
+    console.warn('[Offerloop Popup] Silent refresh failed:', error.message);
+    return null;
+  }
+}
+
+// Handle login with Chrome Identity API + Backend
 async function handleLogin() {
   console.log('[Offerloop Popup] Login clicked');
   
   try {
     // Use Chrome Identity API to get Google auth token
-    const authToken = await new Promise((resolve, reject) => {
+    const googleToken = await new Promise((resolve, reject) => {
       chrome.identity.getAuthToken({ interactive: true }, (token) => {
         if (chrome.runtime.lastError) {
           reject(new Error(chrome.runtime.lastError.message));
@@ -1418,27 +1460,47 @@ async function handleLogin() {
     
     console.log('[Offerloop Popup] Got Google auth token');
     
-    // Exchange Google token for Firebase credential
-    const credential = firebase.auth.GoogleAuthProvider.credential(null, authToken);
-    const result = await firebaseAuth.signInWithCredential(credential);
+    // Send Google token to backend to exchange for Firebase token
+    const response = await fetch(`${API_BASE_URL}/api/auth/google-extension`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ googleToken }),
+    });
     
-    console.log('[Offerloop Popup] Sign-in successful:', result.user.email);
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || errorData.message || 'Authentication failed');
+    }
     
-    // Get Firebase ID token
-    const firebaseToken = await result.user.getIdToken();
+    const data = await response.json();
+    
+    if (!data.success || !data.token) {
+      throw new Error(data.error || 'Authentication failed');
+    }
+    
+    console.log('[Offerloop Popup] Sign-in successful:', data.user.email);
     
     // Save to Chrome storage
     await chrome.storage.local.set({
-      authToken: firebaseToken,
+      authToken: data.token,
       isLoggedIn: true,
-      userEmail: result.user.email,
-      userName: result.user.displayName,
-      userPhoto: result.user.photoURL,
+      userEmail: data.user.email,
+      userName: data.user.name,
+      userPhoto: data.user.picture,
+      credits: data.credits,
     });
     
-    currentState.authToken = firebaseToken;
+    currentState.authToken = data.token;
     currentState.isLoggedIn = true;
-    currentState.user = result.user;
+    currentState.user = data.user;
+    currentState.credits = data.credits;
+    
+    // Update credits display
+    if (data.credits !== undefined) {
+      updateCredits(data.credits);
+    }
     
     await checkAndShowContent();
     
@@ -1453,11 +1515,6 @@ async function handleSignOut() {
   console.log('[Offerloop Popup] Sign out clicked');
   
   try {
-    // Sign out from Firebase
-    if (firebaseAuth) {
-      await firebaseAuth.signOut();
-    }
-    
     // Revoke Chrome identity token
     chrome.identity.getAuthToken({ interactive: false }, (token) => {
       if (token) {
@@ -1617,64 +1674,30 @@ async function checkAndShowContent() {
   }
 }
 
-// Load auth state from storage and Firebase
+// Load auth state from Chrome storage
 async function loadAuthState() {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['authToken', 'isLoggedIn', 'credits'], (result) => {
+    chrome.storage.local.get(['authToken', 'isLoggedIn', 'credits', 'userEmail', 'userName', 'userPhoto'], (result) => {
       currentState.authToken = result.authToken || null;
       currentState.isLoggedIn = result.isLoggedIn || false;
       currentState.credits = result.credits || null;
+      currentState.userEmail = result.userEmail || null;
+      currentState.userName = result.userName || null;
+      currentState.userPhoto = result.userPhoto || null;
+      // Reconstruct user object if we have the data
+      if (result.userEmail) {
+        currentState.user = {
+          email: result.userEmail,
+          name: result.userName,
+          picture: result.userPhoto,
+        };
+      }
       resolve(result);
     });
   });
 }
 
-// Set up Firebase auth state listener
-function setupAuthListener() {
-  if (!firebaseAuth) return;
-  
-  firebaseAuth.onAuthStateChanged(async (user) => {
-    console.log('[Offerloop Popup] Auth state changed:', user ? user.email : 'signed out');
-    
-    if (user) {
-      // User is signed in
-      try {
-        const token = await user.getIdToken(true); // Force refresh
-        
-        // Save to storage
-        await chrome.storage.local.set({
-          authToken: token,
-          isLoggedIn: true,
-          userEmail: user.email,
-          userName: user.displayName,
-          userPhoto: user.photoURL,
-        });
-        
-        currentState.authToken = token;
-        currentState.isLoggedIn = true;
-        currentState.user = user;
-        
-        // Update credits display
-        if (currentState.credits !== null) {
-          updateCredits(currentState.credits);
-        }
-        
-        // Show appropriate content
-        await checkAndShowContent();
-        
-      } catch (error) {
-        console.error('[Offerloop Popup] Error getting token:', error);
-      }
-    } else {
-      // User is signed out
-      currentState.authToken = null;
-      currentState.isLoggedIn = false;
-      currentState.user = null;
-      
-      showSection('login');
-    }
-  });
-}
+// Auth state is managed via Chrome storage, no Firebase listener needed
 
 // Initialize popup
 async function init() {
@@ -1697,41 +1720,6 @@ async function init() {
     console.error('[Offerloop Popup] Error detecting mode:', error);
   }
   
-  // Wait for Firebase SDK to load (handles async script loading issues)
-  try {
-    await waitForFirebase();
-    console.log('[Offerloop Popup] Firebase SDK is available');
-  } catch (error) {
-    console.error('[Offerloop Popup] Firebase SDK not available:', error);
-    // Show error but don't block - allow basic UI to render
-    showError('Firebase SDK failed to load. Please reload the extension.');
-    // Show login section as fallback so user can see something
-    showSection('login');
-    // Still try to load stored auth state in case we have a token
-    await loadAuthState();
-    if (currentState.credits !== null) {
-      updateCredits(currentState.credits);
-    }
-    return; // Exit early but UI is visible
-  }
-  
-  // Initialize Firebase
-  if (!initFirebase()) {
-    console.error('[Offerloop Popup] Firebase initialization failed');
-    showError('Failed to initialize Firebase. Please reload the extension.');
-    // Show login section anyway - user can try to reload
-    showSection('login');
-    // Still try to load stored auth state
-    await loadAuthState();
-    if (currentState.credits !== null) {
-      updateCredits(currentState.credits);
-    }
-    return; // Exit early but UI is visible
-  }
-  
-  // Set up auth state listener
-  setupAuthListener();
-  
   // Load stored auth state
   await loadAuthState();
   
@@ -1740,33 +1728,25 @@ async function init() {
     updateCredits(currentState.credits);
   }
   
-  // Check if already logged in via Firebase
-  const currentUser = firebaseAuth?.currentUser;
-  
-  if (currentUser) {
-    console.log('[Offerloop Popup] Already signed in:', currentUser.email);
+  // Check if already logged in
+  if (currentState.isLoggedIn && currentState.authToken) {
+    console.log('[Offerloop Popup] Already signed in:', currentState.userEmail);
     
-    // Get fresh token
-    try {
-      const token = await currentUser.getIdToken(true);
-      currentState.authToken = token;
-      currentState.isLoggedIn = true;
-      currentState.user = currentUser;
-      
-      // Save to storage
+    // Proactively refresh token to avoid expired token errors
+    const freshToken = await refreshAuthToken();
+    if (!freshToken) {
+      console.log('[Offerloop Popup] Token refresh failed, showing login');
+      // Clear stale auth state
       await chrome.storage.local.set({
-        authToken: token,
-        isLoggedIn: true,
+        authToken: null,
+        isLoggedIn: false,
       });
-      
-      await checkAndShowContent();
-    } catch (error) {
-      console.error('[Offerloop Popup] Error refreshing token:', error);
+      currentState.authToken = null;
+      currentState.isLoggedIn = false;
       showSection('login');
+      return;
     }
-  } else if (currentState.isLoggedIn && currentState.authToken) {
-    // Have stored token but no Firebase user - might be stale
-    console.log('[Offerloop Popup] Have stored token, checking validity...');
+    
     await checkAndShowContent();
   } else {
     console.log('[Offerloop Popup] Not logged in');

@@ -443,7 +443,7 @@ const RecruiterSpreadsheetPage = () => {
                     lineHeight: 1.5,
                   }}
                 >
-                  Connect directly with the people who make hiring decisions.
+                  Paste a job posting URL and we'll find the recruiters and hiring managers for that role.
                 </p>
               </div>
 
@@ -539,7 +539,7 @@ const RecruiterSpreadsheetPage = () => {
                         {/* Card Header */}
                         <div className="mb-8">
                           <h2 className="text-xl font-semibold text-gray-900 mb-2">Find Hiring Managers</h2>
-                          <p className="text-gray-600">Paste a job posting URL to find the right hiring managers.</p>
+                          <p className="text-gray-600">Paste a job posting URL and we'll find the recruiters and hiring managers for that role.</p>
                         </div>
 
                         {/* Primary Input - Job Posting URL */}

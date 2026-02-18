@@ -4,6 +4,65 @@ console.log('[Offerloop Background] Service worker started');
 // Configuration
 const API_BASE_URL = 'https://final-offerloop.onrender.com';
 
+// Refresh the Firebase auth token using Chrome Identity API
+async function refreshAuthToken() {
+  console.log('[Offerloop Background] Refreshing auth token...');
+  
+  try {
+    // Remove cached Google token to force a fresh one
+    const oldToken = await new Promise((resolve) => {
+      chrome.identity.getAuthToken({ interactive: false }, (token) => {
+        resolve(token || null);
+      });
+    });
+    
+    if (oldToken) {
+      await new Promise((resolve) => {
+        chrome.identity.removeCachedAuthToken({ token: oldToken }, resolve);
+      });
+    }
+    
+    // Get fresh Google token (non-interactive in background)
+    const googleToken = await new Promise((resolve, reject) => {
+      chrome.identity.getAuthToken({ interactive: false }, (token) => {
+        if (chrome.runtime.lastError || !token) {
+          reject(new Error(chrome.runtime.lastError?.message || 'No token'));
+        } else {
+          resolve(token);
+        }
+      });
+    });
+    
+    // Exchange for Firebase token
+    const response = await fetch(`${API_BASE_URL}/api/auth/google-extension`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ googleToken }),
+    });
+    
+    if (!response.ok) throw new Error('Token exchange failed');
+    
+    const data = await response.json();
+    if (!data.success || !data.token) throw new Error('No token in response');
+    
+    // Update storage
+    await chrome.storage.local.set({
+      authToken: data.token,
+      isLoggedIn: true,
+      userEmail: data.user.email,
+      userName: data.user.name,
+      userPhoto: data.user.picture,
+      credits: data.credits,
+    });
+    
+    console.log('[Offerloop Background] Token refreshed successfully');
+    return data.token;
+  } catch (error) {
+    console.error('[Offerloop Background] Token refresh failed:', error);
+    return null;
+  }
+}
+
 // Listen for extension installation
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
@@ -117,8 +176,8 @@ async function handleImportLinkedIn(request, sendResponse) {
   }
 }
 
-// Import LinkedIn contact via API
-async function importLinkedInContact(linkedInUrl, authToken) {
+// Import LinkedIn contact via API (with automatic token refresh on 401)
+async function importLinkedInContact(linkedInUrl, authToken, isRetry = false) {
   console.log('[Offerloop Background] Importing LinkedIn contact:', linkedInUrl);
   
   try {
@@ -132,6 +191,15 @@ async function importLinkedInContact(linkedInUrl, authToken) {
         linkedin_url: linkedInUrl,
       }),
     });
+    
+    // Auto-refresh on 401 and retry once
+    if (response.status === 401 && !isRetry) {
+      console.log('[Offerloop Background] Got 401, attempting token refresh...');
+      const newToken = await refreshAuthToken();
+      if (newToken) {
+        return importLinkedInContact(linkedInUrl, newToken, true);
+      }
+    }
     
     const data = await response.json();
     console.log('[Offerloop Background] API Response:', data);
@@ -189,7 +257,7 @@ async function handleGetCredits(request, sendResponse) {
   }
 }
 
-// Handle set auth token (can be called from popup after Firebase auth)
+// Handle set auth token (can be called from popup after authentication)
 async function handleSetAuthToken(request, sendResponse) {
   const { authToken } = request;
   

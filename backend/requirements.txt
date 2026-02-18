@@ -28,10 +28,12 @@ pydantic-settings>=2.6.0
 # Optional: API documentation (install with: pip install flasgger)
 # flasgger==0.9.7.1
 
-# Optional: Testing (install with: pip install pytest pytest-cov pytest-mock)
+# Optional: Testing (install with: pip install pytest pytest-cov pytest-mock pytest-asyncio)
 pytest==7.4.3
 pytest-cov==4.1.0
 pytest-mock==3.12.0
+# Use 0.23.x with pytest 7.x to avoid "cannot import name 'FixtureDef' from 'pytest'" (pytest-asyncio 1.x needs pytest 8+)
+pytest-asyncio>=0.23,<0.24
 aiohttp
 asyncpraw
 beautifulsoup4

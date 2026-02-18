@@ -593,7 +593,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                     lineHeight: 1.5,
                   }}
                 >
-                  Walk into every conversation confident and prepared.
+                  Paste a LinkedIn URL and get a personalized prep sheet with talking points, recent news, and smart questions.
                 </p>
               </div>
 

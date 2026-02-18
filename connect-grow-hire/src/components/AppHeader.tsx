@@ -1,7 +1,8 @@
-import { Bell, Calendar, Settings } from 'lucide-react';
+import { Bell, BookOpen, Calendar, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MobileMenuButton } from '@/components/ui/sidebar';
 import ScoutHeaderButton from './ScoutHeaderButton';
+import { useTour } from '@/contexts/TourContext';
 import { useNavigate } from 'react-router-dom';
 
 interface AppHeaderProps {
@@ -10,6 +11,8 @@ interface AppHeaderProps {
   titleIcon?: React.ReactNode;
   /** Optional content to display in the center of the header */
   centerContent?: React.ReactNode;
+  /** Optional content to display in the right section (before Scout button) */
+  rightContent?: React.ReactNode;
   /** Callback when job title suggestion is received from Scout */
   onJobTitleSuggestion?: (title: string, company?: string, location?: string) => void;
 }
@@ -26,9 +29,11 @@ export function AppHeader({
   title, 
   titleIcon,
   centerContent,
+  rightContent,
   onJobTitleSuggestion
 }: AppHeaderProps) {
   const navigate = useNavigate();
+  const { startTour } = useTour();
 
   const handleBellClick = () => {
     navigate('/home?tab=outbox');
@@ -48,8 +53,17 @@ export function AppHeader({
       <div className="flex items-center gap-2 lg:gap-3">
         <MobileMenuButton />
         
-        {/* Header Icons */}
+        {/* Header Icons: Tour, Outbox, Calendar, Settings */}
         <div className="hidden sm:flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={startTour}
+            className="h-8 w-8 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+            aria-label="View tour"
+          >
+            <BookOpen className="h-5 w-5" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -59,7 +73,6 @@ export function AppHeader({
           >
             <Bell className="h-5 w-5" />
           </Button>
-
           <Button
             variant="ghost"
             size="icon"
@@ -69,7 +82,6 @@ export function AppHeader({
           >
             <Calendar className="h-5 w-5" />
           </Button>
-
           <Button
             variant="ghost"
             size="icon"
@@ -97,9 +109,9 @@ export function AppHeader({
         </div>
       )}
 
-      {/* Right Section: Scout button */}
+      {/* Right Section: optional rightContent + Scout */}
       <div className="flex items-center gap-2 lg:gap-3">
-        {/* Scout Button */}
+        {rightContent}
         <ScoutHeaderButton />
       </div>
     </header>

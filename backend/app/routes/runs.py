@@ -14,7 +14,7 @@ from werkzeug.utils import secure_filename
 
 from app.extensions import require_firebase_auth, get_db, require_tier
 from app.services.resume_parser import extract_text_from_pdf, extract_text_from_file
-from app.services.reply_generation import batch_generate_emails
+from app.services.reply_generation import batch_generate_emails, PURPOSES_INCLUDE_RESUME
 from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user, download_resume_from_url
 from app.services.auth import check_and_reset_credits
 from app.services.hunter import enrich_contacts_with_hunter
@@ -22,6 +22,41 @@ from app.config import TIER_CONFIGS
 from app.utils.exceptions import ValidationError, OfferloopException, InsufficientCreditsError, ExternalAPIError
 from app.utils.validation import ContactSearchRequest, validate_request
 from firebase_admin import firestore
+from email_templates import get_template_instructions
+
+# =============================================================================
+# EMAIL TEMPLATE RESOLUTION (per-request override → user default → none)
+# =============================================================================
+
+def _resolve_email_template(email_template_override, user_id, db):
+    """
+    Resolve email template: request body override → user's saved default in Firestore → no injection.
+    Returns (template_instructions: str, purpose: str|None) for use in batch_generate_emails.
+    """
+    purpose = None
+    style_preset = None
+    custom_instructions = ""
+    if email_template_override and isinstance(email_template_override, dict):
+        purpose = email_template_override.get("purpose")
+        style_preset = email_template_override.get("stylePreset")
+        custom_instructions = (email_template_override.get("customInstructions") or "").strip()[:500]
+    elif user_id and db:
+        try:
+            user_doc = db.collection("users").document(user_id).get()
+            if user_doc.exists:
+                data = user_doc.to_dict() or {}
+                t = data.get("emailTemplate") or {}
+                purpose = t.get("purpose")
+                style_preset = t.get("stylePreset")
+                custom_instructions = (t.get("customInstructions") or "").strip()[:500]
+        except Exception:
+            pass
+    instructions = get_template_instructions(purpose=purpose, style_preset=style_preset, custom_instructions=custom_instructions)
+    print(f"[EmailTemplate] Resolved purpose={purpose!r}, style_preset={style_preset!r}, custom_len={len(custom_instructions)}, instructions_len={len(instructions)}")
+    if instructions:
+        print(f"[EmailTemplate] Instructions preview: {instructions[:300]}...")
+    return instructions, purpose
+
 
 # =============================================================================
 # EXCLUSION LIST CACHING (1-hour TTL for faster contact searches)
@@ -88,7 +123,7 @@ runs_bp = Blueprint('runs', __name__, url_prefix='/api')
 # Note: run_free_tier_enhanced_optimized and run_pro_tier_enhanced_final_with_text
 # are large functions that should be moved to services/runs_service.py
 # For now, importing them from app.py (will be moved later)
-def run_free_tier_enhanced_optimized(job_title, company, location, user_email=None, user_profile=None, resume_text=None, career_interests=None, college_alumni=None, batch_size=None):
+def run_free_tier_enhanced_optimized(job_title, company, location, user_email=None, user_profile=None, resume_text=None, career_interests=None, college_alumni=None, batch_size=None, email_template=None):
     """Free tier search - will be moved to services/runs_service.py"""
     # Import here to avoid circular dependencies
     # This function will be extracted from app.py and moved to services
@@ -191,10 +226,18 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         if not contacts:
             return {'contacts': [], 'successful_drafts': 0}
         
+        # Resolve email template (request override → user default → none); db and user_id already in scope
+        print(f"[EmailTemplate] free-run email_template from request: {email_template!r}")
+        template_instructions, email_template_purpose = _resolve_email_template(email_template, user_id, db)
         # Generate emails
         print(f"📧 Generating emails for {len(contacts)} contacts...")
         try:
-            email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None)
+            email_results = batch_generate_emails(
+                contacts, resume_text, user_profile, career_interests,
+                fit_context=None,
+                template_instructions=template_instructions,
+                email_template_purpose=email_template_purpose,
+            )
             print(f"📧 Email generation returned {len(email_results)} results")
         except Exception as email_gen_error:
             print(f"❌ Email generation failed: {email_gen_error}")
@@ -223,11 +266,11 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         
         print(f"📧 Attached emails to {emails_attached}/{len(contacts)} contacts")
         
-        # Get user resume URL and download once (to avoid fetching 8 times)
+        # Get user resume URL and download once only when template purpose includes resume (networking, referral; not custom/sales/follow_up)
         resume_url = None
         resume_content = None
         resume_filename = None
-        if db and user_id:
+        if db and user_id and email_template_purpose in PURPOSES_INCLUDE_RESUME:
             try:
                 user_doc = db.collection('users').document(user_id).get()
                 if user_doc.exists:
@@ -243,7 +286,9 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
             except Exception as e:
                 print(f"⚠️ Error getting/downloading resume: {e}")
                 pass
-        
+        elif email_template_purpose and email_template_purpose not in PURPOSES_INCLUDE_RESUME:
+            print(f"📎 Skipping resume attachment for template purpose={email_template_purpose!r}")
+
         # Create drafts if Gmail connected
         successful_drafts = 0
         user_info = None
@@ -353,6 +398,71 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
             except Exception:
                 pass
         
+        # Save contacts to Firestore (networking tracker) - same as pro tier
+        if db and user_id:
+            try:
+                print(f"💾 Saving {len(contacts)} contacts to Firestore (free tier)...")
+                contacts_ref = db.collection('users').document(user_id).collection('contacts')
+                existing_contacts = list(contacts_ref.stream())
+                existing_emails = {c.get('email', '').lower().strip() for c in existing_contacts if c.get('email')}
+                existing_linkedins = {c.get('linkedinUrl', '').strip() for c in existing_contacts if c.get('linkedinUrl')}
+                existing_name_company = {
+                    f"{c.get('firstName', '')}_{c.get('lastName', '')}_{c.get('company', '')}".lower().strip()
+                    for c in existing_contacts
+                    if c.get('firstName') and c.get('lastName') and c.get('company')
+                }
+                today = datetime.now().strftime('%m/%d/%Y')
+                saved_count = 0
+                skipped_count = 0
+                for contact in contacts:
+                    first_name = (contact.get('FirstName') or contact.get('firstName') or '').strip()
+                    last_name = (contact.get('LastName') or contact.get('lastName') or '').strip()
+                    email = (contact.get('Email') or contact.get('WorkEmail') or contact.get('PersonalEmail') or contact.get('email') or '').strip().lower()
+                    linkedin = (contact.get('LinkedIn') or contact.get('linkedinUrl') or '').strip()
+                    company = (contact.get('Company') or contact.get('company') or '').strip()
+                    is_duplicate = (
+                        (email and email in existing_emails) or
+                        (linkedin and linkedin in existing_linkedins) or
+                        (first_name and last_name and company and
+                         f"{first_name}_{last_name}_{company}".lower() in existing_name_company)
+                    )
+                    if is_duplicate:
+                        skipped_count += 1
+                        continue
+                    contact_doc = {
+                        'firstName': first_name,
+                        'lastName': last_name,
+                        'email': contact.get('Email') or contact.get('WorkEmail') or contact.get('PersonalEmail') or '',
+                        'linkedinUrl': linkedin,
+                        'company': company,
+                        'jobTitle': contact.get('Title') or contact.get('jobTitle') or '',
+                        'college': contact.get('College') or contact.get('college') or '',
+                        'location': contact.get('location') or '',
+                        'city': contact.get('City') or '',
+                        'state': contact.get('State') or '',
+                        'firstContactDate': today,
+                        'status': 'Not Contacted',
+                        'lastContactDate': today,
+                        'userId': user_id,
+                        'createdAt': today,
+                    }
+                    if contact.get('emailSubject'):
+                        contact_doc['emailSubject'] = contact['emailSubject']
+                    if contact.get('emailBody'):
+                        contact_doc['emailBody'] = contact['emailBody']
+                    if contact.get('gmailDraftId'):
+                        contact_doc['gmailDraftId'] = contact['gmailDraftId']
+                    if contact.get('gmailDraftUrl'):
+                        contact_doc['gmailDraftUrl'] = contact['gmailDraftUrl']
+                    contacts_ref.add(contact_doc)
+                    saved_count += 1
+                print(f"✅ Free tier: saved {saved_count} new contacts to Firestore, skipped {skipped_count} duplicates")
+                _invalidate_exclusion_cache(user_id)
+            except Exception as save_error:
+                print(f"⚠️ Error saving contacts to Firestore (free tier): {save_error}")
+                import traceback
+                traceback.print_exc()
+        
         elapsed = time.time() - start_time
         print(f"✅ Free tier completed in {elapsed:.2f}s - {len(contacts)} contacts, {successful_drafts} drafts")
         
@@ -368,7 +478,7 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         return {'error': str(e), 'contacts': []}
 
 
-def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_text, user_email=None, user_profile=None, career_interests=None, college_alumni=None, batch_size=None):
+def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_text, user_email=None, user_profile=None, career_interests=None, college_alumni=None, batch_size=None, email_template=None):
     """Pro tier search - will be moved to services/runs_service.py"""
     # Import here to avoid circular dependencies
     from flask import request
@@ -512,6 +622,9 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
             user_info = extract_user_info_from_resume_priority(resume_text, user_profile)
             print(f"✅ Resume parsed - extracted user info for {user_info.get('name', 'Unknown')}")
         
+        # Resolve email template (request override → user default → none)
+        print(f"[EmailTemplate] pro-run email_template from request: {email_template!r}")
+        template_instructions, email_template_purpose = _resolve_email_template(email_template, user_id, db)
         # Generate emails with pre-parsed user_info
         print(f"📧 Generating emails for {len(contacts)} contacts...")
         try:
@@ -522,7 +635,9 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                 user_profile=user_profile, 
                 career_interests=career_interests, 
                 fit_context=None,
-                pre_parsed_user_info=user_info  # Pass pre-parsed info
+                pre_parsed_user_info=user_info,  # Pass pre-parsed info
+                template_instructions=template_instructions,
+                email_template_purpose=email_template_purpose,
             )
             print(f"📧 Email generation returned {len(email_results)} results")
         except Exception as email_gen_error:
@@ -552,11 +667,11 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         
         print(f"📧 Attached emails to {emails_attached}/{len(contacts)} contacts")
         
-        # Get user resume URL and download once (to avoid fetching 8 times)
+        # Get user resume URL and download once only when template purpose includes resume (networking, referral; not custom/sales/follow_up)
         resume_url = None
         resume_content = None
         resume_filename = None
-        if db and user_id:
+        if db and user_id and email_template_purpose in PURPOSES_INCLUDE_RESUME:
             try:
                 user_doc = db.collection('users').document(user_id).get()
                 if user_doc.exists:
@@ -572,7 +687,9 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
             except Exception as e:
                 print(f"⚠️ Error getting/downloading resume: {e}")
                 pass
-        
+        elif email_template_purpose and email_template_purpose not in PURPOSES_INCLUDE_RESUME:
+            print(f"📎 Skipping resume attachment for template purpose={email_template_purpose!r}")
+
         # Create drafts
         successful_drafts = 0
         # ✅ FIX #4: user_info already parsed above for email generation, reuse it
@@ -811,6 +928,12 @@ def free_run():
                     data['careerInterests'] = json.loads(career_interests_raw)
                 except:
                     pass
+            email_template_raw = request.form.get('emailTemplate')
+            if email_template_raw:
+                try:
+                    data['emailTemplate'] = json.loads(email_template_raw)
+                except Exception:
+                    pass
             if data.get('batchSize'):
                 try:
                     data['batchSize'] = int(data['batchSize'])
@@ -867,7 +990,8 @@ def free_run():
             resume_text=resume_text,
             career_interests=career_interests,
             college_alumni=college_alumni,
-            batch_size=batch_size
+            batch_size=batch_size,
+            email_template=data.get('emailTemplate'),
         )
         
         if result.get("error"):
@@ -1023,6 +1147,12 @@ def pro_run():
                     data['careerInterests'] = json.loads(career_interests_raw)
                 except:
                     pass
+            email_template_raw = request.form.get('emailTemplate')
+            if email_template_raw:
+                try:
+                    data['emailTemplate'] = json.loads(email_template_raw)
+                except Exception:
+                    pass
             if data.get('batchSize'):
                 try:
                     data['batchSize'] = int(data['batchSize'])
@@ -1101,7 +1231,8 @@ def pro_run():
             user_profile=user_profile,
             career_interests=career_interests,
             college_alumni=college_alumni,
-            batch_size=batch_size
+            batch_size=batch_size,
+            email_template=data.get('emailTemplate'),
         )
         
         if result.get("error"):

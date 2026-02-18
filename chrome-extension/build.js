@@ -20,8 +20,8 @@ const __dirname = path.dirname(__filename);
 
 // OAuth Client IDs
 const CLIENT_IDS = {
-  dev: '184607281467-133avt6brjfoqcpa1cnovjnerm0cve8a.apps.googleusercontent.com',
-  prod: '184607281467-93440cnoc8c6pv9slbentk9e9pd75sk2.apps.googleusercontent.com'
+  dev: '184607281467-2tiafme53dd0b5q5k709m90qg161tm7b.apps.googleusercontent.com',
+  prod: '184607281467-bv1qomua1ndf3jo0tdmpjvte4ukbkcli.apps.googleusercontent.com'
 };
 
 // Determine environment from command line args

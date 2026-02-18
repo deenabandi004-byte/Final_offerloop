@@ -424,7 +424,24 @@ def _debug_print_email_data(contact, user_info, user_profile, contact_context, r
     print("="*80 + "\n")
 
 
-def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None, pre_parsed_user_info=None):
+# Purpose values that should include the resume attachment line in the email. Others (sales, follow_up, custom) omit it.
+PURPOSES_INCLUDE_RESUME = (None, "networking", "referral")
+
+
+def build_template_prompt(context_block: str, template_instructions: str, requirements_block: str) -> str:
+    """
+    Build the full email generation prompt by inserting optional template_instructions
+    between the context block and the EMAIL REQUIREMENTS (structure/rules) block.
+    If template_instructions is empty, no injection (backwards compatible).
+    """
+    if not (template_instructions or "").strip():
+        print("[EmailTemplate] build_template_prompt: no template_instructions, skipping injection")
+        return f"{context_block}\n\n{requirements_block}"
+    print(f"[EmailTemplate] build_template_prompt: injecting {len(template_instructions)} chars of template instructions")
+    return f"{context_block}\n\n{template_instructions.strip()}\n\n{requirements_block}"
+
+
+def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None, pre_parsed_user_info=None, template_instructions="", email_template_purpose=None):
     """
     Generate all emails using the new compelling prompt template.
     
@@ -435,6 +452,8 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
         career_interests: Career interests string
         fit_context: Optional dict with job fit analysis
         pre_parsed_user_info: Pre-parsed user info dict (✅ FIX #4: avoids re-parsing resume)
+        template_instructions: Optional prompt block from email template (purpose + style + custom). Empty = no injection.
+        email_template_purpose: Purpose used for this run ("networking", "referral", "follow_up", "sales", "custom", or None). Used to conditionally include resume line.
             {
                 "job_title": "Business Analyst Intern",
                 "company": "McKinsey",
@@ -462,8 +481,29 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
         elif career_interests and not user_profile:
             user_profile = {'careerInterests': career_interests}
         
-        # Extract user info
+        # Extract user info: use pre_parsed_user_info when provided (e.g. Pro tier), else extract from resume/profile
         user_info = extract_user_info_from_resume_priority(resume_text, user_profile)
+        if pre_parsed_user_info and isinstance(pre_parsed_user_info, dict):
+            # Merge so pre-parsed name/education are used and we don't overwrite with empty
+            for key, value in pre_parsed_user_info.items():
+                if value is not None and value != "" and (not isinstance(value, (list, dict)) or value):
+                    if not user_info.get(key) or user_info.get(key) == "":
+                        user_info[key] = value
+            # Prefer pre-parsed name if we have it (Pro tier parsed from resume)
+            if pre_parsed_user_info.get("name"):
+                user_info["name"] = pre_parsed_user_info["name"]
+        
+        # Never leave name blank — prevents "I'm ." in generated emails
+        if not (user_info.get("name") or "").strip():
+            user_info["name"] = (user_profile.get("name") or "") if user_profile else ""
+            if not (user_info.get("name") or "").strip() and user_profile:
+                first = (user_profile.get("firstName") or user_profile.get("first_name") or "").strip()
+                last = (user_profile.get("lastName") or user_profile.get("last_name") or "").strip()
+                user_info["name"] = f"{first} {last}".strip()
+            if not (user_info.get("name") or "").strip():
+                user_info["name"] = "Student"
+        
+        print(f"[EmailTemplate] batch_generate_emails template_instructions len={len(template_instructions or '')}, sender name={user_info.get('name', '')!r}")
         
         # Build sender description
         sender_desc = f"{user_info.get('name', 'Student')} - {user_info.get('year', '')} {user_info.get('major', '')} at {user_info.get('university', '')}"
@@ -484,8 +524,8 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
         
         # === PERSONALIZED: Generate natural, personalized emails for each contact ===
         sender_university_short = get_university_shorthand(user_info.get('university', ''))
-        sender_name = user_info.get('name', '')
-        sender_firstname = sender_name.split()[0] if sender_name else ''
+        sender_name = (user_info.get('name') or '').strip() or 'Student'
+        sender_firstname = sender_name.split()[0] if sender_name else 'Student'
         
         # Build personalized context for each contact
         # Track strong connections for resume gating
@@ -658,7 +698,44 @@ The sender is exploring broadly and building their network.
 - Show genuine curiosity about their work
 """
         
-        prompt = f"""You write professional, warm networking emails for college students reaching out to industry professionals.
+        is_custom_purpose = email_template_purpose == "custom"
+        include_resume_in_prompt = email_template_purpose in PURPOSES_INCLUDE_RESUME
+        resume_line_section = """
+RESUME LINE (Third Paragraph - BEFORE signature):
+- "I've attached my resume below for context."
+
+""" if include_resume_in_prompt else ""
+
+        resume_rule_line = "6. Resume mention comes BEFORE the signature, not after\n7. " if include_resume_in_prompt else "6. "
+        resume_do_not_line = "- Put resume mention after signature\n- " if include_resume_in_prompt else "- "
+        length_rule_num = "8" if include_resume_in_prompt else "7"
+
+        # For custom purpose: no networking-specific rules; user's template_instructions ARE the requirements
+        if is_custom_purpose:
+            context_block = f"""TASK:
+Generate {len(contacts)} personalized emails. Each email must be unique and written for that specific recipient.
+
+ABOUT THE SENDER:
+- Name: {sender_name}
+- University: {sender_university_short if sender_university_short else 'Not specified'}
+- Major: {user_info.get('major', 'Not specified')}
+- Year: {user_info.get('year', 'Not specified')}{resume_context}
+{fit_context_section}
+
+CONTACTS:
+{chr(10).join(contact_contexts)}"""
+            minimal_formatting = """
+===== FORMATTING ONLY =====
+- Start each email with "Hi [FirstName],"
+- Use proper grammar with apostrophes (I'm, I'd, you're, it's)
+- Use \\n\\n for paragraph breaks in JSON
+
+Return ONLY valid JSON:
+{{"0": {{"subject": "...", "body": "..."}}, "1": {{"subject": "...", "body": "..."}}, ...}}"""
+            prompt = f"{context_block}\n\n{(template_instructions or '').strip()}\n\n{minimal_formatting}"
+            system_content = "You write personalized emails. Follow the user's custom instructions and style exactly. Do not add networking rules, resume mentions, or coffee chat asks unless the instructions say so. Return only valid JSON."
+        else:
+            context_block = f"""You write professional, warm networking emails for college students reaching out to industry professionals.
 
 TASK:
 Write {len(contacts)} personalized networking emails.
@@ -673,9 +750,9 @@ ABOUT THE SENDER:
 {outreach_type_guidance}
 
 CONTACTS:
-{chr(10).join(contact_contexts)}
+{chr(10).join(contact_contexts)}"""
 
-===== EMAIL STRUCTURE (FOLLOW THIS EXACTLY) =====
+            requirements_block = f"""===== EMAIL STRUCTURE (FOLLOW THIS EXACTLY) =====
 
 OPENING (First Paragraph):
 - Start with: "Hi [FirstName],"
@@ -687,11 +764,7 @@ MIDDLE (Second Paragraph):
   1. About their projects or work: "I'd love to hear about the projects you've found most engaging"
   2. About their day-to-day: "and what your day-to-day looks like on the [engineering/product/etc.] side"
 - End with specific time ask: "If you're open to it, would you have 15 minutes for a quick chat sometime in the next couple of weeks?"
-
-RESUME LINE (Third Paragraph - BEFORE signature):
-- "I've attached my resume below for context."
-
-SIGNATURE (exactly this format):
+{resume_line_section}SIGNATURE (exactly this format):
 Best,
 [Full Name]
 [University] | Class of [Year]
@@ -703,15 +776,13 @@ Best,
 3. Show interest in the COMPANY's work, not just generic "your work"
 4. Ask TWO questions (projects + day-to-day OR career path + advice)
 5. Specific time: "15 minutes" and "next couple of weeks"
-6. Resume mention comes BEFORE the signature, not after
-7. No parentheses around university name - use "University of Southern California" not "(USC)"
-8. LENGTH: 4-5 sentences in the body (not counting greeting/signature). Do NOT be too brief.
+{resume_rule_line}No parentheses around university name - use "University of Southern California" not "(USC)"
+{length_rule_num}. LENGTH: 4-5 sentences in the body (not counting greeting/signature). Do NOT be too brief.
 
 ===== DO NOT =====
 - Start with "I'm reaching out because I noticed..."
 - Use generic phrases like "I'd be interested in hearing about your work"
-- Put resume mention after signature
-- Use parentheses in university name like "(USC)"
+{resume_do_not_line}Use parentheses in university name like "(USC)"
 - Write emails shorter than 4 sentences
 - Use "Hope this finds you well" or "I hope you're doing well"
 - Sound templated or robotic
@@ -739,10 +810,13 @@ NOT these generic ones:
 Return ONLY valid JSON:
 {{"0": {{"subject": "...", "body": "..."}}, "1": {{"subject": "...", "body": "..."}}, ...}}"""
 
+            prompt = build_template_prompt(context_block, template_instructions or "", requirements_block)
+            system_content = "You write warm, professional networking emails for college students. Your emails are 4-5 sentences (not counting greeting/signature), show genuine interest in the recipient's company and role, and always ask TWO specific questions. You ALWAYS mention the sender's university and major. You use the exact phrase 'I came across your background at [Company]' to open. The resume mention always comes BEFORE the signature. Use proper apostrophes (I'm, I'd, you're). Never use placeholders like [your major] - always fill in actual values or omit gracefully."
+
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You write warm, professional networking emails for college students. Your emails are 4-5 sentences (not counting greeting/signature), show genuine interest in the recipient's company and role, and always ask TWO specific questions. You ALWAYS mention the sender's university and major. You use the exact phrase 'I came across your background at [Company]' to open. The resume mention always comes BEFORE the signature. Use proper apostrophes (I'm, I'd, you're). Never use placeholders like [your major] - always fill in actual values or omit gracefully."},
+                {"role": "system", "content": system_content},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=4000,  # ✅ ISSUE 4 FIX: Increased for larger batches (15+ contacts)
@@ -888,8 +962,11 @@ Return ONLY valid JSON:
                     if anchor_found:
                         body = '\n'.join(cleaned_lines)
             
-            # Post-processing: Add resume line if appropriate
-            should_include_resume = is_targeted_outreach or contact_strong_connections.get(idx, False)
+            # Post-processing: Add resume line if appropriate (respect email template purpose: no resume for sales/follow_up/custom)
+            should_include_resume = (
+                email_template_purpose in PURPOSES_INCLUDE_RESUME
+                and (is_targeted_outreach or contact_strong_connections.get(idx, False))
+            )
             if should_include_resume:
                 # Check if resume line already exists
                 resume_mentions = ["attached my resume", "attached resume", "resume below", "resume attached"]
@@ -924,16 +1001,13 @@ Return ONLY valid JSON:
                             # Fallback: append at end
                             body = f"{body}\n\n{resume_line}"
             else:
-                # Remove resume mentions if they shouldn't be there
-                resume_mentions = ["attached my resume", "attached resume", "resume below", "resume attached"]
-                lines = body.split('\n')
-                # Filter out lines containing any resume mention
-                filtered_lines = []
-                for line in lines:
-                    has_resume_mention = any(mention in line.lower() for mention in resume_mentions)
-                    if not has_resume_mention:
-                        filtered_lines.append(line)
-                body = '\n'.join(filtered_lines)
+                # Remove resume mentions only for purposes that explicitly omit resume (sales, follow_up).
+                # For "custom", leave body as-is so user's instructions (e.g. "mention my resume") are respected.
+                if email_template_purpose in ("sales", "follow_up"):
+                    resume_mentions = ["attached my resume", "attached resume", "resume below", "resume attached"]
+                    lines = body.split('\n')
+                    filtered_lines = [line for line in lines if not any(m in line.lower() for m in resume_mentions)]
+                    body = '\n'.join(filtered_lines)
                 
             # Validate email body - check for common malformed patterns
             malformed_patterns = [
