@@ -454,6 +454,8 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                         contact_doc['gmailDraftId'] = contact['gmailDraftId']
                     if contact.get('gmailDraftUrl'):
                         contact_doc['gmailDraftUrl'] = contact['gmailDraftUrl']
+                    if contact.get('gmailDraftId') or contact.get('gmailDraftUrl'):
+                        contact_doc['pipelineStage'] = 'draft_created'
                     contacts_ref.add(contact_doc)
                     saved_count += 1
                 print(f"✅ Free tier: saved {saved_count} new contacts to Firestore, skipped {skipped_count} duplicates")
@@ -867,6 +869,8 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                         contact_doc['gmailDraftId'] = contact['gmailDraftId']
                     if contact.get('gmailDraftUrl'):
                         contact_doc['gmailDraftUrl'] = contact['gmailDraftUrl']
+                    if contact.get('gmailDraftId') or contact.get('gmailDraftUrl'):
+                        contact_doc['pipelineStage'] = 'draft_created'
                     
                     contacts_ref.add(contact_doc)
                     saved_count += 1

@@ -236,6 +236,7 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                                     )
                                     contact['gmailDraftId'] = draft_id
                                     contact['gmailDraftUrl'] = gmail_url
+                                    contact['pipelineStage'] = 'draft_created'
                                     print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
                                 else:
                                     print(f"⚠️ [{i}] Draft creation returned mock/invalid ID for {contact.get('FirstName', 'Unknown')}")
@@ -487,6 +488,7 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                                     )
                                     contact['gmailDraftId'] = draft_id
                                     contact['gmailDraftUrl'] = gmail_url
+                                    contact['pipelineStage'] = 'draft_created'
                                     print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
                                 else:
                                     print(f"⚠️ [{i}] Draft creation returned mock/invalid ID for {contact.get('FirstName', 'Unknown')}")

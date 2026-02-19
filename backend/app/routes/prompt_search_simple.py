@@ -304,6 +304,7 @@ def prompt_search():
                                     if draft_url:
                                         contact['gmailDraftId'] = draft_id
                                         contact['gmailDraftUrl'] = draft_url
+                                        contact['pipelineStage'] = 'draft_created'
                             except Exception as draft_error:
                                 logger.error(f"❌ Failed to create draft for {contact.get('FirstName', 'Unknown')}: {draft_error}")
         except Exception as gmail_error:

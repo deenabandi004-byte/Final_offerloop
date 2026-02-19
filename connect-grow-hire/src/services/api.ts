@@ -194,6 +194,10 @@ export interface ErrorResponse {
   current_credits?: number;
   credits_needed?: number;
 }
+
+// ================================
+// List Builder (Bulk Tracker) Types
+// ================================
 // ================================
 // NEW: Bell Notification Types
 // ================================

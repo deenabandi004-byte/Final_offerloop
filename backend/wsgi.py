@@ -36,6 +36,7 @@ from .app.routes.resume_workshop import resume_workshop_bp
 from .app.routes.cover_letter_workshop import cover_letter_workshop_bp
 from .app.routes.auth_extension import auth_extension_bp
 from .app.routes.email_template import email_template_bp
+from .app.routes.admin import admin_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -126,6 +127,7 @@ def create_app() -> Flask:
     app.register_blueprint(cover_letter_workshop_bp)
     app.register_blueprint(auth_extension_bp)
     app.register_blueprint(email_template_bp)
+    app.register_blueprint(admin_bp)
 
     # --- Debug route to check frontend build ---
     @app.route('/api/debug/frontend')

@@ -418,7 +418,8 @@ def generate_and_draft():
                     "draftCreatedAt": datetime.utcnow().isoformat(),
                     "lastActivityAt": datetime.utcnow().isoformat(),
                     "hasUnreadReply": False,
-                    "updatedAt": datetime.utcnow().isoformat()
+                    "updatedAt": datetime.utcnow().isoformat(),
+                    "pipelineStage": "draft_created",
                 }
                 
                 # Add threadId if we have it

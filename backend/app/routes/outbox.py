@@ -501,12 +501,13 @@ def regenerate(thread_id):
         print(f"⚠️ Could not create Gmail draft: {draft_error}")
         # Don't fail the request if draft creation fails - user still has the reply text
     
-    # Update contact with suggested reply
+    # Update contact with suggested reply (new draft created for follow-up)
     updates = {
         "suggestedReply": suggested_reply,
         "replyType": reply_type,
         "draftCreatedAt": datetime.utcnow().isoformat(),
         "updatedAt": datetime.utcnow().isoformat(),
+        "pipelineStage": "draft_created",
     }
     
     if gmail_draft_url:
@@ -591,11 +592,16 @@ def sync_thread(thread_id):
                 exists, from_cache = _check_draft_exists_cached(gmail_service, draft_id)
                 draft_still_exists = exists
                 
-                # Update Firestore with draft status
-                doc.reference.update({
+                # Update Firestore with draft status; when draft is gone and we have threadId, set emailSentAt (once) and pipelineStage
+                draft_updates = {
                     "draftStillExists": exists,
                     "updatedAt": datetime.utcnow().isoformat()
-                })
+                }
+                if not exists and gmail_thread_id:
+                    draft_updates["pipelineStage"] = "waiting_on_reply"
+                    if not data.get("emailSentAt"):
+                        draft_updates["emailSentAt"] = datetime.utcnow().isoformat()
+                doc.reference.update(draft_updates)
                 
                 # If draft doesn't exist and we have a threadId, try to find it
                 if not exists and not gmail_thread_id:
@@ -619,10 +625,14 @@ def sync_thread(thread_id):
                                 ).execute()
                                 thread_id_found = msg.get('threadId')
                                 if thread_id_found:
-                                    doc.reference.update({
+                                    backfill_updates = {
                                         "gmailThreadId": thread_id_found,
+                                        "pipelineStage": "waiting_on_reply",
                                         "updatedAt": datetime.utcnow().isoformat()
-                                    })
+                                    }
+                                    if not data.get("emailSentAt"):
+                                        backfill_updates["emailSentAt"] = datetime.utcnow().isoformat()
+                                    doc.reference.update(backfill_updates)
                                     gmail_thread_id = thread_id_found
                                     print(f"✅ Found threadId {thread_id_found} for sent draft")
                     except Exception as search_error:
@@ -630,6 +640,13 @@ def sync_thread(thread_id):
             except Exception as e:
                 print(f"⚠️ Error checking draft {draft_id}: {e}")
                 draft_still_exists = data.get("draftStillExists", True)
+    
+    # When we first detect draft sent (draft gone + have threadId), set emailSentAt once and pipelineStage
+    if not draft_still_exists and gmail_thread_id:
+        sent_updates = {"pipelineStage": "waiting_on_reply", "updatedAt": datetime.utcnow().isoformat()}
+        if not data.get("emailSentAt"):
+            sent_updates["emailSentAt"] = datetime.utcnow().isoformat()
+        doc.reference.update(sent_updates)
     
     # Sync Gmail messages if we have a thread ID and draft no longer exists
     if gmail_thread_id and gmail_service and not draft_still_exists:
@@ -665,6 +682,11 @@ def sync_thread(thread_id):
                     updates["hasUnreadReply"] = sync_result['hasUnreadReply']
                 if 'status' in sync_result:
                     updates["threadStatus"] = sync_result['status']
+                
+                # When sync detects a reply from contact, set pipelineStage to "replied"
+                sync_status = sync_result.get('status')
+                if sync_status in ('new_reply', 'waiting_on_you') or sync_result.get('hasUnreadReply'):
+                    updates["pipelineStage"] = "replied"
                 
                 doc.reference.update(updates)
                 print(f"✅ Synced message for contact {thread_id}: status={sync_result.get('status')}, snippet={sync_result.get('snippet', '')[:50]}...")

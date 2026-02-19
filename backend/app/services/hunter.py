@@ -452,16 +452,16 @@ def generate_simple_domain(company_name: str) -> str:
     Returns None for complex names that should use OpenAI.
     """
     clean = company_name.lower().strip()
-    
+    # Strip leading "the " so "the corvallis clinic" -> "corvallis clinic" -> corvallisclinic.com
+    if clean.startswith("the "):
+        clean = clean[4:].strip()
     # Remove common suffixes
-    suffixes = [", inc.", " inc.", " inc", ", llc", " llc", ", l.p.", " l.p.", 
+    suffixes = [", inc.", " inc.", " inc", ", llc", " llc", ", l.p.", " l.p.",
                 " lp", " corp", " corporation", " co.", " co", " ltd", " ltd.",
                 ", ltd", ", corp", ", corporation"]
     for suffix in suffixes:
         clean = clean.replace(suffix, "")
-    
     clean = clean.strip()
-    
     # Remove spaces
     clean = clean.replace(" ", "")
     

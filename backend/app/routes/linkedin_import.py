@@ -633,6 +633,7 @@ def import_from_linkedin():
                 contact_data['gmailThreadId'] = draft_result.get('thread_id')
             else:
                 contact_data['gmailDraftId'] = str(draft_result)
+            contact_data['pipelineStage'] = 'draft_created'
         
         print(f"[LinkedInImport]   - Contact Data Prepared:")
         print(f"[LinkedInImport]     - Name: {contact_data['firstName']} {contact_data['lastName']}")
