@@ -249,6 +249,7 @@ export interface OutboxThread {
   suggestedReply?: string;
   gmailDraftUrl?: string;
   gmailDraftId?: string;
+  gmailMessageId?: string;
   replyType?: "positive" | "referral" | "delay" | "decline" | "question";
   pipelineStage?: PipelineStage | null;
   lastSyncError?: { code: string; message: string; at: string } | null;

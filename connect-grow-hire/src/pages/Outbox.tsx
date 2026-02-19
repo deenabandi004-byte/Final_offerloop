@@ -321,8 +321,16 @@ export default function Outbox() {
   };
 
   const handleOpenDraft = () => {
-    const draftId = selectedThread?.gmailDraftId;
-    if (!draftId) {
+    const thread = selectedThread;
+    if (!thread) return;
+    // Prefer #drafts?compose=<messageId> to open the specific draft (not the folder)
+    let draftUrl: string | undefined;
+    if (thread.gmailMessageId) {
+      draftUrl = `https://mail.google.com/mail/u/0/#drafts?compose=${thread.gmailMessageId}`;
+    } else if (thread.gmailDraftUrl) {
+      draftUrl = thread.gmailDraftUrl;
+    }
+    if (!draftUrl) {
       toast({
         title: "No Gmail draft found",
         description: "Generate or regenerate a reply draft first.",
@@ -330,9 +338,6 @@ export default function Outbox() {
       });
       return;
     }
-    let draftUrl = selectedThread?.gmailDraftUrl;
-    if (draftUrl?.includes("#drafts/")) draftUrl = draftUrl.replace("#drafts/", "#draft/");
-    if (!draftUrl?.includes("#draft/")) draftUrl = `https://mail.google.com/mail/u/0/#draft/${draftId}`;
     window.open(draftUrl, "_blank");
   };
 
@@ -728,13 +733,10 @@ export default function Outbox() {
                                         <DropdownMenuItem
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            const draftId = t.gmailDraftId;
-                                            if (draftId) {
-                                              let url = t.gmailDraftUrl;
-                                              if (url?.includes("#drafts/")) url = url.replace("#drafts/", "#draft/");
-                                              if (!url?.includes("#draft/")) url = `https://mail.google.com/mail/u/0/#draft/${draftId}`;
-                                              window.open(url, "_blank");
-                                            }
+                                            const url = t.gmailMessageId
+                                              ? `https://mail.google.com/mail/u/0/#drafts?compose=${t.gmailMessageId}`
+                                              : t.gmailDraftUrl;
+                                            if (url) window.open(url, "_blank");
                                           }}
                                         >
                                           <ExternalLink className="h-3.5 w-3.5 mr-2" />

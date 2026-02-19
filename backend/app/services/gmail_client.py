@@ -1199,17 +1199,20 @@ def create_drafts_parallel(contacts_with_emails, resume_bytes=None, resume_filen
     results_lock = threading.Lock()
     
     def create_single_draft(item):
-        """Create a single draft"""
+        """Create a single draft. Attach resume only when item has attach_resume True (or when not set, for backward compat)."""
         try:
             contact = item['contact']
             email_subject = item['email_subject']
             email_body = item['email_body']
+            attach_resume = item.get('attach_resume', True)
+            resume_content_for_draft = resume_bytes if (attach_resume and resume_bytes) else None
+            resume_filename_for_draft = resume_filename if attach_resume else None
             
             result = create_gmail_draft_for_user(
                 contact, email_subject, email_body, tier, user_email,
                 None,  # resume_url (deprecated)
-                resume_bytes,  # resume_content
-                resume_filename,
+                resume_content_for_draft,
+                resume_filename_for_draft,
                 user_info,
                 user_id
             )
@@ -1327,8 +1330,8 @@ def create_drafts_batch(contacts_with_emails, gmail_service, resume_bytes=None, 
         else:
             message.attach(MIMEText(email_body, 'plain', 'utf-8'))
         
-        # Attach resume if available
-        if resume_bytes:
+        # Attach resume only when this draft's email body mentions it (or attach_resume not set for backward compat)
+        if resume_bytes and item.get('attach_resume', True):
             try:
                 filename = resume_filename or "resume.pdf"
                 attachment = MIMEBase('application', 'pdf')

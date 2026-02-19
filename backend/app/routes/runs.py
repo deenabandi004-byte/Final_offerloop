@@ -14,7 +14,7 @@ from werkzeug.utils import secure_filename
 
 from app.extensions import require_firebase_auth, get_db, require_tier
 from app.services.resume_parser import extract_text_from_pdf, extract_text_from_file
-from app.services.reply_generation import batch_generate_emails, PURPOSES_INCLUDE_RESUME
+from app.services.reply_generation import batch_generate_emails, PURPOSES_INCLUDE_RESUME, email_body_mentions_resume
 from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user, download_resume_from_url
 from app.services.auth import check_and_reset_credits
 from app.services.hunter import enrich_contacts_with_hunter
@@ -266,11 +266,28 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         
         print(f"📧 Attached emails to {emails_attached}/{len(contacts)} contacts")
         
-        # Get user resume URL and download once only when template purpose includes resume (networking, referral; not custom/sales/follow_up)
+        # Prepare contacts with email data (and per-contact attach_resume) for draft creation
+        contacts_with_emails = []
+        for i, contact in enumerate(contacts[:max_contacts]):
+            email_result = email_results.get(i) or email_results.get(str(i)) or email_results.get(f"{i}")
+            if email_result and isinstance(email_result, dict):
+                subject = email_result.get('subject', '')
+                body = email_result.get('body', '')
+                if subject and body:
+                    attach_resume = (email_template_purpose in PURPOSES_INCLUDE_RESUME) or email_body_mentions_resume(body)
+                    contacts_with_emails.append({
+                        'index': i,
+                        'contact': contact,
+                        'email_subject': subject,
+                        'email_body': body,
+                        'attach_resume': attach_resume,
+                    })
+        # Get user resume URL and download once when template includes resume OR any email body mentions attached resume
         resume_url = None
         resume_content = None
         resume_filename = None
-        if db and user_id and email_template_purpose in PURPOSES_INCLUDE_RESUME:
+        should_fetch_resume = (email_template_purpose in PURPOSES_INCLUDE_RESUME) or any(item['attach_resume'] for item in contacts_with_emails)
+        if db and user_id and should_fetch_resume:
             try:
                 user_doc = db.collection('users').document(user_id).get()
                 if user_doc.exists:
@@ -286,7 +303,7 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
             except Exception as e:
                 print(f"⚠️ Error getting/downloading resume: {e}")
                 pass
-        elif email_template_purpose and email_template_purpose not in PURPOSES_INCLUDE_RESUME:
+        elif email_template_purpose and email_template_purpose not in PURPOSES_INCLUDE_RESUME and not any(item['attach_resume'] for item in contacts_with_emails):
             print(f"📎 Skipping resume attachment for template purpose={email_template_purpose!r}")
 
         # Create drafts if Gmail connected
@@ -313,21 +330,6 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                 
                 # ✅ ISSUE 3 FIX: Parallel Gmail draft creation
                 from app.services.gmail_client import create_drafts_parallel
-                
-                # Prepare contacts with email data for parallel processing
-                contacts_with_emails = []
-                for i, contact in enumerate(contacts[:max_contacts]):
-                    email_result = email_results.get(i) or email_results.get(str(i)) or email_results.get(f"{i}")
-                    if email_result and isinstance(email_result, dict):
-                        subject = email_result.get('subject', '')
-                        body = email_result.get('body', '')
-                        if subject and body:
-                            contacts_with_emails.append({
-                                'index': i,
-                                'contact': contact,
-                                'email_subject': subject,
-                                'email_body': body
-                            })
                 
                 if contacts_with_emails:
                     # Create all drafts in parallel
@@ -669,11 +671,28 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         
         print(f"📧 Attached emails to {emails_attached}/{len(contacts)} contacts")
         
-        # Get user resume URL and download once only when template purpose includes resume (networking, referral; not custom/sales/follow_up)
+        # Prepare contacts with email data (and per-contact attach_resume) for batch draft creation
+        contacts_with_emails = []
+        for i, contact in enumerate(contacts[:max_contacts]):
+            email_result = email_results.get(i) or email_results.get(str(i)) or email_results.get(f"{i}")
+            if email_result and isinstance(email_result, dict):
+                subject = email_result.get('subject', '')
+                body = email_result.get('body', '')
+                if subject and body:
+                    attach_resume = (email_template_purpose in PURPOSES_INCLUDE_RESUME) or email_body_mentions_resume(body)
+                    contacts_with_emails.append({
+                        'index': i,
+                        'contact': contact,
+                        'email_subject': subject,
+                        'email_body': body,
+                        'attach_resume': attach_resume,
+                    })
+        # Get user resume URL and download once when template includes resume OR any email body mentions attached resume
         resume_url = None
         resume_content = None
         resume_filename = None
-        if db and user_id and email_template_purpose in PURPOSES_INCLUDE_RESUME:
+        should_fetch_resume = (email_template_purpose in PURPOSES_INCLUDE_RESUME) or any(item['attach_resume'] for item in contacts_with_emails)
+        if db and user_id and should_fetch_resume:
             try:
                 user_doc = db.collection('users').document(user_id).get()
                 if user_doc.exists:
@@ -689,7 +708,7 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
             except Exception as e:
                 print(f"⚠️ Error getting/downloading resume: {e}")
                 pass
-        elif email_template_purpose and email_template_purpose not in PURPOSES_INCLUDE_RESUME:
+        elif email_template_purpose and email_template_purpose not in PURPOSES_INCLUDE_RESUME and not any(item['attach_resume'] for item in contacts_with_emails):
             print(f"📎 Skipping resume attachment for template purpose={email_template_purpose!r}")
 
         # Create drafts
@@ -714,21 +733,6 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                     print(f"📧 Connected Gmail account: {connected_email}")
                 except Exception:
                     connected_email = None
-                
-                # ✅ TASK 1: Prepare contacts with email data for batch processing
-                contacts_with_emails = []
-                for i, contact in enumerate(contacts[:max_contacts]):
-                    email_result = email_results.get(i) or email_results.get(str(i)) or email_results.get(f"{i}")
-                    if email_result and isinstance(email_result, dict):
-                        subject = email_result.get('subject', '')
-                        body = email_result.get('body', '')
-                        if subject and body:
-                            contacts_with_emails.append({
-                                'index': i,
-                                'contact': contact,
-                                'email_subject': subject,
-                                'email_body': body
-                            })
                 
                 if contacts_with_emails:
                     # ✅ TASK 1: Use batch API for single HTTP request instead of 15 parallel requests

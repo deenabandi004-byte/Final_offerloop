@@ -427,6 +427,17 @@ def _debug_print_email_data(contact, user_info, user_profile, contact_context, r
 # Purpose values that should include the resume attachment line in the email. Others (sales, follow_up, custom) omit it.
 PURPOSES_INCLUDE_RESUME = (None, "networking", "referral")
 
+# Phrases that indicate the email says a resume is attached (used for actually attaching the file when creating drafts).
+RESUME_MENTIONS = ["attached my resume", "attached resume", "resume below", "resume attached"]
+
+
+def email_body_mentions_resume(body):
+    """Return True if the email body text says a resume is attached (so we should attach the file to the draft)."""
+    if not body or not isinstance(body, str):
+        return False
+    lower = body.lower()
+    return any(phrase in lower for phrase in RESUME_MENTIONS)
+
 
 def build_template_prompt(context_block: str, template_instructions: str, requirements_block: str) -> str:
     """
@@ -969,8 +980,7 @@ Return ONLY valid JSON:
             )
             if should_include_resume:
                 # Check if resume line already exists
-                resume_mentions = ["attached my resume", "attached resume", "resume below", "resume attached"]
-                has_resume_mention = any(mention in body.lower() for mention in resume_mentions)
+                has_resume_mention = email_body_mentions_resume(body)
                 
                 if not has_resume_mention:
                     # Insert resume line before the sign-off
@@ -1004,9 +1014,8 @@ Return ONLY valid JSON:
                 # Remove resume mentions only for purposes that explicitly omit resume (sales, follow_up).
                 # For "custom", leave body as-is so user's instructions (e.g. "mention my resume") are respected.
                 if email_template_purpose in ("sales", "follow_up"):
-                    resume_mentions = ["attached my resume", "attached resume", "resume below", "resume attached"]
                     lines = body.split('\n')
-                    filtered_lines = [line for line in lines if not any(m in line.lower() for m in resume_mentions)]
+                    filtered_lines = [line for line in lines if not any(m in line.lower() for m in RESUME_MENTIONS)]
                     body = '\n'.join(filtered_lines)
                 
             # Validate email body - check for common malformed patterns

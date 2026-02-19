@@ -8,6 +8,7 @@ from app.extensions import require_firebase_auth, require_tier, get_db
 from app.services.prompt_parser import parse_search_prompt_simple
 from app.services.reply_generation import batch_generate_emails
 from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user, download_resume_from_url
+from app.services.reply_generation import email_body_mentions_resume
 from app.services.hunter import enrich_contacts_with_hunter
 from app.services.auth import check_and_reset_credits
 from app.config import TIER_CONFIGS
@@ -284,25 +285,33 @@ def prompt_search():
                         body = email_result.get('body', '')
                         if subject and body:
                             try:
+                                # Attach resume only when the email body says it's attached
+                                attach_resume = email_body_mentions_resume(body)
                                 draft_result = create_gmail_draft_for_user(
                                     contact, subject, body,
-                                    tier='free', user_email=user_email, 
-                                    resume_content=resume_content, resume_filename=resume_filename,
+                                    tier='free', user_email=user_email,
+                                    resume_content=resume_content if attach_resume else None,
+                                    resume_filename=resume_filename if attach_resume else None,
                                     user_info=user_info, user_id=user_id
                                 )
                                 
                                 # Handle both dict response (new) and string response (old/fallback)
                                 if isinstance(draft_result, dict):
                                     draft_id = draft_result.get('draft_id', '')
+                                    message_id = draft_result.get('message_id')
                                     draft_url = draft_result.get('draft_url', '')
+                                    if not draft_url and draft_id:
+                                        draft_url = f"https://mail.google.com/mail/u/0/#drafts?compose={message_id}" if message_id else f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
                                 else:
                                     draft_id = draft_result
-                                    draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}" if draft_id and not draft_id.startswith('mock_') else None
-                                
-                                if draft_id and not draft_id.startswith('mock_'):
+                                    message_id = None
+                                    draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}" if draft_id and not str(draft_id).startswith('mock_') else None
+                                if draft_id and not str(draft_id).startswith('mock_'):
                                     successful_drafts += 1
                                     if draft_url:
                                         contact['gmailDraftId'] = draft_id
+                                        if message_id:
+                                            contact['gmailMessageId'] = message_id
                                         contact['gmailDraftUrl'] = draft_url
                                         contact['pipelineStage'] = 'draft_created'
                             except Exception as draft_error:

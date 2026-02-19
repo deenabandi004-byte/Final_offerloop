@@ -11,7 +11,7 @@ from werkzeug.utils import secure_filename
 
 from app.extensions import require_firebase_auth, get_db
 from app.services.resume_parser import extract_text_from_pdf
-from app.services.reply_generation import batch_generate_emails
+from app.services.reply_generation import batch_generate_emails, email_body_mentions_resume
 from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user
 from app.services.auth import check_and_reset_credits
 from app.config import TIER_CONFIGS
@@ -223,19 +223,31 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                         body = email_result.get('body', '')
                         if subject and body:
                             try:
-                                draft_id = create_gmail_draft_for_user(
+                                # Attach resume only when the email body says it's attached
+                                attach_resume = email_body_mentions_resume(body)
+                                draft_result = create_gmail_draft_for_user(
                                     contact, subject, body,
-                                    tier='free', user_email=user_email, resume_url=resume_url, user_info=user_info
+                                    tier='free', user_email=user_email,
+                                    resume_url=resume_url if attach_resume else None,
+                                    user_info=user_info
                                 )
-                                if draft_id and not draft_id.startswith('mock_'):
+                                if isinstance(draft_result, dict):
+                                    draft_id = draft_result.get('draft_id', '')
+                                    message_id = draft_result.get('message_id')
+                                    gmail_url = draft_result.get('draft_url', '')
+                                    if not gmail_url and draft_id:
+                                        gmail_url = f"https://mail.google.com/mail/u/0/#drafts?compose={message_id}" if message_id else f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
+                                else:
+                                    draft_id = draft_result
+                                    message_id = None
+                                    gmail_url = f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft_id}" if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft_id}" if draft_id else ''
+                                if draft_id and not str(draft_id).startswith('mock_'):
                                     successful_drafts += 1
-                                    # Store draft URL with contact
-                                    gmail_url = (
-                                        f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft_id}"
-                                        if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
-                                    )
                                     contact['gmailDraftId'] = draft_id
-                                    contact['gmailDraftUrl'] = gmail_url
+                                    if message_id:
+                                        contact['gmailMessageId'] = message_id
+                                    if gmail_url:
+                                        contact['gmailDraftUrl'] = gmail_url
                                     contact['pipelineStage'] = 'draft_created'
                                     print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
                                 else:
@@ -475,19 +487,31 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                         body = email_result.get('body', '')
                         if subject and body:
                             try:
-                                draft_id = create_gmail_draft_for_user(
+                                # Attach resume only when the email body says it's attached
+                                attach_resume = email_body_mentions_resume(body)
+                                draft_result = create_gmail_draft_for_user(
                                     contact, subject, body,
-                                    tier='pro', user_email=user_email, resume_url=resume_url, user_info=user_info
+                                    tier='pro', user_email=user_email,
+                                    resume_url=resume_url if attach_resume else None,
+                                    user_info=user_info
                                 )
-                                if draft_id and not draft_id.startswith('mock_'):
+                                if isinstance(draft_result, dict):
+                                    draft_id = draft_result.get('draft_id', '')
+                                    message_id = draft_result.get('message_id')
+                                    gmail_url = draft_result.get('draft_url', '')
+                                    if not gmail_url and draft_id:
+                                        gmail_url = f"https://mail.google.com/mail/u/0/#drafts?compose={message_id}" if message_id else f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
+                                else:
+                                    draft_id = draft_result
+                                    message_id = None
+                                    gmail_url = f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft_id}" if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft_id}" if draft_id else ''
+                                if draft_id and not str(draft_id).startswith('mock_'):
                                     successful_drafts += 1
-                                    # Store draft URL with contact
-                                    gmail_url = (
-                                        f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft_id}"
-                                        if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
-                                    )
                                     contact['gmailDraftId'] = draft_id
-                                    contact['gmailDraftUrl'] = gmail_url
+                                    if message_id:
+                                        contact['gmailMessageId'] = message_id
+                                    if gmail_url:
+                                        contact['gmailDraftUrl'] = gmail_url
                                     contact['pipelineStage'] = 'draft_created'
                                     print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
                                 else:

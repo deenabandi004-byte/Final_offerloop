@@ -233,23 +233,27 @@ def _build_outbox_thread(doc):
         last_message_snippet = "We will sync the latest Gmail reply soon."
 
     suggested_reply = data.get("suggestedReply")
-    gmail_draft_url = data.get("gmailDraftUrl")
+    gmail_draft_url = data.get("gmailDraftUrl") or data.get("gmail_draft_url")
     gmail_draft_id = data.get("gmailDraftId") or data.get("gmail_draft_id")
+    gmail_message_id = data.get("gmailMessageId") or data.get("gmail_message_id")
     reply_type = data.get("replyType")
 
     has_draft = bool(
         gmail_draft_url
         or gmail_draft_id
     )
-    
-    # If we have a draft ID but no URL, construct the URL
+
+    # Prefer #drafts?compose=<messageId> (opens specific draft); fallback to #draft/<draftId>
     if gmail_draft_id and not gmail_draft_url:
-        gmail_draft_url = f"https://mail.google.com/mail/u/0/#draft/{gmail_draft_id}"
-    
-    # Fix incorrect URLs that use #drafts (plural) instead of #draft (singular)
-    # #drafts opens the drafts folder, #draft opens the specific draft
-    if gmail_draft_url and '#drafts/' in gmail_draft_url:
-        gmail_draft_url = gmail_draft_url.replace('#drafts/', '#draft/')
+        if gmail_message_id:
+            gmail_draft_url = f"https://mail.google.com/mail/u/0/#drafts?compose={gmail_message_id}"
+        else:
+            gmail_draft_url = f"https://mail.google.com/mail/u/0/#draft/{gmail_draft_id}"
+    # Fix legacy URLs that use #drafts/ (opens folder); replace with compose format if we have message_id
+    if gmail_draft_url and "#drafts/" in gmail_draft_url and gmail_message_id:
+        gmail_draft_url = f"https://mail.google.com/mail/u/0/#drafts?compose={gmail_message_id}"
+    elif gmail_draft_url and "#drafts/" in gmail_draft_url:
+        gmail_draft_url = gmail_draft_url.replace("#drafts/", "#draft/")
 
     # Use stored pipelineStage, or derive from legacy fields (mirrors backfill/stats)
     pipeline_stage = data.get("pipelineStage") or data.get("pipeline_stage")
@@ -279,6 +283,7 @@ def _build_outbox_thread(doc):
         "suggestedReply": suggested_reply,
         "gmailDraftUrl": gmail_draft_url,
         "gmailDraftId": gmail_draft_id,
+        "gmailMessageId": gmail_message_id,
         "replyType": reply_type,
         "pipelineStage": pipeline_stage,
         "lastSyncError": last_sync_error,
@@ -670,7 +675,8 @@ def regenerate(thread_id):
     # Create Gmail draft with the reply
     draft_id = None
     gmail_draft_url = None
-    
+    message_id = None
+
     try:
         # Get original subject
         original_subject = data.get("emailSubject") or "Our conversation"
@@ -692,9 +698,12 @@ def regenerate(thread_id):
         
         draft = gmail_service.users().drafts().create(userId='me', body=draft_body).execute()
         draft_id = draft['id']
-        # Use the correct URL format to open the specific draft (singular "draft" not "drafts")
-        gmail_draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
-        
+        message_id = (draft.get('message') or {}).get('id')
+        # Correct URL format to open the specific draft: #drafts?compose=<messageId>
+        if message_id:
+            gmail_draft_url = f"https://mail.google.com/mail/u/0/#drafts?compose={message_id}"
+        else:
+            gmail_draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
         print(f"✅ Created Gmail draft {draft_id} for reply")
     except Exception as draft_error:
         print(f"⚠️ Could not create Gmail draft: {draft_error}")
@@ -713,7 +722,9 @@ def regenerate(thread_id):
         updates["gmailDraftUrl"] = gmail_draft_url
     if draft_id:
         updates["gmailDraftId"] = draft_id
-    
+    if message_id:
+        updates["gmailMessageId"] = message_id
+
     try:
         contact_ref.update(updates)
     except Exception as update_error:
