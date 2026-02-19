@@ -503,8 +503,16 @@ def google_oauth_callback():
             return redirect(redirect_url)
         
         _save_user_gmail_creds(uid, creds)
+        gmail_ref = db.collection("users").document(uid).collection("integrations").document("gmail")
+        gmail_ref.set({"gmailAddress": gmail_email}, merge=True)
         print(f"✅ Gmail credentials saved for user: {uid}")
         print(f"✅ Granted scopes: {creds.scopes}")
+
+        try:
+            from app.services.gmail_client import start_gmail_watch
+            start_gmail_watch(uid)
+        except Exception as e:
+            print(f"[gmail_watch] Failed to start watch for uid={uid}: {e}")
 
         # Clean up state document
         if state:

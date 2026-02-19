@@ -406,8 +406,11 @@ def generate_and_draft():
             # Drafts may not have threadId until they're sent or replied to
             try:
                 contacts_ref = db.collection("users").document(uid).collection("contacts")
-                # Try to find existing contact by email
-                existing_contacts = list(contacts_ref.where("email", "==", to_addr).limit(1).stream())
+                # Find existing contact by email (try exact match, then lowercase to catch casing duplicates)
+                to_addr_clean = (to_addr or "").strip()
+                existing_contacts = list(contacts_ref.where("email", "==", to_addr_clean).limit(1).stream())
+                if not existing_contacts and to_addr_clean:
+                    existing_contacts = list(contacts_ref.where("email", "==", to_addr_clean.lower()).limit(1).stream())
                 
                 contact_data = {
                     "gmailDraftId": draft_id,
@@ -443,13 +446,13 @@ def generate_and_draft():
                     contact_data["location"] = c["location"]
                 
                 if existing_contacts:
-                    # Update existing contact
+                    # Update existing contact (same email = one contact doc)
                     contact_doc = existing_contacts[0]
                     contact_doc.reference.update(contact_data)
                     print(f"✅ [{i}] Updated contact {contact_doc.id} with draftId {draft['id']}" + (f" and threadId {thread_id}" if thread_id else ""))
                 else:
-                    # Create new contact
-                    contact_data["email"] = to_addr
+                    # Create new contact only when no existing contact with this email
+                    contact_data["email"] = to_addr_clean or to_addr
                     contact_data["createdAt"] = datetime.utcnow().isoformat()
                     new_contact_ref = contacts_ref.document()
                     new_contact_ref.set(contact_data)

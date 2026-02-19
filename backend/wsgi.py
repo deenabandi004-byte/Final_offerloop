@@ -37,6 +37,7 @@ from .app.routes.cover_letter_workshop import cover_letter_workshop_bp
 from .app.routes.auth_extension import auth_extension_bp
 from .app.routes.email_template import email_template_bp
 from .app.routes.admin import admin_bp
+from .app.routes.gmail_webhook import gmail_webhook_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -128,6 +129,7 @@ def create_app() -> Flask:
     app.register_blueprint(auth_extension_bp)
     app.register_blueprint(email_template_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(gmail_webhook_bp)
 
     # --- Debug route to check frontend build ---
     @app.route('/api/debug/frontend')
@@ -184,3 +186,10 @@ def create_app() -> Flask:
 
 # Gunicorn entrypoint
 app = create_app()
+
+# Optional: list all registered routes when LIST_ROUTES=1 (e.g. LIST_ROUTES=1 python wsgi.py)
+if os.environ.get("LIST_ROUTES"):
+    print("--- Registered routes ---")
+    for rule in app.url_map.iter_rules():
+        print(f"{rule.endpoint}: {rule.methods} {rule.rule}")
+    print("--- End routes ---")

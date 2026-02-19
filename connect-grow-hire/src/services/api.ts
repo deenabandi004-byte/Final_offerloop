@@ -225,6 +225,17 @@ export type OutboxStatus =
   | "waiting_on_you"
   | "closed";
 
+export type PipelineStage =
+  | "draft_created"
+  | "email_sent"
+  | "waiting_on_reply"
+  | "replied"
+  | "meeting_scheduled"
+  | "connected"
+  | "no_response"
+  | "bounced"
+  | "closed";
+
 export interface OutboxThread {
   id: string;
   contactName: string;
@@ -239,6 +250,30 @@ export interface OutboxThread {
   gmailDraftUrl?: string;
   gmailDraftId?: string;
   replyType?: "positive" | "referral" | "delay" | "decline" | "question";
+  pipelineStage?: PipelineStage | null;
+  lastSyncError?: { code: string; message: string; at: string } | null;
+  emailSentAt?: string | null;
+  hasUnreadReply?: boolean;
+  lastSyncAt?: string | null;
+  duplicateOf?: string;
+}
+
+export interface OutboxStats {
+  draft_created: number;
+  email_sent: number;
+  waiting_on_reply: number;
+  replied: number;
+  meeting_scheduled: number;
+  connected: number;
+  no_response: number;
+  bounced: number;
+  closed: number;
+  total: number;
+  replyRate: number;
+  avgResponseTimeDays: number | null;
+  meetingRate: number;
+  thisWeekSent: number;
+  thisWeekReplied: number;
 }
 
 export interface OutboxThreadsResponse {
@@ -1533,16 +1568,52 @@ async generateReplyDraft(contactId: string): Promise<GenerateReplyResult | Error
 // Outbox API
 // ================================
 
-/** Get all Outbox email threads */
-async getOutboxThreads(): Promise<{ threads: OutboxThread[] } | { error: string }> {
+/** Get all Outbox email threads (optional: stage, sort, sort_dir, page, per_page) */
+async getOutboxThreads(params?: {
+  stage?: string;
+  sort?: string;
+  sort_dir?: string;
+  page?: number;
+  per_page?: number;
+}): Promise<{ threads: OutboxThread[]; pagination?: { page: number; per_page: number; total: number; total_pages: number; has_next: boolean; has_prev: boolean } } | { error: string }> {
   const headers = await this.getAuthHeaders();
+  const searchParams = new URLSearchParams();
+  if (params?.stage) searchParams.set("stage", params.stage);
+  if (params?.sort) searchParams.set("sort", params.sort);
+  if (params?.sort_dir) searchParams.set("sort_dir", params.sort_dir);
+  if (params?.page != null) searchParams.set("page", String(params.page));
+  if (params?.per_page != null) searchParams.set("per_page", String(params.per_page));
+  const qs = searchParams.toString();
+  const url = qs ? `/outbox/threads?${qs}` : '/outbox/threads';
+  return this.makeRequest<{ threads: OutboxThread[]; pagination?: { page: number; per_page: number; total: number; total_pages: number; has_next: boolean; has_prev: boolean } } | { error: string }>(
+    url,
+    { method: 'GET', headers }
+  );
+}
 
-  return this.makeRequest<{ threads: OutboxThread[] } | { error: string }>(
-    '/outbox/threads',
-    {
-      method: 'GET',
-      headers
-    }
+/** Get outbox pipeline stats */
+async getOutboxStats(): Promise<OutboxStats | { error: string }> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<OutboxStats | { error: string }>('/outbox/stats', { method: 'GET', headers });
+}
+
+/** Update a contact's pipeline stage */
+async patchOutboxStage(contactId: string, pipelineStage: PipelineStage): Promise<{ thread: OutboxThread } | { error: string }> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<{ thread: OutboxThread } | { error: string }>(
+    `/outbox/threads/${contactId}/stage`,
+    { method: 'PATCH', headers, body: JSON.stringify({ pipelineStage }) }
+  );
+}
+
+/** Batch sync: pass contactIds or { mode: "stale", max?: number } to sync stale threads server-side */
+async batchSyncOutbox(
+  params: { contactIds: string[] } | { mode: 'stale'; max?: number }
+): Promise<{ results: Array<{ contactId: string; synced: boolean; pipelineStage?: string | null; error?: string }> } | { error: string }> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<{ results: Array<{ contactId: string; synced: boolean; pipelineStage?: string | null; error?: string }> } | { error: string }>(
+    '/outbox/threads/batch-sync',
+    { method: 'POST', headers, body: JSON.stringify(params) }
   );
 }
 

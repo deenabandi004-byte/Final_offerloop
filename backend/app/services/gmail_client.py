@@ -15,7 +15,8 @@ from google.cloud.firestore_v1 import FieldFilter
 
 from app.config import (
     GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GMAIL_SCOPES, OAUTH_REDIRECT_URI,
-    GOOGLE_SERVICE_ACCOUNT_FILE, GOOGLE_SERVICE_ACCOUNT_EMAIL
+    GOOGLE_SERVICE_ACCOUNT_FILE, GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    GMAIL_PUBSUB_TOPIC,
 )
 from app.extensions import get_db
 
@@ -172,6 +173,107 @@ def _load_user_gmail_creds(uid):
 def _gmail_service(creds):
     """Build Gmail service from credentials"""
     return build("gmail", "v1", credentials=creds)
+
+
+def start_gmail_watch(uid):
+    """
+    Start Gmail push notifications watch for the user. Saves watchHistoryId, watchExpiration,
+    watchStartedAt to users/{uid}/integrations/gmail. Raises if no/invalid Gmail credentials.
+    """
+    creds = _load_user_gmail_creds(uid)
+    if not creds:
+        raise ValueError(f"No Gmail credentials for uid={uid}")
+    service = _gmail_service(creds)
+    if not service:
+        raise ValueError(f"Failed to build Gmail service for uid={uid}")
+    body = {"topicName": GMAIL_PUBSUB_TOPIC, "labelIds": ["INBOX"]}
+    response = service.users().watch(userId="me", body=body).execute()
+    history_id = str(response.get("historyId", ""))
+    expiration = response.get("expiration")
+    if expiration is not None:
+        try:
+            expiration = int(expiration)
+        except (TypeError, ValueError):
+            expiration = None
+    db = get_db()
+    if not db:
+        raise RuntimeError("Database not available")
+    gmail_ref = db.collection("users").document(uid).collection("integrations").document("gmail")
+    now_iso = datetime.utcnow().isoformat() + "Z"
+    gmail_ref.set({
+        "watchHistoryId": history_id,
+        "watchExpiration": expiration,
+        "watchStartedAt": now_iso,
+    }, merge=True)
+    print(f"[gmail_watch] Started watch for uid={uid} historyId={history_id} expiration={expiration}")
+    return response
+
+
+def stop_gmail_watch(uid):
+    """Stop Gmail push notifications and clear watch fields from users/{uid}/integrations/gmail."""
+    from firebase_admin import firestore
+    creds = _load_user_gmail_creds(uid)
+    if not creds:
+        raise ValueError(f"No Gmail credentials for uid={uid}")
+    service = _gmail_service(creds)
+    if not service:
+        raise ValueError(f"Failed to build Gmail service for uid={uid}")
+    service.users().stop(userId="me").execute()
+    db = get_db()
+    if db:
+        gmail_ref = db.collection("users").document(uid).collection("integrations").document("gmail")
+        gmail_ref.update({
+            "watchHistoryId": firestore.DELETE_FIELD,
+            "watchExpiration": firestore.DELETE_FIELD,
+            "watchStartedAt": firestore.DELETE_FIELD,
+        })
+    print(f"[gmail_watch] Stopped watch for uid={uid}")
+
+
+def renew_gmail_watch(uid):
+    """Renew Gmail watch (same as start — calling watch() again extends expiration)."""
+    start_gmail_watch(uid)
+    print(f"[gmail_watch] Renewed watch for uid={uid}")
+
+
+# Cache for find_uid_by_gmail_address (TTL 5 min) to avoid scanning all users on every notification
+_gmail_address_to_uid_cache = {}
+_gmail_address_cache_ts = 0
+_GMAIL_ADDRESS_CACHE_TTL_SEC = 300
+
+
+def find_uid_by_gmail_address(email_address):
+    """
+    Find user uid whose Gmail integration has the given email (users/{uid}/integrations/gmail.gmailAddress).
+    Uses a module-level cache with 5-min TTL. Returns uid or None.
+    """
+    global _gmail_address_to_uid_cache, _gmail_address_cache_ts
+    import time as _time
+    now = _time.time()
+    if now - _gmail_address_cache_ts > _GMAIL_ADDRESS_CACHE_TTL_SEC:
+        _gmail_address_to_uid_cache = {}
+        _gmail_address_cache_ts = now
+    key = (email_address or "").strip().lower()
+    if not key:
+        return None
+    if key in _gmail_address_to_uid_cache:
+        return _gmail_address_to_uid_cache[key]
+    db = get_db()
+    if not db:
+        return None
+    for user_doc in db.collection("users").stream():
+        uid = user_doc.id
+        gmail_doc = db.collection("users").document(uid).collection("integrations").document("gmail").get()
+        if not gmail_doc.exists:
+            continue
+        data = gmail_doc.to_dict() or {}
+        stored = (data.get("gmailAddress") or "").strip().lower()
+        if stored:
+            _gmail_address_to_uid_cache[stored] = uid
+    uid = _gmail_address_to_uid_cache.get(key)
+    if uid is None and key not in _gmail_address_to_uid_cache:
+        _gmail_address_to_uid_cache[key] = None  # cache miss to avoid repeated scans
+    return uid
 
 
 def get_thread_messages(gmail_service, thread_id):
