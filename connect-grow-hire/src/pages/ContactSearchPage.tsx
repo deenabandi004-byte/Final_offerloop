@@ -9,7 +9,7 @@ import { useScout } from "@/contexts/ScoutContext";
 import {
   Search, Linkedin, Send, Loader2, Sparkles, ArrowRight,
   Briefcase, Building2, MapPin, GraduationCap, User, Check, CheckCircle,
-  FileText, Upload, Mail, Inbox, AlertCircle
+  FileText, Upload, Mail, Inbox, AlertCircle, X
 } from "lucide-react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 // ScoutBubble removed - now using ScoutHeaderButton in PageHeaderActions
@@ -184,6 +184,7 @@ const ContactSearchPage: React.FC = () => {
 
   // Gmail state
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
+  const [gmailBannerDismissed, setGmailBannerDismissed] = useState(false);
 
   // Tab state
   const [activeTab, setActiveTab] = useState<string>("linkedin-email");
@@ -1227,24 +1228,39 @@ const ContactSearchPage: React.FC = () => {
       if (isDev) console.error("Search failed:", error);
       if (error?.needsAuth || error?.require_reauth) {
         const authUrl = error.authUrl;
+        // Preserve contacts so user doesn't lose search results (drafts failed but contacts are returned)
+        if (error.contacts?.length) {
+          setLastResults(error.contacts);
+        }
         if (authUrl) {
           toast({
             title: "Gmail Connection Expired",
             description: error.message || "Please reconnect your Gmail account to create drafts.",
             variant: "destructive",
             duration: 5000,
+            action: (
+              <Button size="sm" variant="outline" onClick={() => { window.location.href = authUrl; }}>
+                Reconnect Gmail
+              </Button>
+            ),
           });
-          // ✅ TASK 3: Contacts are now saved automatically in backend - no need to call autoSaveToDirectory
-          // if (error.contacts && error.contacts.length > 0) {
-          //   try {
-          //     await autoSaveToDirectory(error.contacts, location.trim());
-          //   } catch (saveError) {
-          //     console.error("Failed to save contacts before redirect:", saveError);
-          //   }
-          // }
           window.location.href = authUrl;
           return;
         }
+        toast({
+          title: "Gmail Connection Expired",
+          description: error.message || "Please reconnect your Gmail account to create drafts.",
+          variant: "destructive",
+          duration: 8000,
+          action: (
+            <Button size="sm" variant="outline" onClick={() => navigate("/account-settings")}>
+              Reconnect Gmail
+            </Button>
+          ),
+        });
+        setSearchComplete(false);
+        setProgressValue(0);
+        return;
       }
       toast({
         title: "Search Failed",
@@ -1462,6 +1478,37 @@ const ContactSearchPage: React.FC = () => {
             <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 delay-100">
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <TabsContent value="contact-search" className="mt-0 focus-visible:outline-none">
+
+                  {/* Gmail not connected banner */}
+                  {gmailConnected === false && !gmailBannerDismissed && (
+                    <div
+                      className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm"
+                      role="alert"
+                    >
+                      <div className="flex items-center gap-2 text-amber-800">
+                        <Mail className="h-4 w-4 shrink-0" />
+                        <span>
+                          Gmail not connected — drafts won&apos;t be created.{" "}
+                          <Button
+                            variant="link"
+                            className="h-auto p-0 text-amber-800 underline underline-offset-2"
+                            onClick={initiateGmailOAuth}
+                          >
+                            Connect Gmail
+                          </Button>
+                        </span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0 text-amber-700 hover:bg-amber-100"
+                        aria-label="Dismiss"
+                        onClick={() => setGmailBannerDismissed(true)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
 
                   {/* Search Card */}
                   <div 

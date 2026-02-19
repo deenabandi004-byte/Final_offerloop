@@ -12,7 +12,8 @@ from werkzeug.utils import secure_filename
 from app.extensions import require_firebase_auth, get_db
 from app.services.resume_parser import extract_text_from_pdf
 from app.services.reply_generation import batch_generate_emails, email_body_mentions_resume
-from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user
+from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user, clear_user_gmail_integration
+from app.routes.gmail_oauth import build_gmail_oauth_url_for_user
 from app.services.auth import check_and_reset_credits
 from app.config import TIER_CONFIGS
 from firebase_admin import firestore
@@ -620,10 +621,15 @@ def free_run():
         if result.get("error"):
             error_type = result.get("error")
             if error_type == "gmail_token_expired":
+                uid = request.firebase_user["uid"]
+                user_email = request.firebase_user.get("email") or ""
+                auth_url = build_gmail_oauth_url_for_user(uid, user_email)
+                clear_user_gmail_integration(uid)
                 return jsonify({
                     "error": error_type,
                     "message": result.get("message"),
                     "require_reauth": True,
+                    "authUrl": auth_url,
                     "contacts": result.get("contacts", [])
                 }), 401  # 401 = Unauthorized (need to re-auth)
             return jsonify({"error": result["error"]}), 500
@@ -795,10 +801,15 @@ def pro_run():
         if result.get("error"):
             error_type = result.get("error")
             if error_type == "gmail_token_expired":
+                uid = request.firebase_user["uid"]
+                user_email = request.firebase_user.get("email") or ""
+                auth_url = build_gmail_oauth_url_for_user(uid, user_email)
+                clear_user_gmail_integration(uid)
                 return jsonify({
                     "error": error_type,
                     "message": result.get("message"),
                     "require_reauth": True,
+                    "authUrl": auth_url,
                     "contacts": result.get("contacts", [])
                 }), 401  # 401 = Unauthorized (need to re-auth)
             return jsonify({"error": result["error"]}), 500

@@ -1378,12 +1378,17 @@ class ApiService {
     return authUrl;
   }
 
-  async gmailStatus(): Promise<{ connected: boolean; scopes: string[] }> {
+  async gmailStatus(): Promise<{ connected: boolean; scopes?: string[]; gmail_address?: string }> {
     const headers = await this.getAuthHeaders();
-    return this.makeRequest<{ connected: boolean; scopes: string[] }>(
+    return this.makeRequest<{ connected: boolean; scopes?: string[]; gmail_address?: string }>(
       '/google/gmail/status',
       { headers }
     );
+  }
+
+  async revokeGmail(): Promise<void> {
+    const headers = await this.getAuthHeaders();
+    await this.makeRequest('/google/gmail/revoke', { method: 'POST', headers });
   }
 
   async saveGmailDraft(params: {

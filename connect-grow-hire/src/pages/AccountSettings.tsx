@@ -1,4 +1,4 @@
-import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText, User, GraduationCap, Briefcase, Rocket, Settings, AlertTriangle, Lock, Eye, RefreshCw, X, CheckCircle } from "lucide-react";
+import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText, User, GraduationCap, Briefcase, Rocket, Settings, AlertTriangle, Lock, Eye, RefreshCw, X, CheckCircle, Mail } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { apiService } from "@/services/api";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileTypes";
 
@@ -100,6 +101,7 @@ const sections = [
   { id: 'academic', label: 'Academic Information', icon: GraduationCap },
   { id: 'professional', label: 'Professional Profile', icon: Briefcase },
   { id: 'career', label: 'Career Interests', icon: Rocket },
+  { id: 'gmail', label: 'Gmail Integration', icon: Mail },
   { id: 'account', label: 'Account Management', icon: Settings },
   { id: 'danger', label: 'Danger Zone', icon: AlertTriangle },
 ];
@@ -238,6 +240,12 @@ export default function AccountSettings() {
   const [resumeFile, setResumeFile] = useState<string | null>(null);
   const [resumeData, setResumeData] = useState<any>(null);
   const [resumeUrl, setResumeUrl] = useState<string | null>(null);
+
+  // Gmail integration state
+  const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
+  const [gmailEmail, setGmailEmail] = useState<string | null>(null);
+  const [gmailLoading, setGmailLoading] = useState(true);
+  const [gmailActionLoading, setGmailActionLoading] = useState(false);
 
   // User initials for avatar
   const userInitials = `${personalInfo.firstName.charAt(0) || ''}${personalInfo.lastName.charAt(0) || ''}`.toUpperCase() || 'U';
@@ -721,6 +729,60 @@ export default function AccountSettings() {
         console.error("Error during cleanup:", e);
       }
       window.location.replace('/?signedOut=true');
+    }
+  };
+
+  // Fetch Gmail integration status
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    setGmailLoading(true);
+    apiService.gmailStatus()
+      .then((data) => {
+        if (cancelled) return;
+        setGmailConnected(data.connected === true);
+        setGmailEmail(data.gmail_address ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setGmailConnected(false);
+          setGmailEmail(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setGmailLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [user]);
+
+  const handleConnectGmail = async () => {
+    setGmailActionLoading(true);
+    try {
+      const authUrl = await apiService.startGmailOAuth();
+      if (authUrl) {
+        sessionStorage.setItem('gmail_oauth_return', '/account-settings');
+        window.location.href = authUrl;
+      } else {
+        toast({ title: "Could not start Gmail connection", variant: "destructive" });
+      }
+    } catch (e) {
+      toast({ title: "Error", description: "Failed to start Gmail connection.", variant: "destructive" });
+    } finally {
+      setGmailActionLoading(false);
+    }
+  };
+
+  const handleDisconnectGmail = async () => {
+    setGmailActionLoading(true);
+    try {
+      await apiService.revokeGmail();
+      setGmailConnected(false);
+      setGmailEmail(null);
+      toast({ title: "Gmail disconnected", description: "You can reconnect anytime." });
+    } catch (e) {
+      toast({ title: "Error", description: "Failed to disconnect Gmail.", variant: "destructive" });
+    } finally {
+      setGmailActionLoading(false);
     }
   };
 
@@ -1869,6 +1931,121 @@ export default function AccountSettings() {
                             'Save changes'
                           )}
                         </button>
+                      </div>
+                    </div>
+                  </SettingsSection>
+
+                  {/* Gmail Integration Section */}
+                  <SettingsSection
+                    id="gmail"
+                    icon={Mail}
+                    title="Gmail Integration"
+                    description="Connect your Gmail to create email drafts directly from Offerloop"
+                  >
+                    <div
+                      className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
+                      style={{
+                        padding: '20px',
+                        borderRadius: '12px',
+                        background: '#F8FAFF',
+                        border: '1px solid rgba(37, 99, 235, 0.06)',
+                      }}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div
+                          style={{
+                            width: 48,
+                            height: 48,
+                            borderRadius: '12px',
+                            background: 'rgba(37, 99, 235, 0.08)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Mail className="w-6 h-6" style={{ color: '#2563EB' }} />
+                        </div>
+                        <div>
+                          <h4
+                            style={{
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontWeight: 600,
+                              color: '#0F172A',
+                              fontSize: '15px',
+                            }}
+                          >
+                            {gmailLoading ? 'Checking...' : gmailConnected ? 'Connected' : 'Not connected'}
+                          </h4>
+                          <p
+                            style={{
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '14px',
+                              color: '#64748B',
+                              marginTop: '2px',
+                            }}
+                          >
+                            {gmailLoading
+                              ? 'Loading Gmail status...'
+                              : gmailConnected && gmailEmail
+                                ? `Connected as ${gmailEmail}`
+                                : 'Connect your Gmail to create email drafts directly from Contact Search and other features.'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {!gmailLoading && (
+                          <>
+                            {gmailConnected ? (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={gmailActionLoading}
+                                  onClick={handleConnectGmail}
+                                  style={{
+                                    padding: '10px 20px',
+                                    borderRadius: '10px',
+                                    fontFamily: "'DM Sans', system-ui, sans-serif",
+                                    fontSize: '14px',
+                                  }}
+                                >
+                                  {gmailActionLoading ? '...' : 'Reconnect'}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={gmailActionLoading}
+                                  onClick={handleDisconnectGmail}
+                                  style={{
+                                    padding: '10px 20px',
+                                    borderRadius: '10px',
+                                    fontFamily: "'DM Sans', system-ui, sans-serif",
+                                    fontSize: '14px',
+                                    color: '#64748B',
+                                  }}
+                                >
+                                  Disconnect
+                                </Button>
+                              </>
+                            ) : (
+                              <Button
+                                size="sm"
+                                disabled={gmailActionLoading}
+                                onClick={handleConnectGmail}
+                                style={{
+                                  padding: '10px 20px',
+                                  borderRadius: '10px',
+                                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                                  fontSize: '14px',
+                                  background: '#2563EB',
+                                  color: 'white',
+                                }}
+                              >
+                                {gmailActionLoading ? '...' : 'Connect Gmail'}
+                              </Button>
+                            )}
+                          </>
+                        )}
                       </div>
                     </div>
                   </SettingsSection>

@@ -7,7 +7,8 @@ from flask import Blueprint, request, jsonify
 from app.extensions import require_firebase_auth, require_tier, get_db
 from app.services.prompt_parser import parse_search_prompt_simple
 from app.services.reply_generation import batch_generate_emails
-from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user, download_resume_from_url
+from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user, download_resume_from_url, clear_user_gmail_integration
+from app.routes.gmail_oauth import build_gmail_oauth_url_for_user
 from app.services.reply_generation import email_body_mentions_resume
 from app.services.hunter import enrich_contacts_with_hunter
 from app.services.auth import check_and_reset_credits
@@ -320,10 +321,15 @@ def prompt_search():
             error_str = str(gmail_error).lower()
             if 'invalid_grant' in error_str or 'token has been expired or revoked' in error_str:
                 logger.warning(f"⚠️ Gmail token permanently invalid for user {user_id}")
+                uid = request.firebase_user["uid"]
+                user_email = request.firebase_user.get("email") or ""
+                auth_url = build_gmail_oauth_url_for_user(uid, user_email)
+                clear_user_gmail_integration(uid)
                 return jsonify({
                     'error': 'gmail_token_expired',
                     'message': 'Your Gmail connection has expired. Please reconnect your Gmail account.',
                     'require_reauth': True,
+                    'authUrl': auth_url,
                     'contacts': contacts,
                     'parsed_query': parsed,
                     'count': len(contacts)

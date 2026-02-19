@@ -4,6 +4,8 @@ from functools import lru_cache
 import time
 
 from app.extensions import get_db, require_firebase_auth
+from app.routes.gmail_oauth import build_gmail_oauth_url_for_user
+from app.services.gmail_client import clear_user_gmail_integration
 
 # Sync lock: skip Gmail calls if last sync was within this many seconds
 SYNC_LOCK_SECONDS = 10
@@ -958,11 +960,16 @@ def sync_thread(thread_id):
     if error_code == "contact_not_found":
         return jsonify({"error": "Contact not found", "error_code": "contact_not_found"}), 404
     if error_code == "gmail_disconnected":
+        uid = request.firebase_user["uid"]
+        user_email = request.firebase_user.get("email") or ""
+        auth_url = build_gmail_oauth_url_for_user(uid, user_email)
+        clear_user_gmail_integration(uid)
         return jsonify({
             "thread": thread,
             "synced": False,
             "error": "gmail_disconnected",
-            "message": "Please reconnect Gmail"
+            "message": "Please reconnect Gmail",
+            "authUrl": auth_url,
         }), 401
     if error_code == "rate_limited":
         return jsonify({

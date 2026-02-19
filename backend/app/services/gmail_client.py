@@ -35,6 +35,16 @@ def _gmail_client_config():
     }
 
 
+def clear_user_gmail_integration(uid):
+    """Clear Gmail integration for a user so gmail/status reflects disconnected state."""
+    db = get_db()
+    if not db:
+        return
+    ref = db.collection("users").document(uid).collection("integrations").document("gmail")
+    ref.delete()
+    print(f"🗑️ Cleared Gmail integration for user {uid}")
+
+
 def _save_user_gmail_creds(uid, creds):
     """Save user Gmail credentials to Firestore"""
     db = get_db()

@@ -16,6 +16,47 @@ from ..extensions import get_db
 gmail_oauth_bp = Blueprint('gmail_oauth', __name__, url_prefix='/api/google')
 
 
+def build_gmail_oauth_url_for_user(uid, user_email=None):
+    """
+    Build Gmail OAuth URL for a user (e.g. when returning 401 gmail_token_expired).
+    Stores state in Firestore and returns the auth URL. Callable from any route that has uid.
+    """
+    db = get_db()
+    if not db:
+        return None
+    user_email = (user_email or "").strip().lower() or None
+    state = secrets.token_urlsafe(32)
+    state_data = {
+        "uid": uid,
+        "email": user_email,
+        "created": datetime.utcnow(),
+        "expires": datetime.utcnow() + timedelta(minutes=15),
+    }
+    try:
+        db.collection("oauth_state").document(state).set(state_data)
+    except Exception as e:
+        print(f"⚠️ Failed to save OAuth state for reconnect URL: {e}")
+        return None
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    if not client_id:
+        return None
+    redirect_uri = OAUTH_REDIRECT_URI
+    auth_base = "https://accounts.google.com/o/oauth2/v2/auth"
+    scope_string = " ".join(GMAIL_SCOPES)
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": scope_string,
+        "access_type": "offline",
+        "state": state,
+        "prompt": "consent",
+    }
+    if user_email:
+        params["login_hint"] = user_email
+    return f"{auth_base}?{urlencode(params)}"
+
+
 # Add a before_request handler to log ALL requests to this blueprint
 @gmail_oauth_bp.before_request
 def log_oauth_request():
