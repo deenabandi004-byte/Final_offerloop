@@ -252,7 +252,7 @@ const Pricing = () => {
           credits: 300,
           maxCredits: 300
         }); 
-        navigate("/dashboard");
+        navigate("/contact-search");
       } 
       else if (planType === 'pro' || planType === 'elite') {
         // Track PostHog event
@@ -361,11 +361,11 @@ const Pricing = () => {
         {/* Back Navigation */}
         <div className="mb-8 animate-fadeInUp">
           <button
-            onClick={() => navigate("/dashboard")}
+            onClick={() => navigate("/contact-search")}
             className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors group"
           >
             <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-            <span className="font-medium">Back to Dashboard</span>
+            <span className="font-medium">Find people</span>
           </button>
         </div>
 

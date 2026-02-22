@@ -68,7 +68,7 @@ const getActivityRoute = (type: string): string => {
     case 'interviewPrep':
       return '/interview-prep';
     default:
-      return '/dashboard';
+      return '/contact-search';
   }
 };
 

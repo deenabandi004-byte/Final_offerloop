@@ -34,7 +34,7 @@ const TermsOfService = React.lazy(() => import("./pages/TermsOfService"));
 const TermsOfServiceSettings = React.lazy(() => import("./pages/TermsOfServiceSettings"));
 const AccountSettings = React.lazy(() => import("./pages/AccountSettings"));
 const Pricing = React.lazy(() => import("./pages/Pricing"));
-const DashboardPage = React.lazy(() => import("./pages/DashboardPage"));
+const DocumentationPage = React.lazy(() => import("./pages/DocumentationPage"));
 const JobBoardPage = React.lazy(() => import("./pages/JobBoardPage"));
 const RecruiterSpreadsheetPage = React.lazy(() => import("./pages/RecruiterSpreadsheetPage"));
 const HiringManagerTrackerPage = React.lazy(() => import("./pages/HiringManagerTrackerPage"));
@@ -172,12 +172,12 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   // Only redirect authenticated users if they're not coming from sign-out
   if (user) {
-    const redirectPath = user.needsOnboarding ? "/onboarding" : "/dashboard";
+    const redirectPath = user.needsOnboarding ? "/onboarding" : "/contact-search";
     devLog("🛣️ [PUBLIC ROUTE] User authenticated, redirecting to:", redirectPath);
     return user.needsOnboarding ? (
       <Navigate to="/onboarding" replace />
     ) : (
-      <Navigate to="/dashboard" replace />
+      <Navigate to="/contact-search" replace />
     );
   }
   
@@ -212,15 +212,16 @@ const AppRoutes: React.FC = () => {
       <Route path="/onboarding/*" element={<Navigate to="/onboarding" replace />} />
 
       {/* Protected App Pages - Wrapped in Suspense for lazy loading */}
-      <Route path="/dashboard" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><DashboardPage /></Suspense></ProtectedRoute>} />
+      <Route path="/dashboard" element={<Navigate to="/contact-search" replace />} />
       <Route path="/outbox" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><Outbox /></Suspense></ProtectedRoute>} />
       <Route path="/calendar" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CalendarPage /></Suspense></ProtectedRoute>} />
-      {/* Legacy /home redirect to dashboard */}
-      <Route path="/home" element={<Navigate to="/dashboard" replace />} />
+      {/* Legacy /home redirect to contact search */}
+      <Route path="/home" element={<Navigate to="/contact-search" replace />} />
       <Route path="/contact-directory" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ContactDirectory /></Suspense></ProtectedRoute>} />
       <Route path="/coffee-chat-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoffeeChatLibrary /></Suspense></ProtectedRoute>} />
       <Route path="/account-settings" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AccountSettings /></Suspense></ProtectedRoute>} />
       <Route path="/pricing" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><Pricing /></Suspense></ProtectedRoute>} />
+      <Route path="/documentation" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><DocumentationPage /></Suspense></ProtectedRoute>} />
       <Route path="/payment-success" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><PaymentSuccess /></Suspense></ProtectedRoute>} />
       
       {/* Feature Pages - Largest pages, most important to lazy load */}
@@ -272,8 +273,8 @@ const ScoutRedirect: React.FC = () => {
     openPanel();
   }, [openPanel]);
   
-  // Redirect to dashboard
-  return <Navigate to="/dashboard" replace />;
+  // Redirect to contact search
+  return <Navigate to="/contact-search" replace />;
 };
 
 /* ---------------- Conditional Background Wrapper ---------------- */

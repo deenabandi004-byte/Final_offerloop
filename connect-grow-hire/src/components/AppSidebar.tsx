@@ -261,9 +261,9 @@ const userMenuItems = [
 ];
 
 // Standalone navigation items (below TRACK, not grouped)
-const standaloneItems = [
+const standaloneItems: { title: string; url: string; icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; external?: boolean }[] = [
   { title: "Pricing", url: "/pricing", icon: PricingIcon },
-  { title: "Documentation", url: "https://docs.offerloop.ai", icon: DocumentationIcon, external: true },
+  { title: "Documentation", url: "/documentation", icon: DocumentationIcon },
 ];
 
 export function AppSidebar() {

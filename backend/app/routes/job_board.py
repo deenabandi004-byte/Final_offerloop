@@ -37,7 +37,8 @@ job_board_bp = Blueprint("job_board", __name__, url_prefix="/api/job-board")
 # =============================================================================
 
 OPTIMIZATION_CREDIT_COST = 20
-COVER_LETTER_CREDIT_COST = 15
+COVER_LETTER_CREDIT_COST = 5
+RECRUITER_CREDIT_COST = 5  # per recruiter or hiring manager
 CACHE_DURATION_HOURS = 6  # How long to cache job results
 
 # Error Messages for Resume Optimization
@@ -7336,7 +7337,7 @@ def find_recruiter_endpoint():
                 "suggestion": "Please provide a company name, paste a job URL, or include the company name in the job description."
             }), 400
         
-        # Check user credits (minimum 15 for 1 contact)
+        # Check user credits (minimum RECRUITER_CREDIT_COST for 1 contact)
         db = get_db()
         if not db:
             return jsonify({"error": "Database not available"}), 500
@@ -7351,10 +7352,10 @@ def find_recruiter_endpoint():
         user_data = sanitize_firestore_data(user_data, depth=0, max_depth=20)
         current_credits = check_and_reset_credits(user_ref, user_data)
         
-        if current_credits < 15:
+        if current_credits < RECRUITER_CREDIT_COST:
             return jsonify({
                 "error": "Insufficient credits",
-                "creditsRequired": 15,
+                "creditsRequired": RECRUITER_CREDIT_COST,
                 "creditsAvailable": current_credits
             }), 402
         
@@ -7366,8 +7367,8 @@ def find_recruiter_endpoint():
         else:
             max_results_requested = 5
         
-        # Calculate how many recruiters user can afford (15 credits per recruiter)
-        max_affordable = current_credits // 15
+        # Calculate how many recruiters user can afford (RECRUITER_CREDIT_COST per recruiter)
+        max_affordable = current_credits // RECRUITER_CREDIT_COST
         # Use the minimum of what user requested and what they can afford
         max_results_to_fetch = min(max_results_requested, max_affordable)
         
@@ -7431,7 +7432,7 @@ def find_recruiter_endpoint():
         
         # Check if there are more available but user ran out of credits
         has_more = len(all_recruiters) > max_affordable or total_found > max_affordable
-        credits_needed_for_more = (len(all_recruiters) - max_affordable) * 15 if has_more else 0
+        credits_needed_for_more = (len(all_recruiters) - max_affordable) * RECRUITER_CREDIT_COST if has_more else 0
         
         # Create Gmail drafts if requested
         drafts_created = []
@@ -7531,7 +7532,7 @@ def find_recruiter_endpoint():
                 print(f"[FindRecruiter] User ID: {user_id}")
         
         # Deduct credits for what we're returning
-        credits_charged = 15 * len(affordable_recruiters)
+        credits_charged = RECRUITER_CREDIT_COST * len(affordable_recruiters)
         if credits_charged > 0:
             user_ref.update({
                 'credits': firestore.Increment(-credits_charged)
@@ -7563,8 +7564,8 @@ def find_recruiter_endpoint():
         elif has_more and len(affordable_recruiters) == 0:
             response["hasMore"] = True
             response["moreAvailable"] = total_found
-            response["creditsNeededForMore"] = total_found * 15
-            response["message"] = f"Found {total_found} recruiter(s) but you need {total_found * 15} credits to view them. You currently have {current_credits} credits."
+            response["creditsNeededForMore"] = total_found * RECRUITER_CREDIT_COST
+            response["message"] = f"Found {total_found} recruiter(s) but you need {total_found * RECRUITER_CREDIT_COST} credits to view them. You currently have {current_credits} credits."
         
         return jsonify(response)
         
@@ -7687,7 +7688,7 @@ def find_hiring_manager_endpoint():
                 "suggestion": "Please provide a company name, paste a job URL, or include the company name in the job description."
             }), 400
         
-        # Check user credits (minimum 15 for 1 contact)
+        # Check user credits (minimum RECRUITER_CREDIT_COST for 1 contact)
         db = get_db()
         if not db:
             return jsonify({"error": "Database not available"}), 500
@@ -7702,10 +7703,10 @@ def find_hiring_manager_endpoint():
         user_data = sanitize_firestore_data(user_data, depth=0, max_depth=20)
         current_credits = check_and_reset_credits(user_ref, user_data)
         
-        if current_credits < 15:
+        if current_credits < RECRUITER_CREDIT_COST:
             return jsonify({
                 "error": "Insufficient credits",
-                "creditsRequired": 15,
+                "creditsRequired": RECRUITER_CREDIT_COST,
                 "creditsAvailable": current_credits
             }), 402
         
@@ -7717,8 +7718,8 @@ def find_hiring_manager_endpoint():
         else:
             max_results_requested = 3
         
-        # Calculate how many hiring managers user can afford (15 credits per manager)
-        max_affordable = current_credits // 15
+        # Calculate how many hiring managers user can afford (RECRUITER_CREDIT_COST per manager)
+        max_affordable = current_credits // RECRUITER_CREDIT_COST
         # Use the minimum of what user requested and what they can afford
         max_results_to_fetch = min(max_results_requested, max_affordable)
         
@@ -7893,7 +7894,7 @@ def find_hiring_manager_endpoint():
                 print(f"[FindHiringManager] Gmail not connected, skipping draft creation")
         
         # Deduct credits for what we're returning
-        credits_charged = 15 * len(affordable_managers)
+        credits_charged = RECRUITER_CREDIT_COST * len(affordable_managers)
         if credits_charged > 0:
             user_ref.update({
                 'credits': firestore.Increment(-credits_charged)
@@ -7921,12 +7922,137 @@ def find_hiring_manager_endpoint():
         return jsonify({"error": str(e)}), 500
 
 
+@job_board_bp.route("/save-recruiters", methods=["POST"])
+@require_firebase_auth
+def save_recruiters_to_tracker():
+    """
+    Save recruiters (from find-recruiter or find-hiring-manager) to the user's
+    Hiring Manager Tracker (Firestore users/{uid}/recruiters).
+    Used by the Chrome extension so results are saved like on the website.
+    """
+    try:
+        user_id = request.firebase_user.get("uid")
+        data = request.get_json(force=True, silent=True) or {}
+        recruiters = data.get("recruiters") or []
+        drafts_created = data.get("draftsCreated") or []
+        company_cleaned = data.get("companyCleaned") or data.get("company") or ""
+        associated_job_title = data.get("associatedJobTitle") or data.get("jobTitle") or ""
+        associated_job_url = data.get("associatedJobUrl") or data.get("jobUrl") or ""
+
+        if not recruiters:
+            return jsonify({"saved": 0, "skipped": 0, "message": "No recruiters to save"}), 200
+
+        db = get_db()
+        if not db:
+            return jsonify({"error": "Database not available"}), 500
+
+        # Build draft map: email -> { draft_id, draft_url, message_id }
+        draft_map = {}
+        for d in drafts_created:
+            email = (d.get("recruiter_email") or d.get("recruiterEmail") or "").strip().lower()
+            if email:
+                draft_map[email] = {
+                    "draft_id": d.get("draft_id"),
+                    "draft_url": d.get("draft_url"),
+                    "message_id": d.get("message_id"),
+                }
+
+        # Convert API recruiter shape to Firestore document shape (match frontend firebaseApi)
+        def to_firestore_recruiter(r):
+            email = (r.get("Email") or r.get("email") or r.get("WorkEmail") or r.get("work_email") or "").strip()
+            city = (r.get("City") or r.get("city") or "").strip()
+            state = (r.get("State") or r.get("state") or "").strip()
+            location = ", ".join(filter(None, [city, state])).strip()
+            doc_data = {
+                "firstName": (r.get("FirstName") or r.get("firstName") or r.get("first_name") or "").strip(),
+                "lastName": (r.get("LastName") or r.get("lastName") or r.get("last_name") or "").strip(),
+                "linkedinUrl": (r.get("LinkedIn") or r.get("linkedin") or r.get("linkedinUrl") or r.get("linkedin_url") or "").strip(),
+                "email": email,
+                "company": (r.get("Company") or r.get("company") or company_cleaned or "").strip(),
+                "jobTitle": (r.get("Title") or r.get("title") or r.get("jobTitle") or r.get("job_title") or associated_job_title or "").strip(),
+                "location": location,
+                "dateAdded": datetime.utcnow().isoformat() + "Z",
+                "status": "Not Contacted",
+                "createdAt": datetime.utcnow().isoformat() + "Z",
+                "updatedAt": datetime.utcnow().isoformat() + "Z",
+            }
+            if r.get("Phone") or r.get("phone"):
+                doc_data["phone"] = r.get("Phone") or r.get("phone")
+            if r.get("WorkEmail") or r.get("work_email"):
+                doc_data["workEmail"] = r.get("WorkEmail") or r.get("work_email")
+            if r.get("PersonalEmail") or r.get("personal_email"):
+                doc_data["personalEmail"] = r.get("PersonalEmail") or r.get("personal_email")
+            if associated_job_title:
+                doc_data["associatedJobTitle"] = associated_job_title
+            if associated_job_url:
+                doc_data["associatedJobUrl"] = associated_job_url
+            draft_info = draft_map.get(email.lower()) if email else None
+            if draft_info:
+                if draft_info.get("draft_id"):
+                    doc_data["gmailDraftId"] = draft_info["draft_id"]
+                if draft_info.get("draft_url"):
+                    doc_data["gmailDraftUrl"] = draft_info["draft_url"]
+                if draft_info.get("message_id"):
+                    doc_data["gmailMessageId"] = draft_info["message_id"]
+            return doc_data
+
+        # Get existing recruiters for deduplication
+        recruiters_ref = db.collection("users").document(user_id).collection("recruiters")
+        existing = recruiters_ref.stream()
+        existing_emails = set()
+        existing_linkedins = set()
+        for doc_snap in existing:
+            d = doc_snap.to_dict()
+            if d.get("email"):
+                existing_emails.add((d.get("email") or "").strip().lower())
+            if d.get("linkedinUrl"):
+                existing_linkedins.add((d.get("linkedinUrl") or "").strip())
+
+        to_save = []
+        for r in recruiters:
+            doc_data = to_firestore_recruiter(r)
+            email = (doc_data.get("email") or "").strip().lower()
+            linkedin = (doc_data.get("linkedinUrl") or "").strip()
+            if email and email in existing_emails:
+                continue
+            if linkedin and linkedin in existing_linkedins:
+                continue
+            to_save.append(doc_data)
+            if email:
+                existing_emails.add(email)
+            if linkedin:
+                existing_linkedins.add(linkedin)
+
+        if not to_save:
+            return jsonify({"saved": 0, "skipped": len(recruiters), "message": "All recruiters already in tracker"}), 200
+
+        # Batch write (Firestore limit 500; we have at most a few dozen)
+        batch = db.batch()
+        for doc_data in to_save:
+            new_ref = recruiters_ref.document()
+            batch.set(new_ref, doc_data)
+        batch.commit()
+
+        print(f"[JobBoard] Saved {len(to_save)} recruiter(s) to Hiring Manager Tracker for user {user_id}")
+        return jsonify({
+            "saved": len(to_save),
+            "skipped": len(recruiters) - len(to_save),
+            "message": f"Saved {len(to_save)} to Hiring Manager Tracker",
+        }), 200
+
+    except Exception as e:
+        print(f"[JobBoard] save-recruiters error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 @job_board_bp.route("/generate-cover-letter", methods=["POST"])
 @require_firebase_auth
 def generate_cover_letter():
     """
     Generate a personalized cover letter for a job.
-    Cost: 15 credits
+    Cost: 5 credits
     """
     try:
         data = request.get_json(force=True, silent=True) or {}

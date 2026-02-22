@@ -156,10 +156,10 @@ const ContactUs = () => {
         <div className="hidden md:flex items-center gap-4">
           {user ? (
             <button
-              onClick={() => navigate('/dashboard')}
+              onClick={() => navigate('/contact-search')}
               className="btn-ghost"
             >
-              Go to Dashboard
+              Find people
             </button>
           ) : (
             <>
@@ -234,12 +234,12 @@ const ContactUs = () => {
               {user ? (
                 <button
                   onClick={() => {
-                    navigate('/dashboard');
+                    navigate('/contact-search');
                     setMobileMenuOpen(false);
                   }}
                   className="btn-ghost w-full text-left px-4 py-3"
                 >
-                  Go to Dashboard
+                  Find people
                 </button>
               ) : (
                 <>

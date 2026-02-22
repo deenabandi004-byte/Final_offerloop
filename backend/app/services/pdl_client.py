@@ -1789,7 +1789,7 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
         r = _session.post(url, headers=headers, json=body, timeout=30)
     pdl_api_time += time.time() - pdl_api_start
     
-    # ✅ HANDLE 404 GRACEFULLY - Don't crash, just return empty
+    # ✅ HANDLE 404 GRACEFULLY - Return (empty, 404) so prompt-search caller can retry with relaxed query
     if r.status_code == 404:
         print(f"\n❌ PDL 404 ERROR - No records found matching query")
         print(f"Response: {r.text}")
@@ -1802,7 +1802,7 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
         print(f"   - Try a broader job title (e.g., 'engineer' instead of 'senior software engineer')")
         print(f"   - Remove the company filter")
         print(f"   - Try a different location or just state instead of city")
-        return []  # Return empty list to allow other search strategies
+        return ([], 404)
     
     # ✅ HANDLE OTHER ERRORS - raise_for_status will handle 4xx/5xx (except 404)
     if r.status_code != 200:
@@ -2008,7 +2008,7 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
             avg_extract = extract_time / len(data[:desired_limit])
             print(f"[PDL {search_type}] ⏱️  Avg extraction per contact: {avg_extract:.2f}s")
         
-        return extracted_contacts
+        return (extracted_contacts, 200)
 
     # ---- Page 2+
     while scroll and len(data) < desired_limit:
@@ -2229,7 +2229,7 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
         avg_extract = extract_time / len(data[:desired_limit])
         print(f"[PDL {search_type}] ⏱️  Avg extraction per contact: {avg_extract:.2f}s")
     
-    return extracted_contacts
+    return (extracted_contacts, 200)
 
 
 def try_metro_search_optimized(clean_title, similar_titles, company, location_strategy, max_contacts=8, college_alumni=None, exclude_keys=None):
@@ -2369,7 +2369,7 @@ def try_metro_search_optimized(clean_title, similar_titles, company, location_st
         
         page_size = int(min(100, max(1, fetch_limit)))
         
-        raw_contacts = execute_pdl_search(
+        raw_contacts, _ = execute_pdl_search(
             headers=headers,
             url=PDL_URL,
             query_obj=query_obj,
@@ -2495,7 +2495,7 @@ def try_locality_search_optimized(clean_title, similar_titles, company, location
     
     page_size = int(min(100, max(1, fetch_limit)))
 
-    raw_contacts = execute_pdl_search(
+    raw_contacts, _ = execute_pdl_search(
         headers=headers,
         url=PDL_URL,
         query_obj=query_obj,
@@ -2616,7 +2616,7 @@ def try_job_title_levels_search_enhanced(job_title_enrichment, company, city, st
     
     page_size = int(min(100, max(1, fetch_limit)))
 
-    raw_contacts = execute_pdl_search(
+    raw_contacts, _ = execute_pdl_search(
         headers=headers,
         url=PDL_URL,
         query_obj=query_obj,
@@ -2789,6 +2789,267 @@ def search_contacts_with_pdl_optimized(job_title, company, location, max_contact
 def search_contacts_with_pdl(job_title, company, location, max_contacts=8):
     """Wrapper function - redirect to optimized version for backward compatibility"""
     return search_contacts_with_pdl_optimized(job_title, company, location, max_contacts)
+
+
+def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
+    """
+    Build PDL Elasticsearch bool query from structured prompt parser output.
+    Uses same patterns as es_title_block, try_metro_search_optimized (location, company, schools).
+    Returns query_obj ready for execute_pdl_search.
+
+    retry_level: 0=full query; 1=simplify title to single broad match on core role; 2=drop title; 3=drop title and location.
+    Company and school filters are never dropped (user's core intent).
+    """
+    must = []
+
+    # ---- Title block ----
+    title_variations = parsed_prompt.get("title_variations") or []
+    titles = [t.strip().lower() for t in title_variations if t and str(t).strip()]
+
+    if retry_level == 0:
+        # Full: all title variations (phrase + match)
+        if titles:
+            title_clauses = (
+                [{"match_phrase": {"job_title": t}} for t in titles]
+                + [{"match": {"job_title": t}} for t in titles]
+            )
+            title_block = {"bool": {"should": title_clauses}}
+            must.append(title_block)
+        else:
+            must.append({"exists": {"field": "job_title"}})
+    elif retry_level == 1:
+        # Retry 1: single broad match on core role (first title only)
+        if titles:
+            core_role = titles[0]
+            title_block = {"match": {"job_title": core_role}}
+            must.append(title_block)
+        else:
+            must.append({"exists": {"field": "job_title"}})
+    elif retry_level == 2:
+        # Retry 2: no title filter (any role at company + school)
+        pass
+    else:
+        # Retry 3: no title, no location (handled below)
+        pass
+
+    # ---- Location block (skip when retry_level >= 3) ----
+    if retry_level < 3:
+        locations = parsed_prompt.get("locations") or []
+        location_str = (locations[0] if locations else "").strip() if locations else ""
+        if not location_str:
+            location_str = "united states"
+        cleaned_location = clean_location_name(location_str, use_pdl_api=False)
+        location_strategy = determine_location_strategy(cleaned_location)
+        strategy = location_strategy.get("strategy", "locality_primary")
+        metro_location = (location_strategy.get("metro_location") or "").lower()
+        city = (location_strategy.get("city") or "").lower()
+        state = (location_strategy.get("state") or "").lower()
+
+        if strategy == "country_only":
+            location_must = [{"term": {"location_country": "united states"}}]
+        else:
+            location_must = []
+            if metro_location and city:
+                location_must.append({
+                    "bool": {
+                        "should": [
+                            {"match": {"location_metro": metro_location}},
+                            {"match": {"location_locality": city}},
+                        ]
+                    }
+                })
+            elif metro_location:
+                location_must.append({"match": {"location_metro": metro_location}})
+            elif city:
+                location_must.append({"match": {"location_locality": city}})
+            if state:
+                location_must.append({
+                    "bool": {
+                        "should": [
+                            {"match": {"location_region": state}},
+                            {"match": {"location_locality": state}},
+                        ]
+                    }
+                })
+            location_must.append({"term": {"location_country": "united states"}})
+        loc_block = {"bool": {"must": location_must}}
+        must.append(loc_block)
+
+    # ---- Company block: never dropped ----
+    # Use both match_phrase (exact) and match (tokens) so e.g. "bain" matches "Bain & Company", "Bain Capital". Post-validation filters false positives.
+    companies = parsed_prompt.get("companies") or []
+    company_names = [c.get("name", "").strip() for c in companies if isinstance(c, dict) and c.get("name")]
+    if company_names:
+        company_clauses = []
+        for name in company_names:
+            n = name.lower().strip()
+            if n:
+                # Per company: match_phrase OR match for flexibility
+                company_clauses.append({
+                    "bool": {
+                        "should": [
+                            {"match_phrase": {"job_company_name": n}},
+                            {"match": {"job_company_name": n}},
+                        ]
+                    }
+                })
+        if company_clauses:
+            if len(company_clauses) == 1:
+                must.append(company_clauses[0])
+            else:
+                must.append({"bool": {"should": company_clauses}})
+
+    # Schools: match_phrase only with _school_aliases (OR alternatives); no minimum_should_match (PDL doesn't support it).
+    schools = parsed_prompt.get("schools") or []
+    if schools:
+        education_clauses = []
+        for school in schools:
+            aliases = _school_aliases(school)
+            for a in aliases:
+                education_clauses.append({"match_phrase": {"education.school.name": a}})
+        if education_clauses:
+            must.append({"bool": {"should": education_clauses}})
+
+    query_obj = {"bool": {"must": must}}
+    if retry_level > 0:
+        print(f"[build_query_from_prompt] Retry level {retry_level} query:\n{json.dumps(query_obj, indent=2)}")
+    else:
+        print(f"[build_query_from_prompt] Full Elasticsearch query:\n{json.dumps(query_obj, indent=2)}")
+    return query_obj
+
+
+def _contact_matches_prompt_criteria(contact, parsed_prompt, target_company):
+    """
+    Post-validation: return True if contact matches user's company and school criteria.
+    Returns (matches: bool, drop_reason: str | None).
+    """
+    name = f"{contact.get('FirstName', '')} {contact.get('LastName', '')}".strip()
+    companies = parsed_prompt.get("companies") or []
+    schools = parsed_prompt.get("schools") or []
+
+    # Verbose debug: what we're checking
+    contact_company = (contact.get("Company") or "").strip()
+    is_current = contact.get("IsCurrentlyAtTarget", False)
+    college = (contact.get("College") or "").strip()
+    education_top = (contact.get("EducationTop") or "").strip()
+    first_job = (contact.get("experience") or [{}])[0] if (contact.get("experience")) else None
+    first_job_company = (first_job.get("company", {}) or {}).get("name") or first_job.get("company_name") or ""
+    print(f"[PostFilter] Checking contact: {name}")
+    print(f"[PostFilter] Target companies: {companies!r}, Contact company: {contact_company!r}, IsCurrentlyAtTarget: {is_current}, first_job_company: {first_job_company!r}")
+    print(f"[PostFilter] Target schools: {schools!r}, Contact College: {college!r}, EducationTop: {(education_top[:80] + ('...' if len(education_top) > 80 else ''))!r}")
+
+    # Company check: if user specified a company, contact must be currently at target company
+    if companies and target_company:
+        if not is_current:
+            print(f"[PostFilter] Result for {name}: FAIL — not currently at target company (expected={target_company})")
+            return False, "not_currently_at_target"
+        actual = contact_company
+        if not actual:
+            print(f"[PostFilter] Result for {name}: FAIL — company mismatch (expected={target_company}, got=no company)")
+            return False, "company_mismatch"
+        cleaned_expected = clean_company_name(target_company).lower().strip()
+        cleaned_actual = clean_company_name(actual).lower().strip()
+        if cleaned_expected != cleaned_actual and not (cleaned_expected in cleaned_actual and len(cleaned_expected) >= 3):
+            print(f"[PostFilter] Result for {name}: FAIL — company mismatch (expected={target_company}, got={actual})")
+            return False, "company_mismatch"
+
+    # School check: if user specified schools, contact must have at least one matching school
+    if schools:
+        alias_set = set()
+        for school in schools:
+            for a in _school_aliases(school):
+                if a:
+                    alias_set.add(a.lower().strip())
+        if not alias_set:
+            print(f"[PostFilter] Result for {name}: PASS (no school aliases to check)")
+            return True, None
+        college_lower = college.lower().strip()
+        education_top_lower = education_top.lower().strip()
+        combined = f"{college_lower} {education_top_lower}"
+        if not combined.strip():
+            print(f"[PostFilter] Result for {name}: FAIL — school mismatch (expected one of {schools}, got=no education)")
+            return False, "school_mismatch"
+        if not any(alias in combined or alias in college_lower or college_lower in alias for alias in alias_set):
+            print(f"[PostFilter] Result for {name}: FAIL — school mismatch (expected one of {schools}, got College={contact.get('College')})")
+            return False, "school_mismatch"
+
+    print(f"[PostFilter] Result for {name}: PASS")
+    return True, None
+
+
+def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_keys=None):
+    """
+    Run PDL person search from structured prompt output. Reuses execute_pdl_search,
+    applies exclusion filtering and post-validation (company/school match), returns contacts.
+    Post-validation runs AFTER execute_pdl_search and BEFORE contacts are returned (so before emails/drafts).
+    """
+    print(f"[PostFilter] search_contacts_from_prompt called (max_contacts={max_contacts}, parsed keys={list(parsed_prompt.keys())})")
+    exclude_keys = exclude_keys or set()
+    target_company = None
+    companies = parsed_prompt.get("companies") or []
+    if companies and isinstance(companies[0], dict):
+        target_company = (companies[0].get("name") or "").strip() or None
+
+    PDL_URL = f"{PDL_BASE_URL}/person/search"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
+    }
+    fetch_limit = int(min(max_contacts * 2, 50))
+    page_size = min(100, max(1, fetch_limit))
+
+    raw_contacts = []
+    status_code = 200
+    for attempt in range(4):
+        if attempt >= 1:
+            if attempt == 1:
+                print(f"[PDL Retry] Attempt 1: simplify titles only (single broad match on core role); keep company + school + location")
+            elif attempt == 2:
+                print(f"[PDL Retry] Attempt 2: drop title filter (keep company + school + location)")
+            else:
+                print(f"[PDL Retry] Attempt 3: drop location filter (keep company + school only)")
+        query_obj = build_query_from_prompt(parsed_prompt, retry_level=attempt)
+        raw_contacts, status_code = execute_pdl_search(
+            headers=headers,
+            url=PDL_URL,
+            query_obj=query_obj,
+            desired_limit=fetch_limit,
+            search_type="prompt_search",
+            page_size=page_size,
+            verbose=False,
+            target_company=target_company,
+        )
+        if status_code != 404:
+            break
+        # 404: no results for this query; try next relaxation
+
+    if not raw_contacts:
+        return []
+
+    companies_from_prompt = parsed_prompt.get("companies") or []
+    schools_from_prompt = parsed_prompt.get("schools") or []
+    print(f"[PostFilter] Running post-validation on {len(raw_contacts)} contacts (parsed companies={companies_from_prompt!r}, schools={schools_from_prompt!r}, target_company={target_company!r})")
+
+    filtered = []
+    post_filter_dropped = 0
+    for contact in raw_contacts:
+        key = get_contact_identity(contact)
+        if key in exclude_keys:
+            continue
+        matches, _ = _contact_matches_prompt_criteria(contact, parsed_prompt, target_company)
+        if not matches:
+            post_filter_dropped += 1
+            continue
+        filtered.append(contact)
+    if exclude_keys and (len(raw_contacts) != len(filtered) + post_filter_dropped):
+        print(f"🔍 Prompt search filtering: raw={len(raw_contacts)}, excluded=already seen, returned={len(filtered)}")
+    if post_filter_dropped > 0:
+        print(f"[PostFilter] Kept {len(filtered)} contacts after post-validation (dropped {post_filter_dropped} non-matching)")
+    # Sort: contacts with LinkedIn URL first (stable sort). Never drop contacts for missing LinkedIn.
+    linkedin_val = lambda c: (c.get("LinkedIn") or c.get("linkedin_url") or "").strip()
+    filtered.sort(key=lambda c: (0 if linkedin_val(c) else 1))
+    return filtered[:max_contacts]
 
 
 def enrich_linkedin_profile(linkedin_url):

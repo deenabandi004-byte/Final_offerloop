@@ -11,7 +11,7 @@ from email_templates import (
     EMAIL_PURPOSE_PRESETS,
 )
 
-EMAIL_TEMPLATE_MAX_CUSTOM_LEN = 500
+EMAIL_TEMPLATE_MAX_CUSTOM_LEN = 1000
 
 VALID_PURPOSES = frozenset(EMAIL_PURPOSE_PRESETS.keys()) | {"custom"}
 VALID_STYLE_PRESETS = frozenset(EMAIL_STYLE_PRESETS.keys())
@@ -43,7 +43,7 @@ def _validate_body():
     if len(custom_instructions) > EMAIL_TEMPLATE_MAX_CUSTOM_LEN:
         return None, (
             jsonify({
-                "error": "customInstructions must be at most 500 characters",
+                "error": f"customInstructions must be at most {EMAIL_TEMPLATE_MAX_CUSTOM_LEN} characters",
                 "max": EMAIL_TEMPLATE_MAX_CUSTOM_LEN,
             }),
             400,

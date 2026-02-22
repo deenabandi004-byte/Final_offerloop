@@ -3,8 +3,182 @@ Prompt parser service - converts natural language prompts into structured search
 """
 import json
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from app.services.openai_client import get_openai_client
+
+# Default timeout for OpenAI prompt parsing (keep prompt search fast)
+PROMPT_PARSE_TIMEOUT = 10.0
+
+
+def parse_search_prompt_structured(prompt: str) -> Dict[str, Any]:
+    """
+    Parse a natural language search prompt into structured params with company-specific
+    job titles. Uses OpenAI with structured JSON output for the new prompt-based contact search.
+
+    Returns:
+        Dict with: original_prompt, company_context (brief description of what the company does),
+        companies [{name, matched_titles}], locations, schools, seniority_levels, industries,
+        confidence ("high"|"low"), title_variations (flat list). On error: includes "error" key.
+        If confidence is "low", caller should reject or ask user to be more specific.
+    """
+    client = get_openai_client()
+    if not client:
+        return {
+            "error": "OpenAI client not available",
+            "confidence": "low",
+            "original_prompt": prompt,
+            "company_context": "",
+            "companies": [],
+            "locations": [],
+            "schools": [],
+            "seniority_levels": [],
+            "industries": [],
+            "title_variations": [],
+        }
+
+    system_prompt = """You are a contact search query parser. Extract structured search parameters from a user's natural language prompt for finding professional contacts.
+
+RULES:
+1. Extract companies, locations, schools, and seniority when mentioned.
+2. For EACH company mentioned, generate the REAL job titles that actual employees at that company have on LinkedIn — not job posting titles, not generic titles. Use company-specific naming:
+   - Amazon: use "SDE", "Software Development Engineer", not "Software Engineer".
+   - Google: use "Software Engineer", "Product Manager", not "SDE".
+   - Meta: use "Software Engineer" with team suffixes where relevant, "Product Manager".
+   - Finance: "Investment Banking Analyst", "Investment Banking Associate", "Investment Banking VP" — never standalone "Associate" or "VP".
+3. Title variations must contain the core domain keyword. Do not use standalone generic titles like "associate", "vp", "manager", "analyst" without the domain qualifier. Examples: "investment banker", "investment banking analyst", "investment banking associate" (not "associate", "vp" alone); "software engineer", "senior software engineer" (not just "engineer" or "manager" alone).
+4. Include seniority only when combined with the domain: e.g. "investment banking associate", "software engineering manager".
+5. Include closely related roles: if user says "PM", include "Product Manager", "Technical Program Manager", "Program Manager".
+6. Expand shorthand:
+   - "FAANG" → Google, Apple, Meta, Amazon, Netflix
+   - "Big 4" → Deloitte, PwC, EY, KPMG
+   - "MBB" → McKinsey, Bain, BCG
+7. Expand location shorthand: "NYC" → "New York", "SF" → "San Francisco", "LA" → "Los Angeles", "DC" → "Washington".
+8. Set confidence to "low" ONLY when the prompt has no specifics at all — no job titles/roles, no companies, no schools, and no location. Examples of LOW confidence: "find me people", "help", "good contacts". Examples of HIGH confidence: "Software engineers from USC" (title + school), "Product managers in NYC" (title + location), "People at Google" (company), "USC alumni in consulting" (school + industry). If the prompt has at least one of: title_variations, companies, schools, or locations, set confidence to "high".
+9. title_variations must be a flat, deduplicated list of ALL job titles across all companies for use in search.
+10. When a company is specified, generate title variations that people ACTUALLY use at that company, not generic industry titles. Think about what the company does and what titles exist there. If the user's role description doesn't match what the company does, interpret the user's INTENT — they probably want to connect with people in a related function at that company. Examples:
+   - "Investment bankers at Bain" → Bain is a consulting firm, not an investment bank. The user likely wants finance-related or client-facing roles at Bain. Generate titles like: "Consultant", "Associate Consultant", "Manager", "Senior Manager", "Partner".
+   - "Investment bankers at Goldman Sachs" → Goldman IS an investment bank. Generate: "Investment Banking Analyst", "Investment Banking Associate", "Vice President", "Managing Director".
+   - "Engineers at McKinsey" → McKinsey is a consulting firm that does have engineers. Generate: "Software Engineer", "Data Engineer", "Engineering Manager".
+   Always think about what titles actually exist at the specified company before generating variations.
+
+Return ONLY valid JSON with this exact structure (no markdown, no explanation):
+{
+  "original_prompt": "<user prompt>",
+  "company_context": "<brief description of what the specified company/companies do, e.g. 'Bain & Company is a management consulting firm'. Empty string if no company specified.>",
+  "companies": [{"name": "<company name>", "matched_titles": ["<title1>", "<title2>"]}],
+  "locations": ["<location1>", "<location2>"],
+  "schools": [],
+  "seniority_levels": [],
+  "industries": [],
+  "confidence": "high" or "low",
+  "title_variations": ["<title1>", "<title2>", ...]
+}"""
+
+    user_prompt = f'Extract search parameters from this prompt:\n\n"{prompt}"'
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_tokens=800,
+            temperature=0.2,
+            response_format={"type": "json_object"},
+            timeout=PROMPT_PARSE_TIMEOUT,
+        )
+        result_text = (response.choices[0].message.content or "").strip()
+        if not result_text:
+            return {
+                "error": "Empty response from OpenAI",
+                "confidence": "low",
+                "original_prompt": prompt,
+                "company_context": "",
+                "companies": [],
+                "locations": [],
+                "schools": [],
+                "seniority_levels": [],
+                "industries": [],
+                "title_variations": [],
+            }
+        parsed = json.loads(result_text)
+        return _validate_structured_parse(parsed, prompt)
+    except json.JSONDecodeError as e:
+        print(f"⚠️ Prompt parser JSON decode error: {e}")
+        return {
+            "error": "Failed to parse OpenAI response",
+            "confidence": "low",
+            "original_prompt": prompt,
+            "company_context": "",
+            "companies": [],
+            "locations": [],
+            "schools": [],
+            "seniority_levels": [],
+            "industries": [],
+            "title_variations": [],
+        }
+    except Exception as e:
+        print(f"⚠️ Prompt parser error: {e}")
+        return {
+            "error": str(e),
+            "confidence": "low",
+            "original_prompt": prompt,
+            "company_context": "",
+            "companies": [],
+            "locations": [],
+            "schools": [],
+            "seniority_levels": [],
+            "industries": [],
+            "title_variations": [],
+        }
+
+
+def _validate_structured_parse(parsed: Dict, original_prompt: str) -> Dict[str, Any]:
+    """Ensure all required keys and types; normalize lists and confidence."""
+    out = {
+        "original_prompt": str(parsed.get("original_prompt") or original_prompt),
+        "company_context": str(parsed.get("company_context") or "").strip(),
+        "companies": [],
+        "locations": [],
+        "schools": [],
+        "seniority_levels": [],
+        "industries": [],
+        "confidence": "low",
+        "title_variations": [],
+    }
+    if isinstance(parsed.get("companies"), list):
+        for c in parsed["companies"]:
+            if isinstance(c, dict) and c.get("name"):
+                titles = c.get("matched_titles") or []
+                out["companies"].append({
+                    "name": str(c["name"]).strip(),
+                    "matched_titles": [str(t).strip() for t in titles if t and str(t).strip()],
+                })
+    for key in ("locations", "schools", "seniority_levels", "industries", "title_variations"):
+        val = parsed.get(key)
+        if isinstance(val, list):
+            out[key] = [str(x).strip() for x in val if x and str(x).strip()]
+        elif isinstance(val, str) and val.strip():
+            out[key] = [val.strip()]
+    # Flatten title_variations from companies if not already populated
+    if not out["title_variations"] and out["companies"]:
+        seen = set()
+        for c in out["companies"]:
+            for t in c.get("matched_titles") or []:
+                if t and t not in seen:
+                    seen.add(t)
+                    out["title_variations"].append(t)
+    # Override confidence: high if we have at least one search dimension (title, company, school, or location)
+    has_specifics = bool(
+        out["title_variations"] or out["companies"] or out["schools"] or out["locations"]
+    )
+    if has_specifics:
+        out["confidence"] = "high"
+    else:
+        conf = (parsed.get("confidence") or "").strip().lower()
+        out["confidence"] = "high" if conf == "high" else "low"
+    return out
 
 
 def parse_search_prompt(prompt: str) -> Dict:

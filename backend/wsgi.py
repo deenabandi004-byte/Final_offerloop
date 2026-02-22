@@ -26,7 +26,6 @@ from .app.routes.dashboard import dashboard_bp
 from .app.routes.timeline import timeline_bp
 from .app.routes.search_history import search_history_bp
 from .app.routes.prompt_search import prompt_search_bp
-from .app.routes.prompt_search_simple import prompt_search_simple_bp
 from .app.routes.parse_prompt import parse_prompt_bp
 from .app.routes.contact_import import contact_import_bp
 from .app.routes.job_board import job_board_bp
@@ -119,7 +118,6 @@ def create_app() -> Flask:
     app.register_blueprint(timeline_bp)
     app.register_blueprint(search_history_bp)
     app.register_blueprint(prompt_search_bp)
-    app.register_blueprint(prompt_search_simple_bp)
     app.register_blueprint(parse_prompt_bp)
     app.register_blueprint(contact_import_bp)
     app.register_blueprint(job_board_bp)

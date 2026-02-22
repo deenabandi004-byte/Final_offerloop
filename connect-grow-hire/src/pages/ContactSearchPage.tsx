@@ -8,15 +8,14 @@ import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { useScout } from "@/contexts/ScoutContext";
 import {
   Search, Linkedin, Send, Loader2, Sparkles, ArrowRight,
-  Briefcase, Building2, MapPin, GraduationCap, User, Check, CheckCircle,
-  FileText, Upload, Mail, Inbox, AlertCircle, X
+  User, Check, CheckCircle,
+  FileText, Upload, Mail, Inbox, AlertCircle, X, ExternalLink
 } from "lucide-react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 // ScoutBubble removed - now using ScoutHeaderButton in PageHeaderActions
 import { Button } from "@/components/ui/button";
 import ContactDirectoryComponent from "@/components/ContactDirectory";
 import { Progress } from "@/components/ui/progress";
-import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { apiService, isErrorResponse, type EmailTemplate, hasEmailTemplateValues } from "@/services/api";
 import { firebaseApi } from "../services/firebaseApi";
 import type { Contact as ContactApi } from '../services/firebaseApi';
@@ -36,12 +35,12 @@ import { StickyCTA } from "@/components/StickyCTA";
 // Session storage key for Scout auto-populate
 const SCOUT_AUTO_POPULATE_KEY = 'scout_auto_populate';
 
-// Quick start templates for common searches
-const quickStartTemplates = [
-  { id: 1, label: 'IB Analyst in NYC', jobTitle: 'Investment Banking Analyst', location: 'New York, NY', company: '', college: '' },
-  { id: 2, label: 'PM at Google', jobTitle: 'Product Manager', company: 'Google', location: 'San Francisco, CA', college: '' },
-  { id: 3, label: 'Consulting at McKinsey', jobTitle: 'Consultant', company: 'McKinsey', location: 'New York, NY', college: '' },
-  { id: 4, label: 'SWE in Bay Area', jobTitle: 'Software Engineer', location: 'San Francisco, CA', company: '', college: '' },
+// Example prompt chips for discoverability
+const examplePromptChips = [
+  { id: 1, label: 'Software engineers at FAANG in SF', prompt: 'Software engineers at FAANG in SF' },
+  { id: 2, label: 'USC alumni in investment banking', prompt: 'USC alumni in investment banking' },
+  { id: 3, label: 'Marketing managers at startups in LA', prompt: 'Marketing managers at startups in LA' },
+  { id: 4, label: 'Consultants at McKinsey or Bain', prompt: 'Consultants at McKinsey or Bain' },
 ];
 
 // Helper function for contact count guidance
@@ -141,11 +140,8 @@ const ContactSearchPage: React.FC = () => {
   // Ref for original button to track visibility
   const originalButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Form state
-  const [jobTitle, setJobTitle] = useState("");
-  const [company, setCompany] = useState("");
-  const [location, setLocation] = useState("");
-  const [collegeAlumni, setCollegeAlumni] = useState("");
+  // Form state (prompt-based search)
+  const [searchPrompt, setSearchPrompt] = useState("");
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [savedResumeUrl, setSavedResumeUrl] = useState<string | null>(null);
   const [savedResumeFileName, setSavedResumeFileName] = useState<string | null>(null);
@@ -194,6 +190,7 @@ const ContactSearchPage: React.FC = () => {
   const [linkedInLoading, setLinkedInLoading] = useState(false);
   const [linkedInError, setLinkedInError] = useState<string | null>(null);
   const [linkedInSuccess, setLinkedInSuccess] = useState<string | null>(null);
+  const [linkedInLastDraftUrl, setLinkedInLastDraftUrl] = useState<string | null>(null);
 
   // Email template state (saved default + session override)
   const [savedEmailTemplate, setSavedEmailTemplate] = useState<EmailTemplate | null>(null);
@@ -217,17 +214,12 @@ const ContactSearchPage: React.FC = () => {
     const locationParam = searchParams.get('location');
 
     if (companyParam || locationParam) {
-      if (companyParam) {
-        setCompany(companyParam);
-      }
-      if (locationParam) {
-        setLocation(locationParam);
-      }
+      const parts = [];
+      if (companyParam) parts.push(`contacts at ${companyParam}`);
+      if (locationParam) parts.push(`in ${locationParam}`);
+      setSearchPrompt(parts.join(' ') || '');
 
-      // Clear URL params after reading to avoid re-triggering
       setSearchParams({}, { replace: true });
-
-      // Show toast to indicate pre-fill
       toast({
         title: "Search pre-filled",
         description: `Finding contacts at ${companyParam || 'this company'}`,
@@ -279,13 +271,17 @@ const ContactSearchPage: React.FC = () => {
   useEffect(() => {
     const applyPopulate = (populateData: { job_title?: string; company?: string; location?: string }) => {
       const { job_title, company: autoCompany, location: autoLocation } = populateData;
-      if (job_title != null && job_title !== '') setJobTitle(job_title);
-      if (autoCompany != null && autoCompany !== '') setCompany(autoCompany);
-      if (autoLocation != null && autoLocation !== '') setLocation(autoLocation);
-      toast({
-        title: "Search pre-filled",
-        description: "Scout has filled in your search fields. Click Search to find contacts.",
-      });
+      const parts = [];
+      if (job_title != null && job_title !== '') parts.push(job_title);
+      if (autoCompany != null && autoCompany !== '') parts.push(`at ${autoCompany}`);
+      if (autoLocation != null && autoLocation !== '') parts.push(`in ${autoLocation}`);
+      if (parts.length) {
+        setSearchPrompt(parts.join(' '));
+        toast({
+          title: "Search pre-filled",
+          description: "Scout has filled in your search. Click Search to find contacts.",
+        });
+      }
     };
 
     const handleAutoPopulate = () => {
@@ -330,14 +326,10 @@ const ContactSearchPage: React.FC = () => {
   const triggerScoutForNoResults = useCallback(() => {
     openPanelWithSearchHelp({
       searchType: 'contact',
-      failedSearchParams: {
-        job_title: jobTitle.trim(),
-        company: company.trim(),
-        location: location.trim(),
-      },
+      failedSearchParams: { prompt: searchPrompt.trim() },
       errorType: 'no_results',
     });
-  }, [openPanelWithSearchHelp, jobTitle, company, location]);
+  }, [openPanelWithSearchHelp, searchPrompt]);
 
   // Helper functions
   const stripUndefined = <T extends Record<string, any>>(obj: T) =>
@@ -546,26 +538,18 @@ const ContactSearchPage: React.FC = () => {
     }
   }, []);
 
-  // Scout job title suggestion handler
+  // Scout job title suggestion handler (sets prompt from role/company/location)
   const handleJobTitleSuggestion = (title: string, company?: string, location?: string) => {
-    setJobTitle(title);
-    if (company) setCompany(company);
-    if (location) setLocation(location);
-
-    // Note: Fit context is stored separately when user clicks "Find Contacts in This Role"
-    // from the job analysis panel, so we don't clear it here
+    const parts = [title];
+    if (company) parts.push(`at ${company}`);
+    if (location) parts.push(`in ${location}`);
+    setSearchPrompt(parts.join(' '));
   };
 
-  // Clear fit context when user manually edits search fields (starts fresh search)
+  // Clear fit context when user manually edits search (handled on explicit Clear or after search)
   useEffect(() => {
-    const handleFieldChange = () => {
-      // If user manually changes job title or clears it, they're starting a new search
-      // Don't auto-clear fit context though - let it persist until email generation
-    };
-
-    // Only clear fit context on explicit "Clear" action or new search without Scout
-    // Fit context will be cleared after email generation completes
-  }, [jobTitle, company]);
+    // Fit context will be cleared after email generation completes or on Clear
+  }, [searchPrompt]);
 
   // Load saved resume from Firestore
   const loadSavedResume = useCallback(async () => {
@@ -740,6 +724,7 @@ const ContactSearchPage: React.FC = () => {
     setLinkedInLoading(true);
     setLinkedInError(null);
     setLinkedInSuccess(null);
+    setLinkedInLastDraftUrl(null);
 
     try {
       // Get user resume text from Firestore
@@ -795,6 +780,7 @@ const ContactSearchPage: React.FC = () => {
         const successMessage = data.message || `Successfully imported ${data.contact.full_name}!`;
         setLinkedInSuccess(successMessage);
         setLinkedInUrl(''); // Clear the input field
+        setLinkedInLastDraftUrl(data.gmail_draft_url || null);
 
         // Update credits if provided
         if (data.credits_remaining !== undefined && updateCredits) {
@@ -830,12 +816,12 @@ const ContactSearchPage: React.FC = () => {
     }
   };
 
-  // Search handler
+  // Search handler (prompt-based, single flow for all tiers)
   const handleSearch = async () => {
-    if (!jobTitle.trim() || !location.trim()) {
+    if (!searchPrompt.trim()) {
       toast({
-        title: "Missing Required Fields",
-        description: "Please enter both job title and location.",
+        title: "Enter a search",
+        description: "Describe who you want to connect with (e.g. role, company, location).",
         variant: "destructive",
       });
       return;
@@ -852,34 +838,28 @@ const ContactSearchPage: React.FC = () => {
     }
 
     setIsSearching(true);
-    setProgressValue(10); // Start at 10% to show search has begun
+    setProgressValue(10);
     setSearchComplete(false);
 
-    // Progress simulation interval - declared outside try block for proper cleanup
     let progressInterval: NodeJS.Timeout | null = null;
     const startProgressSimulation = () => {
       let currentProgress = 10;
       progressInterval = setInterval(() => {
         if (currentProgress < 85) {
-          // Gradually increase progress up to 85% while waiting
-          currentProgress += Math.random() * 5 + 2; // Increment by 2-7%
-          currentProgress = Math.min(currentProgress, 85); // Cap at 85% until search completes
+          currentProgress += Math.random() * 5 + 2;
+          currentProgress = Math.min(currentProgress, 85);
           setProgressValue(Math.floor(currentProgress));
         }
-      }, 500); // Update every 500ms
+      }, 500);
     };
 
     try {
-      // Start progress simulation
       startProgressSimulation();
 
-      // ✅ FIXED: Parallelize API calls instead of sequential
       const [userProfile, currentCredits] = await Promise.all([
         getUserProfileData(),
         checkCredits ? checkCredits() : Promise.resolve(effectiveUser.credits ?? 0)
       ]);
-
-      // Update progress after initial data fetch
       setProgressValue(20);
 
       if (currentCredits < 15) {
@@ -894,333 +874,76 @@ const ContactSearchPage: React.FC = () => {
         return;
       }
 
-      // For pro and elite tiers, check if we have a resume (either uploaded in this session or saved)
-      if ((userTier === "pro" || userTier === "elite") && !uploadedFile && !savedResumeUrl) {
+      setProgressValue(40);
+      const result = await apiService.runPromptSearch({ prompt: searchPrompt.trim(), batchSize });
+
+      if (!isSearchResult(result)) {
         if (progressInterval) clearInterval(progressInterval);
         setIsSearching(false);
         setProgressValue(0);
+        const errMsg = (result as any)?.error || "Please try again.";
+        if ((result as any)?.error?.toLowerCase().includes("insufficient")) {
+          if (checkCredits) await checkCredits();
+        }
+        trackError('contact_search', 'search', 'api_error', errMsg);
         toast({
-          title: "Resume Required",
-          description: `${userTier === "elite" ? "Elite" : "Pro"} tier requires a resume upload for similarity matching.`,
+          title: "Search Failed",
+          description: errMsg,
           variant: "destructive",
         });
         return;
       }
 
-      // Helper function to get resume file (either uploaded or downloaded from saved URL)
-      const getResumeFile = async (): Promise<File> => {
-        if (uploadedFile) {
-          return uploadedFile;
-        }
+      if (progressInterval) clearInterval(progressInterval);
+      setProgressValue(90);
 
-        if (savedResumeUrl && savedResumeFileName) {
-          // Download the saved resume and convert to File
-          const response = await fetch(savedResumeUrl);
-          const blob = await response.blob();
-          return new File([blob], savedResumeFileName, { type: 'application/pdf' });
-        }
-
-        throw new Error('No resume available');
-      };
-
-      // Update progress before starting search
-      setProgressValue(30);
-
-      if (userTier === "free") {
-        const searchRequest = {
-          jobTitle: jobTitle.trim(),
-          company: company.trim() || "",
-          location: location.trim(),
-          saveToDirectory: false,
-          userProfile,
-          careerInterests: userProfile?.careerInterests || [],
-          collegeAlumni: (collegeAlumni || '').trim(),
-          batchSize: batchSize,
-          ...(activeEmailTemplate && hasEmailTemplateValues(activeEmailTemplate) ? { emailTemplate: activeEmailTemplate } : {}),
-        };
-
-        setProgressValue(40); // Progress update before API call
-        const result = await apiService.runFreeSearch(searchRequest);
-        if (!isSearchResult(result)) {
-          if (progressInterval) clearInterval(progressInterval);
-          setProgressValue(0);
-          toast({
-            title: "Search Failed",
-            description: (result as any)?.error || "Please try again.",
-            variant: "destructive",
-          });
-          return;
-        }
-
-        // Clear progress interval and update to 90% while processing results
-        if (progressInterval) clearInterval(progressInterval);
-        setProgressValue(90);
-
-        const creditsUsed = result.contacts.length * 15;
-        const newCredits = Math.max(0, currentCredits - creditsUsed);
-
-        // Wait for credits to be updated before showing success screen
-        if (updateCredits) {
-          await updateCredits(newCredits).catch(() => { });
-        }
-
-        // Set progress to 100% when search completes
-        setProgressValue(100);
-
-        setLastResults(result.contacts);
-
-        // Delay showing success message until after:
-        // 1. Credits are subtracted (already done above)
-        // 2. Contacts are saved to Firestore (backend completes before response, but allow propagation time)
-        // 3. All drafts are created and logged
-        setTimeout(() => {
-          setLastSearchStats({
-            successful_drafts: result.successful_drafts ?? 0,
-            total_contacts: result.contacts.length,
-          });
-          // Show success screen only after credits are updated and contacts are saved
-          setSearchComplete(true);
-        }, 2000); // 2 second delay to ensure Firestore writes propagate and credits are fully updated
-
-        // Trigger Scout if 0 results
-        if (result.contacts.length === 0) {
-          triggerScoutForNoResults();
-        }
-
-        // Track PostHog event
-        // Note: Only captures metadata (counts, credits, filter presence), not actual search terms or user input
-        trackFeatureActionCompleted('contact_search', 'search', true, {
-          results_count: result.contacts.length,
-          credits_spent: creditsUsed,
-          alumni_filter: !!(collegeAlumni || '').trim(),
-        });
-
-        // Log activity for contact search
-        if (user?.uid && result.contacts.length > 0) {
-          try {
-            const summary = generateContactSearchSummary({
-              jobTitle: jobTitle.trim(),
-              company: company.trim() || undefined,
-              location: location.trim(),
-              college: collegeAlumni.trim() || undefined,
-              contactCount: result.contacts.length,
-            });
-            await logActivity(user.uid, 'contactSearch', summary, {
-              jobTitle: jobTitle.trim(),
-              company: company.trim() || '',
-              location: location.trim(),
-              collegeAlumni: collegeAlumni.trim() || '',
-              contactCount: result.contacts.length,
-              tier: 'free',
-            });
-          } catch (error) {
-            const isDev = import.meta.env.DEV;
-            if (isDev) console.error('Failed to log contact search activity:', error);
-          }
-        }
-
-        // ✅ TASK 3: Contacts are now saved automatically in backend (run_pro_tier_enhanced_final_with_text)
-        // No need to call autoSaveToDirectory - this eliminates redundant duplicate checking
-        // DEBUG: Log raw search result contacts
-        console.log('[DEBUG] Raw search result contacts:', JSON.stringify(result.contacts.slice(0, 2), null, 2));
-
-        // Contacts are automatically saved to Firestore in the backend, so we skip the frontend save
-        toast({
-          title: "Search Complete!",
-          description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.`,
-          duration: 5000,
-        });
-
-        // OLD CODE (removed - contacts now saved in backend):
-        // try {
-        //   await autoSaveToDirectory(result.contacts, location.trim());
-        // } catch (error) {
-        //   console.error("Failed to save contacts:", error);
-        // }
-      } else if (userTier === "pro" || userTier === "elite") {
-        // Get resume file (either uploaded or from saved resume)
-        const resumeFile = await getResumeFile();
-
-        const proRequest = {
-          jobTitle: jobTitle.trim(),
-          company: company.trim() || "",
-          location: location.trim(),
-          resume: resumeFile,
-          saveToDirectory: false,
-          userProfile,
-          careerInterests: userProfile?.careerInterests || [],
-          collegeAlumni: (collegeAlumni || '').trim(),
-          batchSize: batchSize,
-          ...(activeEmailTemplate && hasEmailTemplateValues(activeEmailTemplate) ? { emailTemplate: activeEmailTemplate } : {}),
-        };
-
-        setProgressValue(40); // Progress update before API call
-        const result = await apiService.runProSearch(proRequest);
-        if (isErrorResponse(result)) {
-          if (progressInterval) clearInterval(progressInterval);
-          setIsSearching(false);
-          setProgressValue(0);
-          const errorType = result.error?.includes("Insufficient credits") ? "insufficient_credits" : "api_error";
-          trackError('contact_search', 'search', errorType, result.error);
-          if (result.error?.includes("Insufficient credits")) {
-            toast({
-              title: "Insufficient Credits",
-              description: result.error,
-              variant: "destructive",
-            });
-            if (checkCredits) await checkCredits();
-            return;
-          }
-          toast({
-            title: "Search Failed",
-            description: result.error || "Please try again.",
-            variant: "destructive",
-          });
-          return;
-        }
-
-        // Clear progress interval and update to 90% while processing results
-        if (progressInterval) clearInterval(progressInterval);
-        setProgressValue(90);
-
-        const creditsUsed = result.contacts.length * 15;
-        const newCredits = Math.max(0, currentCredits - creditsUsed);
-
-        // Wait for credits to be updated before showing success screen
-        if (updateCredits) {
-          await updateCredits(newCredits);
-        }
-
-        setLastResults(result.contacts);
-
-        // Delay showing success message until after:
-        // 1. Credits are subtracted (already done above)
-        // 2. Contacts are saved to Firestore (backend completes before response, but allow propagation time)
-        // 3. All drafts are created and logged
-        setTimeout(() => {
-          setLastSearchStats({
-            successful_drafts: result.successful_drafts,
-            total_contacts: result.contacts.length,
-          });
-          // Show success screen only after credits are updated and contacts are saved
-          setSearchComplete(true);
-        }, 2000); // 2 second delay to ensure Firestore writes propagate and credits are fully updated
-
-        setProgressValue(100);
-
-        // Trigger Scout if 0 results
-        if (result.contacts.length === 0) {
-          triggerScoutForNoResults();
-        }
-
-        // Track PostHog event
-        // Note: Only captures metadata (counts, credits, filter presence), not actual search terms or user input
-        trackFeatureActionCompleted('contact_search', 'search', true, {
-          results_count: result.contacts.length,
-          credits_spent: creditsUsed,
-          alumni_filter: !!(collegeAlumni || '').trim(),
-        });
-
-        // Log activity for contact search
-        if (user?.uid && result.contacts.length > 0) {
-          try {
-            const summary = generateContactSearchSummary({
-              jobTitle: jobTitle.trim(),
-              company: company.trim() || undefined,
-              location: location.trim(),
-              college: collegeAlumni.trim() || undefined,
-              contactCount: result.contacts.length,
-            });
-            await logActivity(user.uid, 'contactSearch', summary, {
-              jobTitle: jobTitle.trim(),
-              company: company.trim() || '',
-              location: location.trim(),
-              collegeAlumni: collegeAlumni.trim() || '',
-              contactCount: result.contacts.length,
-              tier: 'pro',
-            });
-          } catch (error) {
-            const isDev = import.meta.env.DEV;
-            if (isDev) console.error('Failed to log contact search activity:', error);
-          }
-        }
-
-        // Check if we have fit context for targeted emails
-        const hasFitContext = !!localStorage.getItem('scout_fit_context');
-        let fitContextInfo = null;
-        if (hasFitContext) {
-          try {
-            fitContextInfo = JSON.parse(localStorage.getItem('scout_fit_context') || '{}');
-            setCurrentFitContext(fitContextInfo); // Store for UI display
-          } catch (e) {
-            // Ignore parse errors
-          }
-        }
-
-        // ✅ FIX: Check if contacts already have emails generated by backend
-        // The backend search endpoint already generates emails and creates drafts,
-        // so we only need to call generateAndDraftEmailsBatch if emails are missing
-        const contactsWithEmails = result.contacts.filter(
-          (c: any) => (c.emailSubject || c.email_subject) && (c.emailBody || c.email_body)
-        );
-        const contactsWithoutEmails = result.contacts.filter(
-          (c: any) => !(c.emailSubject || c.email_subject) || !(c.emailBody || c.email_body)
-        );
-
-        if (contactsWithoutEmails.length > 0) {
-          // Only generate emails for contacts that don't have them
-          console.log(`[ContactSearch] ${contactsWithEmails.length} contacts already have emails, generating for ${contactsWithoutEmails.length} remaining contacts`);
-          try {
-            await generateAndDraftEmailsBatch(contactsWithoutEmails);
-
-            // Clear fit context after using it (one-time use)
-            if (hasFitContext) {
-              localStorage.removeItem('scout_fit_context');
-              setCurrentFitContext(null); // Clear UI state
-            }
-          } catch (emailError: any) {
-            if (emailError?.needsAuth || emailError?.require_reauth) {
-              const authUrl = emailError.authUrl;
-              if (authUrl) {
-                window.location.href = authUrl;
-                return;
-              }
-            }
-          }
-        } else {
-          // All contacts already have emails - skip generation
-          console.log(`[ContactSearch] All ${result.contacts.length} contacts already have emails, skipping generation`);
-          
-          // Clear fit context after using it (one-time use)
-          if (hasFitContext) {
-            localStorage.removeItem('scout_fit_context');
-            setCurrentFitContext(null); // Clear UI state
-          }
-        }
-
-        // DEBUG: Log raw search result contacts before saving
-        console.log('[DEBUG] Raw search result contacts:', JSON.stringify(result.contacts.slice(0, 2), null, 2));
-
-        // ✅ TASK 3: Contacts are now saved automatically in backend - no need to call autoSaveToDirectory
-        // Show enhanced success message if fit context was used
-        const emailDescription = hasFitContext && fitContextInfo?.job_title
-          ? `Found ${result.contacts.length} contacts. Generated targeted emails for ${fitContextInfo.job_title}${fitContextInfo.company ? ` at ${fitContextInfo.company}` : ''} using your fit analysis. Used ${creditsUsed} credits. ${newCredits} credits remaining.`
-          : `Found ${result.contacts.length} contacts. Generated general networking emails. Used ${creditsUsed} credits. ${newCredits} credits remaining.`;
-
-        toast({
-          title: hasFitContext && fitContextInfo?.job_title ? "🎯 Targeted Search Complete!" : "Search Complete!",
-          description: emailDescription,
-          duration: 7000,
-        });
-
-        // OLD CODE (removed - contacts now saved in backend):
-        // try {
-        //   await autoSaveToDirectory(result.contacts, location.trim());
-        // } catch (error) {
-        //   const isDev = import.meta.env.DEV;
-        //   if (isDev) console.error('Failed to save contacts:', error);
-        // }
+      const creditsUsed = result.contacts.length * 15;
+      const newCredits = Math.max(0, currentCredits - creditsUsed);
+      if (updateCredits) {
+        await updateCredits(newCredits).catch(() => {});
       }
+      setProgressValue(100);
+      setLastResults(result.contacts);
+
+      setTimeout(() => {
+        setLastSearchStats({
+          successful_drafts: result.successful_drafts ?? 0,
+          total_contacts: result.contacts.length,
+        });
+        setSearchComplete(true);
+      }, 2000);
+
+      if (result.contacts.length === 0) {
+        triggerScoutForNoResults();
+      }
+
+      trackFeatureActionCompleted('contact_search', 'search', true, {
+        results_count: result.contacts.length,
+        credits_spent: creditsUsed,
+      });
+
+      if (user?.uid && result.contacts.length > 0) {
+        try {
+          const summary = generateContactSearchSummary({
+            jobTitle: searchPrompt.trim().slice(0, 80),
+            contactCount: result.contacts.length,
+          });
+          await logActivity(user.uid, 'contactSearch', summary, {
+            prompt: searchPrompt.trim(),
+            contactCount: result.contacts.length,
+            tier: userTier,
+          });
+        } catch (error) {
+          const isDev = import.meta.env.DEV;
+          if (isDev) console.error('Failed to log contact search activity:', error);
+        }
+      }
+
+      toast({
+        title: "Search Complete!",
+        description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.`,
+        duration: 5000,
+      });
     } catch (error: any) {
       // Clear progress interval on error
       if (progressInterval) clearInterval(progressInterval);
@@ -1368,27 +1091,6 @@ const ContactSearchPage: React.FC = () => {
           <AppHeader
             title=""
             onJobTitleSuggestion={handleJobTitleSuggestion}
-            rightContent={
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => navigate("/contact-search/templates")}
-                className="h-8 px-3 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200"
-                data-tour="tour-templates-button"
-              >
-                <FileText className="h-4 w-4 mr-1.5" />
-                {activeEmailTemplate && hasEmailTemplateValues(activeEmailTemplate)
-                  ? (() => {
-                      const p = activeEmailTemplate.purpose;
-                      const s = activeEmailTemplate.stylePreset;
-                      const purposeLabel = p ? (p.charAt(0).toUpperCase() + p.slice(1).replace(/_/g, " ")) : "";
-                      const styleLabel = s ? (s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ")) : "";
-                      return purposeLabel && styleLabel ? `Templates: ${purposeLabel} + ${styleLabel}` : purposeLabel || styleLabel ? `Templates: ${purposeLabel || styleLabel}` : "Templates";
-                    })()
-                  : "Create Your Email Template"}
-              </Button>
-            }
           />
 
           <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', padding: '48px 24px', paddingBottom: '96px' }}>
@@ -1423,10 +1125,33 @@ const ContactSearchPage: React.FC = () => {
                 }}
               >
                 {activeTab === 'linkedin-email' && 'Paste a LinkedIn URL to instantly find their email, generate an email draft and save their details in a spreadsheet.'}
-                {(activeTab === 'contact-search' || activeTab === 'import') && 'Enter a job title and location to discover professionals at your target companies. We\'ll find their emails and draft outreach for you.'}
+                {(activeTab === 'contact-search' || activeTab === 'import') && 'Describe who you want to connect with (e.g. role, company, location). We\'ll find their emails and draft outreach for you.'}
                 {activeTab === 'contact-library' && 'Everyone you find lands here. Update their status, open email drafts, and export to CSV.'}
                 {!['linkedin-email', 'contact-search', 'import', 'contact-library'].includes(activeTab) && 'Discover professionals who can open doors at your target companies.'}
               </p>
+              {(activeTab === 'contact-search' || activeTab === 'linkedin-email') && (
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigate("/contact-search/templates")}
+                    className="h-8 px-3.5 bg-white text-[#475569] hover:text-[#2563EB] border border-[#E2E8F0] hover:border-[#2563EB]/25 hover:bg-[#F8FAFF] shadow-sm hover:shadow-[0_2px_8px_rgba(37,99,235,0.08)] transition-all duration-200 rounded-lg font-medium text-[12.5px] tracking-[-0.01em] gap-1.5"
+                    data-tour="tour-templates-button"
+                  >
+                    <FileText className="h-3.5 w-3.5 text-[#2563EB]" />
+                    {activeEmailTemplate && hasEmailTemplateValues(activeEmailTemplate)
+                      ? (() => {
+                          const p = activeEmailTemplate.purpose;
+                          const s = activeEmailTemplate.stylePreset;
+                          const purposeLabel = p ? (p.charAt(0).toUpperCase() + p.slice(1).replace(/_/g, " ")) : "";
+                          const styleLabel = s ? (s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ")) : "";
+                          return purposeLabel && styleLabel ? `${purposeLabel} · ${styleLabel}` : purposeLabel || styleLabel || "Template";
+                        })()
+                      : "Email Template"}
+                  </Button>
+                </div>
+              )}
             </div>
 
             {/* Navigation Tabs */}
@@ -1584,31 +1309,6 @@ const ContactSearchPage: React.FC = () => {
                           )}
                         </div>
 
-                        {/* Quick Start */}
-                        <div className="flex flex-wrap gap-2 justify-end items-center">
-                          {quickStartTemplates.map((template) => (
-                            <button
-                              key={template.id}
-                              onClick={() => {
-                                setJobTitle(template.jobTitle);
-                                setCompany(template.company);
-                                setLocation(template.location);
-                                setCollegeAlumni(template.college);
-                                setSelectedExampleId(template.id);
-                                // Briefly highlight inputs
-                                setTimeout(() => setSelectedExampleId(null), 150);
-                              }}
-                              disabled={isSearching}
-                              className={`px-4 py-2 text-xs font-medium rounded-full border transition-all duration-150
-                                ${selectedExampleId === template.id
-                                  ? 'bg-blue-50 text-blue-700 border-blue-200 shadow-sm'
-                                  : 'bg-gray-50 hover:bg-blue-50 text-gray-600 hover:text-blue-700 border-gray-200 hover:border-blue-200 hover:shadow-sm'
-                                }`}
-                            >
-                              {template.label}
-                            </button>
-                          ))}
-                        </div>
                       </div>
 
                       {/* Targeted Email Indicator */}
@@ -1639,89 +1339,43 @@ const ContactSearchPage: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Main Form Fields */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-8 mb-10">
-                        {/* Job Title */}
-                        <div className="space-y-2">
-                          <label className="text-sm font-semibold text-gray-700 ml-1">Job Title <span className="text-red-400">*</span></label>
-                          <div className="relative group">
-                            <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
-                            <AutocompleteInput
-                              value={jobTitle}
-                              onChange={setJobTitle}
-                              placeholder="e.g. Product Manager"
-                              dataType="job_title"
-                              disabled={isSearching}
-                              className={`w-full pl-12 h-12 bg-white border rounded-xl text-gray-900 placeholder:text-gray-400 transition-all duration-150 shadow-sm shadow-gray-200/50
-                                ${selectedExampleId !== null
-                                  ? 'border-blue-300 bg-blue-50/30 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400'
-                                  : 'border-gray-200 hover:border-gray-300 focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400'
-                                }`}
-                            />
-                            {jobTitle && <CheckCircle className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500 animate-in zoom-in" />}
-                          </div>
-                          {!jobTitle && (
-                            <p className="text-xs text-gray-400 ml-1">We'll match contacts with this role.</p>
+                      {/* Prompt search input - main interaction point */}
+                      <div className="space-y-3 mb-6">
+                        <label className="text-sm font-semibold text-gray-700 ml-1">Who do you want to connect with?</label>
+                        <div className="relative">
+                          <textarea
+                            value={searchPrompt}
+                            onChange={(e) => setSearchPrompt(e.target.value)}
+                            placeholder="Describe who you want to connect with... e.g. &quot;Product managers at Google in NYC&quot;"
+                            disabled={isSearching}
+                            rows={3}
+                            className="w-full px-5 py-4 text-base bg-white border border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 resize-none transition-all duration-150 shadow-sm shadow-gray-200/50 hover:border-gray-300 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 focus:outline-none"
+                          />
+                          {searchPrompt.trim() && (
+                            <CheckCircle className="absolute right-4 top-4 w-5 h-5 text-green-500" />
                           )}
                         </div>
-
-                        {/* Company */}
-                        <div className="space-y-2">
-                          <label className="text-sm font-semibold text-gray-700 ml-1">Company</label>
-                          <div className="relative group">
-                            <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
-                            <AutocompleteInput
-                              value={company}
-                              onChange={setCompany}
-                              placeholder="e.g. Google, Microsoft"
-                              dataType="company"
+                        {/* Example prompt chips */}
+                        <div className="flex flex-wrap gap-2">
+                          {examplePromptChips.map((chip) => (
+                            <button
+                              key={chip.id}
+                              type="button"
+                              onClick={() => {
+                                setSearchPrompt(chip.prompt);
+                                setSelectedExampleId(chip.id);
+                                setTimeout(() => setSelectedExampleId(null), 200);
+                              }}
                               disabled={isSearching}
-                              className="w-full pl-12 h-12 bg-white border border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 hover:border-gray-300 focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400 transition-all duration-150 shadow-sm shadow-gray-200/50"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Location */}
-                        <div className="space-y-2">
-                          <label className="text-sm font-semibold text-gray-700 ml-1">Location <span className="text-red-400">*</span></label>
-                          <div className="relative group">
-                            <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
-                            <AutocompleteInput
-                              value={location}
-                              onChange={setLocation}
-                              placeholder="e.g. New York, Remote"
-                              dataType="location"
-                              disabled={isSearching}
-                              className={`w-full pl-12 h-12 bg-white border rounded-xl text-gray-900 placeholder:text-gray-400 transition-all duration-150 shadow-sm shadow-gray-200/50
-                                ${selectedExampleId !== null
-                                  ? 'border-blue-300 bg-blue-50/30 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400'
-                                  : 'border-gray-200 hover:border-gray-300 focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400'
+                              className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all duration-150
+                                ${selectedExampleId === chip.id
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                  : 'bg-gray-50/80 text-gray-600 border-gray-200 hover:bg-gray-100 hover:text-gray-800 hover:border-gray-300'
                                 }`}
-                            />
-                            {location && <CheckCircle className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500 animate-in zoom-in" />}
-                          </div>
-                          {!location && (
-                            <p className="text-xs text-gray-400 ml-1">Required to find local contacts.</p>
-                          )}
-                        </div>
-
-                        {/* Alumni */}
-                        <div className="space-y-2">
-                          <label className="flex items-center justify-between text-sm font-semibold text-gray-700 ml-1">
-                            <span>School Alumni</span>
-                            <span className="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Optional</span>
-                          </label>
-                          <div className="relative group">
-                            <GraduationCap className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
-                            <AutocompleteInput
-                              value={collegeAlumni}
-                              onChange={setCollegeAlumni}
-                              placeholder="e.g. Stanford University"
-                              dataType="school"
-                              disabled={isSearching}
-                              className="w-full pl-12 h-12 bg-white border border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 hover:border-gray-300 focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400 transition-all duration-150 shadow-sm shadow-gray-200/50"
-                            />
-                          </div>
+                            >
+                              {chip.label}
+                            </button>
+                          ))}
                         </div>
                       </div>
 
@@ -1780,7 +1434,7 @@ const ContactSearchPage: React.FC = () => {
                       </div>
 
                       {/* Action Button */}
-                      <div className="flex flex-col items-center">
+                      <div className="flex flex-col items-center gap-4">
                         <Button
                           ref={originalButtonRef}
                           onClick={handleSearch}
@@ -1806,6 +1460,21 @@ const ContactSearchPage: React.FC = () => {
                           )}
                         </Button>
 
+                        {/* Look in tracker - show after search completes with results */}
+                        {hasResults && !isSearching && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTab('contact-library');
+                              setSearchParams({ tab: 'contact-library' }, { replace: true });
+                            }}
+                            className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-blue-600 transition-colors"
+                          >
+                            <User className="h-3.5 w-3.5" />
+                            View in tracker
+                            <ArrowRight className="h-3 w-3" />
+                          </button>
+                        )}
                       </div>
 
                     </div>
@@ -1872,9 +1541,20 @@ const ContactSearchPage: React.FC = () => {
                       )}
 
                       {linkedInSuccess && (
-                        <div className="mt-4 p-3 bg-green-50 text-green-700 text-sm rounded-lg flex items-center gap-2 justify-center animate-in fade-in slide-in-from-top-2">
-                          <CheckCircle className="w-4 h-4" />
-                          {linkedInSuccess}
+                        <div className="mt-4 animate-in fade-in slide-in-from-top-2">
+                          <div className="p-3 bg-green-50 text-green-700 text-sm rounded-lg flex items-center gap-2 justify-center">
+                            <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                            {linkedInSuccess}
+                          </div>
+                          {linkedInLastDraftUrl && (
+                            <Button
+                              onClick={() => window.open(linkedInLastDraftUrl!, '_blank')}
+                              className="mt-3 w-full sm:w-auto h-11 px-6 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                              Open Gmail Draft
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1911,7 +1591,7 @@ const ContactSearchPage: React.FC = () => {
             originalButtonRef={originalButtonRef}
             onClick={handleSearch}
             isLoading={isSearching}
-            disabled={isSearching || !jobTitle.trim() || !location.trim() || !user}
+            disabled={isSearching || !searchPrompt.trim() || !user}
             buttonClassName="rounded-full"
           >
             <span>Discover Contacts</span>

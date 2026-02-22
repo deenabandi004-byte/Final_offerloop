@@ -9,7 +9,7 @@ from datetime import datetime
 from ..extensions import require_firebase_auth, get_db
 from ..config import PDL_BASE_URL, PEOPLE_DATA_LABS_API_KEY
 from ..services.reply_generation import batch_generate_emails
-from ..services.gmail_client import create_gmail_draft_for_user
+from ..services.gmail_client import create_gmail_draft_for_user, download_resume_from_url
 from ..services.hunter import get_verified_email, get_smart_company_domain
 
 linkedin_import_bp = Blueprint('linkedin_import', __name__, url_prefix='/api/contacts')
@@ -520,9 +520,9 @@ def import_from_linkedin():
         db = get_db()
         user_ref = db.collection('users').document(user_id)
         user_doc = user_ref.get()
+        user_data = user_doc.to_dict() if user_doc.exists else {}
         user_profile = {}
         if user_doc.exists:
-            user_data = user_doc.to_dict()
             user_profile = {
                 'name': user_data.get('name', ''),
                 'university': user_data.get('university', ''),
@@ -532,6 +532,10 @@ def import_from_linkedin():
             print(f"[LinkedInImport]   - User Profile: {user_profile.get('name', 'Unknown')} from {user_profile.get('university', 'Unknown')}")
         else:
             print(f"[LinkedInImport]   - No user profile found in Firestore")
+        # Use request body resume if provided (e.g. from web app); otherwise use saved resume from Firestore (for extension)
+        resume_text_for_email = (user_resume or '').strip() or (user_data.get('resumeText') or '')
+        if not (user_resume or '').strip() and resume_text_for_email:
+            print(f"[LinkedInImport]   - Using saved resume from Firestore for email generation ({len(resume_text_for_email)} chars)")
         
         email_subject = None
         email_body = None
@@ -539,13 +543,14 @@ def import_from_linkedin():
         
         if has_email:
             print(f"[LinkedInImport] Step 6: Generating personalized email...")
-            # Generate personalized email
+            # Generate personalized email (include resume line for networking; template_purpose=None => include resume)
             email_results = batch_generate_emails(
                 contacts=[contact_for_email],
-                resume_text=user_resume,
+                resume_text=resume_text_for_email or None,
                 user_profile=user_profile,
                 career_interests=[],
-                fit_context=None
+                fit_context=None,
+                email_template_purpose='networking',
             )
             
             print(f"[LinkedInImport]   - Email generation result: {bool(email_results)}")
@@ -570,6 +575,29 @@ def import_from_linkedin():
                     if email_body:
                         print(f"[LinkedInImport] Step 7: Creating Gmail draft...")
                         user_email = request.firebase_user.get('email')
+                        # Load user's resume from Firestore and download for attachment (extension does not send resume)
+                        resume_content = None
+                        resume_filename = None
+                        resume_url = user_data.get('resumeUrl') if user_data else None
+                        if resume_url:
+                            try:
+                                resume_content, resume_filename = download_resume_from_url(resume_url)
+                                if resume_content:
+                                    resume_filename = resume_filename or user_data.get('resumeFileName') or 'resume.pdf'
+                                    print(f"[LinkedInImport]   - Resume will be attached: {resume_filename}")
+                                else:
+                                    print(f"[LinkedInImport]   - Resume download failed - draft will be created without attachment")
+                            except Exception as e:
+                                print(f"[LinkedInImport]   - Resume fetch error: {e}")
+                        else:
+                            print(f"[LinkedInImport]   - No resumeUrl in account - draft without attachment")
+                        # Build user_info for draft signature (name, email, phone, linkedin)
+                        user_info = {
+                            'name': user_profile.get('name', '') or user_data.get('name', ''),
+                            'email': user_email or '',
+                            'phone': user_data.get('phone', '') if user_data else '',
+                            'linkedin': user_data.get('linkedin', '') if user_data else '',
+                        }
                         try:
                             draft_result = create_gmail_draft_for_user(
                                 contact=contact_for_email,
@@ -578,7 +606,9 @@ def import_from_linkedin():
                                 tier='free',
                                 user_email=user_email,
                                 user_id=user_id,
-                                user_info=user_profile
+                                user_info=user_info,
+                                resume_content=resume_content,
+                                resume_filename=resume_filename,
                             )
                             if draft_result:
                                 print(f"[LinkedInImport]   - ✅ Gmail draft created successfully")
@@ -648,7 +678,7 @@ def import_from_linkedin():
         
         # Step 7: Deduct credit
         print(f"[LinkedInImport] Step 9: Deducting credit...")
-        credits_to_deduct = 1
+        credits_to_deduct = 5
         user_doc = user_ref.get()
         current_credits = 0
         if user_doc.exists:
@@ -691,7 +721,7 @@ def import_from_linkedin():
         print(f"[LinkedInImport] ========== IMPORT COMPLETE ==========")
         print(f"{'='*80}\n")
         
-        return jsonify({
+        response_payload = {
             'status': 'ok',
             'contact': {
                 'full_name': full_name,
@@ -704,7 +734,10 @@ def import_from_linkedin():
             'email_found': has_email,
             'message': message,
             'credits_remaining': new_credits
-        }), status_code
+        }
+        if draft_result and isinstance(draft_result, dict) and draft_result.get('draft_url'):
+            response_payload['gmail_draft_url'] = draft_result.get('draft_url')
+        return jsonify(response_payload), status_code
         
     except Exception as e:
         print(f"\n{'='*80}")

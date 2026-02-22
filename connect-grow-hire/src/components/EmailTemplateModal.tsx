@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { EmailTemplate, PresetOption } from "@/services/api";
 import { cn } from "@/lib/utils";
 
-const MAX_CUSTOM_LEN = 500;
+const MAX_CUSTOM_LEN = 1000;
 
 const PREVIEWS: Record<string, string> = {
   "networking_casual": "Hi Alex,\n\nI'm Sid, CS at USC — been geeking out over Google's search infra work lately. Curious what your day-to-day actually looks like on the team. Down for a quick 15-min chat sometime?\n\nThanks,\nSid",

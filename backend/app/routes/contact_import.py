@@ -3,17 +3,29 @@ Contact import routes - Upload CSV/Excel to import contacts
 """
 import csv
 import io
+import requests
 from datetime import datetime
 from flask import Blueprint, request, jsonify, Response
 
 from ..extensions import require_firebase_auth
 from ..extensions import get_db
 from app.utils.exceptions import OfferloopException, ValidationError
+from app.config import PDL_BASE_URL, PEOPLE_DATA_LABS_API_KEY
+from app.routes.linkedin_import import (
+    resolve_email_for_linkedin_import,
+    extract_contact_from_pdl_person_enhanced,
+    normalize_linkedin_url,
+)
+from app.services.reply_generation import batch_generate_emails
+from app.services.gmail_client import create_gmail_draft_for_user, download_resume_from_url
 
 contact_import_bp = Blueprint('contact_import', __name__, url_prefix='/api/contacts')
 
 # Cost per imported contact
 CREDITS_PER_CONTACT = 15
+
+# Max contacts to enrich via PDL per import (LinkedIn URL -> email lookup)
+ENRICHMENT_CAP = 50
 
 # Column mapping - maps common CSV header variations to our schema
 COLUMN_MAPPINGS = {
@@ -84,6 +96,14 @@ def parse_row_to_contact(row: list, column_mapping: dict, headers: list) -> dict
             contact['location'] = ', '.join(filter(None, [city, state]))
     
     return contact
+
+
+def _is_valid_contact(contact: dict) -> bool:
+    """True if contact has at least name, email, or LinkedIn URL."""
+    has_name = contact.get('firstName') and contact.get('lastName')
+    has_email = bool(contact.get('email', '').strip())
+    has_linkedin = bool(contact.get('linkedinUrl', '').strip())
+    return bool(has_name or has_email or has_linkedin)
 
 
 @contact_import_bp.route('/import/preview', methods=['POST'])
@@ -163,16 +183,24 @@ def preview_import():
         # Get user's current credits
         credits = user_data.get('credits', 0)
         
-        # Count valid rows (must have at least first name and last name, or email)
+        # Count valid rows and enrichment stats
         valid_rows = []
+        contacts_with_email = 0
+        contacts_needing_enrichment = 0
+        contacts_unenrichable = 0
         for row in data_rows:
             contact = parse_row_to_contact(row, column_mapping, headers)
-            has_name = contact.get('firstName') and contact.get('lastName')
-            has_email = contact.get('email')
-            has_linkedin = contact.get('linkedinUrl')
-            
-            if has_name or has_email or has_linkedin:
-                valid_rows.append(contact)
+            if not _is_valid_contact(contact):
+                continue
+            valid_rows.append(contact)
+            email = (contact.get('email') or '').strip()
+            linkedin = (contact.get('linkedinUrl') or '').strip()
+            if email:
+                contacts_with_email += 1
+            elif linkedin:
+                contacts_needing_enrichment += 1
+            else:
+                contacts_unenrichable += 1
         
         # Calculate credit cost
         total_cost = len(valid_rows) * CREDITS_PER_CONTACT
@@ -194,6 +222,13 @@ def preview_import():
                 'total_cost': total_cost,
                 'can_afford': can_afford,
                 'max_affordable': max_affordable
+            },
+            'enrichment': {
+                'contacts_with_email': contacts_with_email,
+                'contacts_needing_enrichment': min(contacts_needing_enrichment, ENRICHMENT_CAP),
+                'contacts_needing_enrichment_total': contacts_needing_enrichment,
+                'contacts_unenrichable': contacts_unenrichable,
+                'enrichment_cap': ENRICHMENT_CAP,
             }
         })
         
@@ -301,6 +336,10 @@ def import_contacts():
         skipped_invalid = 0
         skipped_no_credits = 0
         created_contacts = []
+        enriched_count = 0
+        enrichment_failed = 0
+        enrichment_capped = 0
+        contacts_for_drafting = []
         
         for row in data_rows:
             # Parse row to contact
@@ -312,8 +351,7 @@ def import_contacts():
             linkedin = contact_data.get('linkedinUrl', '').strip()
             
             # Validate - must have name OR email OR linkedin
-            has_name = first_name and last_name
-            if not (has_name or email or linkedin):
+            if not _is_valid_contact(contact_data):
                 skipped_invalid += 1
                 continue
             
@@ -322,19 +360,65 @@ def import_contacts():
                 skipped_no_credits += 1
                 continue
             
-            # Check for duplicates (same logic as existing bulk_create_contacts)
-            is_duplicate = False
+            # Enrichment: PDL lookup for rows with LinkedIn URL but no email (cap 50)
+            if not email and linkedin:
+                if enriched_count < ENRICHMENT_CAP:
+                    pdl_url = normalize_linkedin_url(linkedin) or linkedin
+                    if pdl_url and not pdl_url.startswith('http'):
+                        pdl_url = f'https://www.linkedin.com/in/{pdl_url.split("/in/")[-1].rstrip("/")}' if '/in/' in pdl_url else None
+                    if pdl_url and 'linkedin.com' in pdl_url:
+                        try:
+                            response = requests.get(
+                                f"{PDL_BASE_URL}/person/enrich",
+                                params={
+                                    'api_key': PEOPLE_DATA_LABS_API_KEY,
+                                    'profile': pdl_url,
+                                    'pretty': True
+                                },
+                                timeout=30
+                            )
+                            if response.status_code == 200:
+                                person_json = response.json()
+                                person_data = person_json.get('data') if isinstance(person_json, dict) else None
+                                if person_data:
+                                    pdl_contact = extract_contact_from_pdl_person_enhanced(person_data)
+                                    if pdl_contact:
+                                        email_result = resolve_email_for_linkedin_import(pdl_contact, person_data)
+                                        resolved_email = (email_result.get('email') or '').strip()
+                                        if resolved_email and '@' in resolved_email:
+                                            contact_data['email'] = resolved_email
+                                            contact_data['emailSource'] = 'enriched'
+                                            enriched_count += 1
+                                        else:
+                                            enrichment_failed += 1
+                                    else:
+                                        enrichment_failed += 1
+                                else:
+                                    enrichment_failed += 1
+                            else:
+                                enrichment_failed += 1
+                                if response.status_code == 402:
+                                    print(f"[ContactImport] PDL 402 quota exceeded for row")
+                        except Exception as e:
+                            enrichment_failed += 1
+                            print(f"[ContactImport] Enrichment error for LinkedIn {linkedin[:50]!r}: {e}")
+                    else:
+                        enrichment_failed += 1
+                else:
+                    enrichment_capped += 1
             
+            email = contact_data.get('email', '').strip()
+            
+            # Duplicate detection (after enrichment, so enriched email can match existing)
+            is_duplicate = False
             if email:
                 email_query = contacts_ref.where('email', '==', email).limit(1)
                 if list(email_query.stream()):
                     is_duplicate = True
-            
             if not is_duplicate and linkedin:
                 linkedin_query = contacts_ref.where('linkedinUrl', '==', linkedin).limit(1)
                 if list(linkedin_query.stream()):
                     is_duplicate = True
-            
             if not is_duplicate and first_name and last_name and contact_data.get('company'):
                 name_company_query = (contacts_ref
                     .where('firstName', '==', first_name)
@@ -365,16 +449,19 @@ def import_contacts():
                 'userId': user_id,
                 'createdAt': today,
                 'importedAt': datetime.now().isoformat(),
-                'importSource': 'spreadsheet'
+                'importSource': 'spreadsheet',
+                'emailSource': contact_data.get('emailSource', 'imported'),
             }
             
             doc_ref = contacts_ref.add(contact)
-            contact['id'] = doc_ref[1].id
+            doc_id = doc_ref[1].id
+            contact['id'] = doc_id
             created_contacts.append(contact)
             created += 1
-            
-            # Deduct credits
             credits -= CREDITS_PER_CONTACT
+            
+            if email:
+                contacts_for_drafting.append({'doc_id': doc_id, 'contact': contact})
         
         # Update user's credits in database
         if created > 0:
@@ -382,6 +469,116 @@ def import_contacts():
                 'credits': credits,
                 'lastCreditUsage': datetime.now().isoformat()
             })
+        
+        # Phase 2: Batch generate emails + create Gmail drafts
+        drafts_created = 0
+        try:
+            if contacts_for_drafting:
+                user_doc = user_ref.get()
+                user_data_after = user_doc.to_dict() if user_doc.exists else {}
+                resume_text = (user_data_after.get('resumeText') or '').strip()
+                user_profile = {
+                    'name': user_data_after.get('name', ''),
+                    'email': request.firebase_user.get('email', ''),
+                    'university': user_data_after.get('university', ''),
+                    'major': user_data_after.get('major', ''),
+                    'year': user_data_after.get('year', ''),
+                }
+                career_interests = user_data_after.get('careerInterests') or []
+                if isinstance(career_interests, str):
+                    career_interests = [career_interests] if career_interests else []
+                
+                email_contacts = []
+                for item in contacts_for_drafting:
+                    c = item['contact']
+                    email_contacts.append({
+                        'FirstName': c.get('firstName', ''),
+                        'LastName': c.get('lastName', ''),
+                        'Company': c.get('company', ''),
+                        'Title': c.get('jobTitle', ''),
+                        'Email': c.get('email', ''),
+                        'LinkedIn': c.get('linkedinUrl', ''),
+                    })
+                
+                email_results = {}
+                try:
+                    email_results = batch_generate_emails(
+                        contacts=email_contacts,
+                        resume_text=resume_text or None,
+                        user_profile=user_profile,
+                        career_interests=career_interests,
+                        fit_context=None,
+                        email_template_purpose='networking',
+                    )
+                except Exception as e:
+                    print(f"[ContactImport] Email generation failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+                
+                user_email = request.firebase_user.get('email')
+                user_info = {
+                    'name': user_profile.get('name', ''),
+                    'email': user_profile.get('email', ''),
+                    'phone': user_data_after.get('phone', ''),
+                    'linkedin': user_data_after.get('linkedin', ''),
+                }
+                resume_content = None
+                resume_filename = None
+                resume_url = user_data_after.get('resumeUrl')
+                if resume_url:
+                    try:
+                        resume_content, resume_filename = download_resume_from_url(resume_url)
+                        resume_filename = resume_filename or user_data_after.get('resumeFileName') or 'resume.pdf'
+                    except Exception as e:
+                        print(f"[ContactImport] Resume download failed: {e}")
+                
+                for idx, item in enumerate(contacts_for_drafting):
+                    r = email_results.get(idx) or email_results.get(str(idx))
+                    if not r or not isinstance(r, dict):
+                        continue
+                    subject = (r.get('subject') or '').strip()
+                    body = (r.get('body') or '').strip()
+                    if not subject or not body:
+                        continue
+                    
+                    contact_ref = db.collection('users').document(user_id).collection('contacts').document(item['doc_id'])
+                    update_data = {
+                        'emailSubject': subject,
+                        'emailBody': body,
+                        'draftCreatedAt': datetime.now().isoformat(),
+                    }
+                    
+                    contact_for_draft = {
+                        'FirstName': item['contact'].get('firstName', ''),
+                        'LastName': item['contact'].get('lastName', ''),
+                        'Email': item['contact'].get('email', ''),
+                    }
+                    try:
+                        draft_result = create_gmail_draft_for_user(
+                            contact=contact_for_draft,
+                            email_subject=subject,
+                            email_body=body,
+                            tier='free',
+                            user_email=user_email,
+                            user_id=user_id,
+                            user_info=user_info,
+                            resume_content=resume_content,
+                            resume_filename=resume_filename,
+                        )
+                        if draft_result and isinstance(draft_result, dict):
+                            update_data['gmailDraftId'] = draft_result.get('draft_id', '')
+                            update_data['gmailDraftUrl'] = draft_result.get('draft_url', '')
+                            if draft_result.get('message_id'):
+                                update_data['gmailMessageId'] = draft_result.get('message_id', '')
+                            drafts_created += 1
+                    except Exception as e:
+                        print(f"[ContactImport] Gmail draft failed for contact {item['doc_id']}: {e}")
+                    
+                    contact_ref.update(update_data)
+        except Exception as e:
+            print(f"[ContactImport] Enrichment/draft phase error: {e}")
+            import traceback
+            traceback.print_exc()
         
         return jsonify({
             'success': True,
@@ -391,6 +588,15 @@ def import_contacts():
                 'invalid': skipped_invalid,
                 'no_credits': skipped_no_credits,
                 'total': skipped_duplicate + skipped_invalid + skipped_no_credits
+            },
+            'enrichment': {
+                'enriched': enriched_count,
+                'failed': enrichment_failed,
+                'capped': enrichment_capped,
+            },
+            'drafts': {
+                'created': drafts_created,
+                'total_eligible': len(contacts_for_drafting),
             },
             'contacts': created_contacts,
             'credits': {

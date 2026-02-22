@@ -236,11 +236,11 @@ export default function PaymentSuccess() {
                 Try Again
               </Button>
               <Button 
-                onClick={() => navigate("/dashboard")} 
+                onClick={() => navigate("/contact-search")} 
                 variant="outline"
                 className="w-full"
               >
-                Go to Dashboard
+                Find people
               </Button>
             </div>
           </div>

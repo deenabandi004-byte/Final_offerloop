@@ -19,6 +19,7 @@ import {
   FileText,
   Search,
   Linkedin,
+  Info,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -73,6 +74,13 @@ interface PreviewData {
     can_afford: boolean;
     max_affordable: number;
   };
+  enrichment?: {
+    contacts_with_email: number;
+    contacts_needing_enrichment: number;
+    contacts_needing_enrichment_total: number;
+    contacts_unenrichable: number;
+    enrichment_cap: number;
+  };
 }
 
 interface ImportResult {
@@ -87,6 +95,15 @@ interface ImportResult {
   credits: {
     spent: number;
     remaining: number;
+  };
+  enrichment?: {
+    enriched: number;
+    failed: number;
+    capped: number;
+  };
+  drafts?: {
+    created: number;
+    total_eligible: number;
   };
 }
 
@@ -310,46 +327,52 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
     setError(null);
   };
 
+  // Guidelines expandable state
+  const [showGuidelines, setShowGuidelines] = useState(false);
+
   // ==================== UPLOAD STEP ====================
   if (step === 'upload') {
     return (
-      <div className="space-y-6">
-        {/* Main Upload Card */}
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
-          {/* Gradient accent at top */}
-          <div className="h-1 bg-gradient-to-r from-blue-500 via-blue-600 to-blue-600"></div>
-          
-          <div className="p-8">
-            {/* Card Header with Template Download */}
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-xl font-semibold text-gray-900">Import Contacts</h2>
-                <p className="text-gray-600 mt-1">Upload a CSV or Excel file to add contacts to your library</p>
-              </div>
-              
-              <button 
-                onClick={handleDownloadTemplate}
-                className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100 hover:border-gray-300 transition-all"
-              >
-                <Download className="w-4 h-4" />
-                Download Template
-              </button>
-            </div>
+      <div>
+        {/* Main Upload Card — matches LinkedIn tab card styling */}
+        <div 
+          style={{
+            background: '#FFFFFF',
+            border: '1px solid rgba(37, 99, 235, 0.08)',
+            borderRadius: '14px',
+            padding: '48px 40px',
+            maxWidth: '900px',
+            margin: '0 auto',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
+            textAlign: 'center',
+          }}
+          className="overflow-hidden"
+        >
+          {/* Centered icon */}
+          <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
+            <Upload className="w-8 h-8 text-blue-600" />
+          </div>
 
-            {/* Enhanced Drop Zone */}
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Import Contacts</h2>
+          <p className="text-gray-500 mb-8 max-w-md mx-auto">
+            Upload a CSV or Excel file to find emails, generate drafts, and save contacts to your library.
+          </p>
+
+          {/* Drop zone — clean, no dashed border */}
+          <div className="max-w-xl mx-auto">
             <div
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
               className={`
-                relative border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer
-                transition-all duration-300 ease-out
+                relative rounded-xl p-10 text-center cursor-pointer
+                transition-all duration-200
                 ${isDragging 
-                  ? 'border-blue-500 bg-blue-50 scale-[1.02]' 
+                  ? 'bg-blue-50 ring-2 ring-blue-500 ring-offset-2' 
                   : file 
-                    ? 'border-green-500 bg-green-50' 
-                    : 'border-gray-300 bg-gradient-to-b from-slate-50 to-white hover:border-blue-400 hover:bg-blue-50/50'
+                    ? 'bg-gray-50' 
+                    : 'bg-gray-50 hover:bg-blue-50/50'
                 }
               `}
             >
@@ -363,51 +386,28 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
               
               {!file ? (
                 <>
-                  {/* Icon */}
-                  <div className={`
-                    w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center
-                    transition-all duration-300
-                    ${isDragging 
-                      ? 'bg-blue-100 scale-110' 
-                      : 'bg-white shadow-sm border border-gray-100'
-                    }
-                  `}>
-                    <Table2 className={`w-8 h-8 ${isDragging ? 'text-blue-600' : 'text-gray-400'}`} />
-                  </div>
-                  
-                  {/* Text */}
-                  <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                  <Table2 className={`w-8 h-8 mx-auto mb-3 ${isDragging ? 'text-blue-600' : 'text-gray-400'}`} />
+                  <p className="text-sm font-medium text-gray-900 mb-1">
                     {isDragging ? 'Drop it here!' : 'Drop your spreadsheet here'}
-                  </h3>
-                  <p className="text-gray-500 mb-4">or click to browse your files</p>
-                  
-                  {/* Button */}
-                  <button className="inline-flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm pointer-events-none">
-                    <Upload className="w-4 h-4" />
-                    Choose File
-                  </button>
-                  
-                  {/* Supported formats */}
-                  <p className="text-xs text-gray-400 mt-4">
-                    Supports CSV, XLSX, XLS
                   </p>
+                  <p className="text-xs text-gray-500 mb-4">or click to browse your files</p>
+                  <Button
+                    className="h-12 px-8 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-md hover:shadow-lg transition-all pointer-events-none"
+                  >
+                    Choose File
+                  </Button>
+                  <p className="text-xs text-gray-400 mt-4">Supports CSV, XLSX, XLS</p>
                 </>
               ) : (
                 <>
-                  {/* File uploaded state */}
-                  <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-green-100 flex items-center justify-center">
-                    <CheckCircle className="w-8 h-8 text-green-600" />
+                  <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-green-100 flex items-center justify-center">
+                    <CheckCircle className="w-6 h-6 text-green-600" />
                   </div>
-                  
-                  <h3 className="text-lg font-semibold text-gray-900 mb-1">File Ready</h3>
-                  <p className="text-gray-600 mb-2">{file.name}</p>
-                  <p className="text-sm text-gray-500 mb-4">
-                    {(file.size / 1024).toFixed(1)} KB
-                  </p>
-                  
+                  <p className="text-sm font-medium text-gray-900 mb-0.5">{file.name}</p>
+                  <p className="text-xs text-gray-500 mb-3">{(file.size / 1024).toFixed(1)} KB</p>
                   <button 
                     onClick={(e) => { e.stopPropagation(); clearFile(); }}
-                    className="text-sm text-gray-500 hover:text-gray-700 underline"
+                    className="text-sm text-blue-600 hover:underline"
                   >
                     Choose a different file
                   </button>
@@ -415,133 +415,79 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
               )}
             </div>
 
-            {/* Import Guidelines - Redesigned */}
-            <div className="mt-6 bg-gradient-to-r from-slate-50 to-blue-50 rounded-xl p-6">
-              <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Import Guidelines</h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
-                    <CreditCard className="w-4 h-4 text-blue-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">15 credits per contact</p>
-                    <p className="text-xs text-gray-500">Includes email lookup & AI draft</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0">
-                    <Copy className="w-4 h-4 text-purple-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Duplicates auto-skipped</p>
-                    <p className="text-xs text-gray-500">Matching email or LinkedIn URL</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
-                    <BadgeCheck className="w-4 h-4 text-green-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Minimum requirements</p>
-                    <p className="text-xs text-gray-500">Name, email, or LinkedIn URL</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center flex-shrink-0">
-                    <FileText className="w-4 h-4 text-orange-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Supported formats</p>
-                    <p className="text-xs text-gray-500">CSV, XLSX, XLS files</p>
-                  </div>
-                </div>
-              </div>
+            {/* Secondary links row */}
+            <div className="flex items-center justify-center gap-4 mt-4 text-sm">
+              <button
+                onClick={handleDownloadTemplate}
+                className="text-blue-600 hover:underline inline-flex items-center gap-1"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Download template
+              </button>
+              <span className="text-gray-300">·</span>
+              <button
+                onClick={() => setShowGuidelines(!showGuidelines)}
+                className="text-gray-500 hover:text-gray-700 hover:underline inline-flex items-center gap-1"
+              >
+                <Info className="w-3.5 h-3.5" />
+                Import guidelines
+              </button>
             </div>
+
+            {/* Expandable guidelines */}
+            {showGuidelines && (
+              <div className="mt-4 text-left bg-gray-50 rounded-lg p-4 text-xs text-gray-600 space-y-1.5">
+                <p><span className="font-medium text-gray-700">15 credits per contact</span> — includes email lookup & AI draft</p>
+                <p><span className="font-medium text-gray-700">Duplicates auto-skipped</span> — matching email or LinkedIn URL</p>
+                <p><span className="font-medium text-gray-700">Minimum requirements</span> — name, email, or LinkedIn URL</p>
+                <p><span className="font-medium text-gray-700">Supported formats</span> — CSV, XLSX, XLS files</p>
+              </div>
+            )}
 
             {/* Error */}
             {error && (
-              <div className="mt-6 flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl">
-                <AlertCircle className="h-5 w-5 flex-shrink-0" />
-                <p>{error}</p>
+              <div className="mt-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg flex items-center gap-2 justify-center">
+                <AlertCircle className="w-4 h-4" />
+                {error}
               </div>
             )}
 
             {/* CTA Button (when file uploaded) */}
             {file && (
-              <div className="mt-8">
-                <button
+              <div className="mt-6">
+                <Button
                   onClick={handlePreview}
                   disabled={isLoading}
-                  className={`
-                    w-full md:w-auto px-8 py-4 rounded-full font-semibold text-lg
-                    flex items-center justify-center gap-3 mx-auto
-                    transition-all duration-200 transform
-                    ${isLoading
-                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 hover:scale-105 active:scale-100'
-                    }
-                  `}
+                  className="h-12 px-8 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-md hover:shadow-lg transition-all"
                 >
                   {isLoading ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Processing...
-                    </>
+                    <Loader2 className="w-5 h-5 animate-spin" />
                   ) : (
-                    <>
-                      <Sparkles className="w-5 h-5" />
-                      Preview Import
-                      <ArrowRight className="w-5 h-5" />
-                    </>
+                    'Preview Import'
                   )}
-                </button>
-                
-                {/* Value props */}
-                <div className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-gray-500">
-                  <span className="flex items-center gap-1.5">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Email lookup included
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <Check className="w-4 h-4 text-green-500" />
-                    AI-personalized drafts
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Auto-saved to Tracker
-                  </span>
-                </div>
+                </Button>
               </div>
             )}
           </div>
-        </div>
 
-        {/* Quick Tips Section */}
-        <div className="text-center animate-fadeInUp" style={{ animationDelay: '300ms' }}>
-          <p className="text-sm text-gray-500 mb-3">Don't have a spreadsheet ready?</p>
-          <div className="flex flex-wrap justify-center gap-3">
-            <button 
-              onClick={() => onSwitchTab?.('contact-search')}
-              className="px-4 py-2 bg-white border border-gray-200 rounded-full text-sm text-gray-700 
-                         hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 
-                         transition-all duration-200 shadow-sm hover:shadow flex items-center gap-2"
-            >
-              <Search className="w-4 h-4" />
-              Search for people instead
-            </button>
-            <button 
-              onClick={() => onSwitchTab?.('linkedin-email')}
-              className="px-4 py-2 bg-white border border-gray-200 rounded-full text-sm text-gray-700 
-                         hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 
-                         transition-all duration-200 shadow-sm hover:shadow flex items-center gap-2"
-            >
-              <Linkedin className="w-4 h-4" />
-              Import from LinkedIn
-            </button>
+          {/* Alternative actions — subtle text links */}
+          <div className="mt-10 pt-6 border-t border-gray-100">
+            <p className="text-xs text-gray-400 mb-2">Or try another way</p>
+            <div className="flex items-center justify-center gap-4 text-sm">
+              <button 
+                onClick={() => onSwitchTab?.('contact-search')}
+                className="text-gray-500 hover:text-blue-600 hover:underline transition-colors"
+              >
+                Search for people
+              </button>
+              <span className="text-gray-300">·</span>
+              <button 
+                onClick={() => onSwitchTab?.('linkedin-email')}
+                className="text-gray-500 hover:text-blue-600 hover:underline transition-colors"
+              >
+                Import from LinkedIn
+              </button>
+            </div>
           </div>
         </div>
 
@@ -625,13 +571,28 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
                   </p>
                   <p className="text-sm text-gray-600">
                     {previewData.credits.can_afford 
-                      ? `${previewData.valid_rows} contacts × ${previewData.credits.cost_per_contact} credits each`
+                      ? `${previewData.valid_rows} contacts × ${previewData.credits.cost_per_contact} credits each — includes email lookup & AI draft`
                       : `You can import up to ${previewData.credits.max_affordable} contacts with your current credits`
                     }
                   </p>
                 </div>
               </div>
             </div>
+
+            {/* Enrichment stats (when available) */}
+            {previewData.enrichment && (
+              <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 mb-6">
+                <h3 className="font-medium text-gray-900 mb-2">What we&apos;ll do</h3>
+                <ul className="text-sm text-gray-600 space-y-1">
+                  <li>{previewData.enrichment.contacts_with_email} contacts already have emails</li>
+                  <li>{previewData.enrichment.contacts_needing_enrichment_total} contacts will be enriched via LinkedIn (email lookup)</li>
+                  <li>{previewData.enrichment.contacts_unenrichable} contacts have no email or LinkedIn — imported as-is</li>
+                  {previewData.enrichment.contacts_needing_enrichment_total > (previewData.enrichment.enrichment_cap ?? 50) && (
+                    <li className="text-amber-700 font-medium">Up to {previewData.enrichment.enrichment_cap ?? 50} contacts will be enriched per import</li>
+                  )}
+                </ul>
+              </div>
+            )}
 
             {/* Column Mapping */}
             <div className="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden mb-6">
@@ -712,6 +673,13 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
               </div>
             )}
 
+            {/* Loading note when importing */}
+            {isLoading && (
+              <p className="text-sm text-gray-500 text-center mb-4">
+                This may take a minute — we&apos;re looking up emails and drafting messages.
+              </p>
+            )}
+
             {/* Actions */}
             <div className="flex flex-col sm:flex-row justify-center gap-3">
               <button 
@@ -735,7 +703,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
                 {isLoading ? (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin" />
-                    Importing...
+                    Importing & generating drafts...
                   </>
                 ) : (
                   <>
@@ -791,6 +759,32 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
                 <p className="text-sm text-gray-500">Credits Left</p>
               </div>
             </div>
+
+            {/* Enrichment & draft summary */}
+            {(importResult.enrichment || importResult.drafts) && (
+              <div className="bg-gray-50 rounded-xl p-4 mb-6 space-y-2">
+                {importResult.enrichment && importResult.enrichment.enriched > 0 && (
+                  <p className="text-sm text-gray-700">
+                    <span className="font-medium">{importResult.enrichment.enriched}</span> emails found via LinkedIn lookup
+                  </p>
+                )}
+                {importResult.drafts && (
+                  <p className="text-sm text-gray-700">
+                    <span className="font-medium">{importResult.drafts.created}</span> email drafts created
+                  </p>
+                )}
+                {importResult.enrichment && importResult.enrichment.failed > 0 && (
+                  <p className="text-sm text-amber-700">
+                    {importResult.enrichment.failed} LinkedIn lookup(s) didn&apos;t return an email
+                  </p>
+                )}
+                {importResult.enrichment && importResult.enrichment.capped > 0 && (
+                  <p className="text-sm text-amber-700">
+                    {importResult.enrichment.capped} contacts exceeded the enrichment limit (50 per import)
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Credits Spent */}
             <div className="bg-gray-50 rounded-xl p-4 mb-8">

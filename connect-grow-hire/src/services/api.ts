@@ -1190,6 +1190,19 @@ class ApiService {
     });
   }
 
+  /**
+   * Prompt-based contact search (new endpoint). Same response shape as free-run plus parsed_query.
+   * Works for all tiers; batchSize is capped by tier on backend.
+   */
+  async runPromptSearch(data: { prompt: string; batchSize: number }): Promise<SearchResult> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<SearchResult>('/prompt-search', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: data.prompt.trim(), batchSize: data.batchSize }),
+    });
+  }
+
   // ================================
   // Coffee Chat Prep Endpoints
   // ================================

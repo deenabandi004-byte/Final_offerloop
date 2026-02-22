@@ -7,7 +7,8 @@ import time
 import threading
 from datetime import datetime
 from typing import Dict, Tuple, Optional
-from app.services.pdl_client import search_contacts_with_smart_location_strategy, get_contact_identity
+from app.services.pdl_client import search_contacts_with_smart_location_strategy, get_contact_identity, search_contacts_from_prompt
+from app.services.prompt_parser import parse_search_prompt_structured
 from io import StringIO
 from flask import Blueprint, request, jsonify, send_file
 from werkzeug.utils import secure_filename
@@ -1040,6 +1041,322 @@ def free_run():
         import traceback
         traceback.print_exc()
         raise OfferloopException(f"Search failed: {str(e)}", error_code="SEARCH_ERROR")
+
+
+@runs_bp.route("/prompt-search", methods=["POST"])
+@require_firebase_auth
+def prompt_search():
+    """
+    Prompt-based contact search for all tiers. Parses natural language prompt,
+    runs PDL search, then same email/draft/save pipeline as free-run.
+    Request: { "prompt": "...", "batchSize": 5 }
+    Response: same shape as free-run plus parsed_query.
+    """
+    try:
+        user_email = request.firebase_user.get("email")
+        user_id = request.firebase_user["uid"]
+        db = get_db()
+
+        data = request.get_json(silent=True) or {}
+        prompt = (data.get("prompt") or "").strip()
+        batch_size = data.get("batchSize")
+
+        # Validate prompt length
+        if not prompt:
+            return jsonify({"error": "Prompt is required"}), 400
+        if len(prompt) < 3:
+            return jsonify({"error": "Prompt must be at least 3 characters"}), 400
+        if len(prompt) > 500:
+            return jsonify({"error": "Prompt must be at most 500 characters"}), 400
+
+        # Resolve tier and max_contacts
+        user_tier = "free"
+        credits_available = TIER_CONFIGS["free"]["credits"]
+        user_data = None
+        seen_contact_set = set()
+        if db and user_id:
+            try:
+                user_ref = db.collection("users").document(user_id)
+                user_doc = user_ref.get()
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+                    credits_available = check_and_reset_credits(user_ref, user_data)
+                    user_tier = user_data.get("tier", "free")
+                    if user_tier not in TIER_CONFIGS:
+                        user_tier = "free"
+                    seen_contact_set = _get_cached_exclusion_list(user_id)
+                    if seen_contact_set is None:
+                        contacts_ref = db.collection("users").document(user_id).collection("contacts")
+                        contact_docs = list(contacts_ref.select(
+                            "firstName", "lastName", "email", "linkedinUrl", "company"
+                        ).stream())
+                        seen_contact_set = set()
+                        for doc in contact_docs:
+                            contact = doc.to_dict()
+                            standardized = {
+                                "FirstName": contact.get("firstName", ""),
+                                "LastName": contact.get("lastName", ""),
+                                "Email": contact.get("email", ""),
+                                "LinkedIn": contact.get("linkedinUrl", ""),
+                                "Company": contact.get("company", ""),
+                            }
+                            seen_contact_set.add(get_contact_identity(standardized))
+                        _set_cached_exclusion_list(user_id, seen_contact_set)
+                    if credits_available < 15:
+                        return jsonify({
+                            "error": "Insufficient credits",
+                            "credits_needed": 15,
+                            "current_credits": credits_available,
+                        }), 400
+            except Exception:
+                pass
+
+        tier_max = TIER_CONFIGS[user_tier]["max_contacts"]
+        try:
+            batch_size = int(batch_size) if batch_size is not None else None
+        except (TypeError, ValueError):
+            batch_size = None
+        max_contacts = batch_size if batch_size and 1 <= batch_size <= tier_max else tier_max
+
+        # Parse prompt
+        parsed = parse_search_prompt_structured(prompt)
+        if parsed.get("error"):
+            return jsonify({
+                "error": parsed.get("error", "Failed to parse prompt"),
+                "parsed_query": {k: parsed.get(k) for k in ("companies", "title_variations", "locations") if k in parsed},
+            }), 400
+        if parsed.get("confidence") == "low":
+            return jsonify({
+                "error": "Your search was too vague. Please add more specifics (e.g. job title, company, or location).",
+                "parsed_query": {k: parsed.get(k) for k in ("companies", "title_variations", "locations") if k in parsed},
+            }), 400
+
+        # Fetch contacts
+        contacts = search_contacts_from_prompt(parsed, max_contacts, exclude_keys=seen_contact_set)
+        if not contacts:
+            return jsonify({
+                "contacts": [],
+                "successful_drafts": 0,
+                "total_contacts": 0,
+                "tier": user_tier,
+                "user_email": user_email,
+                "parsed_query": {
+                    "companies": parsed.get("companies", []),
+                    "title_variations": parsed.get("title_variations", []),
+                    "locations": parsed.get("locations", []),
+                },
+            })
+
+        # Same pipeline as free-run: template, emails, drafts, deduct, save
+        user_profile = data.get("userProfile") or (user_data or {}).get("userProfile")
+        if not user_profile and db and user_id:
+            try:
+                prof_ref = db.collection("users").document(user_id).collection("professionalInfo").document("info")
+                prof_doc = prof_ref.get()
+                if prof_doc.exists:
+                    pi = prof_doc.to_dict()
+                    user_profile = {
+                        "name": f"{pi.get('firstName', '')} {pi.get('lastName', '')}".strip() or user_email or "",
+                        "email": user_email,
+                        "university": pi.get("university", ""),
+                        "major": pi.get("fieldOfStudy", ""),
+                        "year": pi.get("graduationYear", ""),
+                        "graduationYear": pi.get("graduationYear", ""),
+                        "degree": pi.get("currentDegree", ""),
+                    }
+            except Exception:
+                pass
+        if not user_profile:
+            user_profile = {"name": "", "email": user_email or ""}
+        career_interests = data.get("careerInterests") or (user_data or {}).get("careerInterests", [])
+        resume_text = None
+        template_instructions, email_template_purpose = _resolve_email_template(data.get("emailTemplate"), user_id, db)
+
+        try:
+            email_results = batch_generate_emails(
+                contacts, resume_text, user_profile, career_interests,
+                fit_context=None,
+                template_instructions=template_instructions,
+                email_template_purpose=email_template_purpose,
+            )
+        except Exception as email_gen_error:
+            print(f"❌ Email generation failed (prompt-search): {email_gen_error}")
+            email_results = {}
+
+        for i, contact in enumerate(contacts):
+            key = str(i)
+            email_result = email_results.get(i) or email_results.get(key) or email_results.get(f"{i}")
+            if email_result and isinstance(email_result, dict):
+                subject = email_result.get("subject", "")
+                body = email_result.get("body", "")
+                if subject and body:
+                    contact["emailSubject"] = subject
+                    contact["emailBody"] = body
+
+        contacts_with_emails = []
+        for i, contact in enumerate(contacts):
+            key = str(i)
+            email_result = email_results.get(i) or email_results.get(key) or email_results.get(f"{i}")
+            if email_result and isinstance(email_result, dict):
+                subject = email_result.get("subject", "")
+                body = email_result.get("body", "")
+                if subject and body:
+                    attach_resume = (email_template_purpose in PURPOSES_INCLUDE_RESUME) or email_body_mentions_resume(body)
+                    contacts_with_emails.append({
+                        "index": i,
+                        "contact": contact,
+                        "email_subject": subject,
+                        "email_body": body,
+                        "attach_resume": attach_resume,
+                    })
+
+        resume_url = None
+        resume_content = None
+        resume_filename = None
+        should_fetch = (email_template_purpose in PURPOSES_INCLUDE_RESUME) or any(item["attach_resume"] for item in contacts_with_emails)
+        if db and user_id and should_fetch:
+            try:
+                user_doc = db.collection("users").document(user_id).get()
+                if user_doc.exists:
+                    resume_url = user_doc.to_dict().get("resumeUrl")
+                    if resume_url:
+                        resume_content, resume_filename = download_resume_from_url(resume_url)
+            except Exception:
+                pass
+
+        successful_drafts = 0
+        user_info = {"name": user_profile.get("name", ""), "email": user_profile.get("email", ""), "phone": "", "linkedin": ""}
+        try:
+            creds = _load_user_gmail_creds(user_id) if user_id else None
+            if creds and contacts_with_emails:
+                from app.services.gmail_client import create_drafts_parallel
+                draft_results = create_drafts_parallel(
+                    contacts_with_emails,
+                    resume_bytes=resume_content,
+                    resume_filename=resume_filename,
+                    user_info=user_info,
+                    user_id=user_id,
+                    tier=user_tier,
+                    user_email=user_email,
+                )
+                for item, draft_result in zip(contacts_with_emails, draft_results):
+                    contact = item["contact"]
+                    draft_id = draft_result.get("draft_id", "") if isinstance(draft_result, dict) else (draft_result or "")
+                    if draft_id and not str(draft_id).startswith("mock_"):
+                        successful_drafts += 1
+                        contact["gmailDraftId"] = draft_id
+                        if isinstance(draft_result, dict):
+                            if draft_result.get("draft_url"):
+                                contact["gmailDraftUrl"] = draft_result["draft_url"]
+        except Exception as gmail_error:
+            err_str = str(gmail_error).lower()
+            if "invalid_grant" in err_str or "token has been expired or revoked" in err_str:
+                return jsonify({
+                    "error": "gmail_token_expired",
+                    "message": "Your Gmail connection has expired. Please reconnect your Gmail account.",
+                    "require_reauth": True,
+                    "contacts": contacts,
+                }), 401
+            print(f"⚠️ Gmail draft error (prompt-search): {gmail_error}")
+
+        if not (db and user_id):
+            print(f"⚠️ Prompt-search: skipping Firestore save (db={db is not None}, user_id={bool(user_id)})")
+        if db and user_id:
+            try:
+                db.collection("users").document(user_id).update({
+                    "credits": firestore.Increment(-15 * len(contacts))
+                })
+            except Exception:
+                pass
+            try:
+                print(f"💾 Saving {len(contacts)} contacts to Firestore (prompt-search)...")
+                contacts_ref = db.collection("users").document(user_id).collection("contacts")
+                existing_contacts = list(contacts_ref.stream())
+                existing_contacts_data = [c.to_dict() for c in existing_contacts]
+                existing_emails = {c.get("email", "").lower().strip() for c in existing_contacts_data if c.get("email")}
+                existing_linkedins = {c.get("linkedinUrl", "").strip() for c in existing_contacts_data if c.get("linkedinUrl")}
+                existing_name_company = {
+                    f"{c.get('firstName', '')}_{c.get('lastName', '')}_{c.get('company', '')}".lower().strip()
+                    for c in existing_contacts_data
+                    if c.get("firstName") and c.get("lastName") and c.get("company")
+                }
+                today = datetime.now().strftime("%m/%d/%Y")
+                saved_count = 0
+                skipped_count = 0
+                for contact in contacts:
+                    first_name = (contact.get("FirstName") or contact.get("firstName") or "").strip()
+                    last_name = (contact.get("LastName") or contact.get("lastName") or "").strip()
+                    email = (contact.get("Email") or contact.get("WorkEmail") or contact.get("PersonalEmail") or contact.get("email") or "").strip().lower()
+                    linkedin = (contact.get("LinkedIn") or contact.get("linkedinUrl") or "").strip()
+                    company = (contact.get("Company") or contact.get("company") or "").strip()
+                    if (email and email in existing_emails) or (linkedin and linkedin in existing_linkedins):
+                        skipped_count += 1
+                        continue
+                    if first_name and last_name and company and f"{first_name}_{last_name}_{company}".lower() in existing_name_company:
+                        skipped_count += 1
+                        continue
+                    contact_doc = {
+                        "firstName": first_name,
+                        "lastName": last_name,
+                        "email": contact.get("Email") or contact.get("WorkEmail") or contact.get("PersonalEmail") or "",
+                        "linkedinUrl": linkedin,
+                        "company": company,
+                        "jobTitle": contact.get("Title") or contact.get("jobTitle") or "",
+                        "college": contact.get("College") or contact.get("college") or "",
+                        "location": contact.get("location") or "",
+                        "city": contact.get("City") or "",
+                        "state": contact.get("State") or "",
+                        "firstContactDate": today,
+                        "status": "Not Contacted",
+                        "lastContactDate": today,
+                        "userId": user_id,
+                        "createdAt": today,
+                    }
+                    if contact.get("emailSubject"):
+                        contact_doc["emailSubject"] = contact["emailSubject"]
+                    if contact.get("emailBody"):
+                        contact_doc["emailBody"] = contact["emailBody"]
+                    if contact.get("gmailDraftId"):
+                        contact_doc["gmailDraftId"] = contact["gmailDraftId"]
+                    if contact.get("gmailDraftUrl"):
+                        contact_doc["gmailDraftUrl"] = contact["gmailDraftUrl"]
+                    if contact.get("gmailDraftId") or contact.get("gmailDraftUrl"):
+                        contact_doc["pipelineStage"] = "draft_created"
+                    contacts_ref.add(contact_doc)
+                    saved_count += 1
+                    # Avoid duplicates within same batch
+                    if email:
+                        existing_emails.add(email)
+                    if linkedin:
+                        existing_linkedins.add(linkedin)
+                    if first_name and last_name and company:
+                        existing_name_company.add(f"{first_name}_{last_name}_{company}".lower().strip())
+                print(f"✅ Prompt-search: saved {saved_count} new contacts to Firestore, skipped {skipped_count} duplicates")
+                _invalidate_exclusion_cache(user_id)
+            except Exception as save_error:
+                print(f"⚠️ Error saving contacts (prompt-search): {save_error}")
+                import traceback
+                traceback.print_exc()
+
+        return jsonify({
+            "contacts": contacts,
+            "successful_drafts": successful_drafts,
+            "total_contacts": len(contacts),
+            "tier": user_tier,
+            "user_email": user_email,
+            "parsed_query": {
+                "companies": parsed.get("companies", []),
+                "title_variations": parsed.get("title_variations", []),
+                "locations": parsed.get("locations", []),
+            },
+        })
+    except (OfferloopException, InsufficientCreditsError, ExternalAPIError):
+        raise
+    except Exception as e:
+        print(f"Prompt-search error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise OfferloopException(f"Prompt search failed: {str(e)}", error_code="PROMPT_SEARCH_ERROR")
 
 
 @runs_bp.route('/free-run-csv', methods=['POST'])

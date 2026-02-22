@@ -22,6 +22,7 @@ import requests
 import requests.exceptions
 
 from app.config import PEOPLE_DATA_LABS_API_KEY, PDL_BASE_URL
+from app.services.pdl_client import clean_company_name
 
 logger = logging.getLogger(__name__)
 
@@ -154,20 +155,13 @@ def _build_location_clause(location_values: List[str], strict: bool) -> Dict[str
 
 
 def _build_company_clause(companies: List[str]) -> Dict[str, Any]:
-    """Build company clause with flexible matching."""
+    """Build company clause with match_phrase only (no loose match). Single clause as must (PDL-friendly)."""
     if not companies:
         return {}
     primary = companies[0].strip()
     if not primary:
         return {}
-    return {
-        "bool": {
-            "should": [
-                {"match_phrase": {"job_company_name": primary}},
-                {"match": {"job_company_name": primary}},
-            ]
-        }
-    }
+    return {"match_phrase": {"job_company_name": primary}}
 
 
 def _build_query(
@@ -656,14 +650,46 @@ def run_prompt_search(filters: Dict[str, Any]) -> Dict[str, Any]:
             "alumni_matches": 0,
         }
 
-    # Post-filter alumni if target schools specified
+    # Post-validation: filter out contacts that don't match company or school criteria
+    target_company = None
+    companies = filters.get("company", [])
+    if isinstance(companies, str):
+        companies = [companies]
+    if companies:
+        target_company = (companies[0] or "").strip() or None
+
+    post_filtered = []
+    for contact in results:
+        # Company check: if user specified company, contact's current job must match
+        if target_company:
+            actual = (contact.get("Company") or "").strip()
+            if not actual:
+                name = f"{contact.get('FirstName', '')} {contact.get('LastName', '')}".strip()
+                logger.info("[PostFilter] Dropped %s: company mismatch (expected=%s, got=no company)", name, target_company)
+                continue
+            cleaned_expected = clean_company_name(target_company).lower().strip()
+            cleaned_actual = clean_company_name(actual).lower().strip()
+            if cleaned_expected != cleaned_actual and not (cleaned_expected in cleaned_actual and len(cleaned_expected) >= 3):
+                name = f"{contact.get('FirstName', '')} {contact.get('LastName', '')}".strip()
+                logger.info("[PostFilter] Dropped %s: company mismatch (expected=%s, got=%s)", name, target_company, actual)
+                continue
+        # School check: if user specified schools, keep only alumni
+        if target_schools and not is_target_alumni(contact, target_schools):
+            name = f"{contact.get('FirstName', '')} {contact.get('LastName', '')}".strip()
+            logger.info("[PostFilter] Dropped %s: school mismatch (expected one of %s)", name, target_schools)
+            continue
+        post_filtered.append(contact)
+
+    if post_filtered != results:
+        logger.info("[PostFilter] Kept %s contacts after post-validation (dropped %s non-matching)", len(post_filtered), len(results) - len(post_filtered))
+
+    # Rank: alumni first (only affects order when both alumni and non-alumni present; after school filter all are alumni if target_schools)
     if target_schools:
-        # Rank: alumni first
-        ranked = rank_results(results, target_schools)
+        ranked = rank_results(post_filtered, target_schools)
         alumni_count = sum(1 for r in ranked if is_target_alumni(r, target_schools))
         logger.info("[PROMPT_PDL] Alumni matches: %s / %s", alumni_count, len(ranked))
     else:
-        ranked = results
+        ranked = post_filtered
         alumni_count = 0
 
     # Remove internal PDL person data before returning

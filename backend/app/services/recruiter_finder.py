@@ -509,7 +509,7 @@ def find_recruiters(
     
     try:
         # Use existing execute_pdl_search function for consistency
-        raw_recruiters = execute_pdl_search(
+        raw_recruiters, _ = execute_pdl_search(
             headers=headers,
             url=PDL_URL,
             query_obj=query_obj,
@@ -683,7 +683,7 @@ def search_by_titles(
     }
     
     try:
-        contacts = execute_pdl_search(
+        contacts, _ = execute_pdl_search(
             headers=headers,
             url=PDL_URL,
             query_obj=query_obj,
@@ -1141,7 +1141,7 @@ def find_hiring_manager(
         }
         
         try:
-            raw_managers = execute_pdl_search(
+            raw_managers, _ = execute_pdl_search(
                 headers=headers,
                 url=PDL_URL,
                 query_obj=query_obj,

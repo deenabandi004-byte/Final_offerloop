@@ -13,11 +13,11 @@ const News = () => {
       <main className="container mx-auto px-4 py-16">
         <Button 
           variant="ghost" 
-          onClick={() => navigate("/dashboard")} 
+          onClick={() => navigate("/contact-search")} 
           className="mb-8 p-2"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Dashboard
+          Find people
         </Button>
         <div className="text-center max-w-3xl mx-auto">
           <h1 className="text-4xl font-bold text-foreground mb-4">Loop News</h1>

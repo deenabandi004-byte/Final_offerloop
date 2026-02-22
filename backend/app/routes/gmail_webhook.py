@@ -6,6 +6,7 @@ import json
 import re
 import threading
 from datetime import datetime
+from email.utils import parseaddr
 
 from flask import Blueprint, jsonify, request
 
@@ -145,10 +146,77 @@ def _process_gmail_notification(email_address, history_id):
             headers = msg_resp.get("payload", {}).get("headers", [])
             from_header = next((h.get("value", "") for h in headers if h.get("name", "").lower() == "from"), "")
             from_email = _extract_email_from_header(from_header)
-            if from_email and user_email_lower and from_email == user_email_lower:
-                continue  # Sent by user, not a reply
 
-            # Find contact with this thread
+            if from_email and user_email_lower and from_email == user_email_lower:
+                # --- User sent a message (draft was sent) ---
+                to_header = next((h.get("value", "") for h in headers if h.get("name", "").lower() == "to"), "")
+                _, to_email = parseaddr(to_header)
+                to_email = (to_email or "").lower().strip()
+
+                if not to_email or not thread_id:
+                    continue
+
+                contact_ref = None
+                contact_doc = None
+
+                # Try: contact with gmailThreadId == thread_id
+                thread_matches = contacts_ref.where("gmailThreadId", "==", thread_id).limit(1).get()
+                if thread_matches:
+                    contact_doc = thread_matches[0]
+                    contact_ref = contact_doc.reference
+                else:
+                    # Fallback: contact whose email matches 'To' AND is in draft state
+                    email_matches = contacts_ref.where("email", "==", to_email).limit(5).get()
+                    for doc in email_matches:
+                        data = doc.to_dict() or {}
+                        stage = data.get("pipelineStage") or data.get("pipeline_stage")
+                        has_draft = (
+                            data.get("gmailDraftId")
+                            or data.get("gmail_draft_id")
+                            or data.get("gmailDraftUrl")
+                            or data.get("gmail_draft_url")
+                        )
+                        if stage == "draft_created" or has_draft:
+                            contact_doc = doc
+                            contact_ref = doc.reference
+                            break
+
+                if not contact_ref:
+                    continue
+
+                contact_data = contact_doc.to_dict() or {}
+                current_stage = contact_data.get("pipelineStage") or contact_data.get("pipeline_stage")
+
+                # Only update if currently in a draft/pre-send state
+                if current_stage not in (None, "draft_created", "email_sent"):
+                    continue
+
+                update_fields = {
+                    "draftStillExists": False,
+                    "pipelineStage": "waiting_on_reply",
+                    "pipeline_stage": "waiting_on_reply",
+                    "lastActivityAt": now_iso,
+                    "last_activity_at": now_iso,
+                    "updatedAt": now_iso,
+                }
+
+                if not contact_data.get("emailSentAt") and not contact_data.get("email_sent_at"):
+                    update_fields["emailSentAt"] = now_iso
+                    update_fields["email_sent_at"] = now_iso
+
+                if not contact_data.get("gmailThreadId") and not contact_data.get("gmail_thread_id"):
+                    update_fields["gmailThreadId"] = thread_id
+                    update_fields["gmail_thread_id"] = thread_id
+
+                msg_snippet = msg_resp.get("snippet") or ""
+                if msg_snippet:
+                    update_fields["lastMessageSnippet"] = msg_snippet
+                    update_fields["last_message_snippet"] = msg_snippet
+
+                contact_ref.update(update_fields)
+                continue
+
+            # Find contact with this thread (reply from contact)
             try:
                 query = contacts_ref.where("gmailThreadId", "==", thread_id).limit(1)
                 contact_docs = list(query.stream())

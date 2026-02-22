@@ -1,25 +1,24 @@
 // src/pages/Index.tsx
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowRight, Menu, X, Check, Search } from 'lucide-react';
+import { ArrowRight, Menu, X } from 'lucide-react';
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import OfferloopLogo from '@/assets/offerloop_logo2.png';
-import ContactSearchSS from '@/assets/contactsearchss .png';
 import CoffeeChatPrepSS from '@/assets/coffeechatprepss.png';
 import SearchIcon from '@/assets/sidebaricons/icons8-magnifying-glass-50.png';
 import TrackIcon from '@/assets/sidebaricons/icons8-important-mail-48.png';
 import CoffeeIcon from '@/assets/sidebaricons/icons8-cup-48.png';
 import InterviewIcon from '@/assets/sidebaricons/icons8-briefcase-48.png';
+import ChromeExtensionPic from '@/assets/Chrome_extensionpic.png';
+import ExtensionLogo from '@/assets/extension.png';
 
-const TYPING_TEXT = 'land a job.';
+const CHROME_EXTENSION_URL = 'https://chromewebstore.google.com/detail/offerloop/aabnjgecmobcnnhkilbeocggbmgilpcl';
 
 const Index = () => {
   const navigate = useNavigate();
   const { user } = useFirebaseAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [navbarScrolled, setNavbarScrolled] = useState(false);
-  const [displayedText, setDisplayedText] = useState('');
-  const [showCursor, setShowCursor] = useState(true);
   const [scrollProgress, setScrollProgress] = useState(0);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [konamiActivated, setKonamiActivated] = useState(false);
@@ -97,39 +96,6 @@ const Index = () => {
     return () => {
       elements.forEach((el) => observer.unobserve(el));
     };
-  }, []);
-
-  // Typing animation
-  useEffect(() => {
-    // Delay before starting (let hero fade in first)
-    const startDelay = setTimeout(() => {
-      let currentIndex = 0;
-      
-      const typeNextLetter = () => {
-        if (currentIndex <= TYPING_TEXT.length) {
-          setDisplayedText(TYPING_TEXT.slice(0, currentIndex));
-          currentIndex++;
-          
-          // Variable speed: slower for spaces and punctuation
-          const currentChar = TYPING_TEXT[currentIndex - 1];
-          let delay = 90; // Base speed (ms per character)
-          
-          if (currentChar === ' ') delay = 120;
-          if (currentChar === '.') delay = 200;
-          
-          if (currentIndex <= TYPING_TEXT.length) {
-            setTimeout(typeNextLetter, delay);
-          } else {
-            // Typing complete, hide cursor after a moment
-            setTimeout(() => setShowCursor(false), 800);
-          }
-        }
-      };
-      
-      typeNextLetter();
-    }, 600); // Start after 600ms (hero fade-in)
-    
-    return () => clearTimeout(startDelay);
   }, []);
 
   // Konami code easter egg
@@ -251,10 +217,10 @@ const Index = () => {
         <div className="hidden md:flex items-center gap-4">
           {user ? (
             <button
-              onClick={() => navigate('/dashboard')}
+              onClick={() => navigate('/contact-search')}
               className="btn-ghost"
             >
-              Go to Dashboard
+              Find people
             </button>
           ) : (
             <>
@@ -333,12 +299,12 @@ const Index = () => {
               {user ? (
                 <button
                   onClick={() => {
-                    navigate('/dashboard');
+                    navigate('/contact-search');
                     setMobileMenuOpen(false);
                   }}
                   className="btn-primary-lg w-full"
                 >
-                  Go to Dashboard
+                  Find people
                 </button>
               ) : (
                 <>
@@ -373,7 +339,7 @@ const Index = () => {
       {/* SECTION 1: HERO */}
       <section
         ref={heroRef}
-        className="relative py-[130px] pb-[100px] px-6 md:px-12"
+        className="relative pt-[72px] pb-[100px] px-6 md:px-12"
         style={{
           background: 'var(--bg-white)',
         }}
@@ -407,26 +373,8 @@ const Index = () => {
                 marginBottom: '28px',
               }}
             >
-              One system to<br />
-              <span style={{ color: '#2563EB' }}>
-                {displayedText}
-                {showCursor && (
-                  <span 
-                    className="typing-cursor"
-                    style={{
-                      display: 'inline-block',
-                      width: '3px',
-                      height: '0.9em',
-                      backgroundColor: '#2563EB',
-                      marginLeft: '2px',
-                      verticalAlign: 'baseline',
-                      position: 'relative',
-                      top: '0.1em',
-                      animation: 'cursor-blink 1s ease-in-out infinite',
-                    }}
-                  />
-                )}
-              </span>
+              Get connected.<br />
+              <span style={{ color: '#2563EB' }}>Get recruited.</span>
             </h1>
             <p
               className="hero-fade-up hero-fade-up-delay-3"
@@ -462,6 +410,44 @@ const Index = () => {
                 See how it works
                 <ArrowRight className="h-3.5 w-3.5 group-hover:translate-y-[3px] transition-transform" />
               </button>
+            </div>
+            <div className="hero-fade-up hero-fade-up-delay-4" style={{ marginTop: '32px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <a
+                href={CHROME_EXTENSION_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group inline-flex items-center gap-3"
+                style={{
+                  padding: '13px 24px',
+                  borderRadius: '11px',
+                  background: 'white',
+                  border: '1px solid rgba(37, 99, 235, 0.15)',
+                  color: '#2563EB',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  fontFamily: 'var(--font-body)',
+                  textDecoration: 'none',
+                  boxShadow: '0 1px 4px rgba(0, 0, 0, 0.04)',
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.3)';
+                  e.currentTarget.style.boxShadow = '0 4px 16px rgba(37, 99, 235, 0.12)';
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.15)';
+                  e.currentTarget.style.boxShadow = '0 1px 4px rgba(0, 0, 0, 0.04)';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
+              >
+                <img src={ExtensionLogo} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />
+                Add to Chrome — it's free
+                <ArrowRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
+              </a>
+              <span style={{ fontSize: '13px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-body)' }}>
+                Works on any LinkedIn profile
+              </span>
             </div>
           </div>
 
@@ -503,46 +489,11 @@ const Index = () => {
                 e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.04), 0 16px 40px rgba(0,0,0,0.06)';
               }}
             >
-              {/* Browser chrome bar */}
-              <div style={{
-                height: 36,
-                background: 'var(--bg-white)',
-                borderBottom: '1px solid var(--border-light)',
-                display: 'flex',
-                alignItems: 'center',
-                padding: '0 14px',
-                gap: 6,
-                flexShrink: 0,
-              }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FCA5A5' }} />
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FDE68A' }} />
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#86EFAC' }} />
-                <div style={{
-                  flex: 1,
-                  height: 22,
-                  background: 'var(--border-light)',
-                  borderRadius: 5,
-                  marginLeft: 12,
-                  maxWidth: 220,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
-                  <span style={{
-                    fontSize: 11,
-                    fontWeight: 500,
-                    color: 'var(--text-tertiary)',
-                    letterSpacing: '0.01em',
-                    fontFamily: 'var(--font-body)',
-                  }}>offerloop.ai</span>
-                </div>
-              </div>
-
               {/* Screenshot */}
               <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
                 <img
-                  src={ContactSearchSS}
-                  alt="Offerloop contact search"
+                  src={ChromeExtensionPic}
+                  alt="Offerloop Chrome extension on a LinkedIn profile"
                   style={{
                     width: '100%',
                     display: 'block',
@@ -563,74 +514,6 @@ const Index = () => {
                   }}
                 />
               </div>
-            </div>
-
-            {/* Floating annotations */}
-            <div
-              className="absolute flex items-center float-animation"
-              style={{
-                top: '-8px',
-                right: '-12px',
-                background: 'var(--bg-white)',
-                border: '1px solid var(--border)',
-                borderRadius: '10px',
-                padding: '10px 14px',
-                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.06)',
-                fontSize: '12.5px',
-                fontWeight: 600,
-                color: 'var(--text-primary)',
-                zIndex: 2,
-                pointerEvents: 'none',
-                gap: '10px',
-              }}
-            >
-              <div style={{
-                width: '28px',
-                height: '28px',
-                borderRadius: '7px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                background: 'rgba(34, 197, 94, 0.1)',
-                color: '#16A34A',
-              }}>
-                <Check className="h-[15px] w-[15px]" />
-              </div>
-              Email sent
-            </div>
-            <div
-              className="absolute flex items-center float-animation-delay"
-              style={{
-                bottom: '12%',
-                left: '-12px',
-                background: 'var(--bg-white)',
-                border: '1px solid var(--border)',
-                borderRadius: '10px',
-                padding: '10px 14px',
-                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.06)',
-                fontSize: '12.5px',
-                fontWeight: 600,
-                color: 'var(--text-primary)',
-                zIndex: 2,
-                pointerEvents: 'none',
-                gap: '10px',
-              }}
-            >
-              <div style={{
-                width: '28px',
-                height: '28px',
-                borderRadius: '7px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                background: 'var(--blue-subtle)',
-                color: 'var(--blue)',
-              }}>
-                <Search className="h-[15px] w-[15px]" />
-              </div>
-              3 contacts found
             </div>
           </div>
         </div>
@@ -758,34 +641,43 @@ const Index = () => {
         </div>
       </section>
 
-      {/* Confidence statement */}
-      <div
-        className="reveal"
-        style={{ padding: '48px 24px', background: 'var(--bg-white)' }}
-      >
-        <p
-          className="text-center mx-auto"
-          style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: '22px',
-            fontWeight: 400,
-            fontStyle: 'italic',
-            color: 'var(--text-secondary)',
-            letterSpacing: '-0.01em',
-            maxWidth: 520,
-            lineHeight: 1.5,
-          }}
-        >
-          Built for students who take recruiting seriously.
-        </p>
-      </div>
-
       {/* SECTION 3: PROBLEM → SOLUTION */}
       <section
         className="py-[110px] px-6 md:px-12"
         style={{ background: 'var(--bg-white)' }}
       >
         <div className="max-w-7xl mx-auto">
+          <p
+            className="text-center reveal"
+            style={{
+              fontSize: '12px',
+              fontWeight: 600,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: 'var(--text-tertiary)',
+              fontFamily: 'var(--font-body)',
+              marginBottom: '12px',
+            }}
+          >
+            How it works
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-8 md:gap-12 mb-16 reveal" style={{ fontFamily: 'var(--font-body)' }}>
+            <div className="flex items-center gap-2">
+              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--blue)' }}>01</span>
+              <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>Search</span>
+              <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>— Find contacts at any company</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--blue)' }}>02</span>
+              <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>Reach out</span>
+              <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>— Send personalized emails in seconds</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--blue)' }}>03</span>
+              <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>Prepare</span>
+              <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>— Walk into every conversation ready</span>
+            </div>
+          </div>
           <h2
             className="text-center mb-16 reveal"
             style={{
@@ -938,66 +830,6 @@ const Index = () => {
                 </div>
               ))}
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* How it works — 3 steps */}
-      <section className="bg-dots section-fade-bottom" style={{
-        padding: '72px 0',
-        background: 'var(--bg-off)',
-        borderBottom: '1px solid var(--border-light)',
-      }}>
-        <div className="max-w-[720px] mx-auto px-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center" style={{ position: 'relative', gap: '32px' }}>
-            {/* Connecting line — hidden on mobile - subtle gradient */}
-            <div
-              className="hidden md:block absolute"
-              style={{
-                top: 20,
-                left: '20%',
-                right: '20%',
-                height: 1.5,
-                background: 'linear-gradient(90deg, transparent 0%, rgba(37, 99, 235, 0.2) 20%, rgba(59, 130, 246, 0.2) 50%, rgba(96, 165, 250, 0.2) 80%, transparent 100%)',
-                opacity: 0.6,
-                zIndex: 0,
-                borderRadius: '1px',
-              }}
-            />
-            {[
-              { step: '01', label: 'Search', desc: 'Find contacts at any company' },
-              { step: '02', label: 'Reach out', desc: 'Send personalized emails in seconds' },
-              { step: '03', label: 'Prepare', desc: 'Walk into every conversation ready' },
-            ].map((item, i) => (
-              <div key={i} className="reveal relative" style={{ position: 'relative', zIndex: 1 }}>
-                <div style={{
-                  fontFamily: 'var(--font-display)',
-                  fontSize: 32,
-                  background: i === 0 
-                    ? 'linear-gradient(135deg, #2563EB, #3B82F6)'
-                    : i === 1
-                    ? 'linear-gradient(135deg, #3B82F6, #60A5FA)'
-                    : 'linear-gradient(135deg, #60A5FA, #06B6D4)',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  backgroundClip: 'text',
-                  opacity: 0.25,
-                  marginBottom: 8,
-                }}>{item.step}</div>
-                <div style={{
-                  fontFamily: 'var(--font-body)',
-                  fontSize: 16,
-                  fontWeight: 600,
-                  color: 'var(--text-primary)',
-                  marginBottom: 4,
-                }}>{item.label}</div>
-                <div style={{
-                  fontFamily: 'var(--font-body)',
-                  fontSize: 14,
-                  color: 'var(--text-secondary)',
-                }}>{item.desc}</div>
-              </div>
-            ))}
           </div>
         </div>
       </section>
@@ -1226,80 +1058,11 @@ const Index = () => {
                 />
               </div>
             </div>
-
-            {/* Caption */}
-            <p
-              className="text-center mt-5"
-              style={{
-                fontFamily: 'var(--font-body)',
-                fontSize: '13px',
-                color: 'var(--text-tertiary)',
-                letterSpacing: '0.01em',
-              }}
-            >
-              Coffee Chat Prep — AI-generated talking points from a LinkedIn URL
-            </p>
           </div>
         </div>
       </section>
 
-      {/* SECTION 5: HOW IT FEELS */}
-      <section
-        className="py-[130px] px-6 md:px-12"
-        style={{ background: 'var(--bg-white)' }}
-      >
-        <div className="max-w-[780px] mx-auto">
-          <h2
-            className="text-center mb-16 reveal"
-            style={{
-              fontFamily: 'var(--font-display)',
-              fontSize: '40px',
-              fontWeight: 400,
-              letterSpacing: '-0.025em',
-              color: 'var(--text-primary)',
-            }}
-          >
-            Recruiting, without the busywork
-          </h2>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '40px' }}>
-            {[
-              { text: "Stop spending ", highlight: "40 minutes", rest: " writing a single cold email. Draft personalized outreach in seconds." },
-              { text: "Stop ", highlight: "researching every person", rest: " before a coffee chat. Walk in prepared, automatically." },
-              { text: "Stop juggling ", highlight: "five different tools", rest: ". One system from first email to final round." },
-            ].map((statement, i) => (
-              <div key={i} className="text-center reveal">
-                {i > 0 && (
-                  <div
-                    className="w-1 h-1 rounded-full mx-auto mb-8"
-                    style={{ width: '4px', height: '4px', background: 'var(--border)' }}
-                  />
-                )}
-                <p
-                  className="statement-text text-xl leading-relaxed max-w-[540px] mx-auto"
-                  style={{
-                    fontFamily: 'var(--font-body)',
-                    fontSize: '20px',
-                    lineHeight: 1.6,
-                    color: 'var(--text-secondary)',
-                  }}
-                >
-                  {statement.text}
-                  <em className="statement-em" style={{
-                    fontStyle: 'normal',
-                    color: 'var(--blue)',
-                    fontWeight: 600,
-                  }}>
-                    {statement.highlight}
-                  </em>
-                  {statement.rest}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* SECTION 6: TESTIMONIALS */}
+      {/* SECTION 5: TESTIMONIALS */}
       <section
         id="testimonials"
         className="py-[110px] px-6 md:px-12 bg-dots"
@@ -1408,10 +1171,7 @@ const Index = () => {
                     style={{
                       fontFamily: 'var(--font-body)',
                       fontSize: '13px',
-                      color: 'var(--blue)',
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                      backgroundClip: 'text',
+                      color: '#2563EB',
                       marginTop: '3px',
                       fontWeight: 500,
                     }}
@@ -1545,7 +1305,7 @@ const Index = () => {
               color: 'var(--text-tertiary)',
             }}
           >
-            © 2025 Offerloop. All rights reserved.
+            © 2026 Offerloop. All rights reserved.
           </p>
           <div className="flex gap-6">
             {[

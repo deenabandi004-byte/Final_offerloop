@@ -7,46 +7,20 @@ import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useNotifications } from "@/hooks/useNotifications";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { apiService, OutboxThread, PipelineStage } from "@/services/api";
 import {
   Mail,
   Search,
   ExternalLink,
   RefreshCw,
-  FileText,
-  Send,
-  MessageSquare,
-  UserCheck,
-  TrendingUp,
   Inbox,
-  LucideIcon,
   AlertCircle,
-  MoreHorizontal,
-  Clock,
-  Calendar,
-  MessageCircle,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -92,28 +66,39 @@ function getPipelineLabel(stage: string | null | undefined): string {
   return PIPELINE_LABEL[stage] ?? stage;
 }
 
+/** Stage badge inline styles for list/detail (design system). */
+const PIPELINE_BADGE_STYLES: Record<string, { background: string; color: string }> = {
+  draft_created: { background: "#F1F5F9", color: "#64748B" },
+  email_sent: { background: "#EFF6FF", color: "#2563EB" },
+  waiting_on_reply: { background: "#FFFBEB", color: "#D97706" },
+  replied: { background: "#ECFDF5", color: "#059669" },
+  meeting_scheduled: { background: "#F5F3FF", color: "#7C3AED" },
+  connected: { background: "#ECFDF5", color: "#047857" },
+  no_response: { background: "#F9FAFB", color: "#9CA3AF" },
+  bounced: { background: "#F9FAFB", color: "#9CA3AF" },
+  closed: { background: "#F9FAFB", color: "#9CA3AF" },
+};
+
+function getPipelineBadgeStyle(stage: string | null | undefined): { background: string; color: string } {
+  if (!stage) return { background: "#F9FAFB", color: "#9CA3AF" };
+  return PIPELINE_BADGE_STYLES[stage] ?? { background: "#F9FAFB", color: "#9CA3AF" };
+}
+
 function getPipelineBadgeClass(stage: string | null | undefined): string {
   if (!stage) return "bg-gray-100 text-gray-400 border-gray-200";
   return PIPELINE_BADGE_CLASS[stage] ?? "bg-gray-100 text-gray-500 border-gray-200";
 }
 
-/* ---------- StatCard ---------- */
-
-interface StatCardProps {
-  icon: LucideIcon;
-  label: string;
-  value: number | string;
-}
-
-const StatCard = ({ icon: Icon, label, value }: StatCardProps) => (
-  <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-sm">
-    <Icon className="w-4 h-4 text-muted-foreground" />
-    <div>
-      <p className="text-base font-medium text-foreground">{value}</p>
-      <p className="text-xs text-muted-foreground">{label}</p>
-    </div>
-  </div>
-);
+/* ---------- Journey steps (for detail panel visualization) ---------- */
+const JOURNEY_STAGES = ["draft_created", "email_sent", "waiting_on_reply", "replied", "meeting_scheduled", "connected"] as const;
+const JOURNEY_LABELS: Record<string, string> = {
+  draft_created: "Draft",
+  email_sent: "Sent",
+  waiting_on_reply: "Waiting",
+  replied: "Reply",
+  meeting_scheduled: "Meeting",
+  connected: "Connected",
+};
 
 /* ---------- Tab / filter ---------- */
 
@@ -470,6 +455,16 @@ export default function Outbox() {
 
   return (
     <TooltipProvider>
+      <style>{`
+  .outbox-thread-list::-webkit-scrollbar { width: 4px; }
+  .outbox-thread-list::-webkit-scrollbar-track { background: transparent; }
+  .outbox-thread-list::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
+  .outbox-thread-list::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+  .outbox-detail-panel::-webkit-scrollbar { width: 4px; }
+  .outbox-detail-panel::-webkit-scrollbar-track { background: transparent; }
+  .outbox-detail-panel::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
+  .outbox-detail-panel::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+`}</style>
       <SidebarProvider>
         <div className="flex min-h-screen w-full bg-white text-foreground">
           <AppSidebar />
@@ -477,17 +472,17 @@ export default function Outbox() {
             <AppHeader title="" />
             <main style={{ background: "#F8FAFF", flex: 1, overflowY: "auto", padding: "48px 24px" }}>
               <div style={{ width: "100%", minWidth: "fit-content" }}>
-                <div style={{ maxWidth: "900px", margin: "0 auto", width: "100%" }}>
+                <div style={{ maxWidth: "1680px", margin: "0 auto", width: "100%" }}>
                   <h1
                     style={{
                       fontFamily: "'Instrument Serif', Georgia, serif",
-                      fontSize: "42px",
+                      fontSize: "28px",
                       fontWeight: 400,
-                      letterSpacing: "-0.025em",
+                      letterSpacing: "-0.02em",
                       color: "#0F172A",
-                      textAlign: "center",
-                      marginBottom: "10px",
-                      lineHeight: 1.1,
+                      marginBottom: "4px",
+                      lineHeight: 1.2,
+                      textShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
                     }}
                   >
                     Email Outreach
@@ -495,360 +490,498 @@ export default function Outbox() {
                   <p
                     style={{
                       fontFamily: "'DM Sans', system-ui, sans-serif",
-                      fontSize: "16px",
-                      color: "#64748B",
-                      textAlign: "center",
-                      marginBottom: "28px",
-                      lineHeight: 1.5,
+                      fontSize: "14px",
+                      color: "#94A3B8",
+                      marginBottom: "20px",
+                      lineHeight: 1.4,
                     }}
                   >
-                    Track your networking pipeline from first email to connection.
+                    Track your pipeline from draft to connection.
                   </p>
 
-                  {/* Stats */}
-                  <div className="mb-6">
-                    <div className="flex flex-wrap gap-3 mb-2">
-                      <StatCard
-                        icon={FileText}
-                        label="Drafts"
-                        value={stats?.draft_created ?? 0}
-                      />
-                      <StatCard
-                        icon={Send}
-                        label="Sent"
-                        value={stats?.waiting_on_reply ?? 0}
-                      />
-                      <StatCard
-                        icon={MessageSquare}
-                        label="Replied"
-                        value={stats?.replied ?? 0}
-                      />
-                      <StatCard
-                        icon={UserCheck}
-                        label="Connected"
-                        value={stats?.connected ?? 0}
-                      />
-                      <StatCard
-                        icon={TrendingUp}
-                        label="Reply Rate"
-                        value={stats != null ? `${Math.round((stats.replyRate ?? 0) * 100)}%` : "—"}
-                      />
+                  {/* Tabs + search + sort (one row) */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "12px",
+                      marginBottom: "16px",
+                    }}
+                  >
+                    <div style={{ display: "inline-flex", background: "#F0F4FD", borderRadius: "12px", padding: "4px" }}>
+                      {tabs.map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setActiveTab(tab.id)}
+                          onMouseEnter={(e) => {
+                            if (activeTab !== tab.id) {
+                              e.currentTarget.style.color = "#334155";
+                              e.currentTarget.style.background = "rgba(37, 99, 235, 0.06)";
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (activeTab !== tab.id) {
+                              e.currentTarget.style.color = "#64748B";
+                              e.currentTarget.style.background = "transparent";
+                            }
+                          }}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            padding: "8px 18px",
+                            borderRadius: "9px",
+                            border: "none",
+                            cursor: "pointer",
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: "13px",
+                            fontWeight: 500,
+                            transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                            background: activeTab === tab.id ? "#2563EB" : "transparent",
+                            color: activeTab === tab.id ? "white" : "#64748B",
+                            boxShadow: activeTab === tab.id ? "0 1px 3px rgba(37, 99, 235, 0.25)" : "none",
+                          }}
+                        >
+                          {tab.label}
+                          <span style={{ fontSize: "11px", opacity: 0.7 }}>{tabCount(tab.id)}</span>
+                        </button>
+                      ))}
                     </div>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5" />
-                        Avg. Response: {stats?.avgResponseTimeDays != null ? `${stats.avgResponseTimeDays} days` : "—"}
-                      </span>
-                      <span className="text-muted-foreground/60">·</span>
-                      <span className="flex items-center gap-1.5">
-                        <Calendar className="w-3.5 h-3.5" />
-                        Sent this week: {stats?.thisWeekSent ?? 0}
-                      </span>
-                      <span className="text-muted-foreground/60">·</span>
-                      <span className="flex items-center gap-1.5">
-                        <MessageCircle className="w-3.5 h-3.5" />
-                        Replies this week: {stats?.thisWeekReplied ?? 0}
-                      </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <div style={{ position: "relative" }}>
+                        <Search style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", width: 16, height: 16, color: "#94A3B8" }} />
+                        <input
+                          type="text"
+                          placeholder="Search by name, firm, subject…"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          style={{
+                            width: "240px",
+                            height: "38px",
+                            borderRadius: "10px",
+                            border: "1px solid #E2E8F0",
+                            background: "#FAFBFC",
+                            paddingLeft: "36px",
+                            fontSize: "13px",
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            outline: "none",
+                            transition: "all 0.2s ease",
+                            color: "#334155",
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = "#3B82F6";
+                            e.target.style.boxShadow = "0 0 0 3px rgba(59,130,246,0.08)";
+                            e.target.style.background = "#FFFFFF";
+                            e.target.style.width = "300px";
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = "#E2E8F0";
+                            e.target.style.boxShadow = "none";
+                            e.target.style.background = "#FAFBFC";
+                            e.target.style.width = "240px";
+                          }}
+                        />
+                      </div>
+                      {batchSyncing && (
+                        <span style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: "12px", color: "#64748B" }}>Syncing…</span>
+                      )}
+                      <Button size="icon" variant="outline" onClick={() => refetchThreads()} style={{ height: "40px", width: "40px", borderRadius: "10px", border: "1px solid #E2E8F0", background: "#FFF" }}>
+                        <RefreshCw style={{ width: 16, height: 16 }} />
+                      </Button>
+                      <select
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value as SortId)}
+                        style={{
+                          height: "40px",
+                          borderRadius: "10px",
+                          border: "1px solid #E2E8F0",
+                          background: "#FFF",
+                          fontSize: "13px",
+                          fontFamily: "'DM Sans', system-ui, sans-serif",
+                          paddingLeft: "12px",
+                          paddingRight: "28px",
+                          minWidth: "140px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <option value="recent_activity">Recent activity</option>
+                        <option value="oldest_first">Oldest first</option>
+                        <option value="recently_sent">Recently sent</option>
+                      </select>
                     </div>
                   </div>
 
-                  <div className="flex gap-6">
-                    {/* LEFT: Thread list */}
-                    <div className="w-1/2 space-y-4">
-                      <div className="flex justify-between items-center gap-2">
-                        <div className="flex items-center gap-2 border-b border-transparent min-h-[36px] overflow-x-auto whitespace-nowrap">
-                          {tabs.map((tab) => (
-                            <button
-                              key={tab.id}
-                              type="button"
-                              onClick={() => setActiveTab(tab.id)}
-                              className={`px-2 py-1.5 text-sm whitespace-nowrap border-b-2 -mb-px transition-colors ${
-                                activeTab === tab.id
-                                  ? "font-semibold text-foreground border-blue-500"
-                                  : "text-muted-foreground border-transparent hover:text-foreground"
-                              }`}
-                            >
-                              {tab.label}
-                            </button>
-                          ))}
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          {batchSyncing && (
-                            <span className="text-xs text-muted-foreground">Syncing…</span>
-                          )}
-                          <Button
-                            size="icon"
-                            variant="outline"
-                            onClick={() => refetchThreads()}
-                            className="border-0 shadow-sm hover:shadow-md bg-white"
-                          >
-                            <RefreshCw className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground z-10" />
-                          <Input
-                            className="pl-9 bg-white shadow-sm hover:shadow-md border-0 focus:ring-2 focus:ring-purple-500/20"
-                            placeholder="Search by name, firm, subject…"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                          />
-                        </div>
-                        <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortId)}>
-                          <SelectTrigger className="w-[140px] bg-white shadow-sm border-0 focus:ring-2 focus:ring-purple-500/20">
-                            <SelectValue placeholder="Sort" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="recent_activity">Recent activity</SelectItem>
-                            <SelectItem value="oldest_first">Oldest first</SelectItem>
-                            <SelectItem value="recently_sent">Recently sent</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-2 max-h-[520px] overflow-y-auto pr-1">
+                  {/* Main card: two-panel layout */}
+                  <div
+                    style={{
+                      background: "#FFFFFF",
+                      border: "1px solid rgba(37, 99, 235, 0.06)",
+                      borderRadius: "16px",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.04)",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", minHeight: "calc(100vh - 260px)" }}>
+                      {/* LEFT: Thread list — minWidth 0 so grid column can shrink; snippet can use full width */}
+                      <div className="outbox-thread-list" style={{ borderRight: "1px solid rgba(37, 99, 235, 0.06)", overflowY: "auto", overflowX: "hidden", maxHeight: "calc(100vh - 260px)", minWidth: 0 }}>
                         {loading && (
-                          <div className="py-10 text-center text-muted-foreground text-sm space-y-3">
+                          <div style={{ padding: "40px 24px", textAlign: "center", fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: "13px", color: "#64748B" }}>
                             <p>Loading…</p>
-                            <div className="w-48 mx-auto">
-                              <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
-                                <div className="h-full w-[30%] bg-blue-500 rounded-full animate-pulse" />
-                              </div>
+                            <div style={{ width: "192px", margin: "12px auto 0", height: "4px", background: "#E2E8F0", borderRadius: "9999px", overflow: "hidden" }}>
+                              <div style={{ height: "100%", width: "30%", background: "#2563EB", borderRadius: "9999px", animation: "pulse 1.5s ease-in-out infinite" }} />
                             </div>
                           </div>
                         )}
 
                         {!loading && threadsError && (
-                          <div className="text-center py-12">
-                            <p className="text-destructive mb-2">Failed to load</p>
-                            <Button size="sm" variant="outline" onClick={() => refetchThreads()}>
-                              Retry
-                            </Button>
+                          <div style={{ textAlign: "center", padding: "48px 24px" }}>
+                            <p style={{ color: "#DC2626", marginBottom: "8px", fontFamily: "'DM Sans', system-ui, sans-serif" }}>Failed to load</p>
+                            <Button size="sm" variant="outline" onClick={() => refetchThreads()}>Retry</Button>
                           </div>
                         )}
 
                         {!loading && !threadsError && displayedThreads.length === 0 && threads.length === 0 && (
-                          <div className="text-center py-12">
-                            <Inbox className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                            <h3 className="text-lg font-medium text-foreground mb-2">No drafts yet</h3>
-                            <p className="text-muted-foreground mb-4">
-                              Find contacts and start building your network
-                            </p>
-                            <Button onClick={() => navigate("/contact-search")}>Find Contacts</Button>
+                          <div style={{ textAlign: "center", padding: "48px 24px" }}>
+                            <div style={{ width: "64px", height: "64px", borderRadius: "16px", background: "#F1F5F9", margin: "0 auto 16px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <Inbox style={{ width: 28, height: 28, color: "#94A3B8" }} />
+                            </div>
+                            <h3 style={{ fontSize: "16px", fontWeight: 600, color: "#0F172A", marginBottom: "8px", fontFamily: "'DM Sans', system-ui, sans-serif" }}>No drafts yet</h3>
+                            <p style={{ color: "#94A3B8", fontSize: "13px", marginBottom: "16px", fontFamily: "'DM Sans', system-ui, sans-serif" }}>Find contacts and start building your network</p>
+                            <Button onClick={() => navigate("/contact-search")} style={{ background: "#2563EB", color: "white", border: "none" }}>Find Contacts</Button>
                           </div>
                         )}
 
                         {!loading && !threadsError && displayedThreads.length === 0 && threads.length > 0 && (
-                          <div className="text-center py-12">
-                            <Search className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                            <h3 className="text-lg font-medium text-foreground mb-2">No results found</h3>
-                            <p className="text-muted-foreground">Try adjusting search or filter</p>
+                          <div style={{ textAlign: "center", padding: "48px 24px" }}>
+                            <div style={{ width: "64px", height: "64px", borderRadius: "16px", background: "#F1F5F9", margin: "0 auto 16px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <Search style={{ width: 28, height: 28, color: "#94A3B8" }} />
+                            </div>
+                            <h3 style={{ fontSize: "16px", fontWeight: 600, color: "#0F172A", marginBottom: "8px", fontFamily: "'DM Sans', system-ui, sans-serif" }}>No results found</h3>
+                            <p style={{ color: "#94A3B8", fontSize: "13px", fontFamily: "'DM Sans', system-ui, sans-serif" }}>Try adjusting your search or filter</p>
                           </div>
                         )}
 
                         {!loading && !threadsError && displayedThreads.length > 0 &&
-                          displayedThreads.map((t) => (
-                            <div
-                              key={t.id}
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => handleThreadClick(t)}
-                              onKeyDown={(e) => e.key === "Enter" && handleThreadClick(t)}
-                              className={`group w-full text-left p-4 rounded-xl transition-all duration-200 cursor-pointer ${
-                                selectedThread?.id === t.id
-                                  ? "bg-gray-50 shadow-sm"
-                                  : "bg-white shadow-sm hover:bg-gray-50/50"
-                              }`}
-                            >
-                              <div className="flex justify-between items-start gap-2">
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-1.5 font-semibold text-sm">
-                                    {(t.hasUnreadReply || t.status === "new_reply") && (
-                                      <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
-                                    )}
-                                    <span className="truncate">{t.contactName}</span>
+                          displayedThreads.map((t) => {
+                            const stage = getDisplayStage(t);
+                            const badgeStyle = getPipelineBadgeStyle(stage);
+                            const initials = (t.contactName || "?").split(/\s+/).map((n) => n[0]).slice(0, 2).join("").toUpperCase() || "?";
+                            const isSelected = selectedThread?.id === t.id;
+                            return (
+                              <div
+                                key={t.id}
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => handleThreadClick(t)}
+                                onKeyDown={(e) => e.key === "Enter" && handleThreadClick(t)}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "flex-start",
+                                  gap: "12px",
+                                  padding: "14px 20px",
+                                  cursor: "pointer",
+                                  borderBottom: "1px solid #F1F5F9",
+                                  position: "relative",
+                                  background: isSelected ? "#EFF6FF" : undefined,
+                                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                                  minWidth: 0,
+                                  width: "100%",
+                                  boxSizing: "border-box",
+                                  transition: "background 0.15s ease, box-shadow 0.15s ease",
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (!isSelected) {
+                                    e.currentTarget.style.background = "#F8FAFF";
+                                  }
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (!isSelected) {
+                                    e.currentTarget.style.background = "";
+                                  }
+                                }}
+                              >
+                                {(t.hasUnreadReply || t.status === "new_reply") && (
+                                  <span style={{ position: "absolute", left: "6px", top: "22px", width: "6px", height: "6px", borderRadius: "50%", background: "#2563EB" }} />
+                                )}
+                                <div style={{
+                                  width: 40,
+                                  height: 40,
+                                  borderRadius: 12,
+                                  background: badgeStyle.background,
+                                  color: badgeStyle.color,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  fontSize: "13px",
+                                  fontWeight: 700,
+                                  flexShrink: 0,
+                                  letterSpacing: "0.04em",
+                                  boxShadow: `inset 0 0 0 1px ${badgeStyle.color}15`,
+                                }}>{initials}</div>
+                                {/* Content column: name, role, snippet only — takes all remaining space so snippet uses full line */}
+                                <div style={{ flex: 1, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                                  <div style={{ fontSize: 13.5, fontWeight: (t.hasUnreadReply || t.status === "new_reply") ? 700 : 600, color: (t.hasUnreadReply || t.status === "new_reply") ? "#0F172A" : "#1E293B", letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.contactName}</div>
+                                  <div style={{ fontSize: 11, color: "#94A3B8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 2 }}>{t.jobTitle} · {t.company}</div>
+                                  <p
+                                    style={{
+                                      fontSize: 12,
+                                      color: "#64748B",
+                                      marginTop: 6,
+                                      lineHeight: 1.5,
+                                      whiteSpace: "nowrap",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      minWidth: 0,
+                                    }}
+                                  >
+                                    {t.lastMessageSnippet || "—"}
+                                  </p>
+                                </div>
+                                {/* Meta column: time + badge — fixed width so content column gets the rest */}
+                                <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, marginLeft: "8px" }}>
+                                  <span style={{ fontSize: 11, color: "#94A3B8" }}>{formatLastActivity(t.lastActivityAt)}</span>
+                                  <span style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                                    <span style={{ fontSize: 10, fontWeight: 500, padding: "3px 8px", borderRadius: 6, background: badgeStyle.background, color: badgeStyle.color, letterSpacing: "0.02em" }}>{getPipelineLabel(stage)}</span>
                                     {t.lastSyncError && (
                                       <Tooltip>
                                         <TooltipTrigger asChild>
-                                          <span className="shrink-0">
-                                            <AlertCircle className="w-3 h-3 text-amber-500" />
-                                          </span>
+                                          <span><AlertCircle style={{ width: 14, height: 14, color: "#F59E0B" }} /></span>
                                         </TooltipTrigger>
-                                        <TooltipContent>
-                                          <p className="text-xs">{t.lastSyncError.message}</p>
-                                        </TooltipContent>
+                                        <TooltipContent><p style={{ fontSize: "12px" }}>{t.lastSyncError.message}</p></TooltipContent>
                                       </Tooltip>
                                     )}
-                                  </div>
-                                  <div className="text-xs text-muted-foreground">
-                                    {t.jobTitle} · {t.company}
-                                  </div>
-                                  <p className="mt-1 text-xs text-muted-foreground line-clamp-2">
-                                    {t.lastMessageSnippet}
-                                  </p>
-                                  {t.emailSentAt && (
-                                    <p className="mt-1 text-[11px] text-muted-foreground">
-                                      {formatSentAt(t.emailSentAt)}
-                                    </p>
-                                  )}
-                                </div>
-                                <div className="flex flex-col items-end gap-1 shrink-0">
-                                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <DropdownMenu>
-                                      <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                                        <Button
-                                          size="icon"
-                                          variant="ghost"
-                                          className="h-8 w-8"
-                                          aria-label="More actions"
-                                        >
-                                          <MoreHorizontal className="h-4 w-4" />
-                                        </Button>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                                        {t.pipelineStage === "draft_created" && (
-                                          <DropdownMenuItem onClick={() => handleStageChange(t.id, "email_sent", "Sent")}>
-                                            Mark as Sent
-                                          </DropdownMenuItem>
-                                        )}
-                                        <DropdownMenuItem onClick={() => handleStageChange(t.id, "replied", "Replied")}>
-                                          Mark as Replied
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => handleStageChange(t.id, "meeting_scheduled", "Meeting Scheduled")}>
-                                          Mark as Meeting Scheduled
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => handleStageChange(t.id, "connected", "Connected")}>
-                                          Mark as Connected
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => handleStageChange(t.id, "no_response", "No Response")}>
-                                          Mark as No Response
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => handleStageChange(t.id, "closed", "Closed")}>
-                                          Mark as Closed
-                                        </DropdownMenuItem>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuItem
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            const url = t.gmailMessageId
-                                              ? `https://mail.google.com/mail/u/0/#drafts?compose=${t.gmailMessageId}`
-                                              : t.gmailDraftUrl;
-                                            if (url) window.open(url, "_blank");
-                                          }}
-                                        >
-                                          <ExternalLink className="h-3.5 w-3.5 mr-2" />
-                                          Open in Gmail
-                                        </DropdownMenuItem>
-                                      </DropdownMenuContent>
-                                    </DropdownMenu>
-                                  </div>
-                                  <span className="text-[11px] text-muted-foreground">
-                                    {formatLastActivity(t.lastActivityAt)}
                                   </span>
-                                  <Badge className={`border text-[9px] px-1.5 py-0.5 font-normal ${getPipelineBadgeClass(getDisplayStage(t))}`}>
-                                    {getPipelineLabel(getDisplayStage(t))}
-                                  </Badge>
                                 </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                       </div>
-                    </div>
 
-                    {/* RIGHT: Thread detail (unchanged) */}
-                    <div className="w-1/2">
+                      {/* RIGHT: Detail panel */}
+                      <div className="outbox-detail-panel" style={{ overflowY: "auto", maxHeight: "calc(100vh - 260px)" }}>
                       {!selectedThread ? (
-                        <div className="h-full rounded-2xl p-6 text-center text-muted-foreground text-sm bg-gray-50/30">
-                          <div className="flex flex-col items-center justify-center h-full">
-                            <Inbox className="w-16 h-16 text-muted-foreground/20 mb-4" />
-                            <p className="text-xs">Select a conversation to view details</p>
+                        <div style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          minHeight: "400px",
+                          padding: "24px",
+                          background: "linear-gradient(135deg, #FAFBFE 0%, #F5F7FD 100%)",
+                        }}>
+                          <div style={{
+                            width: 56,
+                            height: 56,
+                            borderRadius: 16,
+                            background: "#FFFFFF",
+                            boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            marginBottom: 16,
+                          }}>
+                            <Inbox style={{ width: 24, height: 24, color: "#94A3B8" }} />
                           </div>
+                          <p style={{ fontSize: "14px", color: "#94A3B8", fontFamily: "'DM Sans', system-ui, sans-serif", fontWeight: 500 }}>
+                            Select a conversation to view details
+                          </p>
                         </div>
                       ) : (
-                        <div className="h-full rounded-2xl p-6 bg-white shadow-lg flex flex-col">
-                          <div className="mb-3">
-                            <p className="font-semibold text-sm text-foreground">{selectedThread.contactName}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {selectedThread.jobTitle} · {selectedThread.company}
-                            </p>
-                            <p className="text-xs text-muted-foreground mt-1">{selectedThread.email}</p>
+                        <>
+                          {/* 8a. Header section */}
+                          <div style={{
+                            padding: "20px 24px 16px",
+                            borderBottom: "1px solid #F1F5F9",
+                            display: "flex",
+                            alignItems: "flex-start",
+                            justifyContent: "space-between",
+                            gap: "12px",
+                            background: "linear-gradient(to bottom, #FAFBFE, #FFFFFF)",
+                          }}>
+                            <div style={{ minWidth: 0 }}>
+                              <p style={{ fontSize: "18px", fontWeight: 700, letterSpacing: "-0.02em", color: "#0F172A", fontFamily: "'DM Sans', system-ui, sans-serif" }}>{selectedThread.contactName}</p>
+                              <p style={{ fontSize: "13px", color: "#64748B", fontFamily: "'DM Sans', system-ui, sans-serif" }}>{selectedThread.jobTitle} at {selectedThread.company}</p>
+                              <p style={{ fontSize: "12px", color: "#94A3B8", marginTop: "3px", fontFamily: "'DM Sans', system-ui, sans-serif" }}>{selectedThread.email}</p>
+                            </div>
+                            <span
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                padding: "5px 10px",
+                                fontSize: "12px",
+                                fontFamily: "'DM Sans', system-ui, sans-serif",
+                                fontWeight: 500,
+                                borderRadius: "10px",
+                                border: "1px solid #E2E8F0",
+                                background: getPipelineBadgeStyle(getDisplayStage(selectedThread)).background,
+                                color: getPipelineBadgeStyle(getDisplayStage(selectedThread)).color,
+                                flexShrink: 0,
+                                cursor: "default",
+                                transition: "all 0.15s ease",
+                                boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+                              }}
+                            >
+                              <span style={{ width: 6, height: 6, borderRadius: "50%", background: getPipelineBadgeStyle(getDisplayStage(selectedThread)).color }} />
+                              {getPipelineLabel(getDisplayStage(selectedThread))}
+                            </span>
                           </div>
-                          <div className="rounded-xl border border-gray-100 bg-white p-3 mb-4">
-                            <p className="text-[11px] font-medium text-foreground mb-2">
-                              {selectedThread.status === "no_reply_yet" ? "Draft content" : "Latest message"}
+
+                          {/* 8c. Latest message */}
+                          <div style={{ padding: "12px 20px", borderBottom: "1px solid #F1F5F9" }}>
+                            <p style={{ fontSize: "10px", fontWeight: 500, color: "#B0B8C4", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px", fontFamily: "'DM Sans', system-ui, sans-serif" }}>
+                              {selectedThread.pipelineStage === "draft_created" ? "Draft Preview" : "Latest Message"}
                             </p>
-                            <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-4">
-                              {selectedThread.lastMessageSnippet ||
-                                (selectedThread.status === "no_reply_yet"
-                                  ? "Draft is ready to send in Gmail"
-                                  : "No message content available.")}
-                            </p>
+                            <div style={{ background: "#FAFBFE", border: "1px solid #EEF2F6", borderRadius: "12px", padding: "16px 18px", fontSize: "13.5px", lineHeight: 1.7, color: "#334155", fontFamily: "'DM Sans', system-ui, sans-serif" }}>
+                              {selectedThread.lastMessageSnippet || (selectedThread.status === "no_reply_yet" ? "Draft is ready to send in Gmail" : "No message content available.")}
+                            </div>
+                            {selectedThread.emailSentAt && (
+                              <p style={{ fontSize: "11px", color: "#94A3B8", marginTop: "8px", fontFamily: "'DM Sans', system-ui, sans-serif" }}>{formatSentAt(selectedThread.emailSentAt)}</p>
+                            )}
                           </div>
-                          <div className="border border-gray-100 rounded-xl p-4 bg-white flex flex-col flex-1">
-                            <div className="flex justify-between items-center mb-2">
-                              <h3 className="text-sm font-semibold text-foreground">Suggested reply</h3>
+
+                          {/* 8d. Suggested reply */}
+                          <div style={{ padding: "12px 20px", borderBottom: "1px solid #F1F5F9" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px", flexWrap: "wrap" }}>
+                              <p style={{ fontSize: "10px", fontWeight: 500, color: "#B0B8C4", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "'DM Sans', system-ui, sans-serif" }}>Suggested Reply</p>
                               {selectedThread.hasDraft && selectedThread.suggestedReply && (
-                                <Badge variant="outline" className="border-blue-500/60 bg-blue-500/10 text-[10px] text-blue-700">
-                                  Draft saved in Gmail
-                                </Badge>
+                                <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "6px", background: "#EFF6FF", color: "#2563EB", fontWeight: 500 }}>Draft saved</span>
+                              )}
+                              {selectedThread.replyType && (
+                                <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "6px", fontWeight: 500, ...(selectedThread.replyType === "positive" ? { background: "#ECFDF5", color: "#059669" } : selectedThread.replyType === "decline" ? { background: "#FEF2F2", color: "#DC2626" } : { background: "#EFF6FF", color: "#2563EB" }) }}>{selectedThread.replyType}</span>
                               )}
                             </div>
                             {selectedThread.suggestedReply ? (
-                              <>
-                                <p className="text-[11px] text-muted-foreground mb-3">
-                                  We drafted this response based on their message. Review and edit before sending.
-                                </p>
-                                <textarea
-                                  readOnly
-                                  value={selectedThread.suggestedReply}
-                                  className="flex-1 w-full text-xs bg-white rounded-xl p-3 resize-none text-foreground whitespace-pre-wrap shadow-inner focus:ring-2 focus:ring-purple-500/20"
-                                />
-                              </>
+                              <textarea
+                                readOnly
+                                value={selectedThread.suggestedReply}
+                                style={{ width: "100%", minHeight: 90, padding: "14px 16px", fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: "13px", lineHeight: 1.6, border: "1px solid #E2E8F0", borderRadius: "12px", background: "#FAFBFC", resize: "vertical" }}
+                              />
                             ) : (
-                              <>
-                                <p className="text-[11px] text-muted-foreground mb-3">
-                                  Generate an AI-powered reply based on their message.
-                                </p>
-                                <div className="flex-1 flex items-center justify-center border border-dashed border-gray-100 rounded-xl p-6 bg-white">
-                                  <div className="text-center">
-                                    <p className="text-xs text-muted-foreground">No suggested reply yet</p>
-                                    <p className="text-[10px] text-muted-foreground mt-1">Click "Regenerate" to create one</p>
-                                  </div>
-                                </div>
-                              </>
+                              <div style={{ padding: "24px", textAlign: "center", border: "1px dashed #E8ECF1", borderRadius: "12px", color: "#B0B8C4", fontSize: "13px", fontFamily: "'DM Sans', system-ui, sans-serif", background: "#FCFCFD" }}>
+                                No reply generated yet — click Regenerate after they respond
+                              </div>
                             )}
-                            <div className="mt-3 flex gap-2 flex-wrap">
-                              <Button size="sm" onClick={handleOpenDraft} disabled={!selectedThread.hasDraft} className="flex items-center gap-1">
-                                <ExternalLink className="h-4 w-4" /> Open Gmail draft
-                              </Button>
-                              <Button size="sm" variant="outline" onClick={handleCopy} disabled={!selectedThread.suggestedReply} className="flex items-center gap-1 border-input">
-                                <Mail className="h-4 w-4" /> Copy reply text
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={handleRegenerate}
-                                disabled={generating}
-                                className="flex items-center gap-1 text-foreground"
-                              >
-                                <RefreshCw className="h-4 w-4" />
-                                Regenerate
-                                {generating && (
-                                  <span className="inline-block w-4 h-0.5 bg-gray-200 overflow-hidden">
-                                    <span className="block h-full w-[30%] bg-blue-500 animate-pulse" />
-                                  </span>
-                                )}
-                              </Button>
-                            </div>
-                            <p className="text-[10px] text-muted-foreground mt-3">
-                              Tip: personalize your first line — it's the one they read carefully.
-                            </p>
                           </div>
-                        </div>
+
+                          {/* 8e. Action buttons */}
+                          <div style={{ padding: "12px 20px 16px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                            <button
+                              type="button"
+                              onClick={handleOpenDraft}
+                              disabled={!selectedThread.hasDraft}
+                              onMouseEnter={(e) => {
+                                if (selectedThread?.hasDraft) {
+                                  e.currentTarget.style.background = "#1D4ED8";
+                                  e.currentTarget.style.transform = "translateY(-1px)";
+                                  e.currentTarget.style.boxShadow = "0 2px 8px rgba(37, 99, 235, 0.35)";
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = "#2563EB";
+                                e.currentTarget.style.transform = "";
+                                e.currentTarget.style.boxShadow = "0 1px 2px rgba(37, 99, 235, 0.3)";
+                              }}
+                              style={{
+                                fontFamily: "'DM Sans', system-ui, sans-serif",
+                                fontSize: "13px",
+                                fontWeight: 500,
+                                padding: "8px 16px",
+                                borderRadius: "10px",
+                                border: "1px solid #1D4ED8",
+                                background: "#2563EB",
+                                color: "white",
+                                cursor: selectedThread.hasDraft ? "pointer" : "not-allowed",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                opacity: selectedThread.hasDraft ? 1 : 0.4,
+                                boxShadow: "0 1px 2px rgba(37, 99, 235, 0.3)",
+                                transition: "all 0.15s ease",
+                              }}
+                            >
+                              <ExternalLink style={{ width: 16, height: 16 }} /> Open Gmail Draft
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCopy}
+                              disabled={!selectedThread.suggestedReply}
+                              onMouseEnter={(e) => {
+                                if (selectedThread.suggestedReply) {
+                                  e.currentTarget.style.background = "#F8FAFF";
+                                  e.currentTarget.style.borderColor = "#CBD5E1";
+                                  e.currentTarget.style.transform = "translateY(-1px)";
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = "#FFF";
+                                e.currentTarget.style.borderColor = "#E2E8F0";
+                                e.currentTarget.style.transform = "";
+                              }}
+                              style={{
+                                fontFamily: "'DM Sans', system-ui, sans-serif",
+                                fontSize: "13px",
+                                fontWeight: 500,
+                                padding: "8px 16px",
+                                borderRadius: "10px",
+                                border: "1px solid #E2E8F0",
+                                background: "#FFF",
+                                color: "#334155",
+                                cursor: selectedThread.suggestedReply ? "pointer" : "not-allowed",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                opacity: selectedThread.suggestedReply ? 1 : 0.4,
+                                boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+                                transition: "all 0.15s ease",
+                              }}
+                            >
+                              <Mail style={{ width: 16, height: 16 }} /> Copy Reply
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleRegenerate}
+                              disabled={generating}
+                              onMouseEnter={(e) => {
+                                if (!generating) {
+                                  e.currentTarget.style.background = "#F8FAFF";
+                                  e.currentTarget.style.borderColor = "#CBD5E1";
+                                  e.currentTarget.style.transform = "translateY(-1px)";
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = "#FFF";
+                                e.currentTarget.style.borderColor = "#E2E8F0";
+                                e.currentTarget.style.transform = "";
+                              }}
+                              style={{
+                                fontFamily: "'DM Sans', system-ui, sans-serif",
+                                fontSize: "13px",
+                                fontWeight: 500,
+                                padding: "8px 16px",
+                                borderRadius: "10px",
+                                border: "1px solid #E2E8F0",
+                                background: "#FFF",
+                                color: "#334155",
+                                cursor: generating ? "not-allowed" : "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                opacity: generating ? 0.4 : 1,
+                                boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+                                transition: "all 0.15s ease",
+                              }}
+                            >
+                              <RefreshCw style={{ width: 16, height: 16 }} />
+                              Regenerate
+                              {generating && <span style={{ display: "inline-block", width: 16, height: 4, background: "#E2E8F0", borderRadius: 2, overflow: "hidden" }}><span style={{ display: "block", height: "100%", width: "30%", background: "#2563EB", animation: "pulse 1s ease-in-out infinite" }} /></span>}
+                            </button>
+                          </div>
+                        </>
                       )}
+                      </div>
                     </div>
                   </div>
                 </div>
