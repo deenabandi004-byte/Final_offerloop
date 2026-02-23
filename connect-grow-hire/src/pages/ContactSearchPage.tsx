@@ -1484,7 +1484,12 @@ const ContactSearchPage: React.FC = () => {
 
                 {/* Other Tabs content would go here, preserved as placeholders or real components if needed */}
                 <TabsContent value="import" className="mt-6">
-                  <ContactImport />
+                  <ContactImport
+                    onSwitchTab={(tab) => {
+                      setActiveTab(tab);
+                      setSearchParams({ tab }, { replace: true });
+                    }}
+                  />
                 </TabsContent>
 
                 <TabsContent value="linkedin-email" className="mt-6">

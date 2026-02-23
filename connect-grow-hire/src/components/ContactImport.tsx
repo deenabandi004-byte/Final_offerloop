@@ -4,13 +4,11 @@ import {
   Upload,
   FileSpreadsheet,
   AlertCircle,
-  CheckCircle2,
   Loader2,
   Download,
   X,
   ArrowRight,
   CreditCard,
-  Sparkles,
   Check,
   Table2,
   Copy,
@@ -707,7 +705,6 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
                   </>
                 ) : (
                   <>
-                    <Sparkles className="w-5 h-5" />
                     Import {previewData.credits.can_afford ? previewData.valid_rows : previewData.credits.max_affordable} Contacts
                   </>
                 )}
@@ -721,99 +718,190 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
 
   // ==================== RESULT STEP ====================
   if (step === 'result' && importResult) {
+    const detailRows: { label: string; value: number; accent: boolean }[] = [];
+    if ((importResult.enrichment?.enriched ?? 0) > 0) {
+      detailRows.push({ label: 'Emails found via LinkedIn', value: importResult.enrichment!.enriched, accent: true });
+    }
+    if ((importResult.drafts?.created ?? 0) > 0) {
+      detailRows.push({ label: 'Email drafts created', value: importResult.drafts!.created, accent: true });
+    }
+    if ((importResult.skipped?.invalid ?? 0) > 0) {
+      detailRows.push({ label: 'Skipped — invalid rows', value: importResult.skipped.invalid, accent: false });
+    }
+    if ((importResult.skipped?.duplicate ?? 0) > 0) {
+      detailRows.push({ label: 'Skipped — duplicates', value: importResult.skipped.duplicate, accent: false });
+    }
+    if ((importResult.skipped?.no_credits ?? 0) > 0) {
+      detailRows.push({ label: 'Skipped — no credits', value: importResult.skipped.no_credits, accent: false });
+    }
+    if ((importResult.enrichment?.failed ?? 0) > 0) {
+      detailRows.push({ label: 'LinkedIn lookups — no email found', value: importResult.enrichment!.failed, accent: false });
+    }
+    if ((importResult.enrichment?.capped ?? 0) > 0) {
+      detailRows.push({ label: 'Exceeded enrichment limit', value: importResult.enrichment!.capped, accent: false });
+    }
+
+    const handleViewInTracker = () => {
+      onImportComplete?.();
+      if (onSwitchTab) {
+        onSwitchTab('contact-library');
+      } else {
+        navigate('/contact-search?tab=contact-library');
+      }
+    };
+
     return (
       <div className="space-y-6">
-        {/* Success Card */}
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-scaleIn">
-          {/* Gradient accent at top */}
-          <div className="h-1 bg-gradient-to-r from-green-500 via-emerald-500 to-teal-500"></div>
-          
-          <div className="p-8">
-            {/* Success Header */}
-            <div className="text-center py-8">
-              <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <CheckCircle2 className="h-10 w-10 text-green-600" />
-              </div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">Import Complete!</h2>
-              <p className="text-gray-600">
-                Successfully imported {importResult.created} contacts
-              </p>
+        <div
+          style={{
+            background: '#FFFFFF',
+            border: '1px solid rgba(37, 99, 235, 0.08)',
+            borderRadius: '14px',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
+            padding: '40px 40px',
+            maxWidth: '520px',
+            margin: '0 auto',
+          }}
+        >
+          {/* Success header */}
+          <div style={{ marginBottom: 24 }}>
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                background: '#F0FDF4',
+                borderRadius: '20px',
+                padding: '6px 14px',
+                marginBottom: 16,
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#15803D" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4.5 7L6.5 9L9.5 5" />
+              </svg>
+              <span style={{ fontSize: 13, fontWeight: 500, color: '#15803D' }}>Import complete</span>
             </div>
-
-            {/* Result Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              <div className="bg-gradient-to-br from-green-50 to-emerald-100 rounded-xl p-4 text-center">
-                <p className="text-2xl font-bold text-green-600">{importResult.created}</p>
-                <p className="text-sm text-gray-500">Imported</p>
-              </div>
-              <div className="bg-gradient-to-br from-yellow-50 to-amber-100 rounded-xl p-4 text-center">
-                <p className="text-2xl font-bold text-yellow-600">{importResult.skipped.duplicate}</p>
-                <p className="text-sm text-gray-500">Duplicates</p>
-              </div>
-              <div className="bg-gradient-to-br from-slate-50 to-gray-100 rounded-xl p-4 text-center">
-                <p className="text-2xl font-bold text-gray-500">{importResult.skipped.invalid}</p>
-                <p className="text-sm text-gray-500">Invalid</p>
-              </div>
-              <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 text-center">
-                <p className="text-2xl font-bold text-blue-600">{importResult.credits.remaining}</p>
-                <p className="text-sm text-gray-500">Credits Left</p>
-              </div>
+            <div style={{ fontSize: 56, fontWeight: 700, color: '#111827', letterSpacing: '-0.04em', lineHeight: 1 }}>
+              {importResult.created}
             </div>
-
-            {/* Enrichment & draft summary */}
-            {(importResult.enrichment || importResult.drafts) && (
-              <div className="bg-gray-50 rounded-xl p-4 mb-6 space-y-2">
-                {importResult.enrichment && importResult.enrichment.enriched > 0 && (
-                  <p className="text-sm text-gray-700">
-                    <span className="font-medium">{importResult.enrichment.enriched}</span> emails found via LinkedIn lookup
-                  </p>
-                )}
-                {importResult.drafts && (
-                  <p className="text-sm text-gray-700">
-                    <span className="font-medium">{importResult.drafts.created}</span> email drafts created
-                  </p>
-                )}
-                {importResult.enrichment && importResult.enrichment.failed > 0 && (
-                  <p className="text-sm text-amber-700">
-                    {importResult.enrichment.failed} LinkedIn lookup(s) didn&apos;t return an email
-                  </p>
-                )}
-                {importResult.enrichment && importResult.enrichment.capped > 0 && (
-                  <p className="text-sm text-amber-700">
-                    {importResult.enrichment.capped} contacts exceeded the enrichment limit (50 per import)
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Credits Spent */}
-            <div className="bg-gray-50 rounded-xl p-4 mb-8">
-              <div className="flex items-center justify-between">
-                <span className="text-gray-600">Credits spent</span>
-                <span className="font-semibold text-gray-900">{importResult.credits.spent}</span>
-              </div>
+            <div style={{ fontSize: 15, color: '#6B7280', fontWeight: 400, marginTop: 8 }}>
+              contacts added to your library
             </div>
+          </div>
 
-            {/* Actions */}
-            <div className="flex flex-col sm:flex-row justify-center gap-3">
-              <button 
-                onClick={resetImport}
-                className="px-6 py-3 bg-white border border-gray-200 rounded-full text-gray-700 font-medium hover:bg-gray-50 transition-all"
-              >
-                Import More
-              </button>
-              <button
-                onClick={() => {
-                  if (onImportComplete) {
-                    onImportComplete();
-                  }
-                }}
-                className="px-8 py-3 rounded-full font-semibold bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 hover:scale-105 active:scale-100 transition-all duration-200 transform flex items-center justify-center gap-2"
-              >
-                View in Tracker
-                <ArrowRight className="w-5 h-5" />
-              </button>
-            </div>
+          {detailRows.length > 0 && (
+            <>
+              <div style={{ height: 1, background: 'rgba(37, 99, 235, 0.06)', margin: '0 -40px 0 -40px' }} />
+              <div style={{ paddingTop: 4 }}>
+                {detailRows.map((row) => (
+                  <div
+                    key={row.label}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '11px 0',
+                    }}
+                  >
+                    <span style={{ fontSize: 14, color: '#6B7280', fontWeight: 400 }}>{row.label}</span>
+                    <span
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        fontVariantNumeric: 'tabular-nums',
+                        color: row.accent ? '#2563EB' : '#9CA3AF',
+                      }}
+                    >
+                      {row.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          <div style={{ height: 1, background: 'rgba(37, 99, 235, 0.06)', margin: '0 -40px 0 -40px' }} />
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '14px 0',
+            }}
+          >
+            <span style={{ fontSize: 13, color: '#9CA3AF' }}>Credits used</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>
+              {importResult.credits.spent}
+              <span style={{ color: '#D1D5DB', margin: '0 6px' }}>·</span>
+              <span style={{ fontSize: 12, color: '#9CA3AF', fontWeight: 400 }}>
+                {importResult.credits.remaining} remaining
+              </span>
+            </span>
+          </div>
+
+          <div style={{ height: 1, background: 'rgba(37, 99, 235, 0.06)', margin: '0 -40px 0 -40px' }} />
+          <div
+            style={{
+              display: 'flex',
+              gap: 12,
+              padding: '20px 0 28px 0',
+            }}
+          >
+            <button
+              type="button"
+              onClick={resetImport}
+              style={{
+                flex: 1,
+                height: 44,
+                borderRadius: 12,
+                border: '1px solid #E5E7EB',
+                background: 'transparent',
+                color: '#6B7280',
+                fontSize: 14,
+                fontWeight: 500,
+                transition: 'all 0.15s ease',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#F9FAFB';
+                e.currentTarget.style.color = '#2563EB';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = '#6B7280';
+              }}
+            >
+              Import more
+            </button>
+            <button
+              type="button"
+              onClick={handleViewInTracker}
+              style={{
+                flex: 1,
+                height: 44,
+                borderRadius: 12,
+                border: 'none',
+                background: '#2563EB',
+                color: '#FFFFFF',
+                fontSize: 14,
+                fontWeight: 500,
+                boxShadow: '0 1px 3px rgba(37, 99, 235, 0.15)',
+                transition: 'all 0.2s ease',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#1D4ED8';
+                e.currentTarget.style.boxShadow = '0 4px 16px rgba(37, 99, 235, 0.25)';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = '#2563EB';
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(37, 99, 235, 0.15)';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
+            >
+              View in Tracker
+            </button>
           </div>
         </div>
       </div>
