@@ -4,13 +4,16 @@ import { useNavigate, Link } from 'react-router-dom';
 import { ArrowRight, Menu, X } from 'lucide-react';
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import OfferloopLogo from '@/assets/offerloop_logo2.png';
-import CoffeeChatPrepSS from '@/assets/coffeechatprepss.png';
-import SearchIcon from '@/assets/sidebaricons/icons8-magnifying-glass-50.png';
-import TrackIcon from '@/assets/sidebaricons/icons8-important-mail-48.png';
-import CoffeeIcon from '@/assets/sidebaricons/icons8-cup-48.png';
-import InterviewIcon from '@/assets/sidebaricons/icons8-briefcase-48.png';
 import ChromeExtensionPic from '@/assets/Chrome_extensionpic.png';
-import ExtensionLogo from '@/assets/extension.png';
+import GoogleLogo from '@/assets/Googlelogo.png';
+import HowItWorksVideo from '@/assets/ChatGPT of Email Outreach.mp4';
+import FindCompanyImg from '@/assets/findcompanylandingpage.png';
+import FindHiringManagerImg from '@/assets/findhiringmanagerlandingpage.png';
+import CoverLetterImg from '@/assets/coverletterlandingpage.png';
+import ResumeImg from '@/assets/resumelandingpage.png';
+import EmailOutreachImg from '@/assets/emailoutreach.png.png';
+import InterviewPrepImg from '@/assets/interviewpreplandingpage.png';
+import CoffeeChatImg from '@/assets/coffeechatlandingpage.png';
 
 const CHROME_EXTENSION_URL = 'https://chromewebstore.google.com/detail/offerloop/aabnjgecmobcnnhkilbeocggbmgilpcl';
 
@@ -154,125 +157,187 @@ const Index = () => {
         </>
       )}
       
-      {/* NAVBAR */}
-      <header
-        className="fixed top-0 left-0 right-0 z-50 h-16 flex items-center justify-between px-6 md:px-12"
-        style={{
-          background: navbarScrolled
-            ? 'rgba(248, 250, 255, 0.96)'
-            : 'rgba(248, 250, 255, 0.88)',
-          backdropFilter: 'blur(16px) saturate(1.4)',
-          WebkitBackdropFilter: 'blur(16px) saturate(1.4)',
-          borderBottom: `1px solid ${navbarScrolled ? 'rgba(214, 222, 240, 0.8)' : 'rgba(214, 222, 240, 0.6)'}`,
-          transition: 'all 0.3s ease',
-        }}
-      >
-        <div className="flex items-center">
-          <img
-            src={OfferloopLogo}
-            alt="Offerloop"
-            className="h-12 cursor-pointer logo-animate"
-            onClick={() => navigate('/')}
-          />
-        </div>
-
-        {/* Desktop Navigation */}
-        <nav className="hidden md:flex items-center gap-8">
-          <button
-            onClick={scrollToFeatures}
-            className="nav-link text-sm font-medium relative"
-            style={{
-              color: 'var(--text-secondary)',
-              fontFamily: 'var(--font-body)',
-            }}
-          >
-            Features
-          </button>
-          <button
-            onClick={() => {
-              const element = document.getElementById('testimonials');
-              if (element) element.scrollIntoView({ behavior: 'smooth' });
-            }}
-            className="nav-link text-sm font-medium relative"
-            style={{
-              color: 'var(--text-secondary)',
-              fontFamily: 'var(--font-body)',
-            }}
-          >
-            Reviews
-          </button>
-          <button
-            onClick={() => navigate('/signin?mode=signup')}
-            className="nav-link text-sm font-medium relative"
-            style={{
-              color: 'var(--text-secondary)',
-              fontFamily: 'var(--font-body)',
-            }}
-          >
-            Get started
-          </button>
-        </nav>
-
-        {/* Desktop Auth Buttons */}
-        <div className="hidden md:flex items-center gap-4">
-          {user ? (
-            <button
-              onClick={() => navigate('/contact-search')}
-              className="btn-ghost"
-            >
-              Find people
-            </button>
-          ) : (
-            <>
-              <button
-                onClick={() => navigate('/signin?mode=signin')}
-                className="btn-ghost"
-              >
-                Sign in
-              </button>
-              <button
-                onClick={() => navigate('/signin?mode=signup')}
-                className="btn-primary-lg"
-                style={{
-                  background: '#2563EB',
-                }}
-              >
-                Create account
-              </button>
-            </>
-          )}
-        </div>
-
-        {/* Mobile Menu Button */}
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="md:hidden p-2"
-          style={{ color: 'var(--text-secondary)' }}
+      {/* NAVBAR — centered pill */}
+      <div className="fixed top-0 left-0 right-0 z-50 flex justify-center px-4 pt-4">
+        <header
+          className="flex items-center justify-between w-full max-w-4xl h-14 px-6 md:px-8"
+          style={{
+            background: navbarScrolled
+              ? 'rgba(255, 255, 255, 0.95)'
+              : 'rgba(255, 255, 255, 0.85)',
+            backdropFilter: 'blur(16px) saturate(1.4)',
+            WebkitBackdropFilter: 'blur(16px) saturate(1.4)',
+            border: '1px solid rgba(214, 222, 240, 0.7)',
+            borderRadius: '100px',
+            boxShadow: navbarScrolled
+              ? '0 2px 16px rgba(0,0,0,0.06)'
+              : '0 1px 8px rgba(0,0,0,0.03)',
+            transition: 'all 0.3s ease',
+          }}
         >
-          {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-        </button>
-      </header>
+          <div className="flex items-center">
+            <img
+              src={OfferloopLogo}
+              alt="Offerloop"
+              className="h-[80px] cursor-pointer logo-animate"
+              onClick={() => navigate('/')}
+            />
+          </div>
+
+          {/* Desktop Navigation */}
+          <nav className="hidden md:flex items-center gap-6">
+            <button
+              onClick={scrollToFeatures}
+              className="nav-link text-sm font-bold relative"
+              style={{
+                color: 'var(--text-secondary)',
+                fontFamily: 'var(--font-body)',
+              }}
+            >
+              Features
+            </button>
+            <button
+              onClick={() => {
+                const element = document.getElementById('extension');
+                if (element) element.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="nav-link text-sm font-bold relative"
+              style={{
+                color: 'var(--text-secondary)',
+                fontFamily: 'var(--font-body)',
+              }}
+            >
+              Extension
+            </button>
+            <button
+              onClick={() => {
+                const element = document.getElementById('testimonials');
+                if (element) element.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="nav-link text-sm font-bold relative"
+              style={{
+                color: 'var(--text-secondary)',
+                fontFamily: 'var(--font-body)',
+              }}
+            >
+              Reviews
+            </button>
+            <button
+              onClick={() => navigate('/signin?mode=signup')}
+              className="nav-link text-sm font-bold relative"
+              style={{
+                color: 'var(--text-secondary)',
+                fontFamily: 'var(--font-body)',
+              }}
+            >
+              Get started
+            </button>
+          </nav>
+
+          {/* Desktop CTA */}
+          <div className="hidden md:flex items-center gap-3">
+            {user ? (
+              <button
+                onClick={() => navigate('/contact-search')}
+                className="btn-ghost"
+                style={{ fontSize: '13px', fontWeight: 700, padding: '8px 16px' }}
+              >
+                Find people
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => navigate('/signin?mode=signin')}
+                  style={{
+                    background: 'transparent',
+                    color: 'var(--text-primary)',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    fontFamily: 'var(--font-body)',
+                    padding: '8px 20px',
+                    borderRadius: '100px',
+                    border: '1px solid rgba(214, 222, 240, 0.8)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(0,0,0,0.03)';
+                    e.currentTarget.style.borderColor = 'rgba(214, 222, 240, 1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.borderColor = 'rgba(214, 222, 240, 0.8)';
+                  }}
+                >
+                  Sign in
+                </button>
+                <button
+                  onClick={() => navigate('/signin?mode=signup')}
+                  style={{
+                    background: '#2563EB',
+                    color: '#fff',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    fontFamily: 'var(--font-body)',
+                    padding: '8px 20px',
+                    borderRadius: '100px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    transition: 'background 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = '#1d4ed8'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = '#2563EB'; }}
+                >
+                  Create account
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Mobile Menu Button */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="md:hidden p-2"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+        </header>
+      </div>
 
       {/* Mobile Menu */}
       {mobileMenuOpen && (
         <div
-          className="fixed top-16 left-0 right-0 md:hidden z-40"
+          className="fixed top-[72px] left-4 right-4 md:hidden z-40"
           style={{
-            background: 'var(--bg-white)',
-            borderBottom: '1px solid var(--border-light)',
+            background: 'rgba(255, 255, 255, 0.98)',
+            border: '1px solid rgba(214, 222, 240, 0.7)',
+            borderRadius: '16px',
+            boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
             backdropFilter: 'blur(16px)',
           }}
         >
-          <nav className="flex flex-col p-4 gap-2">
+          <nav className="flex flex-col p-3 gap-1">
             <button
               onClick={() => {
                 scrollToFeatures();
                 setMobileMenuOpen(false);
               }}
-              className="text-left px-4 py-3 text-sm font-medium"
+              className="text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50"
               style={{ color: 'var(--text-secondary)' }}
             >
               Features
+            </button>
+            <button
+              onClick={() => {
+                const element = document.getElementById('extension');
+                if (element) element.scrollIntoView({ behavior: 'smooth' });
+                setMobileMenuOpen(false);
+              }}
+              className="text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Extension
             </button>
             <button
               onClick={() => {
@@ -280,7 +345,7 @@ const Index = () => {
                 if (element) element.scrollIntoView({ behavior: 'smooth' });
                 setMobileMenuOpen(false);
               }}
-              className="text-left px-4 py-3 text-sm font-medium"
+              className="text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50"
               style={{ color: 'var(--text-secondary)' }}
             >
               Reviews
@@ -290,12 +355,12 @@ const Index = () => {
                 navigate('/signin?mode=signup');
                 setMobileMenuOpen(false);
               }}
-              className="text-left px-4 py-3 text-sm font-medium"
+              className="text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50"
               style={{ color: 'var(--text-secondary)' }}
             >
               Get started
             </button>
-            <div className="border-t border-light mt-2 pt-2 flex flex-col gap-2">
+            <div className="border-t mt-2 pt-2" style={{ borderColor: 'rgba(214, 222, 240, 0.5)' }}>
               {user ? (
                 <button
                   onClick={() => {
@@ -303,30 +368,21 @@ const Index = () => {
                     setMobileMenuOpen(false);
                   }}
                   className="btn-primary-lg w-full"
+                  style={{ borderRadius: '12px' }}
                 >
                   Find people
                 </button>
               ) : (
-                <>
-                  <button
-                    onClick={() => {
-                      navigate('/signin?mode=signin');
-                      setMobileMenuOpen(false);
-                    }}
-                    className="btn-ghost w-full text-left px-4 py-3"
-                  >
-                    Sign in
-                  </button>
-                  <button
-                    onClick={() => {
-                      navigate('/signin?mode=signup');
-                      setMobileMenuOpen(false);
-                    }}
-                    className="btn-primary-lg w-full"
-                  >
-                    Create account
-                  </button>
-                </>
+                <button
+                  onClick={() => {
+                    navigate('/signin?mode=signup');
+                    setMobileMenuOpen(false);
+                  }}
+                  className="w-full text-center py-3 text-sm font-semibold rounded-xl"
+                  style={{ background: '#2563EB', color: '#fff' }}
+                >
+                  Create account
+                </button>
               )}
             </div>
           </nav>
@@ -334,309 +390,252 @@ const Index = () => {
       )}
 
       {/* Spacer for fixed header */}
-      <div className="h-16" />
+      <div className="h-20" />
 
       {/* SECTION 1: HERO */}
       <section
         ref={heroRef}
-        className="relative pt-[72px] pb-[100px] px-6 md:px-12"
+        className="relative px-6 md:px-12"
         style={{
+          paddingTop: '120px',
+          paddingBottom: '80px',
           background: 'var(--bg-white)',
         }}
       >
-        {/* Subtle radial glow - soft color accents */}
+        {/* Subtle radial glow */}
         <div
-          className="absolute top-[-120px] right-[-200px] w-[700px] h-[700px] rounded-full pointer-events-none"
+          className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[600px] rounded-full pointer-events-none"
           style={{
-            background: 'radial-gradient(circle, rgba(37, 99, 235, 0.08) 0%, rgba(59, 130, 246, 0.04) 40%, transparent 70%)',
-          }}
-        />
-        <div
-          className="absolute top-[150px] left-[-100px] w-[400px] h-[400px] rounded-full pointer-events-none opacity-60"
-          style={{
-            background: 'radial-gradient(circle, rgba(6, 182, 212, 0.05) 0%, transparent 70%)',
+            background: 'radial-gradient(ellipse at center, rgba(37, 99, 235, 0.06) 0%, transparent 70%)',
           }}
         />
 
-        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-[1fr_1.15fr] gap-[72px] items-center">
-          {/* Left Column - Text */}
-          <div style={{ marginTop: '-40px' }}>
-            <h1
-              className="hero-fade-up hero-fade-up-delay-1 hero-headline"
-              style={{
-                fontFamily: "'Instrument Serif', Georgia, serif",
-                fontSize: '68px',
-                fontWeight: 400,
-                lineHeight: 1.04,
-                letterSpacing: '-0.035em',
-                color: 'var(--text-primary)',
-                marginBottom: '28px',
-              }}
-            >
-              Get connected.<br />
-              <span style={{ color: '#2563EB' }}>Get recruited.</span>
-            </h1>
-            <p
-              className="hero-fade-up hero-fade-up-delay-3"
-              style={{
-                fontFamily: 'var(--font-body)',
-                fontSize: '17px',
-                lineHeight: 1.7,
-                color: 'var(--text-secondary)',
-                marginBottom: 40,
-                maxWidth: '440px',
-              }}
-            >
-              Find the right people, send the right message, and walk into every conversation prepared. Offerloop replaces your spreadsheets, your browser tabs, and your guesswork.
-            </p>
-            <div className="hero-fade-up hero-fade-up-delay-4 flex flex-col sm:flex-row gap-3">
-              <button
-                onClick={() => navigate('/signin?mode=signup')}
-                className="btn-primary-lg"
-                style={{
-                  background: '#2563EB',
-                }}
-              >
-                Create free account
-              </button>
-              <button
-                onClick={scrollToFeatures}
-                className="btn-ghost flex items-center gap-2 group"
-                style={{
-                  padding: '14px 12px',
-                  fontSize: '14px',
-                }}
-              >
-                See how it works
-                <ArrowRight className="h-3.5 w-3.5 group-hover:translate-y-[3px] transition-transform" />
-              </button>
-            </div>
-            <div className="hero-fade-up hero-fade-up-delay-4" style={{ marginTop: '32px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <a
-                href={CHROME_EXTENSION_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group inline-flex items-center gap-3"
-                style={{
-                  padding: '13px 24px',
-                  borderRadius: '11px',
-                  background: 'white',
-                  border: '1px solid rgba(37, 99, 235, 0.15)',
-                  color: '#2563EB',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  fontFamily: 'var(--font-body)',
-                  textDecoration: 'none',
-                  boxShadow: '0 1px 4px rgba(0, 0, 0, 0.04)',
-                  transition: 'all 0.2s ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.3)';
-                  e.currentTarget.style.boxShadow = '0 4px 16px rgba(37, 99, 235, 0.12)';
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.15)';
-                  e.currentTarget.style.boxShadow = '0 1px 4px rgba(0, 0, 0, 0.04)';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }}
-              >
-                <img src={ExtensionLogo} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />
-                Add to Chrome — it's free
-                <ArrowRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
-              </a>
-              <span style={{ fontSize: '13px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-body)' }}>
-                Works on any LinkedIn profile
-              </span>
-            </div>
-          </div>
-
-          {/* Right Column - Product Visual */}
-          <div
-            ref={dashboardRef}
-            className="hero-fade-up hero-fade-up-delay-3 relative"
+        <div className="relative max-w-3xl mx-auto text-center">
+          <h1
+            className="hero-fade-up hero-fade-up-delay-1 hero-headline"
             style={{
-              perspective: '1200px',
-              transition: 'transform 0.3s ease-out',
+              fontFamily: "'Instrument Serif', Georgia, serif",
+              fontSize: 'clamp(48px, 7.5vw, 74px)',
+              fontWeight: 700,
+              lineHeight: 1.08,
+              letterSpacing: '-0.025em',
+              color: 'var(--text-primary)',
+              marginBottom: '24px',
             }}
           >
-            {/* Soft glow behind screenshot */}
-            <div
-              className="absolute inset-0 pointer-events-none"
+            Recruiting takes long enough<br />
+            <span style={{ color: '#2563EB' }}>Stop wasting time on the busywork</span>
+          </h1>
+          <p
+            className="hero-fade-up hero-fade-up-delay-3"
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: '17px',
+              lineHeight: 1.7,
+              color: 'var(--text-secondary)',
+              marginBottom: '36px',
+              maxWidth: '520px',
+              margin: '0 auto 36px',
+            }}
+          >
+            Outreach that used to take hours: finding emails, writing messages, researching companies, done in minutes. So you can focus on the conversations that actually land offers.
+          </p>
+
+          {/* CTA Buttons */}
+          <div className="hero-fade-up hero-fade-up-delay-4 flex flex-col sm:flex-row gap-3 justify-center">
+            <button
+              onClick={() => navigate('/signin?mode=signup')}
+              className="btn-primary-lg"
               style={{
-                background: 'radial-gradient(ellipse at center, rgba(37, 99, 235, 0.08) 0%, transparent 70%)',
-                transform: 'scale(1.3)',
-                filter: 'blur(40px)',
-                zIndex: 0,
-              }}
-            />
-            <div
-              className="hero-product relative rounded-[14px] overflow-hidden"
-              style={{
-                background: 'var(--bg-off)',
-                border: '1px solid var(--border)',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.04), 0 16px 40px rgba(0,0,0,0.06)',
-                display: 'flex',
-                flexDirection: 'column',
-                transition: 'transform 0.4s ease, box-shadow 0.4s ease',
-                position: 'relative',
-                zIndex: 1,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.06), 0 24px 60px rgba(37, 99, 235, 0.12)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.04), 0 16px 40px rgba(0,0,0,0.06)';
+                background: '#2563EB',
+                fontWeight: 800,
               }}
             >
-              {/* Screenshot */}
-              <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-                <img
-                  src={ChromeExtensionPic}
-                  alt="Offerloop Chrome extension on a LinkedIn profile"
-                  style={{
-                    width: '100%',
-                    display: 'block',
-                    objectFit: 'cover',
-                    objectPosition: 'top left',
-                  }}
-                />
-                {/* Soft bottom fade */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    height: 80,
-                    background: 'linear-gradient(to top, var(--bg-off) 0%, transparent 100%)',
-                    pointerEvents: 'none',
-                  }}
-                />
-              </div>
-            </div>
+              Create account
+            </button>
+            <a
+              href={CHROME_EXTENSION_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-ghost inline-flex items-center justify-center gap-2"
+              style={{
+                padding: '13px 24px',
+                fontSize: '14px',
+                fontWeight: 800,
+                textDecoration: 'none',
+                border: '1px solid var(--border)',
+                borderRadius: '11px',
+              }}
+            >
+              <img src={GoogleLogo} alt="" style={{ width: 16, height: 16, objectFit: 'contain' }} />
+              Download browser extension
+            </a>
           </div>
+
+
         </div>
       </section>
 
-      {/* SECTION 2: TRUST */}
+      {/* HOW IT WORKS SECTION */}
       <section
         className="px-6 md:px-12"
         style={{
-          padding: '56px 0 64px',
+          padding: '80px 0 96px',
           background: 'var(--bg-white)',
           borderTop: '1px solid var(--border-light)',
         }}
       >
-        <div className="max-w-7xl mx-auto">
-          <p
-            className="text-center reveal"
+        <div className="max-w-4xl mx-auto text-center">
+          <h2
             style={{
-              fontSize: '12px',
-              fontWeight: 600,
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              color: 'var(--text-tertiary)',
+              fontFamily: "'Instrument Serif', Georgia, serif",
+              fontSize: 'clamp(48px, 7.5vw, 74px)',
+              fontWeight: 400,
+              lineHeight: 1.08,
+              letterSpacing: '-0.025em',
+              color: 'var(--text-primary)',
               marginBottom: '24px',
             }}
           >
-            TRUSTED BY STUDENTS FROM
+            The ChatGPT of Email Outreach
+          </h2>
+
+          <p
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: '16px',
+              lineHeight: 1.7,
+              color: 'var(--text-secondary)',
+              maxWidth: '640px',
+              margin: '0 auto 48px',
+            }}
+          >
+            Prompt the type of person you want to talk to and instantly have personalized emails created in your drafts ready to send. At the same time their information is stored into a networking tracker spreadsheet.
           </p>
-            <div className="flex flex-wrap items-center justify-center reveal" style={{ gap: '32px 44px', marginBottom: '16px' }}>
-            {[
-              { name: 'USC', colors: ['#990000', '#FFCC00'] }, // Cardinal Red & Gold
-              { name: 'UCLA', colors: ['#2774AE', '#FFD100'] }, // Blue & Gold
-              { name: 'NYU', colors: ['#57068C'] }, // Purple
-              { name: 'Michigan', colors: ['#00274C', '#FFCB05'] }, // Blue & Maize
-              { name: 'UC Berkeley', colors: ['#003262', '#FDB515'] }, // Blue & Gold
-              { name: 'UCSD', colors: ['#182B49', '#C69214'] }, // Blue & Gold
-              { name: 'UC Irvine', colors: ['#0064A4', '#FFC72C'] }, // Blue & Gold
-            ].map((school, index) => (
-              <div
-                key={school.name}
-                className="stagger-item text-base font-bold transition-all cursor-default"
-                style={{
-                  opacity: 0.7,
-                  fontFamily: 'var(--font-body)',
-                  fontWeight: 600,
-                  letterSpacing: '-0.01em',
-                  background: school.colors.length > 1 
-                    ? `linear-gradient(135deg, ${school.colors[0]} 0%, ${school.colors[1]} 100%)`
-                    : school.colors[0],
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  backgroundClip: 'text',
-                  color: 'transparent',
-                  animationDelay: `${index * 60}ms`,
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.opacity = '1';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.opacity = '0.7';
-                }}
-              >
-                {school.name}
-              </div>
-            ))}
-          </div>
+
           <div
-            className="reveal"
-            style={{ 
-              width: '40px', 
-              height: '2px',
-              background: 'linear-gradient(90deg, transparent, var(--border), transparent)',
-              margin: '36px auto',
-            }}
-          />
-          <p
-            className="text-center reveal"
             style={{
-              fontSize: '12px',
-              fontWeight: 600,
-              letterSpacing: '0.08em',
+              maxWidth: '900px',
+              margin: '0 auto',
+              borderRadius: '16px',
+              overflow: 'hidden',
+              border: '1px solid var(--border)',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.03), 0 8px 24px rgba(0,0,0,0.05), 0 24px 60px rgba(0,0,0,0.07)',
+            }}
+          >
+            <video
+              src={HowItWorksVideo}
+              autoPlay
+              loop
+              muted
+              playsInline
+              style={{
+                width: '100%',
+                display: 'block',
+              }}
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* CHROME EXTENSION SECTION */}
+      <section
+        id="extension"
+        className="px-6 md:px-12"
+        style={{
+          padding: '80px 0 96px',
+          background: 'var(--bg-white)',
+          borderTop: '1px solid var(--border-light)',
+        }}
+      >
+        <div className="max-w-4xl mx-auto text-center">
+          <span
+            style={{
+              display: 'inline-block',
+              fontSize: '11px',
+              fontWeight: 700,
+              letterSpacing: '0.1em',
               textTransform: 'uppercase',
-              color: 'var(--text-tertiary)',
+              color: '#2563EB',
+              fontFamily: 'var(--font-body)',
+              marginBottom: '16px',
+            }}
+          >
+            Chrome Extension
+          </span>
+
+          <h2
+            style={{
+              fontFamily: "'Instrument Serif', Georgia, serif",
+              fontSize: 'clamp(48px, 7.5vw, 74px)',
+              fontWeight: 400,
+              lineHeight: 1.08,
+              letterSpacing: '-0.025em',
+              color: 'var(--text-primary)',
               marginBottom: '24px',
             }}
           >
-            PREPARING FOR ROLES AT
+            Works right inside LinkedIn
+          </h2>
+
+          <p
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: '16px',
+              lineHeight: 1.7,
+              color: 'var(--text-secondary)',
+              maxWidth: '540px',
+              margin: '0 auto 32px',
+            }}
+          >
+            Write emails to anyone from their profile. Find hiring managers on any job posting. Generate cover letters in one click. All from a single Chrome extension.
           </p>
-          <div className="flex flex-wrap items-center justify-center reveal" style={{ gap: '32px 44px', marginBottom: '16px' }}>
-            {[
-              'Goldman Sachs',
-              'McKinsey',
-              'Evercore', 
-              'Blackstone',
-              'J.P. Morgan',
-              'PwC',
-              'Barclays',
-              'Morgan Stanley',
-            ].map((company, index) => (
-              <div
-                key={company}
-                className="stagger-item transition-all cursor-default"
+
+          <a
+            href={CHROME_EXTENSION_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-primary-lg"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '10px',
+              background: '#2563EB',
+              textDecoration: 'none',
+            }}
+          >
+            <img src={GoogleLogo} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />
+            Add to Chrome — it's free
+          </a>
+
+
+          {/* Chrome Extension Screenshot */}
+          <div
+            style={{
+              marginTop: '56px',
+              maxWidth: '900px',
+              margin: '56px auto 0',
+            }}
+          >
+            <div
+              style={{
+                borderRadius: '14px',
+                overflow: 'hidden',
+                border: '1px solid var(--border)',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.04), 0 16px 40px rgba(0,0,0,0.06)',
+              }}
+            >
+              <img
+                src={ChromeExtensionPic}
+                alt="Offerloop Chrome extension on a LinkedIn profile"
                 style={{
-                  fontFamily: 'var(--font-body)',
-                  fontSize: '15px',
-                  fontWeight: 600,
-                  letterSpacing: '-0.02em',
-                  color: 'var(--text-primary)',
-                  opacity: 0.25,
-                  animationDelay: `${(index + 7) * 60}ms`, // Continue from schools
+                  width: '100%',
+                  display: 'block',
+                  objectFit: 'cover',
+                  objectPosition: 'top left',
                 }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.opacity = '0.6';
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.opacity = '0.25';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }}
-              >
-                {company}
-              </div>
-            ))}
+              />
+            </div>
           </div>
         </div>
       </section>
@@ -647,52 +646,28 @@ const Index = () => {
         style={{ background: 'var(--bg-white)' }}
       >
         <div className="max-w-7xl mx-auto">
-          <p
-            className="text-center reveal"
-            style={{
-              fontSize: '12px',
-              fontWeight: 600,
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              color: 'var(--text-tertiary)',
-              fontFamily: 'var(--font-body)',
-              marginBottom: '12px',
-            }}
-          >
-            How it works
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-8 md:gap-12 mb-16 reveal" style={{ fontFamily: 'var(--font-body)' }}>
-            <div className="flex items-center gap-2">
-              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--blue)' }}>01</span>
-              <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>Search</span>
-              <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>— Find contacts at any company</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--blue)' }}>02</span>
-              <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>Reach out</span>
-              <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>— Send personalized emails in seconds</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--blue)' }}>03</span>
-              <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>Prepare</span>
-              <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>— Walk into every conversation ready</span>
-            </div>
-          </div>
           <h2
             className="text-center mb-16 reveal"
             style={{
-              fontFamily: 'var(--font-display)',
-              fontSize: '40px',
+              fontFamily: "'Instrument Serif', Georgia, serif",
+              fontSize: 'clamp(48px, 7.5vw, 74px)',
               fontWeight: 400,
+              lineHeight: 1.08,
               letterSpacing: '-0.025em',
               color: 'var(--text-primary)',
             }}
           >
-            Why this exists
+            Where your time actually goes
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_48px_1fr] gap-8 max-w-[860px] mx-auto">
-            {/* Left Column - Problem */}
-            <div className="reveal-stagger">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-[900px] mx-auto">
+            {/* Left Column - Without Offerloop */}
+            <div
+              className="reveal-stagger rounded-2xl p-8"
+              style={{
+                background: '#F8F7F5',
+                border: '1px solid rgba(0,0,0,0.06)',
+              }}
+            >
               <h3
                 className="text-xs font-bold mb-6 reveal"
                 style={{
@@ -703,15 +678,15 @@ const Index = () => {
                   fontFamily: 'var(--font-body)',
                 }}
               >
-                RECRUITING TODAY
+                WITHOUT OFFERLOOP
               </h3>
               {[
-                "LinkedIn for contacts, but no emails",
-                "Spreadsheets to track who you've reached out to",
-                "Google to research every company before a call",
-                "ChatGPT to draft each email individually",
-                "Sticky notes, calendar reminders, and hope",
-                "Hours lost before talking to a single person",
+                { text: <>Effort spent writing an email to an email address that isn't real</> },
+                { text: <><strong>15 minutes</strong> writing a single personalized message</> },
+                { text: <><strong>5 minutes</strong> manually updating a spreadsheet after every email</> },
+                { text: <><strong>30 minutes to an hour</strong> researching a person and company before a call</> },
+                { text: <>Constantly refreshing your inbox to see if they responded</> },
+                { text: <><strong>3+ hours</strong> before you even land one coffee chat</> },
               ].map((item, i) => (
                 <div
                   key={i}
@@ -728,48 +703,19 @@ const Index = () => {
                     className="absolute left-0 top-[9px] w-1.5 h-1.5 rounded-full"
                     style={{ background: 'var(--border)' }}
                   />
-                  <span
-                    className="relative"
-                    onMouseEnter={(e) => {
-                      const text = e.currentTarget;
-                      text.style.color = 'var(--text-tertiary)';
-                      const line = text.querySelector('.strikethrough') as HTMLElement;
-                      if (line) line.style.width = '100%';
-                    }}
-                    onMouseLeave={(e) => {
-                      const text = e.currentTarget;
-                      text.style.color = 'var(--text-secondary)';
-                      const line = text.querySelector('.strikethrough') as HTMLElement;
-                      if (line) line.style.width = '0%';
-                    }}
-                  >
-                    {item}
-                    <span
-                      className="strikethrough absolute left-0 top-1/2 h-px transition-all"
-                      style={{
-                        background: 'var(--text-tertiary)',
-                        opacity: 0.35,
-                        width: '0%',
-                        transform: 'translateY(-50%)',
-                      }}
-                    />
-                  </span>
+                  {item.text}
                 </div>
               ))}
             </div>
 
-            {/* Center Divider */}
-            <div className="hidden md:block reveal">
-              <div
-                className="w-px h-full mx-auto"
-                style={{
-                  background: 'linear-gradient(180deg, var(--border-light) 0%, var(--border) 50%, var(--border-light) 100%)',
-                }}
-              />
-            </div>
-
-            {/* Right Column - Solution */}
-            <div className="reveal-stagger">
+            {/* Right Column - With Offerloop */}
+            <div
+              className="reveal-stagger rounded-2xl p-8"
+              style={{
+                background: '#F0F5FF',
+                border: '1px solid rgba(37, 99, 235, 0.08)',
+              }}
+            >
               <h3
                 className="text-xs font-bold mb-6 reveal"
                 style={{
@@ -783,16 +729,16 @@ const Index = () => {
                 WITH OFFERLOOP
               </h3>
               {[
-                "Search contacts with verified emails in one step",
-                "Track every outreach, follow-up, and response",
-                "Get AI-generated prep for every coffee chat",
-                "Draft personalized emails in seconds, not hours",
-                "One dashboard for your entire pipeline",
-                "More conversations, less busywork",
+                { text: <>Verified, deliverable emails found <strong>instantly</strong> — no more bounced messages</> },
+                { text: <>Personalized emails drafted in <strong>seconds</strong>, not 15 minutes</> },
+                { text: <>Every contact and outreach logged to your dashboard <strong>automatically</strong> — no manual spreadsheets</> },
+                { text: <>AI-generated prep sheets with talking points and research for every call</> },
+                { text: <><strong>Real-time</strong> email tracking so you know exactly when someone opens or replies</> },
+                { text: <><strong>10 minutes</strong> of work that will almost guarantee you a coffee chat</> },
               ].map((item, i) => (
                 <div
                   key={i}
-                  className="relative mb-4 reveal transition-all"
+                  className="relative mb-4 reveal"
                   style={{
                     paddingLeft: '24px',
                     fontSize: '15px',
@@ -800,33 +746,12 @@ const Index = () => {
                     color: 'var(--text-secondary)',
                     fontFamily: 'var(--font-body)',
                   }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = 'translateX(4px)';
-                    e.currentTarget.style.color = 'var(--text-primary)';
-                    const bullet = e.currentTarget.querySelector('.bullet') as HTMLElement;
-                    if (bullet) {
-                      bullet.style.opacity = '0.8';
-                      bullet.style.transform = 'scale(1.4)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'translateX(0)';
-                    e.currentTarget.style.color = 'var(--text-secondary)';
-                    const bullet = e.currentTarget.querySelector('.bullet') as HTMLElement;
-                    if (bullet) {
-                      bullet.style.opacity = '0.4';
-                      bullet.style.transform = 'scale(1)';
-                    }
-                  }}
                 >
                   <div
-                    className="bullet absolute left-0 top-[9px] w-1.5 h-1.5 rounded-full transition-all"
-                    style={{
-                      background: 'var(--blue)',
-                      opacity: 0.4,
-                    }}
+                    className="absolute left-0 top-[9px] w-1.5 h-1.5 rounded-full"
+                    style={{ background: 'var(--blue)', opacity: 0.5 }}
                   />
-                  {item}
+                  {item.text}
                 </div>
               ))}
             </div>
@@ -834,230 +759,130 @@ const Index = () => {
         </div>
       </section>
 
-      {/* SECTION 4: CORE WORKFLOWS */}
+
+      {/* SECTION: WHAT ELSE WE DO */}
       <section
         id="features"
-        className="py-[110px] px-6 md:px-12 bg-dots section-fade-top relative"
-        style={{ background: 'var(--bg-off)' }}
+        className="px-6 md:px-12"
+        style={{
+          padding: '96px 0',
+          background: 'var(--bg-white)',
+          borderTop: '1px solid var(--border-light)',
+        }}
       >
-        <div className="max-w-7xl mx-auto relative z-10">
+        <div className="max-w-5xl mx-auto">
           <h2
-            className="text-center mb-4 reveal"
+            className="text-center mb-20 reveal"
             style={{
-              fontFamily: 'var(--font-display)',
-              fontSize: '40px',
+              fontFamily: "'Instrument Serif', Georgia, serif",
+              fontSize: 'clamp(48px, 7.5vw, 74px)',
               fontWeight: 400,
+              lineHeight: 1.08,
               letterSpacing: '-0.025em',
               color: 'var(--text-primary)',
             }}
           >
-            Everything you need, nothing you don't
+            What Else We Do
           </h2>
-          <p
-            className="text-center mb-16 reveal"
-            style={{
-              fontFamily: 'var(--font-body)',
-              fontSize: '16px',
-              color: 'var(--text-secondary)',
-              maxWidth: '460px',
-              margin: '0 auto',
-            }}
-          >
-            Four workflows that mirror how recruiting actually works.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 max-w-[960px] mx-auto" style={{ marginTop: '24px' }}>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '80px' }}>
             {[
               {
-                icon: SearchIcon,
-                title: 'Find people & companies',
-                description: "Search by firm, role, school, or location. Get verified contact info without digging through LinkedIn.",
-                accent: 'rgba(37, 99, 235, 0.08)',
+                title: 'Find Company',
+                description: "Describe the type of companies you're looking for in plain English and we'll find them for you.",
+                image: FindCompanyImg,
               },
               {
-                icon: TrackIcon,
-                title: 'Track outreach & follow-ups',
-                description: "See who you've emailed, who replied, and who needs a nudge. No more spreadsheet chaos.",
-                accent: 'rgba(59, 130, 246, 0.08)',
+                title: 'Find Hiring Manager',
+                description: "Paste a job posting URL and we'll find the recruiters and hiring managers for that role.",
+                image: FindHiringManagerImg,
               },
               {
-                icon: CoffeeIcon,
-                title: 'Coffee chat prep',
-                description: "AI-generated talking points, background research, and conversation starters for every call.",
-                accent: 'rgba(96, 165, 250, 0.08)',
+                title: 'Write Cover Letter',
+                description: "Generate personalized cover letters that make you stand out.",
+                image: CoverLetterImg,
               },
               {
-                icon: InterviewIcon,
-                title: 'Interview prep',
-                description: "Company-specific questions, behavioral prompts, and guides personalized to each role.",
-                accent: 'rgba(6, 182, 212, 0.08)',
+                title: 'Tailor Resume',
+                description: "Optimize your resume to stand out and pass ATS screening.",
+                image: ResumeImg,
               },
-            ].map((workflow, i) => {
+              {
+                title: 'Manage Emails',
+                description: "Track every email you've sent, see who opened it, who replied, and who needs a follow-up.",
+                image: EmailOutreachImg,
+              },
+              {
+                title: 'Interview Prep',
+                description: "Paste a job posting URL and get a full interview guide with likely questions and a prep plan.",
+                image: InterviewPrepImg,
+              },
+              {
+                title: 'Coffee Chat Prep',
+                description: "Paste a LinkedIn URL and get a personalized prep sheet with talking points, recent news, and smart questions.",
+                image: CoffeeChatImg,
+              },
+            ].map((feature, i) => {
+              const isTextLeft = i % 2 === 0;
               return (
                 <div
-                  key={i}
-                  className="reveal relative overflow-hidden p-6 rounded-[14px] transition-all cursor-pointer"
+                  key={feature.title}
+                  className="reveal"
                   style={{
-                    background: 'rgba(248, 250, 255, 0.88)',
-                    backdropFilter: 'blur(8px)',
-                    border: '1px solid var(--border-light)',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = 'translateY(-6px)';
-                    e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.18)';
-                    e.currentTarget.style.boxShadow = '0 12px 40px rgba(37, 99, 235, 0.10), 0 0 0 1px rgba(37, 99, 235, 0.05)';
-                    e.currentTarget.style.background = `linear-gradient(135deg, rgba(248, 250, 255, 0.95) 0%, ${workflow.accent} 100%)`;
-                    const iconContainer = e.currentTarget.querySelector('.icon-container') as HTMLElement;
-                    const topLine = e.currentTarget.querySelector('.top-line') as HTMLElement;
-                    if (iconContainer) {
-                      iconContainer.style.background = 'var(--blue-subtle)';
-                      iconContainer.style.transform = 'scale(1.05)';
-                    }
-                    if (topLine) {
-                      topLine.style.transform = 'scaleX(1)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.borderColor = 'var(--border-light)';
-                    e.currentTarget.style.boxShadow = 'none';
-                    e.currentTarget.style.background = 'rgba(248, 250, 255, 0.88)';
-                    const iconContainer = e.currentTarget.querySelector('.icon-container') as HTMLElement;
-                    const topLine = e.currentTarget.querySelector('.top-line') as HTMLElement;
-                    if (iconContainer) {
-                      iconContainer.style.background = 'var(--border-light)';
-                      iconContainer.style.transform = 'scale(1)';
-                    }
-                    if (topLine) {
-                      topLine.style.transform = 'scaleX(0)';
-                    }
+                    display: 'flex',
+                    flexDirection: isTextLeft ? 'row' : 'row-reverse',
+                    alignItems: 'center',
+                    gap: '48px',
+                    flexWrap: 'wrap',
                   }}
                 >
-                  <div
-                    className="top-line absolute top-0 left-0 right-0 h-0.5 transition-transform origin-left"
-                    style={{
-                      background: 'var(--blue)',
-                      transform: 'scaleX(0)',
-                      borderRadius: '14px 14px 0 0',
-                    }}
-                  />
-                  <div
-                    className="icon-container w-10 h-10 rounded-[10px] flex items-center justify-center mb-4 transition-all"
-                    style={{ background: 'var(--border-light)', transition: 'all 0.2s ease' }}
-                  >
-                    <img src={workflow.icon} alt="" style={{ width: 28, height: 28 }} />
+                  <div style={{ flex: '1 1 340px', minWidth: 0 }}>
+                    <h3
+                      style={{
+                        fontFamily: 'var(--font-body)',
+                        fontSize: '22px',
+                        fontWeight: 700,
+                        color: 'var(--text-primary)',
+                        marginBottom: '12px',
+                      }}
+                    >
+                      {feature.title}
+                    </h3>
+                    <p
+                      style={{
+                        fontFamily: 'var(--font-body)',
+                        fontSize: '16px',
+                        lineHeight: 1.7,
+                        color: 'var(--text-secondary)',
+                      }}
+                    >
+                      {feature.description}
+                    </p>
                   </div>
-                  <h3
-                    className="text-base font-semibold mb-2"
+                  <div
                     style={{
-                      fontFamily: 'var(--font-body)',
-                      fontSize: '15px',
-                      color: 'var(--text-primary)',
+                      flex: '1 1 400px',
+                      minWidth: 0,
+                      maxWidth: '500px',
+                      borderRadius: '14px',
+                      overflow: 'hidden',
+                      border: '1px solid rgba(0,0,0,0.06)',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.04)',
                     }}
                   >
-                    {workflow.title}
-                  </h3>
-                  <p
-                    className="text-sm leading-relaxed"
-                    style={{
-                      fontFamily: 'var(--font-body)',
-                      fontSize: '13.5px',
-                      lineHeight: 1.65,
-                      color: 'var(--text-secondary)',
-                      opacity: 0.85,
-                    }}
-                  >
-                    {workflow.description}
-                  </p>
+                    <img
+                      src={feature.image}
+                      alt={feature.title}
+                      style={{
+                        width: '100%',
+                        display: 'block',
+                        objectFit: 'cover',
+                      }}
+                    />
+                  </div>
                 </div>
               );
             })}
-          </div>
-
-          {/* Second product screenshot */}
-          <div
-            className="max-w-[700px] mx-auto mt-20 reveal"
-            style={{ perspective: '1000px', position: 'relative' }}
-          >
-            {/* Soft glow behind screenshot */}
-            <div
-              className="absolute inset-0 pointer-events-none"
-              style={{
-                background: 'radial-gradient(ellipse at center, rgba(37, 99, 235, 0.06) 0%, transparent 70%)',
-                transform: 'scale(1.2)',
-                filter: 'blur(40px)',
-                zIndex: 0,
-              }}
-            />
-            <div
-              className="rounded-[14px] overflow-hidden"
-              style={{
-                background: 'var(--bg-white)',
-                border: '1px solid var(--border)',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.04), 0 16px 40px rgba(0,0,0,0.06)',
-                position: 'relative',
-                zIndex: 1,
-              }}
-            >
-              {/* Browser chrome bar */}
-              <div style={{
-                height: 36,
-                background: 'var(--bg-white)',
-                borderBottom: '1px solid var(--border-light)',
-                display: 'flex',
-                alignItems: 'center',
-                padding: '0 14px',
-                gap: 6,
-                flexShrink: 0,
-              }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FCA5A5' }} />
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FDE68A' }} />
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#86EFAC' }} />
-                <div style={{
-                  flex: 1,
-                  height: 22,
-                  background: 'var(--border-light)',
-                  borderRadius: 5,
-                  marginLeft: 12,
-                  maxWidth: 220,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
-                  <span style={{
-                    fontSize: 11,
-                    fontWeight: 500,
-                    color: 'var(--text-tertiary)',
-                    letterSpacing: '0.01em',
-                    fontFamily: 'var(--font-body)',
-                  }}>offerloop.ai/coffee-chat</span>
-                </div>
-              </div>
-
-              {/* Screenshot with bottom fade */}
-              <div style={{ overflow: 'hidden', position: 'relative' }}>
-                <img
-                  src={CoffeeChatPrepSS}
-                  alt="Offerloop Coffee Chat Prep"
-                  style={{
-                    width: '100%',
-                    display: 'block',
-                    objectFit: 'cover',
-                    objectPosition: 'top center',
-                  }}
-                />
-                <div
-                  style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    height: 80,
-                    background: 'linear-gradient(to top, var(--bg-white) 0%, transparent 100%)',
-                    pointerEvents: 'none',
-                  }}
-                />
-              </div>
-            </div>
           </div>
         </div>
       </section>
@@ -1072,14 +897,15 @@ const Index = () => {
           <h2
             className="text-center mb-14 reveal"
             style={{
-              fontFamily: 'var(--font-display)',
-              fontSize: '40px',
+              fontFamily: "'Instrument Serif', Georgia, serif",
+              fontSize: 'clamp(48px, 7.5vw, 74px)',
               fontWeight: 400,
+              lineHeight: 1.08,
               letterSpacing: '-0.025em',
               color: 'var(--text-primary)',
             }}
           >
-            People like you use this
+            People Like You Use This
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 max-w-[960px] mx-auto" style={{ gap: '20px', padding: '0 24px' }}>
             {[
@@ -1249,19 +1075,20 @@ const Index = () => {
                 marginBottom: 20,
               }}
             >
-              Join 113 students from USC, Georgetown, NYU &amp; more
+              Join 400+ students from USC, Georgetown, NYU &amp; more
             </p>
             <h2
               style={{
-                fontFamily: 'var(--font-display)',
-                fontSize: '38px',
+                fontFamily: "'Instrument Serif', Georgia, serif",
+                fontSize: 'clamp(48px, 7.5vw, 74px)',
                 fontWeight: 400,
+                lineHeight: 1.08,
                 letterSpacing: '-0.025em',
                 color: 'var(--text-primary)',
                 marginBottom: '12px',
               }}
             >
-              Start recruiting with clarity.
+              Start Today
             </h2>
             <p
               style={{

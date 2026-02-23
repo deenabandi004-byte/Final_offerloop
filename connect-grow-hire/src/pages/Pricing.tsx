@@ -344,8 +344,8 @@ const Pricing = () => {
     }
   };
 
-  const isProUser = subscriptionStatus?.tier === 'pro' && subscriptionStatus?.status === 'active';
-  const isEliteUser = subscriptionStatus?.tier === 'elite' && subscriptionStatus?.status === 'active';
+  const isProUser = subscriptionStatus?.tier === 'pro' && (subscriptionStatus?.status === 'active' || subscriptionStatus?.status === 'trialing');
+  const isEliteUser = subscriptionStatus?.tier === 'elite' && (subscriptionStatus?.status === 'active' || subscriptionStatus?.status === 'trialing');
   const hasActiveSubscription = isProUser || isEliteUser;
   const currentTier = subscriptionStatus?.tier || 'free';
 
@@ -376,8 +376,14 @@ const Pricing = () => {
               <div className="flex items-center gap-4">
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-gray-900">{isEliteUser ? 'Elite' : 'Pro'} Subscription Active</h3>
-                    <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">Active</span>
+                    <h3 className="font-semibold text-gray-900">
+                      {isEliteUser ? 'Elite' : 'Pro'} Subscription{subscriptionStatus?.status === 'trialing' ? ' — Free Trial' : ' Active'}
+                    </h3>
+                    {subscriptionStatus?.status === 'trialing' ? (
+                      <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">Trial</span>
+                    ) : (
+                      <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">Active</span>
+                    )}
                   </div>
                   <p className="text-sm text-gray-500">
                     {user?.credits ?? 0} credits remaining
@@ -425,7 +431,7 @@ const Pricing = () => {
               lineHeight: 1.5,
             }}
           >
-            Choose the plan that works best for you.
+            Choose the plan that works best for you. All paid plans include a 1-month free trial.
           </p>
         </div>
 
@@ -511,6 +517,9 @@ const Pricing = () => {
                   <span className="text-gray-500">/month</span>
                 </div>
                 <p className="text-sm text-gray-500 mt-2">1,500 credits (~100 contacts)</p>
+                <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-50 border border-green-200 rounded-full">
+                  <span className="text-sm font-semibold text-green-700">🎉 First month free</span>
+                </div>
               </div>
               
               {/* Divider */}
@@ -557,7 +566,7 @@ const Pricing = () => {
                     disabled:opacity-50
                   `}
                 >
-                  {isLoading ? 'Processing...' : currentTier === 'pro' ? 'Manage Subscription' : currentTier === 'elite' ? 'On Elite Plan' : 'Upgrade to Pro'}
+                  {isLoading ? 'Processing...' : currentTier === 'pro' ? 'Manage Subscription' : currentTier === 'elite' ? 'On Elite Plan' : 'Start Free Trial'}
                 </button>
               </div>
             </div>
@@ -586,15 +595,18 @@ const Pricing = () => {
                 <span className="text-4xl font-bold text-gray-900">$34.99</span>
                 <span className="text-gray-500">/month</span>
               </div>
-              <p className="text-sm text-gray-500 mt-2">3,000 credits (~200 contacts)</p>
-            </div>
-            
-            {/* Divider */}
-            <div className="border-t border-gray-100 my-6"></div>
-            
-            {/* Features */}
-            <div className="flex-1 space-y-4">
-              <FeatureItem highlight>3,000 credits (~200 contacts)</FeatureItem>
+                <p className="text-sm text-gray-500 mt-2">3,000 credits (~200 contacts)</p>
+                <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-50 border border-green-200 rounded-full">
+                  <span className="text-sm font-semibold text-green-700">🎉 First month free</span>
+                </div>
+              </div>
+              
+              {/* Divider */}
+              <div className="border-t border-gray-100 my-6"></div>
+              
+              {/* Features */}
+              <div className="flex-1 space-y-4">
+                <FeatureItem highlight>3,000 credits (~200 contacts)</FeatureItem>
               <FeatureItem><span className="font-semibold">Everything in Pro, plus:</span></FeatureItem>
               <FeatureItem>Unlimited Coffee Chat Prep</FeatureItem>
               <FeatureItem>Unlimited Interview Prep</FeatureItem>
@@ -630,7 +642,7 @@ const Pricing = () => {
                   }
                 `}
               >
-                {isLoading ? 'Processing...' : currentTier === 'elite' ? 'Manage Subscription' : 'Go Elite'}
+                {isLoading ? 'Processing...' : currentTier === 'elite' ? 'Manage Subscription' : 'Try Elite Free'}
               </button>
             </div>
           </div>
@@ -642,9 +654,9 @@ const Pricing = () => {
             <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
               <Shield className="w-6 h-6 text-green-600" />
             </div>
-            <h3 className="font-semibold text-gray-900 mb-1">7-Day Money Back Guarantee</h3>
+            <h3 className="font-semibold text-gray-900 mb-1">1-Month Free Trial + 7-Day Money Back Guarantee</h3>
             <p className="text-sm text-gray-600">
-              Not satisfied? Get a full refund within 7 days of your purchase. No questions asked.
+              Try Pro or Elite free for 30 days. After that, not satisfied? Get a full refund within 7 days. No questions asked.
             </p>
           </div>
         </div>
@@ -684,6 +696,11 @@ const Pricing = () => {
           <h2 className="text-2xl font-bold text-gray-900 mb-6">Frequently Asked Questions</h2>
           
           <div>
+            <FAQItem 
+              question="How does the free trial work?"
+              answer="When you sign up for Pro or Elite, you get full access for 30 days completely free. Your card is collected at signup but won't be charged until the trial ends. Cancel anytime during the trial and you won't pay a thing."
+              isProminent={true}
+            />
             <FAQItem 
               question="What happens when I run out of credits?"
               answer="You'll hit a pause on new searches until your plan renews or you upgrade. No waiting, no emails—just upgrade when you're ready. All your saved contacts and drafts stay put."

@@ -361,11 +361,14 @@ def subscription_status():
         user_data = user_doc.to_dict()
         tier = user_data.get('tier', 'free')
         subscription_id = user_data.get('stripeSubscriptionId')
+        # Use actual status from Firestore so trialing subscribers see 'trialing'
+        raw_status = user_data.get('subscriptionStatus')
+        status = raw_status if tier in ['pro', 'elite'] and raw_status else ('active' if tier in ['pro', 'elite'] else 'inactive')
         
         return jsonify({
             'subscribed': tier in ['pro', 'elite'],
             'tier': tier,
-            'status': 'active' if tier in ['pro', 'elite'] else 'inactive',
+            'status': status,
             'hasSubscription': tier in ['pro', 'elite'],
             'subscriptionId': subscription_id,
             'credits': user_data.get('credits', 0)

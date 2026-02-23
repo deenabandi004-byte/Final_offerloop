@@ -54,7 +54,7 @@ def create_checkout_session():
         print(f"Success URL: {success_url}")
         print(f"Cancel URL: {cancel_url}")
         
-        # Prepare session parameters
+        # Prepare session parameters (1-month free trial for Pro and Elite)
         session_params = {
             'payment_method_types': ['card'],
             'mode': 'subscription',
@@ -63,6 +63,9 @@ def create_checkout_session():
             'customer_email': user_email,
             'metadata': {
                 'user_id': user_id,
+            },
+            'subscription_data': {
+                'trial_period_days': 30,
             },
         }
         
@@ -160,13 +163,15 @@ def handle_checkout_completed(session):
         if not user_id:
             return
         
-        # Get subscription to determine tier from price ID
+        # Get subscription to determine tier and actual status (trialing vs active)
         subscription_id = session.get('subscription')
         tier = 'pro'  # Default
+        sub_status = 'active'  # Default fallback
         if subscription_id:
             try:
                 stripe.api_key = STRIPE_SECRET_KEY
                 subscription = stripe.Subscription.retrieve(subscription_id)
+                sub_status = subscription.status  # 'trialing' during free trial, 'active' after
                 if subscription.items.data:
                     price_id = subscription.items.data[0].price.id
                     tier = get_tier_from_price_id(price_id)
@@ -183,7 +188,7 @@ def handle_checkout_completed(session):
             'credits': tier_config['credits'],
             'stripeSubscriptionId': subscription_id,
             'stripeCustomerId': session.get('customer'),
-            'subscriptionStatus': 'active',
+            'subscriptionStatus': sub_status,
             'upgraded_at': datetime.now().isoformat(),
             'updatedAt': datetime.now().isoformat()
         })
