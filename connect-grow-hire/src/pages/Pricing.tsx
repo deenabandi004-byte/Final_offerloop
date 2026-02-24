@@ -242,25 +242,75 @@ const Pricing = () => {
     }
   };
 
+  const handleSubscriptionUpgrade = async (newTier: 'pro' | 'elite') => {
+    if (!user) return;
+
+    setIsLoading(true);
+    try {
+      const auth = getAuth();
+      const firebaseUser = auth.currentUser;
+      if (!firebaseUser) throw new Error('No Firebase user found');
+
+      const token = await firebaseUser.getIdToken();
+
+      const API_URL = window.location.hostname === 'localhost'
+        ? 'http://localhost:5001'
+        : 'https://www.offerloop.ai';
+
+      const priceId = newTier === 'elite' ? STRIPE_ELITE_PRICE_ID : STRIPE_PRO_PRICE_ID;
+
+      const response = await fetch(`${API_URL}/api/update-subscription`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ priceId }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || 'Failed to update subscription');
+      }
+
+      await response.json();
+
+      if (checkCredits) await checkCredits();
+      await fetchSubscriptionStatus();
+
+      alert(`Successfully upgraded to ${newTier === 'elite' ? 'Elite' : 'Pro'}! Your credits have been updated.`);
+    } catch (error) {
+      console.error('Subscription upgrade error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      alert(`Failed to upgrade: ${errorMessage}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleUpgrade = async (planType: 'free' | 'pro' | 'elite', fromFeature?: string) => {
     if (!user) return;
-  
+
     try {
       if (planType === 'free') {
-        await updateUser({ 
+        await updateUser({
           tier: 'free',
           credits: 300,
           maxCredits: 300
-        }); 
+        });
         navigate("/contact-search");
-      } 
+      }
       else if (planType === 'pro' || planType === 'elite') {
-        // Track PostHog event
         trackUpgradeClick(fromFeature || 'pricing', {
           from_location: 'pricing_page',
           plan_selected: planType,
         });
-        await handleStripeCheckout(planType);
+
+        if (hasActiveSubscription) {
+          await handleSubscriptionUpgrade(planType);
+        } else {
+          await handleStripeCheckout(planType);
+        }
       }
     } catch (error) {
       console.error("Error updating user:", error);
@@ -642,7 +692,7 @@ const Pricing = () => {
                   }
                 `}
               >
-                {isLoading ? 'Processing...' : currentTier === 'elite' ? 'Manage Subscription' : 'Try Elite Free'}
+                {isLoading ? 'Processing...' : currentTier === 'elite' ? 'Manage Subscription' : currentTier === 'pro' ? 'Upgrade to Elite' : 'Try Elite Free'}
               </button>
             </div>
           </div>

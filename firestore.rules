@@ -69,6 +69,51 @@ service cloud.firestore {
         // Users can read/write their own calendar events
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+      
+      // Recruiters (Hiring Manager Tracker)
+      match /recruiters/{recruiterId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Notifications (outbox is a fixed doc: notifications/outbox)
+      match /notifications/{notificationId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Scout AI conversations
+      match /scoutConversations/{convId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Professional info (stored as subcollection doc e.g. professionalInfo/info by backend; frontend also uses field on user doc)
+      match /professionalInfo/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Coffee chat prep notes
+      match /coffee-chat-preps/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Interview prep notes
+      match /interview-preps/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Resume library
+      match /resume_library/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Resume scores
+      match /resume_scores/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Cover letter library
+      match /cover_letter_library/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
     }
     
     // Default: deny all other access

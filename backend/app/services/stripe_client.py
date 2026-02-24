@@ -244,55 +244,56 @@ def handle_invoice_paid(invoice):
         db = get_db()
         if not db:
             return
-        
+
         customer_id = invoice.get('customer')
         subscription_id = invoice.get('subscription')
-        
+
         if not customer_id or not subscription_id:
             return
-        
+
+        # Determine tier from Stripe subscription FIRST (source of truth)
+        tier = 'pro'  # Default
+        try:
+            subscription = stripe.Subscription.retrieve(subscription_id)
+            if subscription.items.data:
+                price_id = subscription.items.data[0].price.id
+                tier = get_tier_from_price_id(price_id)
+        except Exception as e:
+            print(f"Error retrieving subscription: {e}")
+            return  # Can't determine tier — don't reset blindly
+
+        # Only reset for Pro/Elite tiers
+        if tier not in ['pro', 'elite']:
+            print(f"⚠️ Invoice paid for non-paid tier subscription - skipping reset")
+            return
+
+        tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS['pro'])
+
         # Find user by customer ID
         users_ref = db.collection('users')
         query = users_ref.where('stripeCustomerId', '==', customer_id).limit(1)
         docs = query.stream()
-        
+
         for doc in docs:
             user_ref = users_ref.document(doc.id)
-            user_data = doc.to_dict()
-            tier = user_data.get('subscriptionTier') or user_data.get('tier', 'free')
-            
-            # Only reset for Pro/Elite tiers (Free tier limits are lifetime)
-            if tier not in ['pro', 'elite']:
-                print(f"⚠️ Invoice paid for Free tier user {doc.id} - skipping reset")
-                break
-            
-            # Get subscription to determine tier from price ID
-            tier = 'pro'  # Default
-            try:
-                subscription = stripe.Subscription.retrieve(subscription_id)
-                if subscription.items.data:
-                    price_id = subscription.items.data[0].price.id
-                    tier = get_tier_from_price_id(price_id)
-            except Exception as e:
-                print(f"Error retrieving subscription: {e}")
-            
-            tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS['pro'])
-            
-            # Reset credits and usage counters for monthly reset
+
+            # Reset credits, usage counters, AND sync Firestore tier from Stripe
             user_ref.update({
+                'subscriptionTier': tier,
+                'tier': tier,
                 'credits': tier_config['credits'],
                 'maxCredits': tier_config['credits'],
-                'alumniSearchesUsed': 0,  # Reset usage counters
+                'alumniSearchesUsed': 0,
                 'coffeeChatPrepsUsed': 0,
                 'interviewPrepsUsed': 0,
                 'lastCreditReset': datetime.now().isoformat(),
                 'lastUsageReset': datetime.now().isoformat(),
                 'updatedAt': datetime.now().isoformat()
             })
-            
+
             print(f"✅ Monthly reset for user {doc.id} ({tier}): {tier_config['credits']} credits restored, usage counters reset")
             break
-        
+
     except Exception as e:
         print(f"Error handling invoice payment: {e}")
         import traceback
@@ -347,6 +348,89 @@ def handle_subscription_updated(subscription):
         print(f"Error handling subscription update: {e}")
         import traceback
         traceback.print_exc()
+
+
+def update_subscription_tier():
+    """Update an existing subscription to a different tier (e.g., Pro → Elite)"""
+    try:
+        if not STRIPE_SECRET_KEY:
+            return jsonify({'error': 'Stripe not configured'}), 500
+
+        stripe.api_key = STRIPE_SECRET_KEY
+
+        data = request.get_json() or {}
+        user_id = request.firebase_user.get('uid')
+        new_price_id = data.get('priceId')
+
+        if not user_id or not new_price_id:
+            return jsonify({'error': 'User ID and price ID are required'}), 400
+
+        # Get user's current subscription from Firestore
+        db = get_db()
+        if not db:
+            return jsonify({'error': 'Database not available'}), 500
+
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+
+        if not user_doc.exists:
+            return jsonify({'error': 'User not found'}), 404
+
+        user_data = user_doc.to_dict()
+        subscription_id = user_data.get('stripeSubscriptionId')
+
+        if not subscription_id:
+            return jsonify({'error': 'No active subscription found. Use checkout instead.'}), 400
+
+        # Retrieve the current subscription
+        subscription = stripe.Subscription.retrieve(subscription_id)
+
+        if subscription.status not in ['active', 'trialing']:
+            return jsonify({'error': 'Subscription is not active'}), 400
+
+        # Get the current subscription item ID (needed for modification)
+        current_item_id = subscription.items.data[0].id
+
+        # Modify the subscription — swap the price
+        # proration_behavior='create_prorations' charges the difference immediately
+        updated_subscription = stripe.Subscription.modify(
+            subscription_id,
+            items=[{
+                'id': current_item_id,
+                'price': new_price_id,
+            }],
+            proration_behavior='create_prorations',
+        )
+
+        # Determine new tier and update Firestore
+        new_tier = get_tier_from_price_id(new_price_id)
+        tier_config = TIER_CONFIGS.get(new_tier, TIER_CONFIGS['pro'])
+
+        user_ref.update({
+            'subscriptionTier': new_tier,
+            'tier': new_tier,
+            'maxCredits': tier_config['credits'],
+            'credits': tier_config['credits'],
+            'subscriptionStatus': updated_subscription.status,
+            'updatedAt': datetime.now().isoformat()
+        })
+
+        print(f"✅ User {user_id} upgraded subscription to {new_tier}")
+
+        return jsonify({
+            'success': True,
+            'tier': new_tier,
+            'status': updated_subscription.status
+        })
+
+    except stripe.error.StripeError as e:
+        print(f"Stripe error updating subscription: {e}")
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        print(f"Error updating subscription: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 
 def create_portal_session():

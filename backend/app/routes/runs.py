@@ -41,7 +41,7 @@ def _resolve_email_template(email_template_override, user_id, db):
     if email_template_override and isinstance(email_template_override, dict):
         purpose = email_template_override.get("purpose")
         style_preset = email_template_override.get("stylePreset")
-        custom_instructions = (email_template_override.get("customInstructions") or "").strip()[:500]
+        custom_instructions = (email_template_override.get("customInstructions") or "").strip()[:4000]
     elif user_id and db:
         try:
             user_doc = db.collection("users").document(user_id).get()
@@ -50,7 +50,7 @@ def _resolve_email_template(email_template_override, user_id, db):
                 t = data.get("emailTemplate") or {}
                 purpose = t.get("purpose")
                 style_preset = t.get("stylePreset")
-                custom_instructions = (t.get("customInstructions") or "").strip()[:500]
+                custom_instructions = (t.get("customInstructions") or "").strip()[:4000]
         except Exception:
             pass
     instructions = get_template_instructions(purpose=purpose, style_preset=style_preset, custom_instructions=custom_instructions)

@@ -69,6 +69,7 @@ connect-grow-hire/package-lock.json
 /firebase-sa.json
 
 backend/creds/*.json
+firebase-creds.json
 .env
 backend/.env
 token.pickle

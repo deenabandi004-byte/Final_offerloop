@@ -13,7 +13,7 @@ import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 
-const MAX_CUSTOM_LEN = 1000;
+const MAX_CUSTOM_LEN = 4000;
 
 const PREVIEWS: Record<string, string> = {
   networking:

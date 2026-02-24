@@ -7,7 +7,7 @@ from flask import Blueprint, request, jsonify
 
 from ..extensions import require_firebase_auth
 from app.services.auth import check_and_reset_credits
-from app.services.stripe_client import create_checkout_session, handle_stripe_webhook, create_portal_session, handle_checkout_completed
+from app.services.stripe_client import create_checkout_session, handle_stripe_webhook, create_portal_session, handle_checkout_completed, update_subscription_tier
 from app.config import TIER_CONFIGS
 from ..extensions import get_db
 
@@ -332,6 +332,13 @@ def complete_upgrade():
 def stripe_webhook():
     """Handle Stripe webhook events"""
     return handle_stripe_webhook()
+
+
+@billing_bp.route('/update-subscription', methods=['POST'])
+@require_firebase_auth
+def update_subscription():
+    """Update existing subscription tier (e.g., Pro → Elite) via Stripe modify"""
+    return update_subscription_tier()
 
 
 @billing_bp.route('/create-portal-session', methods=['POST'])

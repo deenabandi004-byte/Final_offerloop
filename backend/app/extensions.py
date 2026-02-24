@@ -56,26 +56,26 @@ def init_firebase(app):
             print(f"⚠️ Firebase already initialized but Firestore client failed: {e}")
             firebase_admin._apps.clear()
 
-    # Try multiple credential sources
+    # Use only GOOGLE_APPLICATION_CREDENTIALS (no hardcoded fallback paths)
     cred = None
     cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-    
+
     if cred_path and os.path.exists(cred_path):
         cred = credentials.Certificate(cred_path)
         print(f"✅ Using credentials from GOOGLE_APPLICATION_CREDENTIALS: {cred_path}")
     else:
-        # Try different possible paths for credentials
-        cred_paths = [
-            './firebase-creds.json',
-            '/home/ubuntu/secrets/firebase-creds.json',
-            os.path.expanduser('~/firebase-creds.json')
-        ]
-        for path in cred_paths:
-            if os.path.exists(path):
-                cred = credentials.Certificate(path)
-                print(f"✅ Using credentials from: {path}")
-                break
-    
+        if cred_path:
+            print(
+                f"❌ GOOGLE_APPLICATION_CREDENTIALS is set to '{cred_path}' but file not found. "
+                "Firebase will be initialized without credentials (e.g. for Render/cloud where credentials are provided differently)."
+            )
+        else:
+            print(
+                "❌ GOOGLE_APPLICATION_CREDENTIALS is not set. "
+                "Firebase will be initialized with projectId/storageBucket only (e.g. for Render/cloud). "
+                "Set GOOGLE_APPLICATION_CREDENTIALS to a service account JSON path for full Auth/Firestore/Storage."
+            )
+
     try:
         if cred:
             firebase_admin.initialize_app(cred, {
@@ -84,23 +84,21 @@ def init_firebase(app):
             })
             print("✅ Firebase initialized with credentials file")
         else:
-            # No credentials found - try with project ID only (for cloud environments)
-            print("⚠️ No Firebase credentials found, initializing with explicit project ID")
             firebase_admin.initialize_app(options={
                 'projectId': 'offerloop-native',
                 'storageBucket': 'offerloop-native.firebasestorage.app'
             })
-            print("✅ Firebase initialized with project ID option")
-        
+            print("✅ Firebase initialized with project ID / storage bucket only (no credentials file)")
+
         db = firestore.client()
         print(f"✅ Firestore client initialized successfully: {db}")
         print(f"🔍 db id: {id(db)}")
-        
+
         # Verify Firebase Admin is properly initialized by checking _apps
         if not firebase_admin._apps:
             raise RuntimeError("Firebase Admin SDK initialization completed but _apps is empty")
         print(f"✅ Firebase Admin SDK verified: {len(firebase_admin._apps)} app(s) initialized")
-        
+
     except Exception as e:
         error_msg = f"❌ Firebase initialization failed: {e}"
         print(error_msg)
