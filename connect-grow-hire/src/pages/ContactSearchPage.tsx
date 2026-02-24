@@ -183,7 +183,7 @@ const ContactSearchPage: React.FC = () => {
   const [gmailBannerDismissed, setGmailBannerDismissed] = useState(false);
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<string>("linkedin-email");
+  const [activeTab, setActiveTab] = useState<string>("contact-search");
 
   // LinkedIn Import state
   const [linkedInUrl, setLinkedInUrl] = useState('');
@@ -1091,6 +1091,29 @@ const ContactSearchPage: React.FC = () => {
           <AppHeader
             title=""
             onJobTitleSuggestion={handleJobTitleSuggestion}
+            rightContent={
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate("/contact-search/templates")}
+                className="h-8 px-2.5 text-gray-600 hover:text-[#2563EB] hover:bg-blue-50 border-0 gap-1.5 font-medium text-sm"
+                data-tour="tour-templates-button"
+              >
+                <FileText className="h-4 w-4 text-[#2563EB]" />
+                <span className="hidden sm:inline whitespace-nowrap">
+                  {activeEmailTemplate && hasEmailTemplateValues(activeEmailTemplate)
+                    ? (() => {
+                        const p = activeEmailTemplate.purpose;
+                        const s = activeEmailTemplate.stylePreset;
+                        const purposeLabel = p ? (p.charAt(0).toUpperCase() + p.slice(1).replace(/_/g, " ")) : "";
+                        const styleLabel = s ? (s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ")) : "";
+                        return purposeLabel && styleLabel ? `${purposeLabel} · ${styleLabel}` : purposeLabel || styleLabel || "Template";
+                      })()
+                    : "Email template"}
+                </span>
+              </Button>
+            }
           />
 
           <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', padding: '48px 24px', paddingBottom: '96px' }}>
@@ -1129,29 +1152,6 @@ const ContactSearchPage: React.FC = () => {
                 {activeTab === 'contact-library' && 'Everyone you find lands here. Update their status, open email drafts, and export to CSV.'}
                 {!['linkedin-email', 'contact-search', 'import', 'contact-library'].includes(activeTab) && 'Discover professionals who can open doors at your target companies.'}
               </p>
-              {(activeTab === 'contact-search' || activeTab === 'linkedin-email') && (
-                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => navigate("/contact-search/templates")}
-                    className="h-8 px-3.5 bg-white text-[#475569] hover:text-[#2563EB] border border-[#E2E8F0] hover:border-[#2563EB]/25 hover:bg-[#F8FAFF] shadow-sm hover:shadow-[0_2px_8px_rgba(37,99,235,0.08)] transition-all duration-200 rounded-lg font-medium text-[12.5px] tracking-[-0.01em] gap-1.5"
-                    data-tour="tour-templates-button"
-                  >
-                    <FileText className="h-3.5 w-3.5 text-[#2563EB]" />
-                    {activeEmailTemplate && hasEmailTemplateValues(activeEmailTemplate)
-                      ? (() => {
-                          const p = activeEmailTemplate.purpose;
-                          const s = activeEmailTemplate.stylePreset;
-                          const purposeLabel = p ? (p.charAt(0).toUpperCase() + p.slice(1).replace(/_/g, " ")) : "";
-                          const styleLabel = s ? (s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ")) : "";
-                          return purposeLabel && styleLabel ? `${purposeLabel} · ${styleLabel}` : purposeLabel || styleLabel || "Template";
-                        })()
-                      : "Email Template"}
-                  </Button>
-                </div>
-              )}
             </div>
 
             {/* Navigation Tabs */}
@@ -1167,8 +1167,8 @@ const ContactSearchPage: React.FC = () => {
                 }}
               >
                 {[
-                  { id: 'linkedin-email', label: 'LinkedIn', icon: Linkedin },
                   { id: 'contact-search', label: 'Search', icon: Search },
+                  { id: 'linkedin-email', label: 'LinkedIn', icon: Linkedin },
                   { id: 'import', label: 'Import', icon: Upload },
                   { id: 'contact-library', label: 'Tracker', icon: User },
                 ].map((tab) => (
@@ -1259,57 +1259,14 @@ const ContactSearchPage: React.FC = () => {
 
                     <div className="p-8 md:p-10 lg:p-12">
 
-                      {/* Top Controls: Resume & Quick Start */}
-                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10 pb-8 border-b border-gray-100">
-                        {/* Resume Status */}
-                        <div className="flex-1">
-                          <input
-                            type="file"
-                            accept={ACCEPTED_RESUME_TYPES.accept}
-                            onChange={handleFileUpload}
-                            className="hidden"
-                            id="resume-upload"
-                            disabled={isSearching || isUploadingResume}
-                          />
-
-                          {savedResumeUrl && savedResumeFileName ? (
-                            <div className="flex items-center gap-4 group">
-                              <div className="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center border border-green-100 group-hover:bg-green-100 transition-colors">
-                                <CheckCircle className="w-5 h-5 text-green-600" />
-                              </div>
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <p className="font-medium text-gray-900">Resume Active</p>
-                                  <span className="text-[10px] font-bold tracking-wider uppercase bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
-                                    Optimizing
-                                  </span>
-                                </div>
-                                <button
-                                  onClick={() => document.getElementById('resume-upload')?.click()}
-                                  disabled={isSearching || isUploadingResume}
-                                  className="text-sm text-gray-500 hover:text-blue-600 transition-colors text-left"
-                                >
-                                  Using <span className="font-medium text-gray-700">{savedResumeFileName}</span>
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div
-                              onClick={() => !isSearching && !isUploadingResume && document.getElementById('resume-upload')?.click()}
-                              className="flex items-center gap-4 cursor-pointer group"
-                            >
-                              <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center border border-gray-200 group-hover:border-blue-300 group-hover:bg-blue-50 transition-colors">
-                                <Upload className="w-5 h-5 text-gray-400 group-hover:text-blue-500 transition-colors" />
-                              </div>
-                              <div>
-                                <p className="font-medium text-gray-900 group-hover:text-blue-600 transition-colors">Upload Resume</p>
-                                <p className="text-sm text-gray-500">For better matching</p>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                      </div>
+                      <input
+                        type="file"
+                        accept={ACCEPTED_RESUME_TYPES.accept}
+                        onChange={handleFileUpload}
+                        className="hidden"
+                        id="resume-upload"
+                        disabled={isSearching || isUploadingResume}
+                      />
 
                       {/* Targeted Email Indicator */}
                       {currentFitContext && currentFitContext.job_title && (
@@ -1474,6 +1431,45 @@ const ContactSearchPage: React.FC = () => {
                             View in tracker
                             <ArrowRight className="h-3 w-3" />
                           </button>
+                        )}
+                      </div>
+
+                      {/* Resume Status */}
+                      <div className="flex justify-center mt-8 pt-8 border-t border-gray-100">
+                        {savedResumeUrl && savedResumeFileName ? (
+                          <div className="flex items-center gap-4 group">
+                            <div className="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center border border-green-100 group-hover:bg-green-100 transition-colors">
+                              <CheckCircle className="w-5 h-5 text-green-600" />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium text-gray-900">Resume Active</p>
+                                <span className="text-[10px] font-bold tracking-wider uppercase bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+                                  Optimizing
+                                </span>
+                              </div>
+                              <button
+                                onClick={() => document.getElementById('resume-upload')?.click()}
+                                disabled={isSearching || isUploadingResume}
+                                className="text-sm text-gray-500 hover:text-blue-600 transition-colors text-left"
+                              >
+                                Using <span className="font-medium text-gray-700">{savedResumeFileName}</span>
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            onClick={() => !isSearching && !isUploadingResume && document.getElementById('resume-upload')?.click()}
+                            className="flex items-center gap-4 cursor-pointer group"
+                          >
+                            <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center border border-gray-200 group-hover:border-blue-300 group-hover:bg-blue-50 transition-colors">
+                              <Upload className="w-5 h-5 text-gray-400 group-hover:text-blue-500 transition-colors" />
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-900 group-hover:text-blue-600 transition-colors">Upload Resume</p>
+                              <p className="text-sm text-gray-500">For better matching</p>
+                            </div>
+                          </div>
                         )}
                       </div>
 
