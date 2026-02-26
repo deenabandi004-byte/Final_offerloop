@@ -11,12 +11,15 @@ from app.services.auth import check_and_reset_credits
 
 def get_tier_from_price_id(price_id: str) -> str:
     """Determine tier from Stripe price ID"""
+    if not price_id:
+        return 'pro'
     if price_id == STRIPE_ELITE_PRICE_ID:
         return 'elite'
     elif price_id == STRIPE_PRO_PRICE_ID:
         return 'pro'
     else:
-        # Default to pro for backward compatibility
+        # Unknown price ID: default to pro for backward compatibility; log so we can spot Elite price ID mismatch
+        print(f"⚠️ Unknown Stripe price_id={price_id!r}, defaulting to 'pro'. Check STRIPE_ELITE_PRICE_ID ({STRIPE_ELITE_PRICE_ID!r}) / STRIPE_PRO_PRICE_ID ({STRIPE_PRO_PRICE_ID!r}).")
         return 'pro'
 
 
@@ -54,6 +57,8 @@ def create_checkout_session():
         print(f"Success URL: {success_url}")
         print(f"Cancel URL: {cancel_url}")
         
+        # Intended tier from price ID so webhook can use it as fallback if price ID mapping fails
+        intended_tier = get_tier_from_price_id(price_id) if price_id else 'pro'
         # Prepare session parameters (1-month free trial for Pro and Elite)
         session_params = {
             'payment_method_types': ['card'],
@@ -61,8 +66,10 @@ def create_checkout_session():
             'success_url': success_url,
             'cancel_url': cancel_url,
             'customer_email': user_email,
+            'allow_promotion_codes': True,
             'metadata': {
                 'user_id': user_id,
+                'tier': intended_tier,
             },
             'subscription_data': {
                 'trial_period_days': 30,
@@ -167,6 +174,8 @@ def handle_checkout_completed(session):
         subscription_id = session.get('subscription')
         tier = 'pro'  # Default
         sub_status = 'active'  # Default fallback
+        tier_from_metadata = (session.get('metadata') or {}).get('tier')
+        price_id = None
         if subscription_id:
             try:
                 stripe.api_key = STRIPE_SECRET_KEY
@@ -174,12 +183,24 @@ def handle_checkout_completed(session):
                 sub_status = subscription.status  # 'trialing' during free trial, 'active' after
                 if subscription.items.data:
                     price_id = subscription.items.data[0].price.id
-                    tier = get_tier_from_price_id(price_id)
+                    tier_from_stripe = get_tier_from_price_id(price_id)
+                    # Prefer metadata tier (what user selected at checkout) if Stripe price ID mapping failed
+                    if tier_from_metadata in ('pro', 'elite'):
+                        tier = tier_from_metadata
+                        if tier != tier_from_stripe:
+                            print(f"⚠️ Tier mismatch: metadata={tier_from_metadata}, price_id={price_id} -> {tier_from_stripe}. Using metadata tier {tier}.")
+                    else:
+                        tier = tier_from_stripe
             except Exception as e:
                 print(f"Error retrieving subscription: {e}")
-        
+                if tier_from_metadata in ('pro', 'elite'):
+                    tier = tier_from_metadata
+        elif tier_from_metadata in ('pro', 'elite'):
+            tier = tier_from_metadata
+
         tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS['pro'])
-        
+        print(f"✅ User {user_id} upgraded to {tier} (metadata={tier_from_metadata}, price_id={price_id})")
+
         user_ref = db.collection('users').document(user_id)
         user_ref.update({
             'subscriptionTier': tier,
@@ -192,8 +213,6 @@ def handle_checkout_completed(session):
             'upgraded_at': datetime.now().isoformat(),
             'updatedAt': datetime.now().isoformat()
         })
-        
-        print(f"✅ User {user_id} upgraded to {tier}")
         
     except Exception as e:
         print(f"Error handling checkout: {e}")
@@ -253,6 +272,7 @@ def handle_invoice_paid(invoice):
 
         # Determine tier from Stripe subscription FIRST (source of truth)
         tier = 'pro'  # Default
+        price_id = None
         try:
             subscription = stripe.Subscription.retrieve(subscription_id)
             if subscription.items.data:
@@ -291,7 +311,7 @@ def handle_invoice_paid(invoice):
                 'updatedAt': datetime.now().isoformat()
             })
 
-            print(f"✅ Monthly reset for user {doc.id} ({tier}): {tier_config['credits']} credits restored, usage counters reset")
+            print(f"✅ Monthly reset for user {doc.id} → tier={tier} (price_id={price_id}): {tier_config['credits']} credits restored, usage counters reset")
             break
 
     except Exception as e:
@@ -341,7 +361,8 @@ def handle_subscription_updated(subscription):
                 'subscriptionStatus': subscription.status,
                 'updatedAt': datetime.now().isoformat()
             })
-            print(f"✅ User {doc.id} subscription updated to {tier}")
+            price_id = subscription.items.data[0].price.id if subscription.items.data else None
+            print(f"✅ User {doc.id} subscription updated to {tier} (price_id={price_id})")
             break
         
     except Exception as e:

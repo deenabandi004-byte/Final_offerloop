@@ -219,6 +219,7 @@ def complete_upgrade():
         # Verify with Stripe
         subscription_id = None
         customer_id = None
+        stripe_session = None
         
         try:
             from app.config import STRIPE_SECRET_KEY
@@ -227,6 +228,7 @@ def complete_upgrade():
             else:
                 stripe.api_key = STRIPE_SECRET_KEY
                 session = stripe.checkout.Session.retrieve(session_id)
+                stripe_session = session
                 print(f"   Payment status: {session.payment_status}")
                 print(f"   Session mode: {session.mode}")
                 print(f"   Customer: {session.customer}")
@@ -268,24 +270,41 @@ def complete_upgrade():
         if not user_doc.exists:
             print(f"   ⚠️  User document doesn't exist, creating new one")
         
-        # Determine tier and credits based on price ID
+        # Determine tier from Stripe subscription price ID; use session metadata as fallback (e.g. Elite price ID mismatch)
         from app.services.stripe_client import get_tier_from_price_id
         
         tier = 'pro'  # Default
+        tier_from_metadata = None
+        price_id = None
+        if stripe_session:
+            tier_from_metadata = (stripe_session.metadata or {}).get('tier')
         if subscription_id:
             try:
                 subscription = stripe.Subscription.retrieve(subscription_id)
                 if subscription.items.data:
                     price_id = subscription.items.data[0].price.id
-                    tier = get_tier_from_price_id(price_id)
+                    tier_from_stripe = get_tier_from_price_id(price_id)
+                    if tier_from_metadata in ('pro', 'elite'):
+                        tier = tier_from_metadata
+                        if tier != tier_from_stripe:
+                            print(f"   ⚠️ Tier mismatch: metadata={tier_from_metadata}, price_id={price_id} -> {tier_from_stripe}. Using metadata tier {tier}.")
+                    else:
+                        tier = tier_from_stripe
             except Exception as e:
                 print(f"   ⚠️  Error retrieving subscription: {e}")
+                if tier_from_metadata in ('pro', 'elite'):
+                    tier = tier_from_metadata
+        elif tier_from_metadata in ('pro', 'elite'):
+            tier = tier_from_metadata
+
+        print(f"   ✅ Tier assignment: {tier} (metadata={tier_from_metadata}, price_id={price_id})")
         
         tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS['pro'])
         credits = tier_config['credits']
         
         update_data = {
             'tier': tier,
+            'subscriptionTier': tier,
             'credits': credits,
             'maxCredits': credits,
             'subscriptionStatus': 'active',
@@ -305,7 +324,7 @@ def complete_upgrade():
         user_ref.set(update_data, merge=True)
         print(f"   ✅ Updated Firebase user document")
         
-        print(f"✅ Successfully upgraded {user_email} to Pro!")
+        print(f"✅ Successfully upgraded {user_email} to {tier.capitalize()}!")
         
         return jsonify({
             'success': True,
