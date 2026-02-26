@@ -430,6 +430,71 @@ PURPOSES_INCLUDE_RESUME = (None, "networking", "referral")
 # Phrases that indicate the email says a resume is attached (used for actually attaching the file when creating drafts).
 RESUME_MENTIONS = ["attached my resume", "attached resume", "resume below", "resume attached"]
 
+# Sign-off phrases that indicate the email has a proper closing (must be followed by sender name).
+SIGN_OFF_PHRASES = ("Best,", "Best regards,", "Thank you,", "Thanks,", "Sincerely,", "Kind regards,", "Warm regards,", "Looking forward to connecting,")
+
+
+def email_has_sign_off(body: str, sender_name: str) -> bool:
+    """Return True if the email body already ends with a sign-off line followed by a name."""
+    if not body or not isinstance(body, str):
+        return False
+    text = body.strip()
+    if not text:
+        return False
+    lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+    if len(lines) < 2:
+        return False
+    last_line = lines[-1]
+    prev_line = lines[-2]
+    # Last line should look like a name (short, no trailing period)
+    name_ok = len(last_line) < 80 and not last_line.endswith(".")
+    if not name_ok:
+        return False
+    # Second-to-last should be a sign-off phrase
+    prev_lower = prev_line.strip()
+    return any(prev_lower.startswith(p) for p in SIGN_OFF_PHRASES)
+
+
+def _build_signature_block_for_prompt(signoff_config, user_info):
+    """
+    Build the signature block string for the LLM prompt.
+    signoff_config: {"signoffPhrase": str, "signatureBlock": str} or None.
+    If signoff_config has non-empty signatureBlock, return signoff_phrase + "\\n" + signature_block.
+    Else return signoff_phrase + "\\n[Full Name]\\n[University] | Class of [Year]".
+    """
+    phrase = "Best,"
+    block = ""
+    if signoff_config and isinstance(signoff_config, dict):
+        phrase = (signoff_config.get("signoffPhrase") or "").strip() or "Best,"
+        block = (signoff_config.get("signatureBlock") or "").strip()
+    if block:
+        return f"{phrase}\n{block}"
+    return f"{phrase}\n[Full Name]\n[University] | Class of [Year]"
+
+
+def ensure_sign_off(body: str, sender_name: str, signoff_config=None) -> str:
+    """Ensure the email body ends with a sign-off and sender name. Appends if missing."""
+    if not body or not body.strip():
+        return body
+    name = (sender_name or "Student").strip() or "Student"
+    if email_has_sign_off(body, name):
+        return body
+    phrase = "Best regards,"
+    extra_lines = ""
+    if signoff_config and isinstance(signoff_config, dict):
+        phrase = (signoff_config.get("signoffPhrase") or "").strip() or "Best,"
+        block = (signoff_config.get("signatureBlock") or "").strip()
+        if block:
+            extra_lines = "\n" + block
+        else:
+            extra_lines = "\n" + name
+    else:
+        extra_lines = "\n" + name
+    base = body.rstrip()
+    if not base.endswith("\n"):
+        base += "\n"
+    return f"{base}\n\n{phrase}{extra_lines}"
+
 
 def email_body_mentions_resume(body):
     """Return True if the email body text says a resume is attached (so we should attach the file to the draft)."""
@@ -452,7 +517,7 @@ def build_template_prompt(context_block: str, template_instructions: str, requir
     return f"{context_block}\n\n{template_instructions.strip()}\n\n{requirements_block}"
 
 
-def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None, pre_parsed_user_info=None, template_instructions="", email_template_purpose=None, resume_filename=None, subject_line=None):
+def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None, pre_parsed_user_info=None, template_instructions="", email_template_purpose=None, resume_filename=None, subject_line=None, signoff_config=None):
     """
     Generate all emails using the new compelling prompt template.
     
@@ -741,11 +806,14 @@ CONTACTS:
             subject_instruction = ""
             if subject_line:
                 subject_instruction = f'\n- Use this subject line pattern for all emails (personalize with recipient details): "{subject_line}"'
+            _sig_block = _build_signature_block_for_prompt(signoff_config, user_info)
             minimal_formatting = f"""
 ===== FORMATTING ONLY =====
 - Start each email with "Hi [FirstName],"{subject_instruction}
 - Use proper grammar with apostrophes (I'm, I'd, you're, it's)
 - Use \\n\\n for paragraph breaks in JSON
+- End each body with this exact sign-off block:
+{_sig_block}
 
 Return ONLY valid JSON:
 {{"0": {{"subject": "...", "body": "..."}}, "1": {{"subject": "...", "body": "..."}}, ...}}"""
@@ -768,6 +836,7 @@ ABOUT THE SENDER:
 
 CONTACTS:
 {chr(10).join(contact_contexts)}"""
+            signature_block_prompt = _build_signature_block_for_prompt(signoff_config, user_info)
 
             requirements_block = f"""===== EMAIL STRUCTURE (FOLLOW THIS EXACTLY) =====
 
@@ -781,10 +850,10 @@ MIDDLE (Second Paragraph):
   1. About their projects or work: "I'd love to hear about the projects you've found most engaging"
   2. About their day-to-day: "and what your day-to-day looks like on the [engineering/product/etc.] side"
 - End with specific time ask: "If you're open to it, would you have 15 minutes for a quick chat sometime in the next couple of weeks?"
-{resume_line_section}SIGNATURE (exactly this format):
-Best,
-[Full Name]
-[University] | Class of [Year]
+{resume_line_section}SIGNATURE (REQUIRED - every email MUST end with this):
+Use exactly this format (sign-off line then name/signature block):
+{signature_block_prompt}
+CRITICAL: Never end the email without a sign-off and the sender's name.
 
 ===== FORMATTING RULES =====
 
@@ -828,7 +897,7 @@ Return ONLY valid JSON:
 {{"0": {{"subject": "...", "body": "..."}}, "1": {{"subject": "...", "body": "..."}}, ...}}"""
 
             prompt = build_template_prompt(context_block, template_instructions or "", requirements_block)
-            system_content = "You write warm, professional networking emails for college students. Your emails are 4-5 sentences (not counting greeting/signature), show genuine interest in the recipient's company and role, and always ask TWO specific questions. You ALWAYS mention the sender's university and major. You use the exact phrase 'I came across your background at [Company]' to open. The resume mention always comes BEFORE the signature. Use proper apostrophes (I'm, I'd, you're). Never use placeholders like [your major] - always fill in actual values or omit gracefully."
+            system_content = "You write warm, professional networking emails for college students. Your emails are 4-5 sentences (not counting greeting/signature), show genuine interest in the recipient's company and role, and always ask TWO specific questions. You ALWAYS mention the sender's university and major. You use the exact phrase 'I came across your background at [Company]' to open. The resume mention always comes BEFORE the signature. You ALWAYS end every email with a sign-off line (e.g. Best, or Best regards,) followed by the sender's full name. Use proper apostrophes (I'm, I'd, you're). Never use placeholders like [your major] - always fill in actual values or omit gracefully."
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -995,6 +1064,8 @@ Return ONLY valid JSON:
                         break
                 else:
                     sign_off_patterns = ["Best,", "Best regards,", "Thank you,", "Thanks,"]
+                    if signoff_config and (signoff_config.get("signoffPhrase") or "").strip():
+                        sign_off_patterns.insert(0, (signoff_config.get("signoffPhrase") or "").strip())
                     resume_line = f"I've included my resume ({resume_filename}) for your reference."
                     
                     inserted = False
@@ -1048,7 +1119,13 @@ Return ONLY valid JSON:
                     intro_parts.append(f"studying {major}")
                 
                 intro = ". ".join(intro_parts) + "." if intro_parts else "I'm a student."
-                signature = user_info.get('name', '') or "Best regards"
+                if signoff_config and isinstance(signoff_config, dict):
+                    phrase = (signoff_config.get("signoffPhrase") or "").strip() or "Thank you,"
+                    block = (signoff_config.get("signatureBlock") or "").strip()
+                    signature = block if block else (user_info.get('name', '') or "Best regards")
+                else:
+                    phrase = "Thank you,"
+                    signature = user_info.get('name', '') or "Best regards"
                 
                 body = f"""Hi {contact.get('FirstName', '')},
 
@@ -1056,12 +1133,16 @@ Return ONLY valid JSON:
 
 Would you be open to a brief 15-minute chat about your experience?
 
-Thank you,
+{phrase}
 {signature}"""
                 # Only add resume line in fallback if appropriate
                 if should_include_resume:
                     body += "\n\nI've attached my resume below for context."
                 subject = f"Question about {company}"
+            
+            # Ensure every email ends with a sign-off and sender name
+            sender_name = user_info.get('name', '') or 'Student'
+            body = ensure_sign_off(body, sender_name, signoff_config)
                 
             cleaned_results[idx] = {'subject': subject, 'body': body}
         
@@ -1093,10 +1174,14 @@ Thank you,
             
             intro = ". ".join(intro_parts) + "." if intro_parts else "I'm a student."
             
-            # Build closing signature
-            signature = user_info.get('name', '')
-            if not signature:
-                signature = "Best regards"
+            # Build closing signature (use signoff_config when available)
+            if signoff_config and isinstance(signoff_config, dict):
+                phrase = (signoff_config.get("signoffPhrase") or "").strip() or "Thank you,"
+                block = (signoff_config.get("signatureBlock") or "").strip()
+                signature = block if block else (user_info.get('name', '') or "Best regards")
+            else:
+                phrase = "Thank you,"
+                signature = user_info.get('name', '') or "Best regards"
             
             fallback_results[i] = {
                 'subject': f"Question about {company}",
@@ -1106,7 +1191,7 @@ Thank you,
 
 Would you be open to a brief 15-minute chat about your experience?
 
-Thank you,
+{phrase}
 {signature}
 
 I've attached my resume in case it's helpful for context."""

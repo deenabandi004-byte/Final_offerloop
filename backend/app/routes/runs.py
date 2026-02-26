@@ -33,34 +33,55 @@ from email_templates import get_template_instructions
 def _resolve_email_template(email_template_override, user_id, db):
     """
     Resolve email template: request body override → user's saved default in Firestore → no injection.
-    Returns (template_instructions: str, purpose: str|None, subject_line: str|None).
+    Returns (template_instructions: str, purpose: str|None, subject_line: str|None, signoff_config: dict).
+    signoff_config = {"signoffPhrase": str, "signatureBlock": str}; defaults to "Best," and "".
     """
     purpose = None
     style_preset = None
     custom_instructions = ""
     subject_line = None
+    signoff_phrase = None
+    signature_block = None
     if email_template_override and isinstance(email_template_override, dict):
         purpose = email_template_override.get("purpose")
         style_preset = email_template_override.get("stylePreset")
         custom_instructions = (email_template_override.get("customInstructions") or "").strip()[:4000]
         subject_line = (email_template_override.get("subject") or "").strip() or None
-    elif user_id and db:
+        if "signoffPhrase" in email_template_override:
+            signoff_phrase = (email_template_override.get("signoffPhrase") or "").strip()[:50] or "Best,"
+        if "signatureBlock" in email_template_override:
+            signature_block = (email_template_override.get("signatureBlock") or "").strip()[:500]
+    # Fill gaps from Firestore (whether or not we had an override)
+    if user_id and db:
         try:
             user_doc = db.collection("users").document(user_id).get()
             if user_doc.exists:
                 data = user_doc.to_dict() or {}
                 t = data.get("emailTemplate") or {}
-                purpose = t.get("purpose")
-                style_preset = t.get("stylePreset")
-                custom_instructions = (t.get("customInstructions") or "").strip()[:4000]
-                subject_line = (t.get("subject") or "").strip() or None
+                if purpose is None:
+                    purpose = t.get("purpose")
+                if style_preset is None:
+                    style_preset = t.get("stylePreset")
+                if not custom_instructions:
+                    custom_instructions = (t.get("customInstructions") or "").strip()[:4000]
+                if subject_line is None:
+                    subject_line = (t.get("subject") or "").strip() or None
+                if signoff_phrase is None:
+                    signoff_phrase = (t.get("signoffPhrase") or "").strip() or "Best,"
+                if signature_block is None:
+                    signature_block = (t.get("signatureBlock") or "").strip()[:500]
         except Exception:
             pass
+    if signoff_phrase is None:
+        signoff_phrase = "Best,"
+    if signature_block is None:
+        signature_block = ""
+    signoff_config = {"signoffPhrase": signoff_phrase, "signatureBlock": signature_block}
     instructions = get_template_instructions(purpose=purpose, style_preset=style_preset, custom_instructions=custom_instructions)
-    print(f"[EmailTemplate] Resolved purpose={purpose!r}, style_preset={style_preset!r}, custom_len={len(custom_instructions)}, subject={subject_line!r}, instructions_len={len(instructions)}")
+    print(f"[EmailTemplate] Resolved purpose={purpose!r}, style_preset={style_preset!r}, custom_len={len(custom_instructions)}, subject={subject_line!r}, signoff={signoff_phrase!r}, instructions_len={len(instructions)}")
     if instructions:
         print(f"[EmailTemplate] Instructions preview: {instructions[:300]}...")
-    return instructions, purpose, subject_line
+    return instructions, purpose, subject_line, signoff_config
 
 
 # =============================================================================
@@ -233,7 +254,7 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         
         # Resolve email template (request override → user default → none); db and user_id already in scope
         print(f"[EmailTemplate] free-run email_template from request: {email_template!r}")
-        template_instructions, email_template_purpose, template_subject_line = _resolve_email_template(email_template, user_id, db)
+        template_instructions, email_template_purpose, template_subject_line, signoff_config = _resolve_email_template(email_template, user_id, db)
 
         # Get resume filename for email body reference (file downloaded later for attachment)
         user_resume_filename = None
@@ -252,6 +273,7 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                 email_template_purpose=email_template_purpose,
                 resume_filename=user_resume_filename,
                 subject_line=template_subject_line,
+                signoff_config=signoff_config,
             )
             print(f"📧 Email generation returned {len(email_results)} results")
         except Exception as email_gen_error:
@@ -644,7 +666,7 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         
         # Resolve email template (request override → user default → none)
         print(f"[EmailTemplate] pro-run email_template from request: {email_template!r}")
-        template_instructions, email_template_purpose, template_subject_line = _resolve_email_template(email_template, user_id, db)
+        template_instructions, email_template_purpose, template_subject_line, signoff_config = _resolve_email_template(email_template, user_id, db)
 
         # Get resume filename for email body reference
         user_resume_filename = None
@@ -668,6 +690,7 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                 email_template_purpose=email_template_purpose,
                 resume_filename=user_resume_filename,
                 subject_line=template_subject_line,
+                signoff_config=signoff_config,
             )
             print(f"📧 Email generation returned {len(email_results)} results")
         except Exception as email_gen_error:
@@ -1195,7 +1218,7 @@ def prompt_search():
             user_profile = {"name": "", "email": user_email or ""}
         career_interests = data.get("careerInterests") or (user_data or {}).get("careerInterests", [])
         resume_text = None
-        template_instructions, email_template_purpose, template_subject_line = _resolve_email_template(data.get("emailTemplate"), user_id, db)
+        template_instructions, email_template_purpose, template_subject_line, signoff_config = _resolve_email_template(data.get("emailTemplate"), user_id, db)
 
         # Get resume filename for email body reference
         user_resume_filename = (user_data or {}).get("resumeFileName")
@@ -1208,6 +1231,7 @@ def prompt_search():
                 email_template_purpose=email_template_purpose,
                 resume_filename=user_resume_filename,
                 subject_line=template_subject_line,
+                signoff_config=signoff_config,
             )
         except Exception as email_gen_error:
             print(f"❌ Email generation failed (prompt-search): {email_gen_error}")

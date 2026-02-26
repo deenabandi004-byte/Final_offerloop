@@ -7,8 +7,11 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import type { EmailTemplate, PresetOption } from "@/services/api";
 import { cn } from "@/lib/utils";
 
@@ -55,8 +58,13 @@ export const EmailTemplateModal: React.FC<EmailTemplateModalProps> = ({
   const [customPurposeText, setCustomPurposeText] = useState("");
   const [stylePreset, setStylePreset] = useState<string | null>(null);
   const [customInstructions, setCustomInstructions] = useState("");
+  const [signoffOpen, setSignoffOpen] = useState(false);
+  const [signoffPhrase, setSignoffPhrase] = useState("Best,");
+  const [signoffPhraseCustom, setSignoffPhraseCustom] = useState("");
+  const [signatureBlock, setSignatureBlock] = useState("");
 
   const effectivePurpose = purpose === CUSTOM_PURPOSE_ID ? "custom" : purpose;
+  const effectiveSignoff = signoffPhrase === "custom" ? (signoffPhraseCustom.trim() || "Best,") : signoffPhrase;
 
   useEffect(() => {
     if (open) {
@@ -73,11 +81,23 @@ export const EmailTemplateModal: React.FC<EmailTemplateModalProps> = ({
           setCustomInstructions(t.customInstructions || "");
         }
         setStylePreset(t.stylePreset ?? null);
+        const sp = (t as EmailTemplate & { signoffPhrase?: string }).signoffPhrase;
+        if (sp && ["Best,", "Thanks,", "Warm regards,", "Sincerely,", "Cheers,"].includes(sp)) {
+          setSignoffPhrase(sp);
+          setSignoffPhraseCustom("");
+        } else if (sp) {
+          setSignoffPhrase("custom");
+          setSignoffPhraseCustom(sp);
+        }
+        setSignatureBlock((t as EmailTemplate & { signatureBlock?: string }).signatureBlock ?? "");
       } else {
         setPurpose("networking");
         setCustomPurposeText("");
         setStylePreset(null);
         setCustomInstructions("");
+        setSignoffPhrase("Best,");
+        setSignoffPhraseCustom("");
+        setSignatureBlock("");
       }
     }
   }, [open, activeTemplate, savedTemplate]);
@@ -90,6 +110,8 @@ export const EmailTemplateModal: React.FC<EmailTemplateModalProps> = ({
       purpose: effectivePurpose,
       stylePreset,
       customInstructions: custom,
+      signoffPhrase: effectiveSignoff,
+      signatureBlock: signatureBlock.trim().slice(0, 500),
     };
   };
 
@@ -98,6 +120,9 @@ export const EmailTemplateModal: React.FC<EmailTemplateModalProps> = ({
     setCustomPurposeText("");
     setStylePreset(null);
     setCustomInstructions("");
+    setSignoffPhrase("Best,");
+    setSignoffPhraseCustom("");
+    setSignatureBlock("");
   };
 
   const handleSaveAsDefault = async () => {
@@ -216,6 +241,65 @@ export const EmailTemplateModal: React.FC<EmailTemplateModalProps> = ({
               {MAX_CUSTOM_LEN - customInstructions.length} characters left. Add extra instructions on top of your purpose and style.
             </p>
           </div>
+
+          {/* Part D — Sign-off & signature (collapsible) */}
+          <Collapsible open={signoffOpen} onOpenChange={setSignoffOpen}>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-2 w-full text-left text-sm font-semibold text-gray-700 hover:text-gray-900"
+              >
+                {signoffOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                Sign-off & signature
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-3 pt-3">
+              <div className="flex flex-wrap gap-2">
+                {["Best,", "Thanks,", "Warm regards,", "Sincerely,", "Cheers,"].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => { setSignoffPhrase(preset); setSignoffPhraseCustom(""); }}
+                    className={cn(
+                      "px-3 py-1.5 text-xs font-medium rounded-full border",
+                      signoffPhrase === preset ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-white border-gray-200"
+                    )}
+                  >
+                    {preset}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setSignoffPhrase("custom")}
+                  className={cn(
+                    "px-3 py-1.5 text-xs font-medium rounded-full border",
+                    signoffPhrase === "custom" ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-white border-gray-200"
+                  )}
+                >
+                  Custom
+                </button>
+                {signoffPhrase === "custom" && (
+                  <Input
+                    placeholder="e.g. Best regards,"
+                    value={signoffPhraseCustom}
+                    onChange={(e) => setSignoffPhraseCustom(e.target.value.slice(0, 50))}
+                    className="inline-flex w-[140px] h-8 text-xs rounded-full"
+                    maxLength={50}
+                  />
+                )}
+              </div>
+              <div>
+                <Label className="text-xs font-medium text-gray-600">Signature block (optional)</Label>
+                <Textarea
+                  placeholder="Name, university, email..."
+                  value={signatureBlock}
+                  onChange={(e) => setSignatureBlock(e.target.value.slice(0, 500))}
+                  className="mt-1 min-h-[60px] resize-none text-sm"
+                  maxLength={500}
+                />
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
 
           {/* Preview */}
           <div className="space-y-2 rounded-lg border border-gray-100 bg-gray-50 p-3">

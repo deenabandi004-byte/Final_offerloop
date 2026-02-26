@@ -18,6 +18,7 @@ from ..extensions import require_firebase_auth
 from app.services.reply_generation import batch_generate_emails
 from app.services.gmail_client import get_gmail_service_for_user
 from ..extensions import get_db
+from email_templates import get_template_instructions
 
 emails_bp = Blueprint('emails', __name__, url_prefix='/api/emails')
 def _infer_mime_type(filename_or_url: str, fallback=("application", "octet-stream")):
@@ -98,6 +99,24 @@ def generate_and_draft():
     if contacts_with_emails:
         print(f"📧 Skipping email generation for {len(contacts_with_emails)} contacts that already have emails")
     
+    # Load user's default email template from Firestore (Discover Contacts always uses stored template)
+    user_doc = db.collection("users").document(uid).get()
+    user_data = user_doc.to_dict() or {}
+    stored_template = user_data.get("emailTemplate") or {}
+    purpose = stored_template.get("purpose")
+    style_preset = stored_template.get("stylePreset")
+    custom_instructions = (stored_template.get("customInstructions") or "").strip()[:4000]
+    template_instructions = get_template_instructions(purpose=purpose, style_preset=style_preset, custom_instructions=custom_instructions)
+    signoff_phrase = (stored_template.get("signoffPhrase") or "").strip() or "Best,"
+    signature_block = (stored_template.get("signatureBlock") or "").strip()[:500]
+    signoff_config = {"signoffPhrase": signoff_phrase, "signatureBlock": signature_block}
+    draft_resume_filename = (
+        payload.get("resumeFileName")
+        or user_profile.get("resumeFileName")
+        or user_data.get("resumeFileName")
+        or "Resume.pdf"
+    )
+
     # Only generate emails for contacts that don't have them
     results = {}
     if contacts_needing_emails:
@@ -108,8 +127,18 @@ def generate_and_draft():
         # Extract just the contact dicts for generation
         contacts_to_generate = [contact for _, contact in contacts_needing_emails]
         
-        # 1) Generate emails with fit context
-        generated_results = batch_generate_emails(contacts_to_generate, resume_text, user_profile, career_interest, fit_context=fit_context)
+        # 1) Generate emails with fit context and user's template/signoff
+        generated_results = batch_generate_emails(
+            contacts_to_generate,
+            resume_text,
+            user_profile,
+            career_interest,
+            fit_context=fit_context,
+            template_instructions=template_instructions,
+            email_template_purpose=purpose,
+            resume_filename=draft_resume_filename,
+            signoff_config=signoff_config,
+        )
         print(f"🧪 batch_generate_emails returned: type={type(generated_results)}, "
           f"len={len(generated_results) if hasattr(generated_results, '__len__') else 'n/a'}, "
           f"keys={list(generated_results.keys())[:5] if isinstance(generated_results, dict) else 'list'}")
@@ -138,11 +167,7 @@ def generate_and_draft():
         connected_email = None
         print(f"⚠️ Could not fetch connected Gmail profile: {e}")
 
-    # Fetch user's resume info from Firestore
-    # Fetch user's resume info from Firestore and/or payload
-    user_doc = db.collection("users").document(uid).get()
-    user_data = user_doc.to_dict() or {}
-
+    # user_data already loaded above for email template; use for resume too
     resume_url = (
         payload.get("resumeUrl") or
         user_profile.get("resumeUrl") or
@@ -216,69 +241,65 @@ def generate_and_draft():
             body += "\n\nFor context, I've attached my resume below."
 
         # Check if body already ends with a signature (batch_generate_emails includes signature)
-        # Look for common signature patterns: "Best,", "Best regards", user name, email, university
+        # Look for common closings, user's signoffPhrase, user name, email, university in last 200 chars
         body_lower = body.lower()
         has_signature = False
-        if user_profile:
-            user_name = user_profile.get('name', '').lower()
-            user_email = user_profile.get('email', '').lower()
-            user_university = user_profile.get('university', '').lower()
-            
-            # Check if body ends with signature-like content
+        phrase_lower = (signoff_config.get("signoffPhrase") or "").strip().lower()
+        sig_block = (signoff_config.get("signatureBlock") or "").strip()
+        if user_profile or phrase_lower or sig_block:
+            user_name = (user_profile or {}).get('name', '').lower()
+            user_email = (user_profile or {}).get('email', '').lower()
+            user_university = (user_profile or {}).get('university', '').lower()
             signature_indicators = [
-                'best,', 'best regards', 'thank you', 'thanks,', 'sincerely',
+                'best,', 'best regards', 'thank you', 'thanks,', 'sincerely', 'warm regards', 'cheers,',
+                phrase_lower if phrase_lower else None,
                 user_name if user_name else None,
                 user_email if user_email else None,
-                user_university if user_university else None
+                user_university if user_university else None,
             ]
             signature_indicators = [s for s in signature_indicators if s]
-            
-            # Check last 200 characters for signature indicators
             body_end = body_lower[-200:] if len(body_lower) > 200 else body_lower
             has_signature = any(indicator in body_end for indicator in signature_indicators)
         
-        # Build signature from user_profile (only if not already present)
+        # Build signature from signoff_config or user_profile (only if not already present)
         signature_html = ""
         signature_text = ""
-        if not has_signature and user_profile:
-            user_name = user_profile.get('name', '')
-            user_email = user_profile.get('email', '')
-            user_university = user_profile.get('university', '')
-            user_year = user_profile.get('year', '') or user_profile.get('graduationYear', '')
-            
-            # Build HTML signature
-            signature_parts_html = []
-            if user_name:
-                signature_parts_html.append(f"<b>{user_name}</b>")
-            if user_university:
-                if user_year:
-                    signature_parts_html.append(f"{user_university} | Class of {user_year}")
+        if not has_signature:
+            phrase = (signoff_config.get("signoffPhrase") or "").strip() or "Best,"
+            if signoff_config.get("signatureBlock") and sig_block:
+                # Custom signature block (plain text and HTML)
+                signature_text = "\n\n" + phrase + "\n" + sig_block
+                signature_html = f"<br><p>{phrase.replace(chr(10), '<br>')}<br>{sig_block.replace(chr(10), '<br>')}</p>"
+            elif user_profile:
+                user_name = user_profile.get('name', '')
+                user_email = user_profile.get('email', '')
+                user_university = user_profile.get('university', '')
+                user_year = user_profile.get('year', '') or user_profile.get('graduationYear', '')
+                signature_parts_html = []
+                if user_name:
+                    signature_parts_html.append(f"<b>{user_name}</b>")
+                if user_university:
+                    if user_year:
+                        signature_parts_html.append(f"{user_university} | Class of {user_year}")
+                    else:
+                        signature_parts_html.append(user_university)
+                if user_email:
+                    signature_parts_html.append(f'<a href="mailto:{user_email}">{user_email}</a>')
+                if signature_parts_html:
+                    signature_html = f"<br><p>{phrase}<br>{'<br>'.join(signature_parts_html)}</p>"
                 else:
-                    signature_parts_html.append(user_university)
-            if user_email:
-                signature_parts_html.append(f'<a href="mailto:{user_email}">{user_email}</a>')
-            
-            if signature_parts_html:
-                signature_html = f"<br><p>Best,<br>{'<br>'.join(signature_parts_html)}</p>"
+                    signature_html = f"<br><p>{phrase}</p>"
+                signature_lines = [phrase]
+                if user_name:
+                    signature_lines.append(user_name)
+                if user_university:
+                    signature_lines.append(f"{user_university} | Class of {user_year}" if user_year else user_university)
+                if user_email:
+                    signature_lines.append(user_email)
+                signature_text = "\n\n" + "\n".join(signature_lines)
             else:
-                signature_html = "<br><p>Best regards</p>"
-            
-            # Build plain text signature (for Firestore)
-            signature_lines = ["Best,"]
-            if user_name:
-                signature_lines.append(user_name)
-            if user_university:
-                if user_year:
-                    signature_lines.append(f"{user_university} | Class of {user_year}")
-                else:
-                    signature_lines.append(user_university)
-            if user_email:
-                signature_lines.append(user_email)
-            
-            signature_text = "\n" + "\n".join(signature_lines)
-        elif not has_signature:
-            signature_html = "<br><p>Best regards</p>"
-            signature_text = "\n\nBest regards"
+                signature_html = f"<br><p>{phrase}</p>"
+                signature_text = "\n\n" + phrase
         
         # Add signature to body before saving to Firestore (only if not already present)
         if signature_text:

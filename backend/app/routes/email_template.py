@@ -13,6 +13,9 @@ from email_templates import (
 
 EMAIL_TEMPLATE_MAX_CUSTOM_LEN = 4000
 MAX_SAVED_TEMPLATES = 20
+SIGNOFF_PHRASE_MAX_LEN = 50
+SIGNATURE_BLOCK_MAX_LEN = 500
+DEFAULT_SIGNOFF_PHRASE = "Best,"
 
 VALID_PURPOSES = frozenset(EMAIL_PURPOSE_PRESETS.keys()) | {"custom"}
 VALID_STYLE_PRESETS = frozenset(EMAIL_STYLE_PRESETS.keys())
@@ -50,10 +53,19 @@ def _validate_body():
             400,
         )
 
+    signoff_phrase = (data.get("signoffPhrase") or "").strip()
+    if not signoff_phrase:
+        signoff_phrase = DEFAULT_SIGNOFF_PHRASE
+    signoff_phrase = signoff_phrase[:SIGNOFF_PHRASE_MAX_LEN]
+
+    signature_block = (data.get("signatureBlock") or "").strip()[:SIGNATURE_BLOCK_MAX_LEN]
+
     return {
         "purpose": purpose,
         "stylePreset": style_preset,
         "customInstructions": custom_instructions[:EMAIL_TEMPLATE_MAX_CUSTOM_LEN],
+        "signoffPhrase": signoff_phrase,
+        "signatureBlock": signature_block,
         "name": (data.get("name") or "").strip()[:200],
         "subject": (data.get("subject") or "").strip()[:500],
         "savedTemplateId": (data.get("savedTemplateId") or "").strip() or None,
@@ -80,6 +92,8 @@ def save_default():
         "purpose": data["purpose"],
         "stylePreset": data["stylePreset"],
         "customInstructions": data["customInstructions"],
+        "signoffPhrase": data["signoffPhrase"],
+        "signatureBlock": data["signatureBlock"],
         "name": data["name"],
         "subject": data["subject"],
         "savedTemplateId": data["savedTemplateId"],
@@ -107,6 +121,8 @@ def get_default():
             "purpose": None,
             "stylePreset": None,
             "customInstructions": "",
+            "signoffPhrase": DEFAULT_SIGNOFF_PHRASE,
+            "signatureBlock": "",
             "name": "",
             "subject": "",
             "savedTemplateId": None,
@@ -119,6 +135,8 @@ def get_default():
         "purpose": template.get("purpose"),
         "stylePreset": template.get("stylePreset"),
         "customInstructions": template.get("customInstructions", "") or "",
+        "signoffPhrase": (template.get("signoffPhrase") or "").strip() or DEFAULT_SIGNOFF_PHRASE,
+        "signatureBlock": template.get("signatureBlock", "") or "",
         "name": template.get("name", "") or "",
         "subject": template.get("subject", "") or "",
         "savedTemplateId": template.get("savedTemplateId"),

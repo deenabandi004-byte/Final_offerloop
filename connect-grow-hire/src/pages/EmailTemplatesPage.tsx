@@ -62,8 +62,12 @@ export default function EmailTemplatesPage() {
   const [savedCustomTemplates, setSavedCustomTemplates] = useState<SavedEmailTemplate[]>([]);
   const [activeSavedTemplateId, setActiveSavedTemplateId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [signoffPhrase, setSignoffPhrase] = useState("Best,");
+  const [signoffPhraseCustom, setSignoffPhraseCustom] = useState("");
+  const [signatureBlock, setSignatureBlock] = useState("");
 
   const effectivePurpose = purpose === CUSTOM_PURPOSE_ID ? "custom" : purpose;
+  const effectiveSignoff = signoffPhrase === "custom" ? (signoffPhraseCustom.trim() || "Best,") : signoffPhrase;
 
   useEffect(() => {
     Promise.all([
@@ -76,10 +80,23 @@ export default function EmailTemplatesPage() {
           purpose: template.purpose ?? null,
           stylePreset: template.stylePreset ?? null,
           customInstructions: template.customInstructions ?? "",
+          signoffPhrase: template.signoffPhrase,
+          signatureBlock: template.signatureBlock,
           name: template.name,
           subject: template.subject,
           savedTemplateId: template.savedTemplateId,
         });
+        setSignoffPhrase(
+          ["Best,", "Thanks,", "Warm regards,", "Sincerely,", "Cheers,"].includes((template as any).signoffPhrase)
+            ? (template as any).signoffPhrase
+            : "custom"
+        );
+        setSignoffPhraseCustom(
+          ["Best,", "Thanks,", "Warm regards,", "Sincerely,", "Cheers,"].includes((template as any).signoffPhrase)
+            ? ""
+            : ((template as any).signoffPhrase || "")
+        );
+        setSignatureBlock((template as any).signatureBlock ?? "");
         setPresets(presetsData);
         setSavedCustomTemplates(saved);
         const p = template.purpose;
@@ -115,6 +132,8 @@ export default function EmailTemplatesPage() {
       purpose: effectivePurpose,
       stylePreset: null,
       customInstructions: custom,
+      signoffPhrase: effectiveSignoff,
+      signatureBlock: signatureBlock.trim().slice(0, 500),
       name: templateName.trim(),
       subject: subjectLine.trim(),
       savedTemplateId: activeSavedTemplateId || undefined,
@@ -127,6 +146,9 @@ export default function EmailTemplatesPage() {
     setTemplateName("");
     setSubjectLine("");
     setActiveSavedTemplateId(null);
+    setSignoffPhrase("Best,");
+    setSignoffPhraseCustom("");
+    setSignatureBlock("");
   };
 
   const handlePurposeClick = (id: string) => {
@@ -452,6 +474,68 @@ export default function EmailTemplatesPage() {
                 </div>
               </div>
               )}
+
+              {/* Sign-off & signature — always visible */}
+              <div className="mb-8">
+                <label className="text-sm font-semibold text-gray-700 ml-1 block mb-1.5">Sign-off & signature</label>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {["Best,", "Thanks,", "Warm regards,", "Sincerely,", "Cheers,"].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => {
+                        setSignoffPhrase(preset);
+                        setSignoffPhraseCustom("");
+                      }}
+                      className={cn(
+                        "px-3 py-1.5 text-xs font-medium rounded-full border transition-all",
+                        signoffPhrase === preset
+                          ? "bg-blue-50 text-blue-700 border-blue-200"
+                          : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                      )}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setSignoffPhrase("custom")}
+                    className={cn(
+                      "px-3 py-1.5 text-xs font-medium rounded-full border transition-all",
+                      signoffPhrase === "custom"
+                        ? "bg-blue-50 text-blue-700 border-blue-200"
+                        : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                    )}
+                  >
+                    Custom
+                  </button>
+                  {signoffPhrase === "custom" && (
+                    <Input
+                      placeholder="e.g. Best regards,"
+                      value={signoffPhraseCustom}
+                      onChange={(e) => setSignoffPhraseCustom(e.target.value.slice(0, 50))}
+                      className="inline-flex w-[160px] h-8 text-xs rounded-full border-gray-200"
+                      maxLength={50}
+                    />
+                  )}
+                </div>
+                <div className="mb-2">
+                  <label className="text-xs font-medium text-gray-600 block mb-1">Signature block (name, university, email, LinkedIn…)</label>
+                  <Textarea
+                    placeholder="e.g. John Smith\nUSC | Class of 2025\njohn@example.com"
+                    value={signatureBlock}
+                    onChange={(e) => setSignatureBlock(e.target.value.slice(0, 500))}
+                    className="min-h-[72px] resize-y w-full rounded-lg border border-gray-200 text-sm"
+                    maxLength={500}
+                    rows={3}
+                  />
+                  <p className="text-xs text-gray-500 text-right mt-1">{500 - signatureBlock.length} characters left</p>
+                </div>
+                <p className="text-xs text-gray-500 ml-1 mt-1">Live preview:</p>
+                <pre className="text-xs text-gray-700 mt-0.5 ml-1 whitespace-pre-wrap font-sans">
+                  {`${effectiveSignoff}\n${signatureBlock.trim() || firstName}`}
+                </pre>
+              </div>
 
               {/* Actions */}
               <div className="flex flex-wrap items-center gap-4 mb-8">

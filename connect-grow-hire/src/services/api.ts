@@ -15,11 +15,13 @@ export interface UserProfile {
   careerInterests?: string[];
 }
 
-/** Email template for outreach (purpose + style + optional custom instructions) */
+/** Email template for outreach (purpose + style + optional custom instructions + sign-off) */
 export interface EmailTemplate {
-  purpose: string | null;
-  stylePreset: string | null;
-  customInstructions: string;
+  purpose?: string | null;
+  stylePreset?: string | null;
+  customInstructions?: string;
+  signoffPhrase?: string;
+  signatureBlock?: string;
   name?: string;
   subject?: string;
   savedTemplateId?: string;
@@ -40,14 +42,21 @@ export interface PresetOption {
   description: string;
 }
 
+const DEFAULT_SIGNOFF = "Best,";
+
 /** True if template has at least one value set (so we should send it in the request) */
 export function hasEmailTemplateValues(t: EmailTemplate | null | undefined): boolean {
   if (!t) return false;
-  return (t.purpose != null && t.purpose !== '') ||
-    (t.stylePreset != null && t.stylePreset !== '') ||
-    (t.customInstructions != null && t.customInstructions.trim() !== '') ||
-    (t.savedTemplateId != null && t.savedTemplateId !== '') ||
-    (t.name != null && t.name.trim() !== '');
+  const signoff = (t.signoffPhrase ?? "").trim() || DEFAULT_SIGNOFF;
+  const hasNonDefaultSignoff = signoff !== DEFAULT_SIGNOFF;
+  const hasSignatureBlock = (t.signatureBlock ?? "").trim() !== "";
+  return (t.purpose != null && t.purpose !== "") ||
+    (t.stylePreset != null && t.stylePreset !== "") ||
+    (t.customInstructions != null && t.customInstructions.trim() !== "") ||
+    hasNonDefaultSignoff ||
+    hasSignatureBlock ||
+    (t.savedTemplateId != null && t.savedTemplateId !== "") ||
+    (t.name != null && t.name.trim() !== "");
 }
 
 export interface ContactSearchRequest {
@@ -1152,6 +1161,8 @@ class ApiService {
         purpose: template.purpose,
         stylePreset: template.stylePreset,
         customInstructions: template.customInstructions || '',
+        signoffPhrase: template.signoffPhrase ?? '',
+        signatureBlock: template.signatureBlock ?? '',
         name: template.name || '',
         subject: template.subject || '',
         savedTemplateId: template.savedTemplateId || null,
