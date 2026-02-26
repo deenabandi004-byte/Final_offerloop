@@ -2996,7 +2996,9 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
         "Content-Type": "application/json",
         "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
     }
-    fetch_limit = int(min(max_contacts * 2, 50))
+    # Request enough raw results so that after excluding already-seen contacts we still have max_contacts
+    exclude_count = len(exclude_keys or set())
+    fetch_limit = int(min((max_contacts + exclude_count) * 2, 100))
     page_size = min(100, max(1, fetch_limit))
 
     raw_contacts = []

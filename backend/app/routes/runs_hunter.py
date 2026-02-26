@@ -163,7 +163,8 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         user_resume_filename = user_data.get('resumeFileName') if user_data else None
 
         # Generate emails
-        email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests, resume_filename=user_resume_filename)
+        auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
+        email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests, resume_filename=user_resume_filename, signoff_config=None, auth_display_name=auth_display_name)
         
         # Attach email data to ALL contacts FIRST (before draft creation)
         emails_attached = 0
@@ -431,8 +432,9 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
 
         # Generate emails with resume
         print(f"📧 Generating emails for {len(contacts)} contacts...")
+        auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
         try:
-            email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests, resume_filename=user_resume_filename)
+            email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests, resume_filename=user_resume_filename, signoff_config=None, auth_display_name=auth_display_name)
             print(f"📧 Email generation returned {len(email_results)} results")
         except Exception as email_gen_error:
             print(f"❌ Email generation failed: {email_gen_error}")

@@ -1188,7 +1188,7 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
 
 
 # ✅ ISSUE 3 FIX: Parallel Gmail draft creation with rate limiting
-def create_drafts_parallel(contacts_with_emails, resume_bytes=None, resume_filename=None, user_info=None, user_id=None, tier='free', user_email=None):
+def create_drafts_parallel(contacts_with_emails, resume_bytes=None, resume_filename=None, user_info=None, user_id=None, tier='free', user_email=None, resume_url=None):
     """
     Create all Gmail drafts in parallel with rate limiting.
     
@@ -1203,6 +1203,7 @@ def create_drafts_parallel(contacts_with_emails, resume_bytes=None, resume_filen
         user_id: Optional user ID
         tier: 'free' or 'pro'
         user_email: User's email address
+        resume_url: Optional URL to download resume when resume_bytes is not provided
     
     Returns:
         List of results (dicts with draft_id, message_id, draft_url) or error strings
@@ -1212,6 +1213,15 @@ def create_drafts_parallel(contacts_with_emails, resume_bytes=None, resume_filen
     
     if not contacts_with_emails:
         return []
+    
+    # When resume_bytes not provided but resume_url is set, download once for all drafts
+    if resume_bytes is None and resume_url:
+        try:
+            resume_bytes, downloaded_filename = download_resume_from_url(resume_url)
+            if resume_bytes and not resume_filename:
+                resume_filename = downloaded_filename
+        except Exception as e:
+            print(f"⚠️ Could not download resume from URL in create_drafts_parallel: {e}")
     
     # Use semaphore-like behavior with max 5 concurrent workers
     max_workers = min(5, len(contacts_with_emails))

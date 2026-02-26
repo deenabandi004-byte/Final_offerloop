@@ -173,7 +173,7 @@ def require_firebase_auth(fn):
             
             for attempt in range(max_retries):
                 try:
-                    decoded = fb_auth.verify_id_token(id_token)
+                    decoded = fb_auth.verify_id_token(id_token, clock_skew_seconds=5)
                     request.firebase_user = decoded
                     print(f"✅ Token verified for user: {decoded.get('uid')}")
                     break  # Success, exit retry loop

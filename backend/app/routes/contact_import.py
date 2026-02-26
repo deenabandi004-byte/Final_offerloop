@@ -502,6 +502,7 @@ def import_contacts():
                 
                 email_results = {}
                 try:
+                    auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
                     email_results = batch_generate_emails(
                         contacts=email_contacts,
                         resume_text=resume_text or None,
@@ -510,6 +511,8 @@ def import_contacts():
                         fit_context=None,
                         email_template_purpose='networking',
                         resume_filename=user_data_after.get('resumeFileName'),
+                        signoff_config=None,
+                        auth_display_name=auth_display_name,
                     )
                 except Exception as e:
                     print(f"[ContactImport] Email generation failed: {e}")

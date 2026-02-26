@@ -84,6 +84,19 @@ def _resolve_email_template(email_template_override, user_id, db):
     return instructions, purpose, subject_line, signoff_config
 
 
+def _contact_already_exists(contact, existing_emails_set, existing_name_company_set):
+    """Check if a contact already exists in the user's saved contacts."""
+    email = (contact.get("Email") or contact.get("WorkEmail") or contact.get("PersonalEmail") or contact.get("email") or "").strip().lower()
+    if email and email in existing_emails_set:
+        return True
+    fn = (contact.get("FirstName") or contact.get("firstName") or "").strip().lower()
+    ln = (contact.get("LastName") or contact.get("lastName") or "").strip().lower()
+    co = (contact.get("Company") or contact.get("company") or "").strip().lower()
+    if fn and ln and co and f"{fn}_{ln}_{co}" in existing_name_company_set:
+        return True
+    return False
+
+
 # =============================================================================
 # EXCLUSION LIST CACHING (1-hour TTL for faster contact searches)
 # =============================================================================
@@ -255,6 +268,7 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         # Resolve email template (request override → user default → none); db and user_id already in scope
         print(f"[EmailTemplate] free-run email_template from request: {email_template!r}")
         template_instructions, email_template_purpose, template_subject_line, signoff_config = _resolve_email_template(email_template, user_id, db)
+        print(f"DEBUG signoff_config built: {signoff_config}", flush=True)
 
         # Get resume filename for email body reference (file downloaded later for attachment)
         user_resume_filename = None
@@ -265,6 +279,7 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
 
         # Generate emails
         print(f"📧 Generating emails for {len(contacts)} contacts...")
+        auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
         try:
             email_results = batch_generate_emails(
                 contacts, resume_text, user_profile, career_interests,
@@ -274,6 +289,7 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                 resume_filename=user_resume_filename,
                 subject_line=template_subject_line,
                 signoff_config=signoff_config,
+                auth_display_name=auth_display_name,
             )
             print(f"📧 Email generation returned {len(email_results)} results")
         except Exception as email_gen_error:
@@ -378,7 +394,8 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                         user_info=user_info,
                         user_id=user_id,
                         tier='free',
-                        user_email=user_email
+                        user_email=user_email,
+                        resume_url=resume_url,
                     )
                     
                     # Process results and attach to contacts
@@ -677,13 +694,14 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
 
         # Generate emails with pre-parsed user_info
         print(f"📧 Generating emails for {len(contacts)} contacts...")
+        auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
         try:
             # Pass pre-parsed user_info instead of raw resume_text
             email_results = batch_generate_emails(
-                contacts, 
+                contacts,
                 resume_text=None,  # Don't need raw text anymore
-                user_profile=user_profile, 
-                career_interests=career_interests, 
+                user_profile=user_profile,
+                career_interests=career_interests,
                 fit_context=None,
                 pre_parsed_user_info=user_info,  # Pass pre-parsed info
                 template_instructions=template_instructions,
@@ -691,6 +709,7 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                 resume_filename=user_resume_filename,
                 subject_line=template_subject_line,
                 signoff_config=signoff_config,
+                auth_display_name=auth_display_name,
             )
             print(f"📧 Email generation returned {len(email_results)} results")
         except Exception as email_gen_error:
@@ -1179,8 +1198,18 @@ def prompt_search():
                 "parsed_query": {k: parsed.get(k) for k in ("companies", "title_variations", "locations") if k in parsed},
             }), 400
 
+        # Request extra from PDL to account for dedup filtering (already-contacted users)
+        existing_contact_count = 0
+        if db and user_id:
+            try:
+                contacts_ref = db.collection("users").document(user_id).collection("contacts")
+                existing_contact_count = sum(1 for _ in contacts_ref.stream())
+            except Exception:
+                pass
+        pdl_fetch_count = max_contacts + existing_contact_count + 2
+
         # Fetch contacts
-        contacts = search_contacts_from_prompt(parsed, max_contacts, exclude_keys=seen_contact_set)
+        contacts = search_contacts_from_prompt(parsed, pdl_fetch_count, exclude_keys=seen_contact_set)
         if not contacts:
             return jsonify({
                 "contacts": [],
@@ -1194,6 +1223,52 @@ def prompt_search():
                     "locations": parsed.get("locations", []),
                 },
             })
+
+        # Pre-generation dedup: filter out contacts already in Firestore (avoid generating emails for them)
+        if db and user_id:
+            try:
+                contacts_ref = db.collection("users").document(user_id).collection("contacts")
+                existing_emails_set = set()
+                existing_name_company_set = set()
+                for doc in contacts_ref.stream():
+                    cd = doc.to_dict() or {}
+                    ex_email = (cd.get("email") or "").strip().lower()
+                    if ex_email:
+                        existing_emails_set.add(ex_email)
+                    fn = (cd.get("firstName") or "").strip().lower()
+                    ln = (cd.get("lastName") or "").strip().lower()
+                    co = (cd.get("company") or "").strip().lower()
+                    if fn and ln and co:
+                        existing_name_company_set.add(f"{fn}_{ln}_{co}")
+
+                before_count = len(contacts)
+                contacts = [
+                    c for c in contacts
+                    if not _contact_already_exists(c, existing_emails_set, existing_name_company_set)
+                ]
+                skipped_pre = before_count - len(contacts)
+                if skipped_pre:
+                    print(f"🔄 Pre-generation dedup: filtered out {skipped_pre} already-contacted people", flush=True)
+
+                if not contacts:
+                    return jsonify({
+                        "contacts": [],
+                        "successful_drafts": 0,
+                        "total_contacts": 0,
+                        "tier": user_tier,
+                        "user_email": user_email,
+                        "parsed_query": {
+                            "companies": parsed.get("companies", []),
+                            "title_variations": parsed.get("title_variations", []),
+                            "locations": parsed.get("locations", []),
+                        },
+                        "message": "All found contacts have already been contacted. Try a different search.",
+                    }), 200
+            except Exception as e:
+                print(f"⚠️ Pre-generation dedup failed, continuing: {e}", flush=True)
+
+        # Trim to the originally requested count (whether or not dedup ran)
+        contacts = contacts[:max_contacts]
 
         # Same pipeline as free-run: template, emails, drafts, deduct, save
         user_profile = data.get("userProfile") or (user_data or {}).get("userProfile")
@@ -1219,10 +1294,12 @@ def prompt_search():
         career_interests = data.get("careerInterests") or (user_data or {}).get("careerInterests", [])
         resume_text = None
         template_instructions, email_template_purpose, template_subject_line, signoff_config = _resolve_email_template(data.get("emailTemplate"), user_id, db)
+        print(f"DEBUG signoff_config built: {signoff_config}", flush=True)
 
         # Get resume filename for email body reference
         user_resume_filename = (user_data or {}).get("resumeFileName")
 
+        auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
         try:
             email_results = batch_generate_emails(
                 contacts, resume_text, user_profile, career_interests,
@@ -1232,6 +1309,7 @@ def prompt_search():
                 resume_filename=user_resume_filename,
                 subject_line=template_subject_line,
                 signoff_config=signoff_config,
+                auth_display_name=auth_display_name,
             )
         except Exception as email_gen_error:
             print(f"❌ Email generation failed (prompt-search): {email_gen_error}")
@@ -1279,6 +1357,7 @@ def prompt_search():
                         stored_filename = user_data_resume.get("resumeFileName")
                         if stored_filename:
                             resume_filename = stored_filename
+                print(f"DEBUG resume_url: {resume_url}", flush=True)
             except Exception:
                 pass
 
@@ -1296,6 +1375,7 @@ def prompt_search():
                     user_id=user_id,
                     tier=user_tier,
                     user_email=user_email,
+                    resume_url=resume_url,
                 )
                 for item, draft_result in zip(contacts_with_emails, draft_results):
                     contact = item["contact"]

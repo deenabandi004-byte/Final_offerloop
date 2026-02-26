@@ -544,6 +544,7 @@ def import_from_linkedin():
         if has_email:
             print(f"[LinkedInImport] Step 6: Generating personalized email...")
             # Generate personalized email (include resume line for networking; template_purpose=None => include resume)
+            auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
             email_results = batch_generate_emails(
                 contacts=[contact_for_email],
                 resume_text=resume_text_for_email or None,
@@ -552,6 +553,8 @@ def import_from_linkedin():
                 fit_context=None,
                 email_template_purpose='networking',
                 resume_filename=user_data.get('resumeFileName') if user_data else None,
+                signoff_config=None,
+                auth_display_name=auth_display_name,
             )
             
             print(f"[LinkedInImport]   - Email generation result: {bool(email_results)}")

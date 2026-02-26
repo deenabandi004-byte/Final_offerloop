@@ -128,6 +128,7 @@ def generate_and_draft():
         contacts_to_generate = [contact for _, contact in contacts_needing_emails]
         
         # 1) Generate emails with fit context and user's template/signoff
+        auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
         generated_results = batch_generate_emails(
             contacts_to_generate,
             resume_text,
@@ -138,6 +139,7 @@ def generate_and_draft():
             email_template_purpose=purpose,
             resume_filename=draft_resume_filename,
             signoff_config=signoff_config,
+            auth_display_name=auth_display_name,
         )
         print(f"🧪 batch_generate_emails returned: type={type(generated_results)}, "
           f"len={len(generated_results) if hasattr(generated_results, '__len__') else 'n/a'}, "
@@ -241,11 +243,13 @@ def generate_and_draft():
             body += "\n\nFor context, I've attached my resume below."
 
         # Check if body already ends with a signature (batch_generate_emails includes signature)
-        # Look for common closings, user's signoffPhrase, user name, email, university in last 200 chars
+        # Look for common closings, user's signoffPhrase, user name, email, university, auth name, signatureBlock lines in last 200 chars
         body_lower = body.lower()
         has_signature = False
         phrase_lower = (signoff_config.get("signoffPhrase") or "").strip().lower()
         sig_block = (signoff_config.get("signatureBlock") or "").strip()
+        auth_name = (getattr(request, "firebase_user", None) or {}).get("name", "").strip().lower()
+        sig_block_lines = [line.strip().lower() for line in sig_block.split("\n") if line.strip()] if sig_block else []
         if user_profile or phrase_lower or sig_block:
             user_name = (user_profile or {}).get('name', '').lower()
             user_email = (user_profile or {}).get('email', '').lower()
@@ -254,9 +258,11 @@ def generate_and_draft():
                 'best,', 'best regards', 'thank you', 'thanks,', 'sincerely', 'warm regards', 'cheers,',
                 phrase_lower if phrase_lower else None,
                 user_name if user_name else None,
+                auth_name if auth_name else None,
                 user_email if user_email else None,
                 user_university if user_university else None,
             ]
+            signature_indicators.extend(sig_block_lines)
             signature_indicators = [s for s in signature_indicators if s]
             body_end = body_lower[-200:] if len(body_lower) > 200 else body_lower
             has_signature = any(indicator in body_end for indicator in signature_indicators)

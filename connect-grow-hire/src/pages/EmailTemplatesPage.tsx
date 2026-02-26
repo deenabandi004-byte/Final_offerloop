@@ -204,39 +204,47 @@ export default function EmailTemplatesPage() {
     setIsSaving(true);
     try {
       let savedId = activeSavedTemplateId;
-      if (purpose === CUSTOM_PURPOSE_ID) {
-        const res = await apiService.createSavedEmailTemplate({
-          id: activeSavedTemplateId || undefined,
-          name: templateName.trim(),
-          subject: subjectLine.trim(),
-          body: customInstructions.trim(),
-        });
-        savedId = res.id;
-        setActiveSavedTemplateId(savedId);
 
-        const newEntry: SavedEmailTemplate = {
-          id: savedId,
-          name: templateName.trim(),
-          subject: subjectLine.trim(),
-          body: customInstructions.trim(),
-        };
-        setSavedCustomTemplates((prev) => {
-          const idx = prev.findIndex((t) => t.id === savedId);
-          if (idx >= 0) {
-            const copy = [...prev];
-            copy[idx] = newEntry;
-            return copy;
-          }
-          return [newEntry, ...prev];
-        });
+      // Try to save named custom template (non-blocking for default save)
+      if (purpose === CUSTOM_PURPOSE_ID) {
+        try {
+          const res = await apiService.createSavedEmailTemplate({
+            id: activeSavedTemplateId || undefined,
+            name: templateName.trim(),
+            subject: subjectLine.trim(),
+            body: customInstructions.trim(),
+          });
+          savedId = res.id;
+          setActiveSavedTemplateId(savedId);
+
+          const newEntry: SavedEmailTemplate = {
+            id: savedId,
+            name: templateName.trim(),
+            subject: subjectLine.trim(),
+            body: customInstructions.trim(),
+          };
+          setSavedCustomTemplates((prev) => {
+            const idx = prev.findIndex((t) => t.id === savedId);
+            if (idx >= 0) {
+              const copy = [...prev];
+              copy[idx] = newEntry;
+              return copy;
+            }
+            return [newEntry, ...prev];
+          });
+        } catch (err) {
+          console.error("Failed to save named template, continuing with default save:", err);
+        }
       }
 
+      // ALWAYS save the default template (this is the critical save)
       const template = buildTemplate();
       template.savedTemplateId = savedId || undefined;
       await apiService.saveEmailTemplate(template);
       setSavedTemplate(template);
       toast({ title: "Saved", description: "Email template saved as your default." });
-    } catch {
+    } catch (err) {
+      console.error("Save template error:", err);
       toast({ title: "Failed to save", description: "Could not save template.", variant: "destructive" });
     } finally {
       setIsSaving(false);

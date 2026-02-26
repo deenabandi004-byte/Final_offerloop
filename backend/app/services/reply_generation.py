@@ -472,6 +472,32 @@ def _build_signature_block_for_prompt(signoff_config, user_info):
     return f"{phrase}\n[Full Name]\n[University] | Class of [Year]"
 
 
+def _deduplicate_signoff(body, signoff_config):
+    """Remove duplicate signoff blocks from email body. Keeps only the last signoff block."""
+    if not body or not signoff_config:
+        return body
+    phrase = (signoff_config.get("signoffPhrase") or "").strip()
+    if not phrase:
+        return body
+
+    lines = body.split("\n")
+    phrase_norm = phrase.lower().strip().rstrip(",")
+    signoff_indices = [i for i, line in enumerate(lines) if line.strip().lower().rstrip(",") == phrase_norm]
+
+    if len(signoff_indices) >= 2:
+        sig_block_text = (signoff_config.get("signatureBlock") or "").strip()
+        sig_lines_count = len([l for l in sig_block_text.split("\n") if l.strip()]) if sig_block_text else 1
+        for idx in signoff_indices[:-1]:
+            block_end = min(idx + 1 + sig_lines_count, len(lines))
+            for j in range(idx, block_end):
+                lines[j] = ""
+        body = "\n".join(lines)
+        while "\n\n\n" in body:
+            body = body.replace("\n\n\n", "\n\n")
+        print("DEBUG: Removed duplicate signoff block(s)", flush=True)
+    return body
+
+
 def ensure_sign_off(body: str, sender_name: str, signoff_config=None) -> str:
     """Ensure the email body ends with a sign-off and sender name. Appends if missing."""
     if not body or not body.strip():
@@ -517,32 +543,16 @@ def build_template_prompt(context_block: str, template_instructions: str, requir
     return f"{context_block}\n\n{template_instructions.strip()}\n\n{requirements_block}"
 
 
-def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None, pre_parsed_user_info=None, template_instructions="", email_template_purpose=None, resume_filename=None, subject_line=None, signoff_config=None):
+def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None, pre_parsed_user_info=None, template_instructions="", email_template_purpose=None, resume_filename=None, subject_line=None, signoff_config=None, auth_display_name=None):
     """
     Generate all emails using the new compelling prompt template.
-    
+
     Args:
-        contacts: List of contact dicts
-        resume_text: User's resume text (optional if pre_parsed_user_info provided)
-        user_profile: User profile dict
-        career_interests: Career interests string
-        fit_context: Optional dict with job fit analysis
-        pre_parsed_user_info: Pre-parsed user info dict (✅ FIX #4: avoids re-parsing resume)
-        template_instructions: Optional prompt block from email template (purpose + style + custom). Empty = no injection.
-        email_template_purpose: Purpose used for this run ("networking", "referral", "follow_up", "sales", "custom", or None). Used to conditionally include resume line.
-            {
-                "job_title": "Business Analyst Intern",
-                "company": "McKinsey",
-                "score": 65,
-                "match_level": "moderate",
-                "pitch": "As a Data Science major with strong analytical skills...",
-                "talking_points": ["specific project", "relevant coursework"],
-                "strengths": [{"point": "...", "evidence": "..."}],
-                "gaps": [{"gap": "...", "mitigation": "..."}],
-                "keywords": ["analytical", "data-driven", "business insights"]
-            }
+        ...
+        auth_display_name: Optional display name from Firebase Auth; used as last resort before "Student".
     """
     try:
+        print(f"DEBUG: batch_generate_emails received auth_display_name={auth_display_name!r}", flush=True)
         if not contacts:
             return {}
         
@@ -569,15 +579,18 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
             if pre_parsed_user_info.get("name"):
                 user_info["name"] = pre_parsed_user_info["name"]
         
-        # Never leave name blank — prevents "I'm ." in generated emails
+        # Never leave name blank — use profile, then Auth display name, never "Student" if we have a real name
         if not (user_info.get("name") or "").strip():
             user_info["name"] = (user_profile.get("name") or "") if user_profile else ""
             if not (user_info.get("name") or "").strip() and user_profile:
                 first = (user_profile.get("firstName") or user_profile.get("first_name") or "").strip()
                 last = (user_profile.get("lastName") or user_profile.get("last_name") or "").strip()
                 user_info["name"] = f"{first} {last}".strip()
+            if not (user_info.get("name") or "").strip() and (auth_display_name or "").strip():
+                user_info["name"] = (auth_display_name or "").strip()
             if not (user_info.get("name") or "").strip():
                 user_info["name"] = "Student"
+        print(f"DEBUG sender name final: user_info['name']={user_info.get('name', '')!r}", flush=True)
         
         print(f"[EmailTemplate] batch_generate_emails template_instructions len={len(template_instructions or '')}, sender name={user_info.get('name', '')!r}")
         
@@ -806,8 +819,32 @@ CONTACTS:
             subject_instruction = ""
             if subject_line:
                 subject_instruction = f'\n- Use this subject line pattern for all emails (personalize with recipient details): "{subject_line}"'
-            _sig_block = _build_signature_block_for_prompt(signoff_config, user_info)
-            minimal_formatting = f"""
+            # Check if custom instructions already contain the signoff phrase — avoid double signoff
+            _instructions_lower = (template_instructions or "").lower()
+            _signoff_phrase = (signoff_config or {}).get("signoffPhrase", "Best,").strip()
+            _phrase_variations = [
+                _signoff_phrase.lower(),
+                _signoff_phrase.lower().rstrip(","),
+                _signoff_phrase.lower().rstrip(",") + ",",
+            ]
+            instructions_already_have_signoff = any(v in _instructions_lower for v in _phrase_variations if v)
+
+            if instructions_already_have_signoff:
+                # Custom instructions already contain a signoff — don't add SIGNATURE block
+                print("DEBUG: Skipping SIGNATURE block in prompt — custom instructions already contain signoff phrase", flush=True)
+                minimal_formatting = f"""
+===== FORMATTING ONLY =====
+- Start each email with "Hi [FirstName],"{subject_instruction}
+- Use proper grammar with apostrophes (I'm, I'd, you're, it's)
+- Use \\n\\n for paragraph breaks in JSON
+- Do NOT add a sign-off block — the custom instructions already include one
+- IMPORTANT: Replace any name in the sign-off with: {user_info.get('name', 'the sender')}
+
+Return ONLY valid JSON:
+{{"0": {{"subject": "...", "body": "..."}}, "1": {{"subject": "...", "body": "..."}}, ...}}"""
+            else:
+                _sig_block = _build_signature_block_for_prompt(signoff_config, user_info)
+                minimal_formatting = f"""
 ===== FORMATTING ONLY =====
 - Start each email with "Hi [FirstName],"{subject_instruction}
 - Use proper grammar with apostrophes (I'm, I'd, you're, it's)
@@ -1063,9 +1100,11 @@ Return ONLY valid JSON:
                             continue
                         break
                 else:
-                    sign_off_patterns = ["Best,", "Best regards,", "Thank you,", "Thanks,"]
+                    sign_off_patterns = ["Best,", "Best regards,", "Thank you,", "Thanks,", "Warm regards,", "Cheers,", "Sincerely,"]
                     if signoff_config and (signoff_config.get("signoffPhrase") or "").strip():
-                        sign_off_patterns.insert(0, (signoff_config.get("signoffPhrase") or "").strip())
+                        custom_phrase = (signoff_config.get("signoffPhrase") or "").strip()
+                        if custom_phrase not in sign_off_patterns:
+                            sign_off_patterns.insert(0, custom_phrase)
                     resume_line = f"I've included my resume ({resume_filename}) for your reference."
                     
                     inserted = False
@@ -1135,15 +1174,15 @@ Would you be open to a brief 15-minute chat about your experience?
 
 {phrase}
 {signature}"""
-                # Only add resume line in fallback if appropriate
-                if should_include_resume:
+                # Only add resume line in fallback if we have a resume file (same as normal path)
+                if resume_filename:
                     body += "\n\nI've attached my resume below for context."
                 subject = f"Question about {company}"
             
             # Ensure every email ends with a sign-off and sender name
             sender_name = user_info.get('name', '') or 'Student'
             body = ensure_sign_off(body, sender_name, signoff_config)
-                
+            body = _deduplicate_signoff(body, signoff_config)
             cleaned_results[idx] = {'subject': subject, 'body': body}
         
         return cleaned_results

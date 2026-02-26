@@ -266,7 +266,7 @@ def parse_resume():
                 id_token = auth_header.split(' ', 1)[1].strip()
                 
                 try:
-                    decoded = fb_auth.verify_id_token(id_token)
+                    decoded = fb_auth.verify_id_token(id_token, clock_skew_seconds=5)
                     user_id = decoded.get('uid')
                     print(f"👤 User ID: {user_id}")
                     
