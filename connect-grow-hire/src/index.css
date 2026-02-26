@@ -218,6 +218,21 @@
       inset 0 1px 0 rgba(255, 255, 255, 1) !important;
   }
 
+  .progate-blur *,
+  .progate-blur *:hover,
+  .progate-blur *:focus,
+  .progate-blur *:active,
+  .progate-blur [class*="bg-white"]:hover,
+  .progate-blur [class*="bg-card"]:hover,
+  .progate-blur .card:hover,
+  .progate-blur .glass-card:hover {
+    border-color: transparent !important;
+    box-shadow: none !important;
+    outline: none !important;
+    ring: 0 !important;
+    transition: none !important;
+  }
+
   /* Ensure headers never have hover/focus visual effects */
   header,
   header:hover,

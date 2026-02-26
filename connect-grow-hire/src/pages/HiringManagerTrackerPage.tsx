@@ -15,11 +15,11 @@ export default function HiringManagerTrackerPage() {
           
           <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }} className="hiring-manager-tracker-page">
             {/* Page Header Container */}
-            <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px' }} className="hiring-manager-tracker-container">
+            <div className="w-full px-3 py-6 sm:px-6 sm:py-12 hiring-manager-tracker-container" style={{ maxWidth: '900px', margin: '0 auto' }}>
               <h1
+                className="text-[28px] sm:text-[42px] hiring-manager-tracker-title"
                 style={{
                   fontFamily: "'Instrument Serif', Georgia, serif",
-                  fontSize: '42px',
                   fontWeight: 400,
                   letterSpacing: '-0.025em',
                   color: '#0F172A',
@@ -27,7 +27,6 @@ export default function HiringManagerTrackerPage() {
                   marginBottom: '10px',
                   lineHeight: 1.1,
                 }}
-                className="hiring-manager-tracker-title"
               >
                 Hiring Manager Tracker
               </h1>

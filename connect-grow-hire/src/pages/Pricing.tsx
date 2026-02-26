@@ -49,6 +49,15 @@ const FeatureItem: React.FC<FeatureItemProps> = ({ children, highlight, muted })
   </div>
 );
 
+const DisabledFeatureItem: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div className="flex items-start gap-3">
+    <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 bg-gray-100">
+      <X className="w-3 h-3 text-gray-300" />
+    </div>
+    <span className="text-sm text-gray-400">{children}</span>
+  </div>
+);
+
 // FAQ Item Component
 interface FAQItemProps {
   question: string;
@@ -406,7 +415,7 @@ const Pricing = () => {
 
   return (
     <div style={{ background: '#F8FAFF', minHeight: '100vh' }}>
-      <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px' }}>
+      <div className="w-full px-3 py-6 sm:px-6 sm:py-12" style={{ maxWidth: '900px', margin: '0 auto' }}>
         
         {/* Back Navigation */}
         <div className="mb-8 animate-fadeInUp">
@@ -458,9 +467,9 @@ const Pricing = () => {
         {/* Header Section */}
         <div style={{ textAlign: 'center', marginBottom: '48px' }}>
           <h1
+            className="text-[28px] sm:text-[42px]"
             style={{
               fontFamily: "'Instrument Serif', Georgia, serif",
-              fontSize: '42px',
               fontWeight: 400,
               letterSpacing: '-0.025em',
               color: '#0F172A',
@@ -481,7 +490,7 @@ const Pricing = () => {
               lineHeight: 1.5,
             }}
           >
-            Choose the plan that works best for you. All paid plans include a 1-month free trial.
+            Choose the plan that works best for you. All paid plans include a 14-day free trial.
           </p>
         </div>
 
@@ -511,11 +520,17 @@ const Pricing = () => {
             {/* Features */}
             <div className="flex-1 space-y-4">
               <FeatureItem>300 credits (~20 contacts)</FeatureItem>
-              <FeatureItem>Basic contact search + AI email drafts</FeatureItem>
+              <FeatureItem>Contact search + AI email drafts</FeatureItem>
               <FeatureItem>Gmail integration</FeatureItem>
-              <FeatureItem>Directory saves all contacts</FeatureItem>
-              <FeatureItem>3 Coffee Chat Preps + 2 Interview Preps</FeatureItem>
-              <FeatureItem muted>Exports disabled</FeatureItem>
+              <FeatureItem>Email outreach tracking</FeatureItem>
+              <FeatureItem>Find Companies (credit-limited)</FeatureItem>
+              <FeatureItem>Resume Builder (credit-limited)</FeatureItem>
+              <FeatureItem>Cover Letter Generator (credit-limited)</FeatureItem>
+              <DisabledFeatureItem>Find Hiring Managers</DisabledFeatureItem>
+              <DisabledFeatureItem>Coffee Chat Prep</DisabledFeatureItem>
+              <DisabledFeatureItem>Interview Prep</DisabledFeatureItem>
+              <DisabledFeatureItem>Custom email templates</DisabledFeatureItem>
+              <DisabledFeatureItem>Exports (CSV & Gmail bulk)</DisabledFeatureItem>
             </div>
             
             {/* CTA Button */}
@@ -568,7 +583,7 @@ const Pricing = () => {
                 </div>
                 <p className="text-sm text-gray-500 mt-2">1,500 credits (~100 contacts)</p>
                 <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-50 border border-green-200 rounded-full">
-                  <span className="text-sm font-semibold text-green-700">🎉 First month free</span>
+                  <span className="text-sm font-semibold text-green-700">🎉 14-day free trial</span>
                 </div>
               </div>
               
@@ -579,12 +594,15 @@ const Pricing = () => {
               <div className="flex-1 space-y-4">
                 <FeatureItem highlight>1,500 credits (~100 contacts)</FeatureItem>
                 <FeatureItem><span className="font-semibold">Everything in Free, plus:</span></FeatureItem>
-                <FeatureItem>Full Firm Search</FeatureItem>
+                <FeatureItem>Find Hiring Managers</FeatureItem>
+                <FeatureItem>Coffee Chat Prep (10/month)</FeatureItem>
+                <FeatureItem>Interview Prep (5/month)</FeatureItem>
                 <FeatureItem>Smart school/major/career filters</FeatureItem>
-                <FeatureItem>10 Coffee Chat Preps/month</FeatureItem>
-                <FeatureItem>5 Interview Preps/month</FeatureItem>
+                <FeatureItem>Bulk drafting + Export (CSV & Gmail)</FeatureItem>
                 <FeatureItem>Unlimited directory saving</FeatureItem>
-                <FeatureItem>Bulk drafting + Export unlocked (CSV & Gmail)</FeatureItem>
+                <DisabledFeatureItem>Custom email templates (Elite only)</DisabledFeatureItem>
+                <DisabledFeatureItem>Priority queue</DisabledFeatureItem>
+                <DisabledFeatureItem>Priority support</DisabledFeatureItem>
                 <FeatureItem highlight>Estimated time saved: ~2,500 min/mo</FeatureItem>
               </div>
               
@@ -647,7 +665,7 @@ const Pricing = () => {
               </div>
                 <p className="text-sm text-gray-500 mt-2">3,000 credits (~200 contacts)</p>
                 <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-50 border border-green-200 rounded-full">
-                  <span className="text-sm font-semibold text-green-700">🎉 First month free</span>
+                  <span className="text-sm font-semibold text-green-700">🎉 14-day free trial</span>
                 </div>
               </div>
               
@@ -657,15 +675,17 @@ const Pricing = () => {
               {/* Features */}
               <div className="flex-1 space-y-4">
                 <FeatureItem highlight>3,000 credits (~200 contacts)</FeatureItem>
-              <FeatureItem><span className="font-semibold">Everything in Pro, plus:</span></FeatureItem>
-              <FeatureItem>Unlimited Coffee Chat Prep</FeatureItem>
-              <FeatureItem>Unlimited Interview Prep</FeatureItem>
-              <FeatureItem>Priority queue for contact generation</FeatureItem>
-              <FeatureItem>Personalized outreach templates (tailored to resume)</FeatureItem>
-              <FeatureItem>Weekly personalized firm insights</FeatureItem>
-              <FeatureItem>Early access to new AI tools</FeatureItem>
-              <FeatureItem highlight>Estimated time saved: ~5,000 min/mo</FeatureItem>
-            </div>
+                <FeatureItem><span className="font-semibold">Everything in Pro, plus:</span></FeatureItem>
+                <FeatureItem>Unlimited Coffee Chat Prep</FeatureItem>
+                <FeatureItem>Unlimited Interview Prep</FeatureItem>
+                <FeatureItem>Custom email templates (create your own)</FeatureItem>
+                <FeatureItem>Priority queue for contact generation</FeatureItem>
+                <FeatureItem>Personalized outreach templates (tailored to resume)</FeatureItem>
+                <FeatureItem>Weekly personalized firm insights</FeatureItem>
+                <FeatureItem>Early access to new AI tools</FeatureItem>
+                <FeatureItem>Priority support</FeatureItem>
+                <FeatureItem highlight>Estimated time saved: ~5,000 min/mo</FeatureItem>
+              </div>
             
             {/* CTA Button */}
             <div className="mt-8">
@@ -704,9 +724,9 @@ const Pricing = () => {
             <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
               <Shield className="w-6 h-6 text-green-600" />
             </div>
-            <h3 className="font-semibold text-gray-900 mb-1">1-Month Free Trial + 7-Day Money Back Guarantee</h3>
+            <h3 className="font-semibold text-gray-900 mb-1">14-Day Free Trial + 7-Day Money Back Guarantee</h3>
             <p className="text-sm text-gray-600">
-              Try Pro or Elite free for 30 days. After that, not satisfied? Get a full refund within 7 days. No questions asked.
+              Try Pro or Elite free for 14 days. After that, not satisfied? Get a full refund within 7 days. No questions asked.
             </p>
           </div>
         </div>
@@ -728,13 +748,18 @@ const Pricing = () => {
               <tbody className="divide-y divide-gray-100">
                 <ComparisonRow feature="Monthly Credits" free="300" pro="1,500" elite="3,000" />
                 <ComparisonRow feature="Contact Search" free="Basic" pro="Full" elite="Full + Priority" />
-                <ComparisonRow feature="Firm Search" free={false} pro={true} elite={true} />
-                <ComparisonRow feature="Coffee Chat Prep" free="3/month" pro="10/month" elite="Unlimited" />
-                <ComparisonRow feature="Interview Prep" free="2/month" pro="5/month" elite="Unlimited" />
-                <ComparisonRow feature="Export to CSV" free={false} pro={true} elite={true} />
+                <ComparisonRow feature="Find Companies" free="✓ (credit-limited)" pro={true} elite={true} />
+                <ComparisonRow feature="Find Hiring Managers" free={false} pro={true} elite={true} />
+                <ComparisonRow feature="Email Outreach Tracking" free={true} pro={true} elite={true} />
                 <ComparisonRow feature="Gmail Integration" free={true} pro={true} elite={true} />
+                <ComparisonRow feature="Coffee Chat Prep" free={false} pro="10/month" elite="Unlimited" />
+                <ComparisonRow feature="Interview Prep" free={false} pro="5/month" elite="Unlimited" />
+                <ComparisonRow feature="Resume Builder" free="✓ (credit-limited)" pro={true} elite={true} />
+                <ComparisonRow feature="Cover Letter Generator" free="✓ (credit-limited)" pro={true} elite={true} />
+                <ComparisonRow feature="Export to CSV" free={false} pro={true} elite={true} />
                 <ComparisonRow feature="Bulk Drafting" free={false} pro={true} elite={true} />
-                <ComparisonRow feature="Personalized Templates" free={false} pro={false} elite={true} />
+                <ComparisonRow feature="Custom Email Templates" free={false} pro={false} elite={true} />
+                <ComparisonRow feature="Priority Queue" free={false} pro={false} elite={true} />
                 <ComparisonRow feature="Priority Support" free={false} pro={false} elite={true} />
               </tbody>
             </table>
@@ -748,7 +773,7 @@ const Pricing = () => {
           <div>
             <FAQItem 
               question="How does the free trial work?"
-              answer="When you sign up for Pro or Elite, you get full access for 30 days completely free. Your card is collected at signup but won't be charged until the trial ends. Cancel anytime during the trial and you won't pay a thing."
+              answer="When you sign up for Pro or Elite, you get full access for 14 days completely free. Your card is collected at signup but won't be charged until the trial ends. Cancel anytime during the trial and you won't pay a thing."
               isProminent={true}
             />
             <FAQItem 

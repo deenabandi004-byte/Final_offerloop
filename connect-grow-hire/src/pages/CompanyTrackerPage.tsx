@@ -215,13 +215,13 @@ export default function CompanyTrackerPage() {
         <MainContentWrapper>
           <AppHeader title="" />
 
-          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', padding: '48px 24px' }}>
+          <main className="px-3 py-6 sm:px-6 sm:py-12" style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }}>
             <div>
-              <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px 0' }}>
+              <div className="w-full px-3 py-6 sm:px-6 sm:py-12 !pb-0" style={{ maxWidth: '900px', margin: '0 auto' }}>
                 <h1
+                  className="text-[28px] sm:text-[42px]"
                   style={{
                     fontFamily: "'Instrument Serif', Georgia, serif",
-                    fontSize: '42px',
                     fontWeight: 400,
                     letterSpacing: '-0.025em',
                     color: '#0F172A',

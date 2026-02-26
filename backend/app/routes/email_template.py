@@ -1,5 +1,5 @@
 """
-Email Template API — save/load user default template (purpose + style + custom instructions).
+Email Template API — save/load user default template + CRUD for saved custom templates.
 """
 from flask import Blueprint, jsonify, request
 from firebase_admin import firestore
@@ -12,6 +12,7 @@ from email_templates import (
 )
 
 EMAIL_TEMPLATE_MAX_CUSTOM_LEN = 4000
+MAX_SAVED_TEMPLATES = 20
 
 VALID_PURPOSES = frozenset(EMAIL_PURPOSE_PRESETS.keys()) | {"custom"}
 VALID_STYLE_PRESETS = frozenset(EMAIL_STYLE_PRESETS.keys())
@@ -53,13 +54,16 @@ def _validate_body():
         "purpose": purpose,
         "stylePreset": style_preset,
         "customInstructions": custom_instructions[:EMAIL_TEMPLATE_MAX_CUSTOM_LEN],
+        "name": (data.get("name") or "").strip()[:200],
+        "subject": (data.get("subject") or "").strip()[:500],
+        "savedTemplateId": (data.get("savedTemplateId") or "").strip() or None,
     }, None
 
 
 @email_template_bp.route("", methods=["POST"])
 @require_firebase_auth
 def save_default():
-    """Save the user's default email template (purpose, stylePreset, customInstructions)."""
+    """Save the user's default email template."""
     try:
         db = get_db()
     except RuntimeError as e:
@@ -76,6 +80,9 @@ def save_default():
         "purpose": data["purpose"],
         "stylePreset": data["stylePreset"],
         "customInstructions": data["customInstructions"],
+        "name": data["name"],
+        "subject": data["subject"],
+        "savedTemplateId": data["savedTemplateId"],
         "updatedAt": firestore.SERVER_TIMESTAMP,
     }
     user_ref.set({"emailTemplate": email_template}, merge=True)
@@ -100,16 +107,21 @@ def get_default():
             "purpose": None,
             "stylePreset": None,
             "customInstructions": "",
+            "name": "",
+            "subject": "",
+            "savedTemplateId": None,
         }), 200
 
     data = user_doc.to_dict() or {}
     template = data.get("emailTemplate") or {}
 
-    # Handle Firestore Timestamp if present (don't send updatedAt to client unless needed)
     return jsonify({
         "purpose": template.get("purpose"),
         "stylePreset": template.get("stylePreset"),
         "customInstructions": template.get("customInstructions", "") or "",
+        "name": template.get("name", "") or "",
+        "subject": template.get("subject", "") or "",
+        "savedTemplateId": template.get("savedTemplateId"),
     }), 200
 
 
@@ -119,3 +131,97 @@ def list_presets():
     """List all available style and purpose presets for the UI."""
     presets = get_available_presets()
     return jsonify(presets), 200
+
+
+# ---------------------------------------------------------------------------
+# Saved custom templates CRUD  (subcollection: users/{uid}/emailTemplates)
+# ---------------------------------------------------------------------------
+
+@email_template_bp.route("/saved", methods=["GET"])
+@require_firebase_auth
+def list_saved():
+    """List all saved custom email templates for the user."""
+    try:
+        db = get_db()
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 500
+
+    uid = request.firebase_user["uid"]
+    docs = (
+        db.collection("users").document(uid)
+        .collection("emailTemplates")
+        .order_by("createdAt", direction=firestore.Query.DESCENDING)
+        .limit(MAX_SAVED_TEMPLATES)
+        .stream()
+    )
+
+    templates = []
+    for doc in docs:
+        d = doc.to_dict()
+        created = d.get("createdAt")
+        templates.append({
+            "id": doc.id,
+            "name": d.get("name", ""),
+            "subject": d.get("subject", ""),
+            "body": d.get("body", ""),
+            "createdAt": created.isoformat() if hasattr(created, "isoformat") else str(created) if created else None,
+        })
+
+    return jsonify({"templates": templates}), 200
+
+
+@email_template_bp.route("/saved", methods=["POST"])
+@require_firebase_auth
+def create_saved():
+    """Create (or update) a saved custom email template."""
+    try:
+        db = get_db()
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 500
+
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()[:200]
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+
+    subject = (data.get("subject") or "").strip()[:500]
+    body = (data.get("body") or "").strip()[:EMAIL_TEMPLATE_MAX_CUSTOM_LEN]
+
+    uid = request.firebase_user["uid"]
+    col_ref = db.collection("users").document(uid).collection("emailTemplates")
+
+    template_id = (data.get("id") or "").strip()
+
+    if template_id:
+        col_ref.document(template_id).set({
+            "name": name,
+            "subject": subject,
+            "body": body,
+            "updatedAt": firestore.SERVER_TIMESTAMP,
+        }, merge=True)
+        return jsonify({"id": template_id}), 200
+
+    doc_ref = col_ref.document()
+    doc_ref.set({
+        "name": name,
+        "subject": subject,
+        "body": body,
+        "createdAt": firestore.SERVER_TIMESTAMP,
+        "updatedAt": firestore.SERVER_TIMESTAMP,
+    })
+    return jsonify({"id": doc_ref.id}), 201
+
+
+@email_template_bp.route("/saved/<template_id>", methods=["DELETE"])
+@require_firebase_auth
+def delete_saved(template_id):
+    """Delete a saved custom email template."""
+    try:
+        db = get_db()
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 500
+
+    uid = request.firebase_user["uid"]
+    db.collection("users").document(uid).collection("emailTemplates").document(template_id).delete()
+
+    return jsonify({"success": True}), 200

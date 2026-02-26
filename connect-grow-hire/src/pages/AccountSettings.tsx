@@ -813,14 +813,14 @@ export default function AccountSettings() {
           <AppHeader title="" />
           
           <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }}>
-            <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px' }}>
+            <div className="w-full px-3 py-6 sm:px-6 sm:py-12" style={{ maxWidth: '900px', margin: '0 auto' }}>
               
               {/* Header Section */}
               <div style={{ textAlign: 'center', marginBottom: '48px' }}>
                 <h1
+                  className="text-[28px] sm:text-[42px]"
                   style={{
                     fontFamily: "'Instrument Serif', Georgia, serif",
-                    fontSize: '42px',
                     fontWeight: 400,
                     letterSpacing: '-0.025em',
                     color: '#0F172A',

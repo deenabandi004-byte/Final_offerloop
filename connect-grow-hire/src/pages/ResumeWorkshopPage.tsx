@@ -10,6 +10,7 @@ import { AppSidebar } from '@/components/AppSidebar';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { AppHeader } from '@/components/AppHeader';
 import { MainContentWrapper } from '@/components/MainContentWrapper';
+import { VideoDemo } from '@/components/VideoDemo';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { StickyCTA } from '@/components/StickyCTA';
@@ -822,14 +823,14 @@ export default function ResumeWorkshopPage() {
         <MainContentWrapper>
           <AppHeader title="" />
           <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
-            <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px' }}>
+            <div className="w-full px-3 py-6 sm:px-6 sm:py-12" style={{ maxWidth: '900px', margin: '0 auto' }}>
               
               {/* Header Section */}
               <div>
                 <h1
+                  className="text-[28px] sm:text-[42px]"
                   style={{
                     fontFamily: "'Instrument Serif', Georgia, serif",
-                    fontSize: '42px',
                     fontWeight: 400,
                     letterSpacing: '-0.025em',
                     color: '#0F172A',
@@ -852,6 +853,9 @@ export default function ResumeWorkshopPage() {
                 >
                   Optimize your resume to stand out and pass ATS screening.
                 </p>
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  <VideoDemo videoId="UJSlHiBRSyY" />
+                </div>
               </div>
 
               {/* Pill-style Tabs */}
@@ -1176,11 +1180,23 @@ export default function ResumeWorkshopPage() {
                                   )}
                                 </div>
                                 
-                                {/* Cost info */}
-                                <div className="mt-4 pt-4 border-t border-gray-100 text-center">
+                                {/* Cost info + credit indicator */}
+                                <div className="mt-4 pt-4 border-t border-gray-100 text-center space-y-1">
                                   <p className="text-sm text-gray-500">
                                     Each action costs <span className="font-semibold text-gray-700">5 credits</span>
                                   </p>
+                                  {(user?.credits ?? 0) === 0 ? (
+                                    <div>
+                                      <p className="text-xs text-red-500">No credits remaining</p>
+                                      <button onClick={() => navigate('/pricing')} className="text-xs text-primary hover:underline mt-1">
+                                        Upgrade for more credits →
+                                      </button>
+                                    </div>
+                                  ) : (user?.credits ?? 0) < 50 ? (
+                                    <p className="text-xs text-orange-500">⚠ {user?.credits} credits remaining</p>
+                                  ) : (
+                                    <p className="text-xs text-muted-foreground">{user?.credits} credits remaining</p>
+                                  )}
                                 </div>
                               </div>
                             </div>

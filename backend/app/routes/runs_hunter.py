@@ -12,7 +12,7 @@ from werkzeug.utils import secure_filename
 from app.extensions import require_firebase_auth, get_db
 from app.services.resume_parser import extract_text_from_pdf
 from app.services.reply_generation import batch_generate_emails, email_body_mentions_resume
-from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user, clear_user_gmail_integration
+from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user, download_resume_from_url, clear_user_gmail_integration
 from app.routes.gmail_oauth import build_gmail_oauth_url_for_user
 from app.services.auth import check_and_reset_credits
 from app.config import TIER_CONFIGS
@@ -159,8 +159,11 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         # Only Contact Library is used for exclusion
         # This allows contacts to reappear if library is cleared
         
+        # Get resume filename for email body reference
+        user_resume_filename = user_data.get('resumeFileName') if user_data else None
+
         # Generate emails
-        email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests)
+        email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests, resume_filename=user_resume_filename)
         
         # Attach email data to ALL contacts FIRST (before draft creation)
         emails_attached = 0
@@ -183,13 +186,21 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         
         print(f"📧 Attached emails to {emails_attached}/{len(contacts)} contacts")
         
-        # Get user resume URL
+        # Always fetch user resume if available — attach to every draft
         resume_url = None
+        resume_content = None
+        resume_filename = None
         if db and user_id:
             try:
                 user_doc = db.collection('users').document(user_id).get()
                 if user_doc.exists:
-                    resume_url = user_doc.to_dict().get('resumeUrl')
+                    user_data_resume = user_doc.to_dict()
+                    resume_url = user_data_resume.get('resumeUrl')
+                    if resume_url:
+                        resume_content, resume_filename = download_resume_from_url(resume_url)
+                        stored_filename = user_data_resume.get('resumeFileName')
+                        if stored_filename:
+                            resume_filename = stored_filename
             except Exception:
                 pass
         
@@ -224,13 +235,13 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                         body = email_result.get('body', '')
                         if subject and body:
                             try:
-                                # Attach resume only when the email body says it's attached
-                                attach_resume = email_body_mentions_resume(body)
                                 draft_result = create_gmail_draft_for_user(
                                     contact, subject, body,
                                     tier='free', user_email=user_email,
-                                    resume_url=resume_url if attach_resume else None,
-                                    user_info=user_info
+                                    resume_content=resume_content,
+                                    resume_filename=resume_filename,
+                                    user_info=user_info,
+                                    user_id=user_id,
                                 )
                                 if isinstance(draft_result, dict):
                                     draft_id = draft_result.get('draft_id', '')
@@ -415,10 +426,13 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         # Only Contact Library is used for exclusion
         # This allows contacts to reappear if library is cleared
         
+        # Get resume filename for email body reference
+        user_resume_filename = user_data.get('resumeFileName') if user_data else None
+
         # Generate emails with resume
         print(f"📧 Generating emails for {len(contacts)} contacts...")
         try:
-            email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests)
+            email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests, resume_filename=user_resume_filename)
             print(f"📧 Email generation returned {len(email_results)} results")
         except Exception as email_gen_error:
             print(f"❌ Email generation failed: {email_gen_error}")
@@ -447,13 +461,21 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         
         print(f"📧 Attached emails to {emails_attached}/{len(contacts)} contacts")
         
-        # Get user resume URL
+        # Always fetch user resume if available — attach to every draft
         resume_url = None
+        resume_content = None
+        resume_filename = None
         if db and user_id:
             try:
                 user_doc = db.collection('users').document(user_id).get()
                 if user_doc.exists:
-                    resume_url = user_doc.to_dict().get('resumeUrl')
+                    user_data_resume = user_doc.to_dict()
+                    resume_url = user_data_resume.get('resumeUrl')
+                    if resume_url:
+                        resume_content, resume_filename = download_resume_from_url(resume_url)
+                        stored_filename = user_data_resume.get('resumeFileName')
+                        if stored_filename:
+                            resume_filename = stored_filename
             except Exception:
                 pass
         
@@ -488,13 +510,13 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                         body = email_result.get('body', '')
                         if subject and body:
                             try:
-                                # Attach resume only when the email body says it's attached
-                                attach_resume = email_body_mentions_resume(body)
                                 draft_result = create_gmail_draft_for_user(
                                     contact, subject, body,
                                     tier='pro', user_email=user_email,
-                                    resume_url=resume_url if attach_resume else None,
-                                    user_info=user_info
+                                    resume_content=resume_content,
+                                    resume_filename=resume_filename,
+                                    user_info=user_info,
+                                    user_id=user_id,
                                 )
                                 if isinstance(draft_result, dict):
                                     draft_id = draft_result.get('draft_id', '')

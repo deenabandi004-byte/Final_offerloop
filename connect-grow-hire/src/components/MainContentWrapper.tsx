@@ -17,7 +17,7 @@ interface MainContentWrapperProps {
  */
 export function MainContentWrapper({ children, className }: MainContentWrapperProps) {
   return (
-    <div className="flex-1 flex flex-col p-3 min-h-0">
+    <div className="flex-1 flex flex-col p-1.5 sm:p-3 min-h-0">
       <div 
         className={cn(
           "flex-1 flex flex-col rounded-2xl shadow-sm overflow-hidden min-h-0",

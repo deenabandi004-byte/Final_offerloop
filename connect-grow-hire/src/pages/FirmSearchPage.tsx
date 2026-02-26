@@ -11,6 +11,7 @@ import {
   CheckCircle, Users, Globe, Bookmark, ArrowRight, X, ChevronRight, Check
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { VideoDemo } from "@/components/VideoDemo";
 import { toast } from "@/hooks/use-toast";
 import {
   DropdownMenu,
@@ -800,15 +801,15 @@ const FirmSearchPage: React.FC = () => {
         <MainContentWrapper>
           <AppHeader />
 
-          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', padding: '48px 24px', paddingBottom: '96px' }}>
+          <main className="px-3 py-6 sm:px-6 sm:py-12" style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
             <div>
 
               {/* Header Section */}
-              <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px 0' }}>
+              <div className="w-full px-3 py-6 sm:px-6 sm:py-12 sm:pt-12 sm:pb-0" style={{ maxWidth: '900px', margin: '0 auto' }}>
                 <h1
+                  className="text-[28px] sm:text-[42px]"
                   style={{
                     fontFamily: "'Instrument Serif', Georgia, serif",
-                    fontSize: '42px',
                     fontWeight: 400,
                     letterSpacing: '-0.025em',
                     color: '#0F172A',
@@ -831,6 +832,9 @@ const FirmSearchPage: React.FC = () => {
                 >
                   Describe the type of companies you're looking for in plain English and we'll find them for you.
                 </p>
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  <VideoDemo videoId="n_AYHEJSXrE" />
+                </div>
               </div>
 
               {/* Navigation Tabs */}
@@ -925,18 +929,17 @@ const FirmSearchPage: React.FC = () => {
                     )}
 
                     {/* Main Card */}
-                    <div 
+<div
                       style={{
                         background: '#FFFFFF',
                         border: '1px solid rgba(37, 99, 235, 0.08)',
                         borderRadius: '14px',
-                        padding: '36px 40px',
                         maxWidth: '900px',
                         margin: '0 auto',
                         boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
                         animationDelay: '200ms',
                       }}
-                      className="overflow-hidden animate-fadeInUp firm-search-form-card"
+                      className="w-full px-4 py-5 sm:px-10 sm:py-9 overflow-hidden animate-fadeInUp firm-search-form-card"
                     >
                       {/* Simple gray divider instead of gradient */}
                       <div className="h-1 bg-gray-100"></div>
@@ -1097,12 +1100,12 @@ const FirmSearchPage: React.FC = () => {
                           <button
                             ref={originalButtonRef}
                             onClick={() => handleSearch()}
-                            disabled={!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm)}
+                            disabled={!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm) || (effectiveUser.credits ?? 0) === 0}
                             className={`
                             w-full md:w-auto px-8 py-4 rounded-full font-semibold text-lg
                             flex items-center justify-center gap-3 mx-auto firm-search-find-btn
                             transition-all duration-200 transform
-                            ${(!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm))
+                            ${(!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm) || (effectiveUser.credits ?? 0) === 0)
                                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                                 : 'bg-blue-600 text-white shadow-lg hover:shadow-xl hover:scale-105 active:scale-100'
                               }
@@ -1120,6 +1123,22 @@ const FirmSearchPage: React.FC = () => {
                               </>
                             )}
                           </button>
+
+                          {/* Credit indicator */}
+                          <div className="mt-3 text-center">
+                            {(effectiveUser.credits ?? 0) === 0 ? (
+                              <div>
+                                <p className="text-xs text-red-500">No credits remaining</p>
+                                <button onClick={() => navigate('/pricing')} className="text-xs text-primary hover:underline mt-1">
+                                  Upgrade for more credits →
+                                </button>
+                              </div>
+                            ) : (effectiveUser.credits ?? 0) < 50 ? (
+                              <p className="text-xs text-orange-500">⚠ {effectiveUser.credits} credits remaining</p>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">{effectiveUser.credits} credits remaining</p>
+                            )}
+                          </div>
 
                           {/* Validation feedback */}
                           {query && !isValidQuery && (
@@ -1181,18 +1200,17 @@ const FirmSearchPage: React.FC = () => {
 
                   {/* TAB 2: Company Tracker */}
                   <TabsContent value="firm-library" className="mt-0">
-                    <div 
+<div
                       style={{
                         background: '#FFFFFF',
                         border: '1px solid rgba(37, 99, 235, 0.08)',
                         borderRadius: '14px',
-                        padding: '36px 40px',
                         maxWidth: '900px',
                         margin: '0 auto',
                         boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
                         animationDelay: '200ms',
                       }}
-                      className="overflow-hidden animate-fadeInUp"
+                      className="w-full px-4 py-5 sm:px-10 sm:py-9 overflow-hidden animate-fadeInUp"
                     >
                       <div className="h-1 bg-gray-100"></div>
 

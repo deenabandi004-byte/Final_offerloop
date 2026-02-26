@@ -23,6 +23,8 @@ import { toast } from "@/hooks/use-toast";
 import { TIER_CONFIGS } from "@/lib/constants";
 import { logActivity, generateContactSearchSummary } from "@/utils/activityLogger";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
+import { VideoDemo } from "@/components/VideoDemo";
+import { EliteGateModal } from "@/components/EliteGateModal";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { db, storage, auth } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
@@ -35,12 +37,40 @@ import { StickyCTA } from "@/components/StickyCTA";
 // Session storage key for Scout auto-populate
 const SCOUT_AUTO_POPULATE_KEY = 'scout_auto_populate';
 
+// LinkedIn URL detection helper
+function isLinkedInUrl(input: string): boolean {
+  const trimmed = input.trim();
+  if (!trimmed) return false;
+  if (/^https?:\/\/(www\.)?linkedin\.com\/in\/[\w-]+\/?/.test(trimmed)) return true;
+  if (/^(www\.)?linkedin\.com\/in\/[\w-]+\/?/.test(trimmed)) return true;
+  if (/^\/in\/[\w-]+\/?$/.test(trimmed)) return true;
+  return false;
+}
+
+// Normalize a LinkedIn URL to a fully-qualified https URL
+function normalizeLinkedInUrl(input: string): string {
+  let url = input.trim();
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    if (url.startsWith('linkedin.com') || url.startsWith('www.linkedin.com')) {
+      url = `https://${url}`;
+    } else if (url.startsWith('/in/')) {
+      url = `https://linkedin.com${url}`;
+    } else if (url.includes('linkedin') && url.includes('/in/')) {
+      const match = url.match(/\/in\/[^\/\s]+/);
+      if (match) url = `https://linkedin.com${match[0]}`;
+    } else {
+      url = `https://linkedin.com/in/${url}`;
+    }
+  }
+  return url;
+}
+
 // Example prompt chips for discoverability
 const examplePromptChips = [
-  { id: 1, label: 'Software engineers at FAANG in SF', prompt: 'Software engineers at FAANG in SF' },
-  { id: 2, label: 'USC alumni in investment banking', prompt: 'USC alumni in investment banking' },
-  { id: 3, label: 'Marketing managers at startups in LA', prompt: 'Marketing managers at startups in LA' },
-  { id: 4, label: 'Consultants at McKinsey or Bain', prompt: 'Consultants at McKinsey or Bain' },
+  { id: 1, label: 'Software engineers at FAANG in SF', prompt: 'Software engineers at FAANG in SF', isLinkedIn: false },
+  { id: 2, label: 'USC alumni in investment banking', prompt: 'USC alumni in investment banking', isLinkedIn: false },
+  { id: 3, label: 'Marketing managers at startups in LA', prompt: 'Marketing managers at startups in LA', isLinkedIn: false },
+  { id: 4, label: 'linkedin.com/in/johndoe', prompt: 'https://www.linkedin.com/in/johndoe', isLinkedIn: true },
 ];
 
 // Helper function for contact count guidance
@@ -139,6 +169,7 @@ const ContactSearchPage: React.FC = () => {
 
   // Ref for original button to track visibility
   const originalButtonRef = useRef<HTMLButtonElement>(null);
+  const searchSuccessRef = useRef<HTMLDivElement>(null);
 
   // Form state (prompt-based search)
   const [searchPrompt, setSearchPrompt] = useState("");
@@ -158,6 +189,13 @@ const ContactSearchPage: React.FC = () => {
     total_contacts: number;
   } | null>(null);
   const hasResults = lastResults.length > 0;
+
+  // Auto-scroll to success state after search completes
+  useEffect(() => {
+    if (hasResults && !isSearching && searchSuccessRef.current) {
+      searchSuccessRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [hasResults, isSearching]);
 
   // Batch size state
   const [batchSize, setBatchSize] = useState<number>(1);
@@ -184,6 +222,9 @@ const ContactSearchPage: React.FC = () => {
 
   // Tab state
   const [activeTab, setActiveTab] = useState<string>("contact-search");
+  const [showEliteGate, setShowEliteGate] = useState(false);
+
+  const isElite = user?.tier === "elite";
 
   // LinkedIn Import state
   const [linkedInUrl, setLinkedInUrl] = useState('');
@@ -203,7 +244,9 @@ const ContactSearchPage: React.FC = () => {
   // Sync activeTab from URL ?tab= (for product tour)
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    if (tabParam === 'linkedin-email' || tabParam === 'contact-search' || tabParam === 'contact-library') {
+    if (tabParam === 'linkedin-email') {
+      setActiveTab('contact-search');
+    } else if (tabParam === 'contact-search' || tabParam === 'contact-library' || tabParam === 'import') {
       setActiveTab(tabParam);
     }
   }, [searchParams]);
@@ -235,6 +278,9 @@ const ContactSearchPage: React.FC = () => {
         purpose: t.purpose ?? null,
         stylePreset: t.stylePreset ?? null,
         customInstructions: t.customInstructions ?? "",
+        name: t.name,
+        subject: t.subject,
+        savedTemplateId: t.savedTemplateId,
       });
     }).catch(() => {});
   }, [user?.uid]);
@@ -683,11 +729,12 @@ const ContactSearchPage: React.FC = () => {
 
 
   // LinkedIn Import handler
-  const handleLinkedInImport = async () => {
-    if (!linkedInUrl.trim()) return;
+  const handleLinkedInImport = async (urlOverride?: string) => {
+    const rawUrl = urlOverride || linkedInUrl;
+    if (!rawUrl.trim()) return;
 
     // Normalize LinkedIn URL (accepts URLs with or without protocol)
-    let normalizedUrl = linkedInUrl.trim();
+    let normalizedUrl = rawUrl.trim();
 
     // If it doesn't start with http, try to normalize it
     if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
@@ -1008,6 +1055,19 @@ const ContactSearchPage: React.FC = () => {
     }
   };
 
+  // Unified submit handler — routes to LinkedIn import or search
+  const handleSubmit = () => {
+    const input = searchPrompt.trim();
+    if (!input) return;
+    if (isLinkedInUrl(input)) {
+      const normalized = normalizeLinkedInUrl(input);
+      setLinkedInUrl(normalized);
+      handleLinkedInImport(normalized);
+    } else {
+      handleSearch();
+    }
+  };
+
   // CSV Export function for Contact Search Results (currently unused)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleExportCsv = () => {
@@ -1083,6 +1143,7 @@ const ContactSearchPage: React.FC = () => {
   };
 
   return (
+    <>
     <SidebarProvider>
       <div className="flex min-h-screen w-full bg-[#FAFAFA] text-foreground font-sans">
         <AppSidebar />
@@ -1092,37 +1153,49 @@ const ContactSearchPage: React.FC = () => {
             title=""
             onJobTitleSuggestion={handleJobTitleSuggestion}
             rightContent={
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => navigate("/contact-search/templates")}
-                className="h-8 px-2.5 text-gray-600 hover:text-[#2563EB] hover:bg-blue-50 border-0 gap-1.5 font-medium text-sm"
-                data-tour="tour-templates-button"
-              >
-                <FileText className="h-4 w-4 text-[#2563EB]" />
-                <span className="hidden sm:inline whitespace-nowrap">
-                  {activeEmailTemplate && hasEmailTemplateValues(activeEmailTemplate)
-                    ? (() => {
-                        const p = activeEmailTemplate.purpose;
-                        const s = activeEmailTemplate.stylePreset;
-                        const purposeLabel = p ? (p.charAt(0).toUpperCase() + p.slice(1).replace(/_/g, " ")) : "";
-                        const styleLabel = s ? (s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ")) : "";
-                        return purposeLabel && styleLabel ? `${purposeLabel} · ${styleLabel}` : purposeLabel || styleLabel || "Template";
-                      })()
-                    : "Email template"}
-                </span>
-              </Button>
+              <>
+                <button
+                  onClick={() => navigate("/contact-search/templates")}
+                  className="hidden md:flex items-center gap-1 text-xs text-muted-foreground hover:text-primary cursor-pointer transition-colors"
+                >
+                  Using:&nbsp;<span className="font-semibold text-foreground">
+                    {activeEmailTemplate && hasEmailTemplateValues(activeEmailTemplate)
+                      ? (() => {
+                          if (activeEmailTemplate.name && activeEmailTemplate.name.trim()) return activeEmailTemplate.name.trim();
+                          const p = activeEmailTemplate.purpose;
+                          if (p === "networking") return "Networking";
+                          if (p === "referral") return "Referral Request";
+                          if (p === "follow_up") return "Follow-Up";
+                          if (p === "sales") return "Sales";
+                          if (p === "custom") return "Custom Template";
+                          if (p) return p.charAt(0).toUpperCase() + p.slice(1).replace(/_/g, " ");
+                          return "Networking";
+                        })()
+                      : "Networking"}
+                  </span>
+                </button>
+                <Button
+                  type="button"
+                  onClick={() => isElite ? navigate("/contact-search/templates") : setShowEliteGate(true)}
+                  className="h-9 px-5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold text-sm gap-2 shadow-sm hover:shadow-md hover:scale-[1.02] transition-all duration-150"
+                  data-tour="tour-templates-button"
+                >
+                  <FileText className="h-4 w-4 text-white" />
+                  <span className="hidden sm:inline whitespace-nowrap">
+                    Create Your Own Email Template
+                  </span>
+                </Button>
+              </>
             }
           />
 
-          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', padding: '48px 24px', paddingBottom: '96px' }}>
+          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }} className="px-3 py-6 pb-24 sm:px-6 sm:py-12 sm:pb-24">
             {/* Header Section - per-tab copy from FEATURE_DESCRIPTIONS */}
-            <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px' }}>
+            <div className="w-full px-3 py-6 sm:px-6 sm:py-12" style={{ maxWidth: '900px', margin: '0 auto' }}>
               <h1
+                className="text-[28px] sm:text-[42px]"
                 style={{
                   fontFamily: "'Instrument Serif', Georgia, serif",
-                  fontSize: '42px',
                   fontWeight: 400,
                   letterSpacing: '-0.025em',
                   color: '#0F172A',
@@ -1131,11 +1204,9 @@ const ContactSearchPage: React.FC = () => {
                   lineHeight: 1.1,
                 }}
               >
-                {activeTab === 'linkedin-email' && 'Import from LinkedIn'}
-                {activeTab === 'contact-search' && 'Find People'}
-                {activeTab === 'import' && 'Find People'}
+                {(activeTab === 'contact-search' || activeTab === 'import') && 'Find People'}
                 {activeTab === 'contact-library' && 'Track Your Contacts'}
-                {!['linkedin-email', 'contact-search', 'import', 'contact-library'].includes(activeTab) && 'Find your next connection'}
+                {!['contact-search', 'import', 'contact-library'].includes(activeTab) && 'Find your next connection'}
               </h1>
               <p
                 style={{
@@ -1147,15 +1218,18 @@ const ContactSearchPage: React.FC = () => {
                   lineHeight: 1.5,
                 }}
               >
-                {activeTab === 'linkedin-email' && 'Paste a LinkedIn URL to instantly find their email, generate an email draft and save their details in a spreadsheet.'}
-                {(activeTab === 'contact-search' || activeTab === 'import') && 'Describe who you want to connect with (e.g. role, company, location). We\'ll find their emails and draft outreach for you.'}
+                {(activeTab === 'contact-search' || activeTab === 'import') && 'Search by name, role, or company — or paste a LinkedIn URL. We\'ll find their emails and draft outreach for you.'}
                 {activeTab === 'contact-library' && 'Everyone you find lands here. Update their status, open email drafts, and export to CSV.'}
-                {!['linkedin-email', 'contact-search', 'import', 'contact-library'].includes(activeTab) && 'Discover professionals who can open doors at your target companies.'}
+                {!['contact-search', 'import', 'contact-library'].includes(activeTab) && 'Discover professionals who can open doors at your target companies.'}
               </p>
+
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <VideoDemo videoId={activeTab === 'contact-library' ? 'n_AYHEJSXrE' : 'OTd5LOOpgvQ'} />
+              </div>
             </div>
 
             {/* Navigation Tabs */}
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '36px' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '36px' }} className="overflow-x-auto max-w-full scrollbar-hide">
               <div
                 style={{
                   display: 'inline-flex',
@@ -1163,12 +1237,10 @@ const ContactSearchPage: React.FC = () => {
                   background: '#F0F4FD',
                   borderRadius: '12px',
                   padding: '4px',
-                  margin: '0 auto',
                 }}
               >
                 {[
                   { id: 'contact-search', label: 'Search', icon: Search },
-                  { id: 'linkedin-email', label: 'LinkedIn', icon: Linkedin },
                   { id: 'import', label: 'Import', icon: Upload },
                   { id: 'contact-library', label: 'Tracker', icon: User },
                 ].map((tab) => (
@@ -1242,12 +1314,11 @@ const ContactSearchPage: React.FC = () => {
                       background: '#FFFFFF',
                       border: '1px solid rgba(37, 99, 235, 0.08)',
                       borderRadius: '14px',
-                      padding: '36px 40px',
                       maxWidth: '900px',
                       margin: '0 auto',
                       boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
                     }}
-                    className="overflow-hidden"
+                    className="overflow-hidden w-full px-4 py-5 sm:px-10 sm:py-9"
                   >
 
                     {/* Progress Bar (if searching) */}
@@ -1257,7 +1328,7 @@ const ContactSearchPage: React.FC = () => {
                       </div>
                     )}
 
-                    <div className="p-8 md:p-10 lg:p-12">
+                    <div className="p-4 sm:p-8 md:p-10 lg:p-12">
 
                       <input
                         type="file"
@@ -1296,48 +1367,67 @@ const ContactSearchPage: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Prompt search input - main interaction point */}
+                      {/* Unified search input */}
                       <div className="space-y-3 mb-6">
-                        <label className="text-sm font-semibold text-gray-700 ml-1">Who do you want to connect with?</label>
+                        <label className="text-sm font-semibold text-gray-700 ml-1">Tell us who you're looking for</label>
                         <div className="relative">
-                          <textarea
+                          <input
+                            type="text"
                             value={searchPrompt}
-                            onChange={(e) => setSearchPrompt(e.target.value)}
-                            placeholder="Describe who you want to connect with... e.g. &quot;Product managers at Google in NYC&quot;"
-                            disabled={isSearching}
-                            rows={3}
-                            className="w-full px-5 py-4 text-base bg-white border border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 resize-none transition-all duration-150 shadow-sm shadow-gray-200/50 hover:border-gray-300 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 focus:outline-none"
+                            onChange={(e) => { setSearchPrompt(e.target.value); setLinkedInError(null); setLinkedInSuccess(null); }}
+                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
+                            placeholder="e.g. LinkedIn URL, job title, company, alma mater"
+                            disabled={isSearching || linkedInLoading}
+                            className="w-full h-12 px-5 text-base bg-white border border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 transition-all duration-150 shadow-sm shadow-gray-200/50 hover:border-gray-300 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 focus:outline-none"
                           />
                           {searchPrompt.trim() && (
-                            <CheckCircle className="absolute right-4 top-4 w-5 h-5 text-green-500" />
+                            <CheckCircle className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-green-500" />
                           )}
                         </div>
-                        {/* Example prompt chips */}
-                        <div className="flex flex-wrap gap-2">
-                          {examplePromptChips.map((chip) => (
-                            <button
-                              key={chip.id}
-                              type="button"
-                              onClick={() => {
-                                setSearchPrompt(chip.prompt);
-                                setSelectedExampleId(chip.id);
-                                setTimeout(() => setSelectedExampleId(null), 200);
-                              }}
-                              disabled={isSearching}
-                              className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all duration-150
-                                ${selectedExampleId === chip.id
-                                  ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                  : 'bg-gray-50/80 text-gray-600 border-gray-200 hover:bg-gray-100 hover:text-gray-800 hover:border-gray-300'
-                                }`}
-                            >
-                              {chip.label}
-                            </button>
-                          ))}
+                        {/* Mode indicator + example chips */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex flex-wrap gap-2">
+                            {examplePromptChips.map((chip) => (
+                              <button
+                                key={chip.id}
+                                type="button"
+                                onClick={() => {
+                                  setSearchPrompt(chip.prompt);
+                                  setSelectedExampleId(chip.id);
+                                  setTimeout(() => setSelectedExampleId(null), 200);
+                                }}
+                                disabled={isSearching || linkedInLoading}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all duration-150
+                                  ${selectedExampleId === chip.id
+                                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                    : 'bg-gray-50/80 text-gray-600 border-gray-200 hover:bg-gray-100 hover:text-gray-800 hover:border-gray-300'
+                                  }`}
+                              >
+                                {chip.isLinkedIn && <Linkedin className="h-3 w-3 mr-1 inline" />}
+                                {chip.label}
+                              </button>
+                            ))}
+                          </div>
+                          {isLinkedInUrl(searchPrompt) && (
+                            <span className="flex items-center gap-1 text-xs text-primary whitespace-nowrap ml-2">
+                              <Linkedin className="h-3 w-3" />
+                              LinkedIn profile detected
+                            </span>
+                          )}
                         </div>
+
+                        {/* LinkedIn error/success inline */}
+                        {linkedInError && (
+                          <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                            {linkedInError}
+                          </div>
+                        )}
                       </div>
 
-                      {/* Quantity Selector - Slider */}
-                      <div className="bg-gray-50 border border-gray-200 rounded-xl px-6 py-5 mb-10">
+                      {/* Quantity Selector - only for search queries, not LinkedIn */}
+                      {!isLinkedInUrl(searchPrompt) && (
+                      <div className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-4 sm:px-6 sm:py-5 mb-10 w-full">
                         {/* Header row */}
                         <div className="flex items-center justify-between gap-4 mb-5">
                           <div>
@@ -1389,25 +1479,32 @@ const ContactSearchPage: React.FC = () => {
                           {getContactCountHelper(batchSize)}
                         </p>
                       </div>
+                      )}
 
                       {/* Action Button */}
                       <div className="flex flex-col items-center gap-4">
                         <Button
                           ref={originalButtonRef}
-                          onClick={handleSearch}
-                          disabled={isSearching}
+                          onClick={handleSubmit}
+                          disabled={isSearching || linkedInLoading}
                           className={`
                             h-14 px-12 rounded-full text-lg font-medium shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300
-                            ${isSearching
+                            ${isSearching || linkedInLoading
                               ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
                               : 'bg-blue-600 text-white hover:bg-blue-700 hover:scale-[1.02]'
                             }
                           `}
                         >
-                          {isSearching ? (
+                          {isSearching || linkedInLoading ? (
                             <div className="flex items-center gap-3">
                               <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
-                              <span>Searching...</span>
+                              <span>{linkedInLoading ? 'Importing...' : 'Searching...'}</span>
+                            </div>
+                          ) : isLinkedInUrl(searchPrompt) ? (
+                            <div className="flex items-center gap-2">
+                              <Linkedin className="w-5 h-5" />
+                              <span>Import from LinkedIn</span>
+                              <ArrowRight className="w-5 h-5" />
                             </div>
                           ) : (
                             <div className="flex items-center gap-2">
@@ -1417,20 +1514,66 @@ const ContactSearchPage: React.FC = () => {
                           )}
                         </Button>
 
-                        {/* Look in tracker - show after search completes with results */}
-                        {hasResults && !isSearching && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveTab('contact-library');
-                              setSearchParams({ tab: 'contact-library' }, { replace: true });
-                            }}
-                            className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-blue-600 transition-colors"
-                          >
-                            <User className="h-3.5 w-3.5" />
-                            View in tracker
-                            <ArrowRight className="h-3 w-3" />
-                          </button>
+                        {/* Search success state */}
+                        {hasResults && !isSearching && !linkedInSuccess && (
+                          <div ref={searchSuccessRef} className="flex flex-col items-center gap-3 animate-in fade-in slide-in-from-top-2">
+                            <div className="flex items-center gap-1.5 text-sm text-green-600">
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              <span>Found {lastResults.length} contacts. Gmail drafts created.</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <Button
+                                onClick={() => window.open('https://mail.google.com/mail/u/0/#drafts', '_blank')}
+                                className="h-11 px-6 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                                Open Gmail Drafts
+                              </Button>
+                              <Button
+                                variant="outline"
+                                onClick={() => {
+                                  setActiveTab('contact-library');
+                                  setSearchParams({ tab: 'contact-library' }, { replace: true });
+                                }}
+                                className="h-11 px-6 rounded-xl border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-300 font-medium transition-all flex items-center justify-center gap-2"
+                              >
+                                <User className="w-4 h-4" />
+                                View in Networking Tracker
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* LinkedIn import success state */}
+                        {linkedInSuccess && (
+                          <div className="flex flex-col items-center gap-3 animate-in fade-in slide-in-from-top-2">
+                            <div className="flex items-center gap-1.5 text-sm text-green-600">
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              <span>{linkedInSuccess}</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              {linkedInLastDraftUrl && (
+                                <Button
+                                  onClick={() => window.open(linkedInLastDraftUrl!, '_blank')}
+                                  className="h-11 px-6 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                                >
+                                  <ExternalLink className="w-4 h-4" />
+                                  Open Gmail Draft
+                                </Button>
+                              )}
+                              <Button
+                                variant="outline"
+                                onClick={() => {
+                                  setActiveTab('contact-library');
+                                  setSearchParams({ tab: 'contact-library' }, { replace: true });
+                                }}
+                                className="h-11 px-6 rounded-xl border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-300 font-medium transition-all flex items-center justify-center gap-2"
+                              >
+                                <User className="w-4 h-4" />
+                                View in Networking Tracker
+                              </Button>
+                            </div>
+                          </div>
                         )}
                       </div>
 
@@ -1488,80 +1631,6 @@ const ContactSearchPage: React.FC = () => {
                   />
                 </TabsContent>
 
-                <TabsContent value="linkedin-email" className="mt-6">
-                  <div 
-                    data-tour="tour-linkedin-input"
-                    style={{
-                      background: '#FFFFFF',
-                      border: '1px solid rgba(37, 99, 235, 0.08)',
-                      borderRadius: '14px',
-                      padding: '48px 40px',
-                      maxWidth: '900px',
-                      margin: '0 auto',
-                      boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
-                      textAlign: 'center',
-                    }}
-                    className="overflow-hidden"
-                  >
-                    <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                      <Linkedin className="w-8 h-8 text-blue-600" />
-                    </div>
-                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Import from LinkedIn</h2>
-                    <p className="text-gray-500 mb-8 max-w-md mx-auto">
-                      Paste a LinkedIn URL to instantly find their email, generate an email draft and save their details in a spreadsheet.
-                    </p>
-
-                    <div className="max-w-xl mx-auto">
-                      <div className="flex gap-3">
-                        <div className="relative flex-1">
-                          <div className="absolute left-4 top-1/2 -translate-y-1/2">
-                            <Linkedin className="w-5 h-5 text-gray-400" />
-                          </div>
-                          <input
-                            type="text"
-                            placeholder="https://linkedin.com/in/username"
-                            value={linkedInUrl}
-                            onChange={(e) => setLinkedInUrl(e.target.value)}
-                            className="w-full h-12 pl-12 pr-4 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all outline-none"
-                          />
-                        </div>
-                        <Button
-                          onClick={handleLinkedInImport}
-                          disabled={linkedInLoading || !linkedInUrl.trim()}
-                          className="h-12 px-8 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-md hover:shadow-lg transition-all"
-                        >
-                          {linkedInLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Import'}
-                        </Button>
-                      </div>
-
-                      {linkedInError && (
-                        <div className="mt-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg flex items-center gap-2 justify-center">
-                          <AlertCircle className="w-4 h-4" />
-                          {linkedInError}
-                        </div>
-                      )}
-
-                      {linkedInSuccess && (
-                        <div className="mt-4 animate-in fade-in slide-in-from-top-2">
-                          <div className="p-3 bg-green-50 text-green-700 text-sm rounded-lg flex items-center gap-2 justify-center">
-                            <CheckCircle className="w-4 h-4 flex-shrink-0" />
-                            {linkedInSuccess}
-                          </div>
-                          {linkedInLastDraftUrl && (
-                            <Button
-                              onClick={() => window.open(linkedInLastDraftUrl!, '_blank')}
-                              className="mt-3 w-full sm:w-auto h-11 px-6 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
-                            >
-                              <ExternalLink className="w-4 h-4" />
-                              Open Gmail Draft
-                            </Button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </TabsContent>
-
                 <TabsContent value="contact-library" className="mt-6">
                   <div 
                     data-tour="tour-tracker-table"
@@ -1569,13 +1638,12 @@ const ContactSearchPage: React.FC = () => {
                       background: '#FFFFFF',
                       border: '1px solid rgba(37, 99, 235, 0.08)',
                       borderRadius: '14px',
-                      padding: '36px 40px',
                       maxWidth: '900px',
                       margin: '0 auto',
                       boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
                       minHeight: '600px',
                     }}
-                    className="overflow-hidden"
+                    className="overflow-hidden w-full px-4 py-5 sm:px-10 sm:py-9"
                   >
                     <ContactDirectoryComponent />
                   </div>
@@ -1590,16 +1658,21 @@ const ContactSearchPage: React.FC = () => {
         {activeTab === 'contact-search' && (
           <StickyCTA
             originalButtonRef={originalButtonRef}
-            onClick={handleSearch}
-            isLoading={isSearching}
-            disabled={isSearching || !searchPrompt.trim() || !user}
+            onClick={handleSubmit}
+            isLoading={isSearching || linkedInLoading}
+            disabled={isSearching || linkedInLoading || !searchPrompt.trim() || !user}
             buttonClassName="rounded-full"
           >
-            <span>Discover Contacts</span>
+            {isLinkedInUrl(searchPrompt)
+              ? <span className="flex items-center gap-2"><Linkedin className="w-4 h-4" />Import from LinkedIn</span>
+              : <span>Discover Contacts</span>
+            }
           </StickyCTA>
         )}
       </div>
     </SidebarProvider>
+    <EliteGateModal open={showEliteGate} onClose={() => setShowEliteGate(false)} />
+    </>
   );
 
 };

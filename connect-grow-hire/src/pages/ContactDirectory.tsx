@@ -16,11 +16,11 @@ const ContactDirectory: React.FC = () => {
           
           <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }} className="networking-tracker-page">
             {/* Page Header Container */}
-            <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px' }} className="networking-tracker-container">
+            <div className="w-full px-3 py-6 sm:px-6 sm:py-12 networking-tracker-container" style={{ maxWidth: '900px', margin: '0 auto' }}>
               <h1
+                className="text-[28px] sm:text-[42px] networking-tracker-title"
                 style={{
                   fontFamily: "'Instrument Serif', Georgia, serif",
-                  fontSize: '42px',
                   fontWeight: 400,
                   letterSpacing: '-0.025em',
                   color: '#0F172A',
@@ -28,7 +28,6 @@ const ContactDirectory: React.FC = () => {
                   marginBottom: '10px',
                   lineHeight: 1.1,
                 }}
-                className="networking-tracker-title"
               >
                 Networking Tracker
               </h1>

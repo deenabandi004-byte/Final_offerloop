@@ -10,6 +10,8 @@ import {
   ClipboardList, FolderOpen, ArrowRight, ChevronDown
 } from "lucide-react";
 import { UpgradeBanner } from "@/components/UpgradeBanner";
+import { VideoDemo } from "@/components/VideoDemo";
+import { ProGate } from "@/components/ProGate";
 import { apiService } from "@/services/api";
 import type { InterviewPrep, InterviewPrepStatus } from "@/services/api";
 import { toast } from "@/hooks/use-toast";
@@ -567,15 +569,16 @@ const InterviewPrepPage: React.FC = () => {
         <MainContentWrapper>
           <AppHeader title="" />
 
+          <ProGate title="Interview Prep" description="Get company-specific behavioral questions, prep guides, and insider context tailored to your target role." videoId="q5ZPtmnZciE">
           <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
-            <div className="max-w-4xl mx-auto px-6 pt-10 pb-8">
+            <div className="max-w-4xl mx-auto px-3 py-6 sm:px-6 sm:py-12">
               
               {/* Header Section */}
-              <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px 0' }}>
+              <div className="w-full px-3 py-6 sm:px-6 sm:py-12 !pb-0" style={{ maxWidth: '900px', margin: '0 auto' }}>
                 <h1
+                  className="text-[28px] sm:text-[42px]"
                   style={{
                     fontFamily: "'Instrument Serif', Georgia, serif",
-                    fontSize: '42px',
                     fontWeight: 400,
                     letterSpacing: '-0.025em',
                     color: '#0F172A',
@@ -598,6 +601,9 @@ const InterviewPrepPage: React.FC = () => {
                 >
                   Paste a job posting URL and get a full interview guide with likely questions and a prep plan.
                 </p>
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  <VideoDemo videoId="q5ZPtmnZciE" />
+                </div>
               </div>
 
               {/* Pill-style Tabs */}
@@ -1246,8 +1252,9 @@ const InterviewPrepPage: React.FC = () => {
               </Tabs>
             </div>
           </main>
+          </ProGate>
         </MainContentWrapper>
-        
+
         {/* Sticky CTA - Only show on interview-prep tab */}
         {activeTab === 'interview-prep' && (
           <StickyCTA

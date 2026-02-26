@@ -338,13 +338,12 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
             background: '#FFFFFF',
             border: '1px solid rgba(37, 99, 235, 0.08)',
             borderRadius: '14px',
-            padding: '48px 40px',
             maxWidth: '900px',
             margin: '0 auto',
             boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
             textAlign: 'center',
           }}
-          className="overflow-hidden"
+          className="w-full px-4 py-5 sm:px-10 sm:py-9 overflow-hidden"
         >
           {/* Centered icon */}
           <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
@@ -480,10 +479,10 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
               </button>
               <span className="text-gray-300">·</span>
               <button 
-                onClick={() => onSwitchTab?.('linkedin-email')}
+                onClick={() => onSwitchTab?.('contact-search')}
                 className="text-gray-500 hover:text-blue-600 hover:underline transition-colors"
               >
-                Import from LinkedIn
+                Search or paste a LinkedIn URL
               </button>
             </div>
           </div>

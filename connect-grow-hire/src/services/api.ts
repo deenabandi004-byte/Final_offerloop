@@ -20,6 +20,18 @@ export interface EmailTemplate {
   purpose: string | null;
   stylePreset: string | null;
   customInstructions: string;
+  name?: string;
+  subject?: string;
+  savedTemplateId?: string;
+}
+
+/** A saved custom email template stored in Firestore subcollection */
+export interface SavedEmailTemplate {
+  id: string;
+  name: string;
+  subject: string;
+  body: string;
+  createdAt?: string;
 }
 
 export interface PresetOption {
@@ -33,7 +45,9 @@ export function hasEmailTemplateValues(t: EmailTemplate | null | undefined): boo
   if (!t) return false;
   return (t.purpose != null && t.purpose !== '') ||
     (t.stylePreset != null && t.stylePreset !== '') ||
-    (t.customInstructions != null && t.customInstructions.trim() !== '');
+    (t.customInstructions != null && t.customInstructions.trim() !== '') ||
+    (t.savedTemplateId != null && t.savedTemplateId !== '') ||
+    (t.name != null && t.name.trim() !== '');
 }
 
 export interface ContactSearchRequest {
@@ -1138,6 +1152,9 @@ class ApiService {
         purpose: template.purpose,
         stylePreset: template.stylePreset,
         customInstructions: template.customInstructions || '',
+        name: template.name || '',
+        subject: template.subject || '',
+        savedTemplateId: template.savedTemplateId || null,
       }),
     });
   }
@@ -1145,6 +1162,29 @@ class ApiService {
   async getEmailTemplatePresets(): Promise<{ styles: PresetOption[]; purposes: PresetOption[] }> {
     const headers = await this.getAuthHeaders();
     return this.makeRequest<{ styles: PresetOption[]; purposes: PresetOption[] }>('/email-template/presets', { method: 'GET', headers });
+  }
+
+  async getSavedEmailTemplates(): Promise<SavedEmailTemplate[]> {
+    const headers = await this.getAuthHeaders();
+    const res = await this.makeRequest<{ templates: SavedEmailTemplate[] }>('/email-template/saved', { method: 'GET', headers });
+    return res.templates;
+  }
+
+  async createSavedEmailTemplate(t: Omit<SavedEmailTemplate, 'id'> & { id?: string }): Promise<{ id: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ id: string }>('/email-template/saved', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(t),
+    });
+  }
+
+  async deleteSavedEmailTemplate(id: string): Promise<{ success: boolean }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ success: boolean }>(`/email-template/saved/${id}`, {
+      method: 'DELETE',
+      headers,
+    });
   }
 
   // ---- Deprecated shims ----

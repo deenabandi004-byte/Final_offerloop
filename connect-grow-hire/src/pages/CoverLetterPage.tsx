@@ -10,6 +10,7 @@ import { AppSidebar } from '@/components/AppSidebar';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { AppHeader } from '@/components/AppHeader';
 import { MainContentWrapper } from '@/components/MainContentWrapper';
+import { VideoDemo } from '@/components/VideoDemo';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { StickyCTA } from '@/components/StickyCTA';
@@ -515,14 +516,14 @@ export default function CoverLetterPage() {
           <AppHeader title="" />
 
           <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
-            <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px' }}>
+            <div className="w-full px-3 py-6 sm:px-6 sm:py-12" style={{ maxWidth: '900px', margin: '0 auto' }}>
               
               {/* Header Section */}
               <div>
                 <h1
+                  className="text-[28px] sm:text-[42px]"
                   style={{
                     fontFamily: "'Instrument Serif', Georgia, serif",
-                    fontSize: '42px',
                     fontWeight: 400,
                     letterSpacing: '-0.025em',
                     color: '#0F172A',
@@ -545,6 +546,9 @@ export default function CoverLetterPage() {
                 >
                   Generate personalized cover letters that make you stand out.
                 </p>
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  <VideoDemo videoId="VlHvxH44HCU" />
+                </div>
               </div>
 
               {/* Pill-style Tabs */}
@@ -790,12 +794,12 @@ export default function CoverLetterPage() {
                             <button
                               ref={originalButtonRef}
                               onClick={handleGenerate}
-                              disabled={!canGenerate || isGenerating}
+                              disabled={!canGenerate || isGenerating || (user?.credits ?? 0) === 0}
                               className={`
                                 w-full py-4 rounded-xl font-semibold text-base
                                 flex items-center justify-center gap-3
                                 transition-all duration-200 transform
-                                ${!canGenerate || isGenerating
+                                ${!canGenerate || isGenerating || (user?.credits ?? 0) === 0
                                   ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
                                   : 'bg-blue-600 text-white shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-100'
                                 }
@@ -807,6 +811,22 @@ export default function CoverLetterPage() {
                               {isGenerating ? 'Generating...' : 'Generate Cover Letter'}
                               {!isGenerating && <span className="text-gray-400 font-normal">(5 credits)</span>}
                             </button>
+                            
+                            {/* Credit indicator */}
+                            <div className="mt-3 text-center">
+                              {(user?.credits ?? 0) === 0 ? (
+                                <div>
+                                  <p className="text-xs text-red-500">No credits remaining</p>
+                                  <button onClick={() => navigate('/pricing')} className="text-xs text-primary hover:underline mt-1">
+                                    Upgrade for more credits →
+                                  </button>
+                                </div>
+                              ) : (user?.credits ?? 0) < 50 ? (
+                                <p className="text-xs text-orange-500">⚠ {user?.credits} credits remaining</p>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">{user?.credits} credits remaining</p>
+                              )}
+                            </div>
                             
                             {/* Resume info */}
                             <div className="mt-4 flex items-center gap-3 p-3 bg-gray-50 rounded-xl">

@@ -12,6 +12,8 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { toast } from "@/hooks/use-toast";
 import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileTypes";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
+import { VideoDemo } from "@/components/VideoDemo";
+import { ProGate } from "@/components/ProGate";
 import { apiService, type Recruiter } from "@/services/api";
 import { StickyCTA } from "@/components/StickyCTA";
 import { firebaseApi, type Recruiter as FirebaseRecruiter } from "../services/firebaseApi";
@@ -414,15 +416,16 @@ const RecruiterSpreadsheetPage = () => {
         <MainContentWrapper>
           <AppHeader title="" />
 
-          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', padding: '48px 24px', paddingBottom: '96px' }}>
+          <ProGate title="Find Hiring Manager" description="Find the recruiters and hiring managers behind any job posting. Paste a URL and get direct contact info in seconds." videoId="TIERqtjc1tk">
+          <main className="px-3 py-6 sm:px-6 sm:py-12" style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
             <div>
 
               {/* Header Section */}
-              <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px 0' }}>
+              <div className="w-full px-3 py-6 sm:px-6 sm:py-12 !pb-0" style={{ maxWidth: '900px', margin: '0 auto' }}>
                 <h1
+                  className="text-[28px] sm:text-[42px]"
                   style={{
                     fontFamily: "'Instrument Serif', Georgia, serif",
-                    fontSize: '42px',
                     fontWeight: 400,
                     letterSpacing: '-0.025em',
                     color: '#0F172A',
@@ -445,6 +448,9 @@ const RecruiterSpreadsheetPage = () => {
                 >
                   Paste a job posting URL and we'll find the recruiters and hiring managers for that role.
                 </p>
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  <VideoDemo videoId="TIERqtjc1tk" />
+                </div>
               </div>
 
               {/* Navigation Tabs */}
@@ -811,6 +817,7 @@ const RecruiterSpreadsheetPage = () => {
               </div>
             </div>
           </main>
+          </ProGate>
         </MainContentWrapper>
 
         {/* Loading Modal */}

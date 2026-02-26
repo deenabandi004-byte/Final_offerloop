@@ -14,6 +14,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { apiService, OutboxThread, PipelineStage } from "@/services/api";
+import { VideoDemo } from "@/components/VideoDemo";
 import {
   Mail,
   Search,
@@ -498,6 +499,10 @@ export default function Outbox() {
                   >
                     Track your pipeline from draft to connection.
                   </p>
+
+                  <div style={{ display: 'flex', justifyContent: 'center' }}>
+                    <VideoDemo videoId="n_AYHEJSXrE" />
+                  </div>
 
                   {/* Tabs + search + sort (one row) */}
                   <div

@@ -7456,8 +7456,11 @@ def find_recruiter_endpoint():
                 if resume_url:
                     try:
                         resume_content, resume_filename = download_resume_from_url(resume_url)
+                        stored_filename = user_data.get('resumeFileName')
+                        if stored_filename:
+                            resume_filename = stored_filename
                         if resume_content:
-                            print(f"[FindRecruiter] Downloaded resume ({len(resume_content)} bytes) for {len(affordable_emails)} drafts")
+                            print(f"[FindRecruiter] Downloaded resume ({len(resume_content)} bytes, filename={resume_filename}) for {len(affordable_emails)} drafts")
                     except Exception as e:
                         print(f"[FindRecruiter] Failed to download resume: {e}")
                 
@@ -7474,23 +7477,23 @@ def find_recruiter_endpoint():
                             body_html = email_data.get("body", "")
                             body_plain = email_data.get("plain_body", "")
                             
-                            # Create MIME message
-                            message = MIMEMultipart('alternative')
+                            # Create MIME message (mixed for attachment support)
+                            message = MIMEMultipart('mixed')
                             message['to'] = to_email
                             message['subject'] = subject
                             
-                            # Add plain text and HTML parts
-                            part1 = MIMEText(body_plain, 'plain')
-                            part2 = MIMEText(body_html, 'html')
-                            message.attach(part1)
-                            message.attach(part2)
+                            # Add text/html alternative part
+                            alt = MIMEMultipart('alternative')
+                            alt.attach(MIMEText(body_plain, 'plain'))
+                            alt.attach(MIMEText(body_html, 'html'))
+                            message.attach(alt)
                             
                             # Add resume attachment if available
                             if resume_content and resume_filename:
-                                part = MIMEBase('application', 'octet-stream')
+                                part = MIMEBase('application', 'pdf')
                                 part.set_payload(resume_content)
                                 encoders.encode_base64(part)
-                                part.add_header('Content-Disposition', f'attachment; filename= {resume_filename}')
+                                part.add_header('Content-Disposition', f'attachment; filename="{resume_filename}"')
                                 message.attach(part)
                             
                             # Encode message
@@ -7799,8 +7802,11 @@ def find_hiring_manager_endpoint():
                 if resume_url:
                     try:
                         resume_content, resume_filename = download_resume_from_url(resume_url)
+                        stored_filename = user_data.get('resumeFileName')
+                        if stored_filename:
+                            resume_filename = stored_filename
                         if resume_content:
-                            print(f"[FindHiringManager] Downloaded resume ({len(resume_content)} bytes) for {len(affordable_emails)} drafts")
+                            print(f"[FindHiringManager] Downloaded resume ({len(resume_content)} bytes, filename={resume_filename}) for {len(affordable_emails)} drafts")
                     except Exception as e:
                         print(f"[FindHiringManager] Failed to download resume: {e}")
                 
@@ -7817,23 +7823,23 @@ def find_hiring_manager_endpoint():
                             body_html = email_data.get("body", "")
                             body_plain = email_data.get("plain_body", "")
                             
-                            # Create MIME message
-                            message = MIMEMultipart('alternative')
+                            # Create MIME message (mixed for attachment support)
+                            message = MIMEMultipart('mixed')
                             message['to'] = to_email
                             message['subject'] = subject
                             
-                            # Add plain text and HTML parts
-                            part1 = MIMEText(body_plain, 'plain')
-                            part2 = MIMEText(body_html, 'html')
-                            message.attach(part1)
-                            message.attach(part2)
+                            # Add text/html alternative part
+                            alt = MIMEMultipart('alternative')
+                            alt.attach(MIMEText(body_plain, 'plain'))
+                            alt.attach(MIMEText(body_html, 'html'))
+                            message.attach(alt)
                             
                             # Add resume attachment if available
                             if resume_content and resume_filename:
-                                part = MIMEBase('application', 'octet-stream')
+                                part = MIMEBase('application', 'pdf')
                                 part.set_payload(resume_content)
                                 encoders.encode_base64(part)
-                                part.add_header('Content-Disposition', f'attachment; filename= {resume_filename}')
+                                part.add_header('Content-Disposition', f'attachment; filename="{resume_filename}"')
                                 message.attach(part)
                             
                             # Encode message

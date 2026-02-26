@@ -25,15 +25,14 @@ export interface TourStepConfig {
   title: string;
   content: string;
   route: string;
-  tab?: 'linkedin-email' | 'contact-search' | 'contact-library';
+  tab?: 'contact-search' | 'contact-library';
 }
 
 // -----------------------------------------------------------------------------
 // Step list (order defines tour flow)
 // -----------------------------------------------------------------------------
 export const TOUR_STEPS: TourStepConfig[] = [
-  { target: '[data-tour="tour-linkedin-input"]', title: 'Import from LinkedIn', content: 'Paste a LinkedIn URL to instantly find their email, generate an email draft and save their details in a spreadsheet.', route: '/contact-search', tab: 'linkedin-email' },
-  { target: '[data-tour="tour-search-form"]', title: 'Search for Contacts', content: 'Enter a job title and location to discover professionals at your target companies. We\'ll find their emails and draft outreach for you.', route: '/contact-search', tab: 'contact-search' },
+  { target: '[data-tour="tour-search-form"]', title: 'Search or Import', content: 'Search by name, role, or company — or paste a LinkedIn URL to import a contact. We\'ll find their emails and draft outreach for you.', route: '/contact-search', tab: 'contact-search' },
   { target: '[data-tour="tour-templates"]', title: 'Customize Your Emails', content: 'Choose a purpose like networking or referral request, pick a tone like casual or professional, and add custom instructions. Set a default and every email you generate will match your style.', route: '/contact-search/templates' },
   { target: '[data-tour="tour-tracker-table"]', title: 'Track Your Contacts', content: 'Everyone you find lands here. Update their status, open email drafts, and export to CSV.', route: '/contact-search', tab: 'contact-library' },
   { target: '[data-tour="tour-find-companies"]', title: 'Find Companies', content: 'Describe the type of companies you\'re looking for in plain English and we\'ll find them for you.', route: '/firm-search' },

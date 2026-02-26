@@ -509,6 +509,7 @@ def import_contacts():
                         career_interests=career_interests,
                         fit_context=None,
                         email_template_purpose='networking',
+                        resume_filename=user_data_after.get('resumeFileName'),
                     )
                 except Exception as e:
                     print(f"[ContactImport] Email generation failed: {e}")
@@ -528,7 +529,11 @@ def import_contacts():
                 if resume_url:
                     try:
                         resume_content, resume_filename = download_resume_from_url(resume_url)
-                        resume_filename = resume_filename or user_data_after.get('resumeFileName') or 'resume.pdf'
+                        stored_filename = user_data_after.get('resumeFileName')
+                        if stored_filename:
+                            resume_filename = stored_filename
+                        elif not resume_filename:
+                            resume_filename = 'resume.pdf'
                     except Exception as e:
                         print(f"[ContactImport] Resume download failed: {e}")
                 

@@ -551,6 +551,7 @@ def import_from_linkedin():
                 career_interests=[],
                 fit_context=None,
                 email_template_purpose='networking',
+                resume_filename=user_data.get('resumeFileName') if user_data else None,
             )
             
             print(f"[LinkedInImport]   - Email generation result: {bool(email_results)}")
@@ -583,7 +584,11 @@ def import_from_linkedin():
                             try:
                                 resume_content, resume_filename = download_resume_from_url(resume_url)
                                 if resume_content:
-                                    resume_filename = resume_filename or user_data.get('resumeFileName') or 'resume.pdf'
+                                    stored_filename = user_data.get('resumeFileName') if user_data else None
+                                    if stored_filename:
+                                        resume_filename = stored_filename
+                                    elif not resume_filename:
+                                        resume_filename = 'resume.pdf'
                                     print(f"[LinkedInImport]   - Resume will be attached: {resume_filename}")
                                 else:
                                     print(f"[LinkedInImport]   - Resume download failed - draft will be created without attachment")

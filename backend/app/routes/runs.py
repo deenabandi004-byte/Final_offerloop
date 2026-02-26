@@ -33,15 +33,17 @@ from email_templates import get_template_instructions
 def _resolve_email_template(email_template_override, user_id, db):
     """
     Resolve email template: request body override → user's saved default in Firestore → no injection.
-    Returns (template_instructions: str, purpose: str|None) for use in batch_generate_emails.
+    Returns (template_instructions: str, purpose: str|None, subject_line: str|None).
     """
     purpose = None
     style_preset = None
     custom_instructions = ""
+    subject_line = None
     if email_template_override and isinstance(email_template_override, dict):
         purpose = email_template_override.get("purpose")
         style_preset = email_template_override.get("stylePreset")
         custom_instructions = (email_template_override.get("customInstructions") or "").strip()[:4000]
+        subject_line = (email_template_override.get("subject") or "").strip() or None
     elif user_id and db:
         try:
             user_doc = db.collection("users").document(user_id).get()
@@ -51,13 +53,14 @@ def _resolve_email_template(email_template_override, user_id, db):
                 purpose = t.get("purpose")
                 style_preset = t.get("stylePreset")
                 custom_instructions = (t.get("customInstructions") or "").strip()[:4000]
+                subject_line = (t.get("subject") or "").strip() or None
         except Exception:
             pass
     instructions = get_template_instructions(purpose=purpose, style_preset=style_preset, custom_instructions=custom_instructions)
-    print(f"[EmailTemplate] Resolved purpose={purpose!r}, style_preset={style_preset!r}, custom_len={len(custom_instructions)}, instructions_len={len(instructions)}")
+    print(f"[EmailTemplate] Resolved purpose={purpose!r}, style_preset={style_preset!r}, custom_len={len(custom_instructions)}, subject={subject_line!r}, instructions_len={len(instructions)}")
     if instructions:
         print(f"[EmailTemplate] Instructions preview: {instructions[:300]}...")
-    return instructions, purpose
+    return instructions, purpose, subject_line
 
 
 # =============================================================================
@@ -230,7 +233,15 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         
         # Resolve email template (request override → user default → none); db and user_id already in scope
         print(f"[EmailTemplate] free-run email_template from request: {email_template!r}")
-        template_instructions, email_template_purpose = _resolve_email_template(email_template, user_id, db)
+        template_instructions, email_template_purpose, template_subject_line = _resolve_email_template(email_template, user_id, db)
+
+        # Get resume filename for email body reference (file downloaded later for attachment)
+        user_resume_filename = None
+        if user_data:
+            user_resume_filename = user_data.get('resumeFileName')
+            if user_resume_filename:
+                print(f"📎 Resume filename for email body: {user_resume_filename}")
+
         # Generate emails
         print(f"📧 Generating emails for {len(contacts)} contacts...")
         try:
@@ -239,6 +250,8 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                 fit_context=None,
                 template_instructions=template_instructions,
                 email_template_purpose=email_template_purpose,
+                resume_filename=user_resume_filename,
+                subject_line=template_subject_line,
             )
             print(f"📧 Email generation returned {len(email_results)} results")
         except Exception as email_gen_error:
@@ -284,29 +297,30 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                         'email_body': body,
                         'attach_resume': attach_resume,
                     })
-        # Get user resume URL and download once when template includes resume OR any email body mentions attached resume
+        # Always fetch user resume if available — attach to every draft
         resume_url = None
         resume_content = None
         resume_filename = None
-        should_fetch_resume = (email_template_purpose in PURPOSES_INCLUDE_RESUME) or any(item['attach_resume'] for item in contacts_with_emails)
-        if db and user_id and should_fetch_resume:
+        if db and user_id:
             try:
                 user_doc = db.collection('users').document(user_id).get()
                 if user_doc.exists:
-                    resume_url = user_doc.to_dict().get('resumeUrl')
-                    # Download resume once before the loop to avoid redundant fetches
+                    user_data_resume = user_doc.to_dict()
+                    resume_url = user_data_resume.get('resumeUrl')
                     if resume_url:
                         print(f"📎 Downloading resume once for all {len(contacts[:max_contacts])} contacts...")
                         resume_content, resume_filename = download_resume_from_url(resume_url)
+                        stored_filename = user_data_resume.get('resumeFileName')
+                        if stored_filename:
+                            resume_filename = stored_filename
                         if resume_content:
-                            print(f"✅ Resume downloaded successfully ({len(resume_content)} bytes) - will reuse for all drafts")
+                            print(f"✅ Resume downloaded successfully ({len(resume_content)} bytes, filename={resume_filename}) - will reuse for all drafts")
                         else:
                             print(f"⚠️ Failed to download resume - drafts will be created without attachment")
+                    else:
+                        print(f"📎 No resumeUrl in user account - drafts without attachment")
             except Exception as e:
                 print(f"⚠️ Error getting/downloading resume: {e}")
-                pass
-        elif email_template_purpose and email_template_purpose not in PURPOSES_INCLUDE_RESUME and not any(item['attach_resume'] for item in contacts_with_emails):
-            print(f"📎 Skipping resume attachment for template purpose={email_template_purpose!r}")
 
         # Create drafts if Gmail connected
         successful_drafts = 0
@@ -630,7 +644,15 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         
         # Resolve email template (request override → user default → none)
         print(f"[EmailTemplate] pro-run email_template from request: {email_template!r}")
-        template_instructions, email_template_purpose = _resolve_email_template(email_template, user_id, db)
+        template_instructions, email_template_purpose, template_subject_line = _resolve_email_template(email_template, user_id, db)
+
+        # Get resume filename for email body reference
+        user_resume_filename = None
+        if user_data:
+            user_resume_filename = user_data.get('resumeFileName')
+            if user_resume_filename:
+                print(f"📎 Resume filename for email body: {user_resume_filename}")
+
         # Generate emails with pre-parsed user_info
         print(f"📧 Generating emails for {len(contacts)} contacts...")
         try:
@@ -644,6 +666,8 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                 pre_parsed_user_info=user_info,  # Pass pre-parsed info
                 template_instructions=template_instructions,
                 email_template_purpose=email_template_purpose,
+                resume_filename=user_resume_filename,
+                subject_line=template_subject_line,
             )
             print(f"📧 Email generation returned {len(email_results)} results")
         except Exception as email_gen_error:
@@ -689,29 +713,30 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                         'email_body': body,
                         'attach_resume': attach_resume,
                     })
-        # Get user resume URL and download once when template includes resume OR any email body mentions attached resume
+        # Always fetch user resume if available — attach to every draft
         resume_url = None
         resume_content = None
         resume_filename = None
-        should_fetch_resume = (email_template_purpose in PURPOSES_INCLUDE_RESUME) or any(item['attach_resume'] for item in contacts_with_emails)
-        if db and user_id and should_fetch_resume:
+        if db and user_id:
             try:
                 user_doc = db.collection('users').document(user_id).get()
                 if user_doc.exists:
-                    resume_url = user_doc.to_dict().get('resumeUrl')
-                    # Download resume once before the loop to avoid redundant fetches
+                    user_data_resume = user_doc.to_dict()
+                    resume_url = user_data_resume.get('resumeUrl')
                     if resume_url:
                         print(f"📎 Downloading resume once for all {len(contacts[:max_contacts])} contacts...")
                         resume_content, resume_filename = download_resume_from_url(resume_url)
+                        stored_filename = user_data_resume.get('resumeFileName')
+                        if stored_filename:
+                            resume_filename = stored_filename
                         if resume_content:
-                            print(f"✅ Resume downloaded successfully ({len(resume_content)} bytes) - will reuse for all drafts")
+                            print(f"✅ Resume downloaded successfully ({len(resume_content)} bytes, filename={resume_filename}) - will reuse for all drafts")
                         else:
                             print(f"⚠️ Failed to download resume - drafts will be created without attachment")
+                    else:
+                        print(f"📎 No resumeUrl in user account - drafts without attachment")
             except Exception as e:
                 print(f"⚠️ Error getting/downloading resume: {e}")
-                pass
-        elif email_template_purpose and email_template_purpose not in PURPOSES_INCLUDE_RESUME and not any(item['attach_resume'] for item in contacts_with_emails):
-            print(f"📎 Skipping resume attachment for template purpose={email_template_purpose!r}")
 
         # Create drafts
         successful_drafts = 0
@@ -1170,7 +1195,10 @@ def prompt_search():
             user_profile = {"name": "", "email": user_email or ""}
         career_interests = data.get("careerInterests") or (user_data or {}).get("careerInterests", [])
         resume_text = None
-        template_instructions, email_template_purpose = _resolve_email_template(data.get("emailTemplate"), user_id, db)
+        template_instructions, email_template_purpose, template_subject_line = _resolve_email_template(data.get("emailTemplate"), user_id, db)
+
+        # Get resume filename for email body reference
+        user_resume_filename = (user_data or {}).get("resumeFileName")
 
         try:
             email_results = batch_generate_emails(
@@ -1178,6 +1206,8 @@ def prompt_search():
                 fit_context=None,
                 template_instructions=template_instructions,
                 email_template_purpose=email_template_purpose,
+                resume_filename=user_resume_filename,
+                subject_line=template_subject_line,
             )
         except Exception as email_gen_error:
             print(f"❌ Email generation failed (prompt-search): {email_gen_error}")
@@ -1210,17 +1240,21 @@ def prompt_search():
                         "attach_resume": attach_resume,
                     })
 
+        # Always fetch user resume if available — attach to every draft
         resume_url = None
         resume_content = None
         resume_filename = None
-        should_fetch = (email_template_purpose in PURPOSES_INCLUDE_RESUME) or any(item["attach_resume"] for item in contacts_with_emails)
-        if db and user_id and should_fetch:
+        if db and user_id:
             try:
                 user_doc = db.collection("users").document(user_id).get()
                 if user_doc.exists:
-                    resume_url = user_doc.to_dict().get("resumeUrl")
+                    user_data_resume = user_doc.to_dict()
+                    resume_url = user_data_resume.get("resumeUrl")
                     if resume_url:
                         resume_content, resume_filename = download_resume_from_url(resume_url)
+                        stored_filename = user_data_resume.get("resumeFileName")
+                        if stored_filename:
+                            resume_filename = stored_filename
             except Exception:
                 pass
 

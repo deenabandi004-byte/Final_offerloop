@@ -5,10 +5,11 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, ChevronRight, ChevronDown } from "lucide-react";
+import { ArrowLeft, ChevronRight, ChevronDown, X, LockKeyhole } from "lucide-react";
 import { apiService } from "@/services/api";
-import type { EmailTemplate, PresetOption } from "@/services/api";
+import type { EmailTemplate, PresetOption, SavedEmailTemplate } from "@/services/api";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
@@ -38,7 +39,6 @@ const PURPOSE_PILLS = [
 
 const CUSTOM_PURPOSE_ID = "custom";
 
-/** Returns preview body for a purpose key with sender name substituted. Fallback name: Deena. */
 function getPreview(key: string, firstName: string): string {
   const raw = PREVIEWS[key];
   if (!raw) return "";
@@ -49,13 +49,19 @@ function getPreview(key: string, firstName: string): string {
 export default function EmailTemplatesPage() {
   const navigate = useNavigate();
   const { user } = useFirebaseAuth();
+  const isElite = user?.tier === "elite";
   const firstName = (user?.name?.trim().split(/\s+/)[0] || "Deena").trim() || "Deena";
   const [savedTemplate, setSavedTemplate] = useState<EmailTemplate | null>(null);
   const [presets, setPresets] = useState<{ styles: PresetOption[]; purposes: PresetOption[] } | null>(null);
   const [purpose, setPurpose] = useState<string | null>("networking");
   const [customInstructions, setCustomInstructions] = useState("");
+  const [templateName, setTemplateName] = useState("");
+  const [subjectLine, setSubjectLine] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [savedCustomTemplates, setSavedCustomTemplates] = useState<SavedEmailTemplate[]>([]);
+  const [activeSavedTemplateId, setActiveSavedTemplateId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const effectivePurpose = purpose === CUSTOM_PURPOSE_ID ? "custom" : purpose;
 
@@ -63,19 +69,37 @@ export default function EmailTemplatesPage() {
     Promise.all([
       apiService.getEmailTemplate(),
       apiService.getEmailTemplatePresets(),
+      apiService.getSavedEmailTemplates(),
     ])
-      .then(([template, presetsData]) => {
+      .then(([template, presetsData, saved]) => {
         setSavedTemplate({
           purpose: template.purpose ?? null,
           stylePreset: template.stylePreset ?? null,
           customInstructions: template.customInstructions ?? "",
+          name: template.name,
+          subject: template.subject,
+          savedTemplateId: template.savedTemplateId,
         });
         setPresets(presetsData);
-        const t = template;
-        const p = t.purpose;
+        setSavedCustomTemplates(saved);
+        const p = template.purpose;
         if (p === "custom") {
           setPurpose(CUSTOM_PURPOSE_ID);
-          setCustomInstructions(t.customInstructions || "");
+          setCustomInstructions(template.customInstructions || "");
+          setTemplateName(template.name || "");
+          setSubjectLine(template.subject || "");
+          setActiveSavedTemplateId(template.savedTemplateId || null);
+        } else if (template.savedTemplateId) {
+          const match = saved.find((s) => s.id === template.savedTemplateId);
+          if (match) {
+            setPurpose(CUSTOM_PURPOSE_ID);
+            setTemplateName(match.name);
+            setSubjectLine(match.subject);
+            setCustomInstructions(match.body);
+            setActiveSavedTemplateId(match.id);
+          } else {
+            setPurpose(p || "networking");
+          }
         } else {
           setPurpose(p || "networking");
           setCustomInstructions("");
@@ -91,25 +115,104 @@ export default function EmailTemplatesPage() {
       purpose: effectivePurpose,
       stylePreset: null,
       customInstructions: custom,
+      name: templateName.trim(),
+      subject: subjectLine.trim(),
+      savedTemplateId: activeSavedTemplateId || undefined,
     };
   };
 
   const handleReset = () => {
     setPurpose("networking");
     setCustomInstructions("");
+    setTemplateName("");
+    setSubjectLine("");
+    setActiveSavedTemplateId(null);
   };
 
   const handlePurposeClick = (id: string) => {
     setPurpose(id);
+    setActiveSavedTemplateId(null);
+    setTemplateName("");
+    setSubjectLine("");
+    setCustomInstructions("");
   };
 
-  const expandCreateYourOwn = () => setPurpose(CUSTOM_PURPOSE_ID);
+  const handleSavedTemplateClick = (t: SavedEmailTemplate) => {
+    setPurpose(CUSTOM_PURPOSE_ID);
+    setTemplateName(t.name);
+    setSubjectLine(t.subject);
+    setCustomInstructions(t.body);
+    setActiveSavedTemplateId(t.id);
+  };
+
+  const expandCreateYourOwn = () => {
+    setPurpose(CUSTOM_PURPOSE_ID);
+    setActiveSavedTemplateId(null);
+    setTemplateName("");
+    setSubjectLine("");
+    setCustomInstructions("");
+  };
+
+  const handleDeleteSavedTemplate = async (id: string) => {
+    if (deletingId) return;
+    setDeletingId(id);
+    try {
+      await apiService.deleteSavedEmailTemplate(id);
+      setSavedCustomTemplates((prev) => prev.filter((t) => t.id !== id));
+      if (activeSavedTemplateId === id) {
+        setActiveSavedTemplateId(null);
+        setTemplateName("");
+        setSubjectLine("");
+        setCustomInstructions("");
+        setPurpose("networking");
+      }
+      toast({ title: "Deleted", description: "Custom template removed." });
+    } catch {
+      toast({ title: "Failed", description: "Could not delete template.", variant: "destructive" });
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const handleSaveAsDefault = async () => {
+    if (purpose === CUSTOM_PURPOSE_ID && !templateName.trim()) {
+      toast({ title: "Name required", description: "Please enter a template name before saving.", variant: "destructive" });
+      return;
+    }
     setIsSaving(true);
     try {
-      await apiService.saveEmailTemplate(buildTemplate());
-      setSavedTemplate(buildTemplate());
+      let savedId = activeSavedTemplateId;
+      if (purpose === CUSTOM_PURPOSE_ID) {
+        const res = await apiService.createSavedEmailTemplate({
+          id: activeSavedTemplateId || undefined,
+          name: templateName.trim(),
+          subject: subjectLine.trim(),
+          body: customInstructions.trim(),
+        });
+        savedId = res.id;
+        setActiveSavedTemplateId(savedId);
+
+        const newEntry: SavedEmailTemplate = {
+          id: savedId,
+          name: templateName.trim(),
+          subject: subjectLine.trim(),
+          body: customInstructions.trim(),
+        };
+        setSavedCustomTemplates((prev) => {
+          const idx = prev.findIndex((t) => t.id === savedId);
+          if (idx >= 0) {
+            const copy = [...prev];
+            copy[idx] = newEntry;
+            return copy;
+          }
+          return [newEntry, ...prev];
+        });
+      }
+
+      const template = buildTemplate();
+      template.savedTemplateId = savedId || undefined;
+      await apiService.saveEmailTemplate(template);
+      setSavedTemplate(template);
       toast({ title: "Saved", description: "Email template saved as your default." });
     } catch {
       toast({ title: "Failed to save", description: "Could not save template.", variant: "destructive" });
@@ -169,10 +272,9 @@ export default function EmailTemplatesPage() {
               </Button>
 
               <h1
-                className="text-[#0F172A] mb-2"
+                className="text-[#0F172A] mb-2 text-[28px] sm:text-[42px]"
                 style={{
                   fontFamily: "'Instrument Serif', Georgia, serif",
-                  fontSize: "42px",
                   fontWeight: 400,
                   letterSpacing: "-0.025em",
                   lineHeight: 1.1,
@@ -191,7 +293,7 @@ export default function EmailTemplatesPage() {
                 This controls how your outreach emails are written. Pick what you're asking for and how you want it to sound — check the preview below to see exactly what you'll get.
               </p>
 
-              {/* Purpose — three preset pills only */}
+              {/* Purpose pills — defaults + saved custom templates */}
               <div className="mb-6">
                 <label className="text-sm font-semibold text-gray-700 ml-1 block mb-1.5">What kind of email?</label>
                 <div className="flex flex-wrap gap-2">
@@ -202,7 +304,7 @@ export default function EmailTemplatesPage() {
                       onClick={() => handlePurposeClick(pill.id)}
                       className={cn(
                         "px-4 py-2 text-xs font-medium rounded-full border transition-all duration-150",
-                        purpose === pill.id
+                        purpose === pill.id && !activeSavedTemplateId
                           ? "bg-blue-50 text-blue-700 border-blue-200 shadow-sm"
                           : "bg-gray-50 hover:bg-blue-50 text-gray-600 hover:text-blue-700 border-gray-200 hover:border-blue-200 hover:shadow-sm"
                       )}
@@ -211,15 +313,45 @@ export default function EmailTemplatesPage() {
                       {pill.id === "networking" && " (default)"}
                     </button>
                   ))}
+                  {isElite && savedCustomTemplates.map((t) => (
+                    <div key={t.id} className="relative group">
+                      <button
+                        type="button"
+                        onClick={() => handleSavedTemplateClick(t)}
+                        className={cn(
+                          "px-4 py-2 text-xs font-medium rounded-full border transition-all duration-150 pr-7",
+                          activeSavedTemplateId === t.id
+                            ? "bg-blue-50 text-blue-700 border-blue-200 shadow-sm"
+                            : "bg-gray-50 hover:bg-blue-50 text-gray-600 hover:text-blue-700 border-gray-200 hover:border-blue-200 hover:shadow-sm"
+                        )}
+                      >
+                        {t.name}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm(`Delete "${t.name}"?`)) {
+                            handleDeleteSavedTemplate(t.id);
+                          }
+                        }}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded-full hover:bg-red-100"
+                        aria-label={`Delete ${t.name}`}
+                      >
+                        <X className="h-3 w-3 text-red-500" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-                {hasPresetPurpose && PURPOSE_DESCRIPTIONS[purpose!] && (
+                {hasPresetPurpose && !activeSavedTemplateId && PURPOSE_DESCRIPTIONS[purpose!] && (
                   <p className="mt-1.5 ml-1 text-[13px] text-gray-500">
                     {PURPOSE_DESCRIPTIONS[purpose!]}
                   </p>
                 )}
               </div>
 
-              {/* Create Your Own Template — button-like card */}
+              {/* Create Your Own Template — expandable card (Elite only) */}
+              {isElite ? (
               <div
                 role="button"
                 tabIndex={0}
@@ -267,30 +399,59 @@ export default function EmailTemplatesPage() {
                 <div
                   className={cn(
                     "overflow-hidden transition-all duration-200 ease-out",
-                    isMakeYourOwn ? "max-h-[360px] opacity-100" : "max-h-0 opacity-0"
+                    isMakeYourOwn ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"
                   )}
                 >
                   <div
-                    className="mt-4 pt-4 border-t border-blue-200/60"
+                    className="mt-4 pt-4 border-t border-blue-200/60 space-y-4"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <p className="text-sm text-gray-600 leading-snug mb-3">
-                      Describe exactly what you want your emails to say — in plain English. Want to pitch your startup? Ask for an intro to their manager? Request a campus speaking slot? Just type it out.
-                    </p>
-                    <Textarea
-                      placeholder="e.g., Write a 3-sentence email pitching my startup to university career center directors and asking for a 15-minute demo call..."
-                      value={customInstructions}
-                      onChange={(e) => setCustomInstructions(e.target.value.slice(0, MAX_CUSTOM_LEN))}
-                      className="min-h-[72px] resize-y w-full bg-white/80 border border-blue-200/60 rounded-lg text-gray-900 placeholder:text-gray-500 focus:bg-white focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400"
-                      maxLength={MAX_CUSTOM_LEN}
-                      rows={3}
-                    />
-                    <p className="text-xs text-gray-500 text-right mt-1">
-                      {MAX_CUSTOM_LEN - customInstructions.length} characters left
-                    </p>
+                    <div>
+                      <label className="text-sm font-medium text-foreground block mb-1">Template Name</label>
+                      <Input
+                        placeholder="e.g., Startup Pitch, Informational Interview Request..."
+                        value={templateName}
+                        onChange={(e) => setTemplateName(e.target.value.slice(0, 200))}
+                        className="w-full bg-white/80 border border-blue-200/60 rounded-lg text-gray-900 placeholder:text-gray-500 focus:bg-white focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-foreground block mb-1">Email Subject Line</label>
+                      <Input
+                        placeholder="e.g., Quick question from a fellow USC Trojan"
+                        value={subjectLine}
+                        onChange={(e) => setSubjectLine(e.target.value.slice(0, 500))}
+                        className="w-full bg-white/80 border border-blue-200/60 rounded-lg text-gray-900 placeholder:text-gray-500 focus:bg-white focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400"
+                      />
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 leading-snug mb-2">
+                        Describe exactly what you want your emails to say — in plain English. Want to pitch your startup? Ask for an intro to their manager? Request a campus speaking slot? Just type it out.
+                      </p>
+                      <Textarea
+                        placeholder="e.g., Write a 3-sentence email pitching my startup to university career center directors and asking for a 15-minute demo call..."
+                        value={customInstructions}
+                        onChange={(e) => setCustomInstructions(e.target.value.slice(0, MAX_CUSTOM_LEN))}
+                        className="min-h-[72px] resize-y w-full bg-white/80 border border-blue-200/60 rounded-lg text-gray-900 placeholder:text-gray-500 focus:bg-white focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400"
+                        maxLength={MAX_CUSTOM_LEN}
+                        rows={3}
+                      />
+                      <p className="text-xs text-gray-500 text-right mt-1">
+                        {MAX_CUSTOM_LEN - customInstructions.length} characters left
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
+              ) : (
+              <div className="w-full rounded-lg border border-gray-200 bg-gray-50 py-4 px-5 mb-8 opacity-60 cursor-default">
+                <div className="flex items-center justify-center gap-2">
+                  <LockKeyhole className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <h3 className="text-xs font-medium text-gray-500">Create Your Own Template</h3>
+                  <span className="text-xs text-muted-foreground">Elite · Free trial available</span>
+                </div>
+              </div>
+              )}
 
               {/* Actions */}
               <div className="flex flex-wrap items-center gap-4 mb-8">
@@ -305,11 +466,11 @@ export default function EmailTemplatesPage() {
                   Apply to this search
                 </Button>
                 <Button onClick={handleSaveAsDefault} disabled={isSaving} className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white">
-                  {isSaving ? "Saving…" : "Save as default"}
+                  {isSaving ? "Saving…" : isMakeYourOwn ? "Save Template" : "Save as default"}
                 </Button>
               </div>
 
-              {/* Preview — preset: sample body; Make Your Own: instruction note */}
+              {/* Preview */}
               <div className="border-l-4 border-blue-200 bg-gray-50/80 rounded-r-xl py-4 pl-5 pr-4">
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Preview</p>
                 {isMakeYourOwn ? (

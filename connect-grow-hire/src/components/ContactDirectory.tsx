@@ -776,7 +776,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
                   <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
                     LinkedIn
                   </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
                     Email
                   </th>
                   <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
@@ -866,7 +866,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
                       {/* Email */}
                       <td className="px-4 py-3 whitespace-nowrap">
                         {contact.email ? (
-                          <span className="text-sm text-gray-700 truncate max-w-[180px] block">{contact.email}</span>
+                          <span className="text-sm text-gray-700">{contact.email}</span>
                         ) : (
                           <span className="text-gray-300">—</span>
                         )}

@@ -24,6 +24,8 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { UpgradeBanner } from "@/components/UpgradeBanner";
+import { VideoDemo } from "@/components/VideoDemo";
+import { ProGate } from "@/components/ProGate";
 import { apiService } from "@/services/api";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import type { CoffeeChatPrep, CoffeeChatPrepStatus } from "@/services/api";
@@ -564,15 +566,16 @@ const CoffeeChatPrepPage: React.FC = () => {
         <MainContentWrapper>
           <AppHeader title="" />
 
+          <ProGate title="Coffee Chat Prep" description="Get AI-generated talking points, background research, and conversation starters for any professional — just paste their LinkedIn." videoId="D1--4aVisho">
           <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }}>
-            <div className="max-w-4xl mx-auto px-6 pt-10 pb-8">
+            <div className="max-w-4xl mx-auto px-3 py-6 sm:px-6 sm:py-12">
               
               {/* Header Section */}
-              <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px 0' }}>
+              <div className="w-full px-3 py-6 sm:px-6 sm:py-12 !pb-0" style={{ maxWidth: '900px', margin: '0 auto' }}>
                 <h1
+                  className="text-[28px] sm:text-[42px]"
                   style={{
                     fontFamily: "'Instrument Serif', Georgia, serif",
-                    fontSize: '42px',
                     fontWeight: 400,
                     letterSpacing: '-0.025em',
                     color: '#0F172A',
@@ -595,6 +598,9 @@ const CoffeeChatPrepPage: React.FC = () => {
                 >
                   Paste a LinkedIn URL and get a personalized prep sheet with talking points, recent news, and smart questions.
                 </p>
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  <VideoDemo videoId="D1--4aVisho" />
+                </div>
               </div>
 
               {/* Pill-style Tabs */}
@@ -1056,6 +1062,7 @@ const CoffeeChatPrepPage: React.FC = () => {
               </Tabs>
             </div>
           </main>
+          </ProGate>
         </MainContentWrapper>
       </div>
     </SidebarProvider>

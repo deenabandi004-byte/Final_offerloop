@@ -219,15 +219,7 @@ const navigationSections = [
     items: [
       { title: "Find People", url: "/contact-search", icon: FindPeopleIcon },
       { title: "Find Companies", url: "/firm-search", icon: FindCompaniesIcon, dataTour: "tour-find-companies" },
-      { title: "Find Hiring Managers", url: "/recruiter-spreadsheet", icon: FindHiringManagersIcon, dataTour: "tour-find-hiring-managers" },
-    ],
-  },
-  {
-    id: "prepare",
-    title: "PREPARE",
-    items: [
-      { title: "Coffee Chat Prep", url: "/coffee-chat-prep", icon: CoffeeChatIcon, dataTour: "tour-coffee-chat-prep" },
-      { title: "Interview Prep", url: "/interview-prep", icon: InterviewPrepIcon, dataTour: "tour-interview-prep" },
+      { title: "Find Hiring Managers", url: "/recruiter-spreadsheet", icon: FindHiringManagersIcon, dataTour: "tour-find-hiring-managers", proBadge: true },
     ],
   },
   {
@@ -236,6 +228,14 @@ const navigationSections = [
     items: [
       { title: "Resume", url: "/write/resume", icon: ResumeIcon, dataTour: "tour-resume" },
       { title: "Cover Letter", url: "/write/cover-letter", icon: CoverLetterIcon },
+    ],
+  },
+  {
+    id: "prepare",
+    title: "PREPARE",
+    items: [
+      { title: "Coffee Chat Prep", url: "/coffee-chat-prep", icon: CoffeeChatIcon, dataTour: "tour-coffee-chat-prep", proBadge: true },
+      { title: "Interview Prep", url: "/interview-prep", icon: InterviewPrepIcon, dataTour: "tour-interview-prep", proBadge: true },
     ],
   },
   {
@@ -513,7 +513,9 @@ export function AppSidebar() {
                 {/* Section Items */}
                 {(expandedSections.includes(section.id) || isCollapsed) && (
                   <div className={cn("mt-0.5", !isCollapsed && "ml-1")}>
-                    {section.items.map((item) => (
+                    {section.items.map((item) => {
+                      const showProBadge = !isCollapsed && (item as any).proBadge && (!user?.tier || user.tier === 'free');
+                      return (
                       <NavLink
                         key={item.title}
                         to={item.url}
@@ -551,8 +553,12 @@ export function AppSidebar() {
                           }}
                         />
                         {!isCollapsed && <span>{item.title}</span>}
+                        {showProBadge && (
+                          <span className="text-[10px] font-semibold text-primary bg-primary/10 rounded px-1.5 py-0.5 ml-auto">PRO</span>
+                        )}
                       </NavLink>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

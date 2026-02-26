@@ -197,28 +197,13 @@ export default function DocumentationPage() {
         <AppSidebar />
         <MainContentWrapper>
           <AppHeader title="" />
-          <main
-            className="min-w-0"
-            style={{
-              background: "#F8FAFF",
-              flex: 1,
-              overflowY: "auto",
-              overflowX: "hidden",
-              paddingBottom: "96px",
-            }}
-          >
-            <div className="min-w-0">
-              <div
-                style={{
-                  maxWidth: "900px",
-                  margin: "0 auto",
-                  padding: "48px 24px 0",
-                }}
-              >
+          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }}>
+            <div className="max-w-4xl mx-auto px-3 py-6 sm:px-6 sm:py-12">
+              <div style={{ maxWidth: '900px', margin: '0 auto' }}>
                 <h1
+                  className="text-[28px] sm:text-[42px]"
                   style={{
                     fontFamily: "'Instrument Serif', Georgia, serif",
-                    fontSize: "42px",
                     fontWeight: 400,
                     letterSpacing: "-0.025em",
                     color: "#0F172A",
@@ -243,10 +228,8 @@ export default function DocumentationPage() {
                 </p>
               </div>
 
-              <div style={{ padding: "0 24px" }}>
-                <VideoCarousel title="Features" videos={videoTutorials} />
-              </div>
-              <div style={{ padding: "36px 24px 0" }}>
+              <VideoCarousel title="Features" videos={videoTutorials} />
+              <div style={{ marginTop: '36px' }}>
                 <VideoCarousel title="Chrome Extension" videos={chromeExtensionVideos} />
               </div>
             </div>

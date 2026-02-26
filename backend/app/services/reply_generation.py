@@ -452,7 +452,7 @@ def build_template_prompt(context_block: str, template_instructions: str, requir
     return f"{context_block}\n\n{template_instructions.strip()}\n\n{requirements_block}"
 
 
-def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None, pre_parsed_user_info=None, template_instructions="", email_template_purpose=None):
+def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None, pre_parsed_user_info=None, template_instructions="", email_template_purpose=None, resume_filename=None, subject_line=None):
     """
     Generate all emails using the new compelling prompt template.
     
@@ -710,12 +710,15 @@ The sender is exploring broadly and building their network.
 """
         
         is_custom_purpose = email_template_purpose == "custom"
-        include_resume_in_prompt = email_template_purpose in PURPOSES_INCLUDE_RESUME
-        resume_line_section = """
+        include_resume_in_prompt = bool(resume_filename)
+        if resume_filename:
+            resume_line_section = f"""
 RESUME LINE (Third Paragraph - BEFORE signature):
-- "I've attached my resume below for context."
+- "I've included my resume ({resume_filename}) for your reference."
 
-""" if include_resume_in_prompt else ""
+"""
+        else:
+            resume_line_section = ""
 
         resume_rule_line = "6. Resume mention comes BEFORE the signature, not after\n7. " if include_resume_in_prompt else "6. "
         resume_do_not_line = "- Put resume mention after signature\n- " if include_resume_in_prompt else "- "
@@ -735,9 +738,12 @@ ABOUT THE SENDER:
 
 CONTACTS:
 {chr(10).join(contact_contexts)}"""
-            minimal_formatting = """
+            subject_instruction = ""
+            if subject_line:
+                subject_instruction = f'\n- Use this subject line pattern for all emails (personalize with recipient details): "{subject_line}"'
+            minimal_formatting = f"""
 ===== FORMATTING ONLY =====
-- Start each email with "Hi [FirstName],"
+- Start each email with "Hi [FirstName],"{subject_instruction}
 - Use proper grammar with apostrophes (I'm, I'd, you're, it's)
 - Use \\n\\n for paragraph breaks in JSON
 
@@ -800,7 +806,7 @@ Best,
 - Write "[your major]" or any placeholder text - always fill in actual values
 
 ===== SUBJECT LINES =====
-Make them conversational and specific:
+{f'Use this exact subject line pattern for all emails (personalize with [Company] or recipient details): "{subject_line}"' if subject_line else """Make them conversational and specific:
 - "Question about your work at [Company]"
 - "Curious about your journey at [Company]"
 - "Quick question from a [University] student"
@@ -811,7 +817,7 @@ NOT these generic ones:
 - "Networking request"
 - "Introduction"
 - "Coffee chat request"
-- "Hope to connect"
+- "Hope to connect\""""}
 
 ===== CRITICAL =====
 - If major is empty or "Not specified", write "I'm a [University] student" without mentioning major
@@ -973,50 +979,46 @@ Return ONLY valid JSON:
                     if anchor_found:
                         body = '\n'.join(cleaned_lines)
             
-            # Post-processing: Add resume line if appropriate (respect email template purpose: no resume for sales/follow_up/custom)
-            should_include_resume = (
-                email_template_purpose in PURPOSES_INCLUDE_RESUME
-                and (is_targeted_outreach or contact_strong_connections.get(idx, False))
-            )
-            if should_include_resume:
-                # Check if resume line already exists
+            # Post-processing: Add resume reference line when user has a resume file
+            if resume_filename:
                 has_resume_mention = email_body_mentions_resume(body)
                 
-                if not has_resume_mention:
-                    # Insert resume line before the sign-off
-                    # Find the sign-off (usually "Best," or "Best regards,")
+                if has_resume_mention:
+                    # Replace generic resume mention with one that references the actual filename
+                    for mention in RESUME_MENTIONS:
+                        for line in body.split('\n'):
+                            if mention in line.lower():
+                                body = body.replace(line, f"I've included my resume ({resume_filename}) for your reference.")
+                                break
+                        else:
+                            continue
+                        break
+                else:
                     sign_off_patterns = ["Best,", "Best regards,", "Thank you,", "Thanks,"]
-                    resume_line = "I've attached my resume below for context."
+                    resume_line = f"I've included my resume ({resume_filename}) for your reference."
                     
-                    # Try to insert before sign-off
                     inserted = False
                     for pattern in sign_off_patterns:
                         if pattern in body:
-                            # Insert before the sign-off
                             body = body.replace(pattern, f"{resume_line}\n\n{pattern}", 1)
                             inserted = True
                             break
                     
-                    # If no sign-off found, append before the last line (signature)
                     if not inserted:
                         lines = body.split('\n')
                         if len(lines) > 1:
-                            # Insert before last non-empty line (likely signature)
                             last_non_empty = len(lines) - 1
                             while last_non_empty > 0 and not lines[last_non_empty].strip():
                                 last_non_empty -= 1
                             lines.insert(last_non_empty, resume_line)
                             body = '\n'.join(lines)
                         else:
-                            # Fallback: append at end
                             body = f"{body}\n\n{resume_line}"
             else:
-                # Remove resume mentions only for purposes that explicitly omit resume (sales, follow_up).
-                # For "custom", leave body as-is so user's instructions (e.g. "mention my resume") are respected.
-                if email_template_purpose in ("sales", "follow_up"):
-                    lines = body.split('\n')
-                    filtered_lines = [line for line in lines if not any(m in line.lower() for m in RESUME_MENTIONS)]
-                    body = '\n'.join(filtered_lines)
+                # No resume — strip any AI-generated resume mentions so the email doesn't lie
+                lines = body.split('\n')
+                filtered_lines = [line for line in lines if not any(m in line.lower() for m in RESUME_MENTIONS)]
+                body = '\n'.join(filtered_lines)
                 
             # Validate email body - check for common malformed patterns
             malformed_patterns = [
