@@ -78,7 +78,7 @@ def google_extension_auth():
         picture = google_user.get('picture', '')
         google_sub = google_user.get('sub', '')
         
-        print(f'[Auth Extension] Google user verified: {email}')
+        print(f'[Auth Extension] Google user verified')
         
         # Step 2: Find or create Firebase user
         db = get_db()
@@ -89,10 +89,10 @@ def google_extension_auth():
             # Try to get user by email
             firebase_user = fb_auth.get_user_by_email(email)
             user_id = firebase_user.uid
-            print(f'[Auth Extension] Found existing Firebase user: {user_id}')
+            print(f'[Auth Extension] Found existing Firebase user')
         except fb_auth.UserNotFoundError:
             # User doesn't exist - create new user
-            print(f'[Auth Extension] Creating new Firebase user for: {email}')
+            print(f'[Auth Extension] Creating new Firebase user')
             
             try:
                 firebase_user = fb_auth.create_user(
@@ -102,7 +102,7 @@ def google_extension_auth():
                     email_verified=google_user.get('email_verified', False),
                 )
                 user_id = firebase_user.uid
-                print(f'[Auth Extension] Created Firebase user: {user_id}')
+                print(f'[Auth Extension] Created Firebase user')
             except Exception as create_error:
                 print(f'[Auth Extension] Error creating Firebase user: {create_error}')
                 return jsonify({'error': 'Failed to create user account'}), 500
@@ -116,7 +116,7 @@ def google_extension_auth():
         
         if not user_doc.exists:
             # Create user document in Firestore
-            print(f'[Auth Extension] Creating Firestore user document for: {user_id}')
+            print(f'[Auth Extension] Creating Firestore user document')
             tier = 'free'
             tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS['free'])
             
@@ -203,7 +203,7 @@ def google_extension_auth():
                 print(f'[Auth Extension] No ID token in exchange response: {exchange_data}')
                 return jsonify({'error': 'Failed to generate authentication token'}), 500
             
-            print(f'[Auth Extension] Successfully generated ID token for user: {user_id}')
+            print(f'[Auth Extension] Successfully generated ID token')
             
         except Exception as token_error:
             print(f'[Auth Extension] Error creating/exchanging token: {token_error}')

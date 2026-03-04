@@ -53,7 +53,7 @@ def create_checkout_session():
         success_url = f'{base_url}/payment-success?session_id={{CHECKOUT_SESSION_ID}}'
         cancel_url = f'{base_url}/pricing'
         
-        print(f"Creating checkout session: user_id={user_id}, email={user_email}, price_id={price_id}")
+        print(f"[Stripe] Creating checkout session: price_id={price_id}")
         print(f"Success URL: {success_url}")
         print(f"Cancel URL: {cancel_url}")
         
@@ -199,7 +199,7 @@ def handle_checkout_completed(session):
             tier = tier_from_metadata
 
         tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS['pro'])
-        print(f"✅ User {user_id} upgraded to {tier} (metadata={tier_from_metadata}, price_id={price_id})")
+        print(f"[Stripe] User upgraded to {tier} (metadata={tier_from_metadata}, price_id={price_id})")
 
         user_ref = db.collection('users').document(user_id)
         user_ref.update({
@@ -436,7 +436,7 @@ def update_subscription_tier():
             'updatedAt': datetime.now().isoformat()
         })
 
-        print(f"✅ User {user_id} upgraded subscription to {new_tier}")
+        print(f"[Stripe] User upgraded subscription to {new_tier}")
 
         return jsonify({
             'success': True,
@@ -507,7 +507,7 @@ def create_portal_session():
                 customer=customer_id,
                 return_url=return_url,
             )
-            print(f"✅ Created portal session for user {user_id}, customer {customer_id}")
+            print(f"[Stripe] Created portal session")
             return jsonify({'url': session.url})
         except stripe.error.StripeError as e:
             print(f"❌ Stripe error creating portal session: {e}")

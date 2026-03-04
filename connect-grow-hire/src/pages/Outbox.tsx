@@ -22,12 +22,19 @@ import {
   RefreshCw,
   Inbox,
   AlertCircle,
+  Loader2,
+  CheckSquare,
+  Square,
+  MinusSquare,
+  FileText,
+  Sparkles,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 /* ---------- Pipeline stage badge ---------- */
 
 const PIPELINE_LABEL: Record<string, string> = {
+  new: "New",
   draft_created: "Draft",
   email_sent: "Sent",
   waiting_on_reply: "Awaiting Reply",
@@ -40,6 +47,7 @@ const PIPELINE_LABEL: Record<string, string> = {
 };
 
 const PIPELINE_BADGE_CLASS: Record<string, string> = {
+  new: "bg-cyan-50 text-cyan-600 border-cyan-200",
   draft_created: "bg-slate-100 text-slate-600 border-slate-200",
   email_sent: "bg-blue-50 text-blue-600 border-blue-200",
   waiting_on_reply: "bg-amber-50 text-amber-600 border-amber-200",
@@ -69,6 +77,7 @@ function getPipelineLabel(stage: string | null | undefined): string {
 
 /** Stage badge inline styles for list/detail (design system). */
 const PIPELINE_BADGE_STYLES: Record<string, { background: string; color: string }> = {
+  new: { background: "#ECFEFF", color: "#0891B2" },
   draft_created: { background: "#F1F5F9", color: "#64748B" },
   email_sent: { background: "#EFF6FF", color: "#2563EB" },
   waiting_on_reply: { background: "#FFFBEB", color: "#D97706" },
@@ -91,8 +100,9 @@ function getPipelineBadgeClass(stage: string | null | undefined): string {
 }
 
 /* ---------- Journey steps (for detail panel visualization) ---------- */
-const JOURNEY_STAGES = ["draft_created", "email_sent", "waiting_on_reply", "replied", "meeting_scheduled", "connected"] as const;
+const JOURNEY_STAGES = ["new", "draft_created", "email_sent", "waiting_on_reply", "replied", "meeting_scheduled", "connected"] as const;
 const JOURNEY_LABELS: Record<string, string> = {
+  new: "New",
   draft_created: "Draft",
   email_sent: "Sent",
   waiting_on_reply: "Waiting",
@@ -103,10 +113,11 @@ const JOURNEY_LABELS: Record<string, string> = {
 
 /* ---------- Tab / filter ---------- */
 
-type TabId = "all" | "drafts" | "sent" | "replied" | "meeting" | "connected" | "no_response";
+type TabId = "all" | "new" | "drafts" | "sent" | "replied" | "meeting" | "connected" | "no_response";
 
 const TAB_STAGES: Record<TabId, (string | null)[] | null> = {
   all: null,
+  new: ["new"],
   drafts: ["draft_created"],
   sent: ["email_sent", "waiting_on_reply"],
   replied: ["replied"],
@@ -154,12 +165,34 @@ export default function Outbox() {
   const [selectedThread, setSelectedThread] = useState<OutboxThread | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<TabId>("all");
+  const [activeTab, setActiveTab] = useState<TabId>("new");
   const [sortBy, setSortBy] = useState<SortId>("recent_activity");
   const [generating, setGenerating] = useState(false);
   const [batchSyncing, setBatchSyncing] = useState(false);
+  const [stageMenuOpen, setStageMenuOpen] = useState(false);
+
+  // Multi-select state
+  const MAX_BATCH_SELECT = 15;
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isDrafting, setIsDrafting] = useState(false);
+  const [draftProgress, setDraftProgress] = useState<{ done: number; total: number } | null>(null);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [savedTemplates, setSavedTemplates] = useState<Array<{ id: string; name: string; purpose?: string; stylePreset?: string; customInstructions?: string; signoffPhrase?: string; signatureBlock?: string }>>([]);
+  const stageMenuRef = useRef<HTMLDivElement>(null);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const batchSyncDoneRef = useRef(false);
+
+  /* ---------- Close stage menu on click outside ---------- */
+  useEffect(() => {
+    if (!stageMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (stageMenuRef.current && !stageMenuRef.current.contains(e.target as Node)) {
+        setStageMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [stageMenuOpen]);
 
   /* ---------- Debounce search ---------- */
   useEffect(() => {
@@ -186,7 +219,10 @@ export default function Outbox() {
     staleTime: 30 * 1000,
   });
 
-  const threads = threadsData ?? [];
+  const threads = useMemo(
+    () => (threadsData ?? []).filter((t) => !t.duplicateOf),
+    [threadsData]
+  );
 
   const { data: statsData } = useQuery({
     queryKey: ["outbox-stats"],
@@ -385,6 +421,135 @@ export default function Outbox() {
     toast({ title: "Copied", description: "Reply text copied to clipboard." });
   };
 
+  // Multi-select handlers
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else if (next.size < MAX_BATCH_SELECT) {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (selectedIds.size > 0) {
+      // Deselect all
+      setSelectedIds(new Set());
+    } else {
+      // Select up to MAX_BATCH_SELECT from displayedThreads
+      const ids = displayedThreads.slice(0, MAX_BATCH_SELECT).map((t) => t.id);
+      setSelectedIds(new Set(ids));
+    }
+  };
+
+  const handleBatchDraft = async (emailTemplate?: Record<string, unknown>) => {
+    if (selectedIds.size === 0) return;
+    const selectedContacts = (threads ?? []).filter((t) => selectedIds.has(t.id));
+    if (selectedContacts.length === 0) return;
+
+    setIsDrafting(true);
+    setDraftProgress({ done: 0, total: selectedContacts.length });
+    setShowTemplatePicker(false);
+
+    try {
+      // Build contacts payload for the generate-and-draft endpoint
+      const contactsPayload = selectedContacts.map((t) => ({
+        FirstName: t.contactName?.split(" ")[0] || "",
+        LastName: t.contactName?.split(" ").slice(1).join(" ") || "",
+        Email: t.email,
+        Company: t.company,
+        Title: t.jobTitle,
+      }));
+
+      const { auth: fbAuth } = await import("../lib/firebase");
+      const idToken = await fbAuth.currentUser?.getIdToken(true);
+      if (!idToken) throw new Error("Not authenticated");
+      const authHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` };
+      const requestBody: Record<string, unknown> = {
+        contacts: contactsPayload,
+        resumeText: "",
+        userProfile: {},
+        careerInterests: [],
+      };
+      if (emailTemplate) {
+        requestBody.emailTemplate = emailTemplate;
+      }
+
+      // Fetch resume text from Firestore for better email quality
+      try {
+        const { doc, getDoc } = await import("firebase/firestore");
+        const { db } = await import("../lib/firebase");
+        if (fbAuth.currentUser) {
+          const userRef = doc(db, "users", fbAuth.currentUser.uid);
+          const snap = await getDoc(userRef);
+          if (snap.exists()) {
+            const data = snap.data();
+            requestBody.resumeText = data.resumeText || (data.resumeParsed ? JSON.stringify(data.resumeParsed) : "");
+          }
+        }
+      } catch {
+        // Non-critical
+      }
+
+      const API_BASE_URL = window.location.hostname === "localhost" ? "http://localhost:5001" : "https://www.offerloop.ai";
+      const res = await fetch(`${API_BASE_URL}/api/emails/generate-and-draft`, {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error((errData as any)?.error || `HTTP ${res.status}`);
+      }
+
+      const result = await res.json();
+      const draftCount = result.draft_count ?? 0;
+
+      setDraftProgress({ done: draftCount, total: selectedContacts.length });
+
+      // Refetch threads — contacts now have pipelineStage: "draft_created" set by the backend
+      await refetchThreads();
+      queryClient.invalidateQueries({ queryKey: ["outbox-stats"] });
+
+      toast({
+        title: "Drafts created!",
+        description: `Created ${draftCount} Gmail drafts. Check your Drafts tab.`,
+      });
+
+      setSelectedIds(new Set());
+    } catch (err: any) {
+      toast({
+        title: "Draft creation failed",
+        description: err?.message || "Something went wrong",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDrafting(false);
+      setDraftProgress(null);
+    }
+  };
+
+  const handleDraftWithTemplate = async () => {
+    // Load saved templates for the picker
+    try {
+      const result = await apiService.getEmailTemplate();
+      const defaultTpl = result ? [{ id: "__default__", name: result.name || "Default Template", purpose: result.purpose ?? undefined, stylePreset: result.stylePreset ?? undefined, customInstructions: result.customInstructions, signoffPhrase: result.signoffPhrase, signatureBlock: result.signatureBlock }] : [];
+      setSavedTemplates(defaultTpl);
+    } catch {
+      setSavedTemplates([]);
+    }
+    setShowTemplatePicker(true);
+  };
+
+  // Clear selection when switching tabs
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [activeTab]);
+
   const handleThreadClick = async (t: OutboxThread) => {
     setSelectedThread(t);
     if (t.hasUnreadReply) {
@@ -423,13 +588,15 @@ export default function Outbox() {
       stats != null && typeof stats.total === "number"
         ? tab === "all"
           ? stats.total
-          : tab === "drafts"
-            ? stats.draft_created ?? 0
-            : tab === "sent"
-              ? (stats.email_sent ?? 0) + (stats.waiting_on_reply ?? 0)
-              : tab === "replied"
-                ? stats.replied ?? 0
-                : tab === "meeting"
+          : tab === "new"
+            ? (stats as any).new ?? 0
+            : tab === "drafts"
+              ? stats.draft_created ?? 0
+              : tab === "sent"
+                ? (stats.email_sent ?? 0) + (stats.waiting_on_reply ?? 0)
+                : tab === "replied"
+                  ? stats.replied ?? 0
+                  : tab === "meeting"
                   ? stats.meeting_scheduled ?? 0
                   : tab === "connected"
                     ? stats.connected ?? 0
@@ -443,6 +610,7 @@ export default function Outbox() {
 
   const tabs: { id: TabId; label: string }[] = [
     { id: "all", label: "All" },
+    { id: "new", label: "New" },
     { id: "drafts", label: "Drafts" },
     { id: "sent", label: "Sent" },
     { id: "replied", label: "Replied" },
@@ -465,6 +633,7 @@ export default function Outbox() {
   .outbox-detail-panel::-webkit-scrollbar-track { background: transparent; }
   .outbox-detail-panel::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
   .outbox-detail-panel::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 `}</style>
       <SidebarProvider>
         <div className="flex min-h-screen w-full bg-white text-foreground">
@@ -630,7 +799,43 @@ export default function Outbox() {
                   >
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", minHeight: "calc(100vh - 260px)" }}>
                       {/* LEFT: Thread list — minWidth 0 so grid column can shrink; snippet can use full width */}
-                      <div className="outbox-thread-list" style={{ borderRight: "1px solid rgba(37, 99, 235, 0.06)", overflowY: "auto", overflowX: "hidden", maxHeight: "calc(100vh - 260px)", minWidth: 0 }}>
+                      <div className="outbox-thread-list" style={{ borderRight: "1px solid rgba(37, 99, 235, 0.06)", overflowY: "auto", overflowX: "hidden", maxHeight: "calc(100vh - 260px)", minWidth: 0, position: "relative" }}>
+                        {/* Select All header */}
+                        {!loading && !threadsError && displayedThreads.length > 0 && (
+                          <div style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            padding: "8px 20px",
+                            borderBottom: "1px solid #F1F5F9",
+                            background: "#FAFBFE",
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: "12px",
+                            color: "#64748B",
+                            position: "sticky",
+                            top: 0,
+                            zIndex: 5,
+                          }}>
+                            <button
+                              type="button"
+                              onClick={handleSelectAll}
+                              style={{ display: "flex", alignItems: "center", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                            >
+                              {selectedIds.size === 0 ? (
+                                <Square style={{ width: 16, height: 16, color: "#94A3B8" }} />
+                              ) : selectedIds.size >= displayedThreads.length || selectedIds.size >= MAX_BATCH_SELECT ? (
+                                <CheckSquare style={{ width: 16, height: 16, color: "#2563EB" }} />
+                              ) : (
+                                <MinusSquare style={{ width: 16, height: 16, color: "#2563EB" }} />
+                              )}
+                            </button>
+                            <span>
+                              {selectedIds.size > 0
+                                ? `Selected ${selectedIds.size}${displayedThreads.length > MAX_BATCH_SELECT ? ` of ${displayedThreads.length} (max ${MAX_BATCH_SELECT} per batch)` : ""}`
+                                : "Select contacts"}
+                            </span>
+                          </div>
+                        )}
                         {loading && (
                           <div style={{ padding: "40px 24px", textAlign: "center", fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: "13px", color: "#64748B" }}>
                             <p>Loading…</p>
@@ -710,6 +915,17 @@ export default function Outbox() {
                                 {(t.hasUnreadReply || t.status === "new_reply") && (
                                   <span style={{ position: "absolute", left: "6px", top: "22px", width: "6px", height: "6px", borderRadius: "50%", background: "#2563EB" }} />
                                 )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); toggleSelect(t.id); }}
+                                  style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, width: 20 }}
+                                >
+                                  {selectedIds.has(t.id) ? (
+                                    <CheckSquare style={{ width: 16, height: 16, color: "#2563EB" }} />
+                                  ) : (
+                                    <Square style={{ width: 16, height: 16, color: "#CBD5E1" }} />
+                                  )}
+                                </button>
                                 <div style={{
                                   width: 40,
                                   height: 40,
@@ -762,6 +978,157 @@ export default function Outbox() {
                               </div>
                             );
                           })}
+
+                        {/* Floating action bar */}
+                        {selectedIds.size > 0 && (
+                          <div style={{
+                            position: "sticky",
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            background: "linear-gradient(to top, #FFFFFF 80%, rgba(255,255,255,0.9))",
+                            borderTop: "1px solid #E2E8F0",
+                            padding: "12px 20px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: "8px",
+                            zIndex: 10,
+                            boxShadow: "0 -4px 12px rgba(0,0,0,0.06)",
+                          }}>
+                            <span style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: "13px", color: "#334155", fontWeight: 500 }}>
+                              {selectedIds.size} selected
+                            </span>
+                            <div style={{ display: "flex", gap: "8px" }}>
+                              <button
+                                type="button"
+                                onClick={() => handleBatchDraft()}
+                                disabled={isDrafting}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                  padding: "8px 16px",
+                                  borderRadius: "10px",
+                                  border: "none",
+                                  background: "#2563EB",
+                                  color: "white",
+                                  fontSize: "13px",
+                                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                                  fontWeight: 500,
+                                  cursor: isDrafting ? "not-allowed" : "pointer",
+                                  opacity: isDrafting ? 0.6 : 1,
+                                  boxShadow: "0 1px 3px rgba(37, 99, 235, 0.3)",
+                                  transition: "all 0.15s ease",
+                                }}
+                              >
+                                {isDrafting ? (
+                                  <Loader2 style={{ width: 14, height: 14, animation: "spin 1s linear infinite" }} />
+                                ) : (
+                                  <Sparkles style={{ width: 14, height: 14 }} />
+                                )}
+                                {isDrafting && draftProgress
+                                  ? `Drafting ${draftProgress.done}/${draftProgress.total}…`
+                                  : "Quick Draft"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleDraftWithTemplate}
+                                disabled={isDrafting}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                  padding: "8px 16px",
+                                  borderRadius: "10px",
+                                  border: "1px solid #E2E8F0",
+                                  background: "#FFF",
+                                  color: "#334155",
+                                  fontSize: "13px",
+                                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                                  fontWeight: 500,
+                                  cursor: isDrafting ? "not-allowed" : "pointer",
+                                  opacity: isDrafting ? 0.6 : 1,
+                                  boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+                                  transition: "all 0.15s ease",
+                                }}
+                              >
+                                <FileText style={{ width: 14, height: 14 }} />
+                                Draft with Template
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Template picker dropdown */}
+                        {showTemplatePicker && (
+                          <div style={{
+                            position: "sticky",
+                            bottom: selectedIds.size > 0 ? "60px" : 0,
+                            left: 0,
+                            right: 0,
+                            background: "#FFFFFF",
+                            borderTop: "1px solid #E2E8F0",
+                            padding: "12px 20px",
+                            zIndex: 11,
+                            boxShadow: "0 -4px 16px rgba(0,0,0,0.08)",
+                          }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+                              <span style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: "13px", fontWeight: 600, color: "#0F172A" }}>Choose a template</span>
+                              <button
+                                type="button"
+                                onClick={() => setShowTemplatePicker(false)}
+                                style={{ background: "none", border: "none", cursor: "pointer", fontSize: "16px", color: "#94A3B8", padding: "4px" }}
+                              >×</button>
+                            </div>
+                            {savedTemplates.length === 0 ? (
+                              <p style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: "12px", color: "#94A3B8", padding: "8px 0" }}>No templates found. Create one in Account Settings.</p>
+                            ) : (
+                              savedTemplates.map((tpl) => (
+                                <button
+                                  key={tpl.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setShowTemplatePicker(false);
+                                    handleBatchDraft({
+                                      purpose: tpl.purpose,
+                                      stylePreset: tpl.stylePreset,
+                                      customInstructions: tpl.customInstructions,
+                                      signoffPhrase: tpl.signoffPhrase,
+                                      signatureBlock: tpl.signatureBlock,
+                                    });
+                                  }}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "10px",
+                                    width: "100%",
+                                    padding: "10px 12px",
+                                    borderRadius: "8px",
+                                    border: "1px solid #E2E8F0",
+                                    background: "#FAFBFC",
+                                    cursor: "pointer",
+                                    fontFamily: "'DM Sans', system-ui, sans-serif",
+                                    fontSize: "13px",
+                                    color: "#334155",
+                                    fontWeight: 500,
+                                    marginBottom: "6px",
+                                    transition: "all 0.15s ease",
+                                    textAlign: "left",
+                                  }}
+                                  onMouseEnter={(e) => { e.currentTarget.style.background = "#EFF6FF"; e.currentTarget.style.borderColor = "#BFDBFE"; }}
+                                  onMouseLeave={(e) => { e.currentTarget.style.background = "#FAFBFC"; e.currentTarget.style.borderColor = "#E2E8F0"; }}
+                                >
+                                  <FileText style={{ width: 14, height: 14, color: "#2563EB", flexShrink: 0 }} />
+                                  <div>
+                                    <div>{tpl.name}</div>
+                                    {tpl.purpose && <div style={{ fontSize: "11px", color: "#94A3B8", marginTop: "2px" }}>{tpl.purpose}</div>}
+                                  </div>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {/* RIGHT: Detail panel */}
@@ -810,28 +1177,82 @@ export default function Outbox() {
                               <p style={{ fontSize: "13px", color: "#64748B", fontFamily: "'DM Sans', system-ui, sans-serif" }}>{selectedThread.jobTitle} at {selectedThread.company}</p>
                               <p style={{ fontSize: "12px", color: "#94A3B8", marginTop: "3px", fontFamily: "'DM Sans', system-ui, sans-serif" }}>{selectedThread.email}</p>
                             </div>
-                            <span
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "6px",
-                                padding: "5px 10px",
-                                fontSize: "12px",
-                                fontFamily: "'DM Sans', system-ui, sans-serif",
-                                fontWeight: 500,
-                                borderRadius: "10px",
-                                border: "1px solid #E2E8F0",
-                                background: getPipelineBadgeStyle(getDisplayStage(selectedThread)).background,
-                                color: getPipelineBadgeStyle(getDisplayStage(selectedThread)).color,
-                                flexShrink: 0,
-                                cursor: "default",
-                                transition: "all 0.15s ease",
-                                boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-                              }}
-                            >
-                              <span style={{ width: 6, height: 6, borderRadius: "50%", background: getPipelineBadgeStyle(getDisplayStage(selectedThread)).color }} />
-                              {getPipelineLabel(getDisplayStage(selectedThread))}
-                            </span>
+                            <div ref={stageMenuRef} style={{ position: "relative", flexShrink: 0 }}>
+                              <button
+                                type="button"
+                                onClick={() => setStageMenuOpen((o) => !o)}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                  padding: "5px 10px",
+                                  fontSize: "12px",
+                                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                                  fontWeight: 500,
+                                  borderRadius: "10px",
+                                  border: "1px solid #E2E8F0",
+                                  background: getPipelineBadgeStyle(getDisplayStage(selectedThread)).background,
+                                  color: getPipelineBadgeStyle(getDisplayStage(selectedThread)).color,
+                                  cursor: "pointer",
+                                  transition: "all 0.15s ease",
+                                  boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+                                }}
+                              >
+                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: getPipelineBadgeStyle(getDisplayStage(selectedThread)).color }} />
+                                {getPipelineLabel(getDisplayStage(selectedThread))}
+                                <span style={{ fontSize: "10px", marginLeft: "2px", opacity: 0.6 }}>&#9662;</span>
+                              </button>
+                              {stageMenuOpen && (
+                                <div style={{
+                                  position: "absolute",
+                                  top: "100%",
+                                  right: 0,
+                                  marginTop: "4px",
+                                  background: "#fff",
+                                  border: "1px solid #E2E8F0",
+                                  borderRadius: "10px",
+                                  boxShadow: "0 4px 16px rgba(0,0,0,0.10)",
+                                  zIndex: 50,
+                                  minWidth: "160px",
+                                  padding: "4px 0",
+                                }}>
+                                  {Object.entries(PIPELINE_LABEL).map(([key, label]) => {
+                                    const style = getPipelineBadgeStyle(key);
+                                    const isActive = getDisplayStage(selectedThread) === key;
+                                    return (
+                                      <button
+                                        key={key}
+                                        type="button"
+                                        onClick={() => {
+                                          setStageMenuOpen(false);
+                                          if (!isActive) handleStageChange(selectedThread.id, key as PipelineStage, label);
+                                        }}
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: "8px",
+                                          width: "100%",
+                                          padding: "8px 14px",
+                                          border: "none",
+                                          background: isActive ? "#F1F5F9" : "transparent",
+                                          cursor: isActive ? "default" : "pointer",
+                                          fontSize: "12px",
+                                          fontFamily: "'DM Sans', system-ui, sans-serif",
+                                          fontWeight: isActive ? 600 : 400,
+                                          color: style.color,
+                                          textAlign: "left",
+                                        }}
+                                        onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "#F8FAFC"; }}
+                                        onMouseLeave={(e) => { e.currentTarget.style.background = isActive ? "#F1F5F9" : "transparent"; }}
+                                      >
+                                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: style.color, flexShrink: 0 }} />
+                                        {label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
                           </div>
 
                           {/* 8c. Latest message */}

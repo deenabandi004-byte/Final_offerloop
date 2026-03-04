@@ -175,7 +175,7 @@ def require_firebase_auth(fn):
                 try:
                     decoded = fb_auth.verify_id_token(id_token, clock_skew_seconds=5)
                     request.firebase_user = decoded
-                    print(f"✅ Token verified for user: {decoded.get('uid')}")
+                    print("[Auth] Token verified")
                     break  # Success, exit retry loop
                 except ValueError as ve:
                     # Firebase Admin SDK not initialized error or invalid token format
@@ -371,10 +371,17 @@ def init_app_extensions(app: Flask):
         app=app,
         key_func=get_rate_limit_key,
         default_limits=["500 per day", "200 per hour"],
-        storage_uri="memory://",  # Use in-memory storage (can upgrade to Redis later)
+        storage_uri="memory://",
         strategy="fixed-window",
-        headers_enabled=True  # Include rate limit headers in response
+        headers_enabled=True
     )
+    # Replace in-memory storage with Firestore for persistence across workers/restarts
+    try:
+        from app.utils.firestore_limiter import FirestoreStorage
+        limiter._storage = FirestoreStorage()
+        print("[Extensions] Rate limiter using Firestore storage")
+    except Exception as e:
+        print(f"[Extensions] Firestore rate limiter unavailable, using in-memory: {e}")
     app.limiter = limiter
     
     # Check if we're in development mode
@@ -398,7 +405,6 @@ def init_app_extensions(app: Flask):
         "http://127.0.0.1:3000",      # React/Next.js default (IP variant)
         "http://localhost:8080",      # Other dev servers
         "http://127.0.0.1:8080",      # Other dev servers (IP variant)
-        "https://d33d83bb2e38.ngrok-free.app",  # Example ngrok URL
         "https://www.offerloop.ai",
         "https://offerloop.ai"
     ]
@@ -436,5 +442,12 @@ def init_app_extensions(app: Flask):
          },
          automatic_options=True,  # Explicitly enable automatic OPTIONS handling
          supports_credentials=True)
-    app.secret_key = os.getenv("FLASK_SECRET", "dev")
+    flask_secret = os.getenv("FLASK_SECRET")
+    is_production = os.getenv("FLASK_ENV") == "production" or os.getenv("RENDER")
+    if is_production and (not flask_secret or flask_secret == "dev"):
+        raise RuntimeError(
+            "FLASK_SECRET must be set to a secure random value in production. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+    app.secret_key = flask_secret or "dev"
     init_firebase(app)  # Initialize Firebase when extensions are initialized

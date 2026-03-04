@@ -227,6 +227,7 @@ const navigationSections = [
     title: "WRITE",
     items: [
       { title: "Resume", url: "/write/resume", icon: ResumeIcon, dataTour: "tour-resume" },
+      { title: "My Resume", url: "/my-resume", icon: ResumeIcon },
       { title: "Cover Letter", url: "/write/cover-letter", icon: CoverLetterIcon },
     ],
   },
@@ -246,7 +247,7 @@ const navigationSections = [
       { title: "Calendar", url: "/calendar", icon: CalendarIcon },
       { title: "Networking", url: "/contact-directory", icon: NetworkingIcon },
       { title: "Hiring Managers", url: "/hiring-manager-tracker", icon: FindHiringManagersIcon },
-      { title: "Companies", url: "/company-tracker", icon: TrackCompaniesIcon },
+      { title: "Companies", url: "/firm-search", icon: TrackCompaniesIcon },
     ],
   },
 ];

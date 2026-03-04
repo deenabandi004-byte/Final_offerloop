@@ -96,14 +96,14 @@ def verify_contacts_parallel(candidates, max_contacts, company):
                     if is_verified:
                         verified_results.append(result)
                         current_verified = len(verified_results)
-                        print(f"[ContactSearch] ✅ [Worker] VERIFIED ({duration:.2f}s): {email} - {candidate_name} (verified: {current_verified}/{max_contacts})")
+                        print(f"[ContactSearch] [Worker] VERIFIED ({duration:.2f}s) (verified: {current_verified}/{max_contacts})")
                         
                         if current_verified >= max_contacts:
                             enough_verified.set()
                             print(f"[ContactSearch] ⚡ [Worker] Reached target of {max_contacts} verified contacts!")
                     else:
                         unverified_results.append(result)
-                        print(f"[ContactSearch] ⚠️ [Worker] UNVERIFIED ({duration:.2f}s): {email} - {candidate_name}")
+                        print(f"[ContactSearch] [Worker] UNVERIFIED ({duration:.2f}s)")
                 
                 return result
             else:
@@ -160,8 +160,8 @@ def verify_contacts_parallel(candidates, max_contacts, company):
     unverified_count = len(unverified_results)
     no_email_count = len(no_email_candidates)
     
-    print(f"\n[ContactSearch] ⏱️  Parallel verification complete: {total_duration:.2f}s")
-    print(f"[ContactSearch] 📊 Results: {verified_count} verified, {unverified_count} unverified, {no_email_count} no email")
+    print(f"[ContactSearch] Parallel verification complete: {total_duration:.2f}s")
+    print(f"[ContactSearch] Results: {verified_count} verified, {unverified_count} unverified, {no_email_count} no email")
     if verified_count > 0:
         avg_time = total_duration / verified_count
         print(f"[ContactSearch] 📊 Average time per verified contact: {avg_time:.2f}s")
@@ -362,7 +362,7 @@ def contact_search_optimized(job_title, location, max_contacts=3, user_data=None
     print(f"[ContactSearch] ⏱️  PDL search: {_timing_stats['pdl_search']:.2f}s ({_timing_stats['pdl_search']/total_time*100:.1f}%)")
     print(f"[ContactSearch] ⏱️  Extraction: {_timing_stats['extraction']:.2f}s ({_timing_stats['extraction']/total_time*100:.1f}%)")
     print(f"[ContactSearch] ⏱️  Scoring: {_timing_stats['scoring']:.2f}s ({_timing_stats['scoring']/total_time*100:.1f}%)")
-    print(f"[ContactSearch] ⏱️  Email verification: {_timing_stats['email_verification_total']:.2f}s ({_timing_stats['email_verification_total']/total_time*100:.1f}%)")
+    print(f"[ContactSearch] Email verification: {_timing_stats['email_verification_total']:.2f}s ({_timing_stats['email_verification_total']/total_time*100:.1f}%)")
     print(f"[ContactSearch]     ├── Domain lookups: {_timing_stats['domain_lookups']:.2f}s")
     print(f"[ContactSearch]     ├── Hunter Email Finder: {_timing_stats['hunter_email_finder']:.2f}s")
     print(f"[ContactSearch]     ├── Hunter Email Verifier: {_timing_stats['hunter_email_verifier']:.2f}s")
@@ -499,31 +499,20 @@ def get_verified_email_for_contact_search(candidate, target_company=None):
     personal_emails = candidate.get("_pdl_personal_emails", [])
     company_website = candidate.get("_pdl_company_website") or None
     
-    print(f"[EmailVerify] Processing: {first_name} {last_name}")
-    print(f"[EmailVerify] Company: {company}, Target: {target_company}")
-    print(f"[EmailVerify] PDL work email: {pdl_work_email}")
-    
     # === DETERMINE TARGET DOMAIN ===
     domain_start = time.time()
     if target_company:
-        # User searched for specific company - use that domain directly
         target_domain = get_smart_company_domain(target_company, company_website)
-        print(f"[EmailVerify] Using target company domain: {target_domain}")
     elif pdl_work_email and not is_personal_email_domain(pdl_work_email):
-        # No target company specified, use PDL's email domain
         target_domain = pdl_work_email.split("@")[1].lower()
-        print(f"[EmailVerify] Using PDL email domain: {target_domain}")
     else:
-        # Fall back to company name from PDL
         target_domain = get_smart_company_domain(company, company_website)
-        print(f"[EmailVerify] Using company name domain: {target_domain}")
     domain_time = time.time() - domain_start
     _timing_stats['domain_lookups'] += domain_time
     
     if not target_domain:
-        print(f"[EmailVerify] ❌ Could not determine domain")
+        print(f"[EmailVerify] Could not determine domain")
         if personal_emails:
-            print(f"[EmailVerify] Returning personal email as fallback: {personal_emails[0]}")
             return personal_emails[0], False
         return None, False
     
@@ -531,14 +520,14 @@ def get_verified_email_for_contact_search(candidate, target_company=None):
     if pdl_work_email and "@" in pdl_work_email:
         pdl_domain = pdl_work_email.split("@")[1].lower()
         if pdl_domain == target_domain:
-            print(f"[EmailVerify] PDL email matches target domain, verifying: {pdl_work_email}")
+            print(f"[EmailVerify] PDL email matches target domain, verifying")
             verify_start = time.time()
             result = verify_email_hunter(pdl_work_email)
             verify_time = time.time() - verify_start
             _timing_stats['hunter_email_verifier'] += verify_time
             score = result.get("score", 0) if result else 0
             if score >= 80:
-                print(f"[EmailVerify] ✅ PDL email verified: {pdl_work_email} ({verify_time:.2f}s)")
+                print(f"[EmailVerify] PDL email verified ({verify_time:.2f}s)")
                 return pdl_work_email, True
             else:
                 print(f"[EmailVerify] PDL email failed verification (score: {score}, {verify_time:.2f}s), trying other strategies")
@@ -550,7 +539,7 @@ def get_verified_email_for_contact_search(candidate, target_company=None):
     finder_time = time.time() - finder_start
     _timing_stats['hunter_email_finder'] += finder_time
     if email and score >= 80:
-        print(f"[EmailVerify] ✅ Hunter found verified email: {email} (score: {score}, {finder_time:.2f}s)")
+        print(f"[EmailVerify] Hunter found verified email (score: {score}, {finder_time:.2f}s)")
         return email, True
     
     # === STRATEGY 3: Pattern-generated email (return even if unverified) ===
@@ -565,7 +554,7 @@ def get_verified_email_for_contact_search(candidate, target_company=None):
     if pattern:
         generated_email = generate_email_from_pattern(first_name, last_name, target_domain, pattern)
         if generated_email:
-            print(f"[EmailVerify] Generated email from pattern '{pattern}': {generated_email} (pattern lookup: {pattern_time:.2f}s)")
+            print(f"[EmailVerify] Generated email from pattern '{pattern}' (pattern lookup: {pattern_time:.2f}s)")
             
             # Try to verify it
             verify_start = time.time()
@@ -575,11 +564,11 @@ def get_verified_email_for_contact_search(candidate, target_company=None):
             score = result.get("score", 0) if result else 0
             
             if score >= 80:
-                print(f"[EmailVerify] ✅ Pattern email verified: {generated_email} ({verify_time:.2f}s)")
+                print(f"[EmailVerify] Pattern email verified ({verify_time:.2f}s)")
                 return generated_email, True
             else:
                 # Return it anyway as unverified
-                print(f"[EmailVerify] ⚠️ Pattern email unverified (score: {score}, {verify_time:.2f}s), returning anyway: {generated_email}")
+                print(f"[EmailVerify] Pattern email unverified (score: {score}, {verify_time:.2f}s), returning anyway")
                 return generated_email, False
     
     # === STRATEGY 4: Generate using common patterns ===
@@ -587,14 +576,14 @@ def get_verified_email_for_contact_search(candidate, target_company=None):
     if first_name and last_name:
         # Try {f}{last} pattern (most common)
         fallback_email = f"{first_name[0].lower()}{last_name.lower()}@{target_domain}"
-        print(f"[EmailVerify] ⚠️ Using fallback pattern (unverified): {fallback_email}")
+        print(f"[EmailVerify] Using fallback pattern (unverified)")
         return fallback_email, False
     
     # === STRATEGY 5: Personal email (last resort) ===
     if personal_emails:
-        print(f"[EmailVerify] ⚠️ Returning personal email: {personal_emails[0]}")
+        print(f"[EmailVerify] Returning personal email as fallback")
         return personal_emails[0], False
     
-    print(f"[EmailVerify] ❌ Could not generate any email")
+    print(f"[EmailVerify] Could not generate any email")
     return None, False
 

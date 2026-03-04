@@ -401,6 +401,13 @@ Respond in this exact JSON format:
                 "where_to_add": "<specific suggestion where to add it>"
             }}
         ]
+    }},
+    "keyword_analysis": {{
+        "match_percentage": <0-100 percentage of required+preferred skills found in resume>,
+        "required_present": [<skills from JD that ARE in the resume>],
+        "required_missing": [<skills from JD that are NOT in the resume>],
+        "preferred_present": [<preferred/nice-to-have skills that ARE in the resume>],
+        "preferred_missing": [<preferred/nice-to-have skills NOT in the resume>]
     }}
 }}
 
@@ -423,27 +430,40 @@ Score guidelines:
 Respond with ONLY the JSON object, no other text.
 """
 
+    messages = [
+        {
+            "role": "system",
+            "content": "You are an expert resume consultant. Always respond with valid JSON only."
+        },
+        {
+            "role": "user",
+            "content": prompt
+        }
+    ]
+    create_kwargs = dict(
+        messages=messages,
+        temperature=0.5,
+        max_tokens=4000,
+        response_format={"type": "json_object"},
+        timeout=120.0,
+    )
     try:
         response = await openai_client.chat.completions.create(
-            model="gpt-4o-mini",  # Faster model, still good for this task
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are an expert resume consultant. Always respond with valid JSON only."
-                },
-                {
-                    "role": "user", 
-                    "content": prompt
-                }
-            ],
-            temperature=0.5,  # Lower temperature for more consistent output
-            max_tokens=4000,
-            response_format={"type": "json_object"}
+            model="gpt-4o",
+            **create_kwargs
         )
-        
+    except Exception as e:
+        logger.warning(f"[ResumeWorkshop] gpt-4o failed ({type(e).__name__}), falling back to gpt-4o-mini")
+        response = await openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            **create_kwargs
+        )
+
+    # Parse response — runs for BOTH gpt-4o and gpt-4o-mini
+    try:
         result_text = response.choices[0].message.content.strip()
         result = json.loads(result_text)
-        
+
         # Validate required fields
         if "score" not in result:
             logger.warning(f"[ResumeWorkshop] AI response missing 'score' field, using default 50")
@@ -460,7 +480,7 @@ Respond with ONLY the JSON object, no other text.
             except (ValueError, TypeError):
                 logger.warning(f"[ResumeWorkshop] AI returned non-numeric score: {result['score']}, using default 50")
                 result["score"] = 50
-        
+
         if "score_label" not in result:
             if result["score"] >= 90:
                 result["score_label"] = "Excellent"
@@ -470,12 +490,11 @@ Respond with ONLY the JSON object, no other text.
                 result["score_label"] = "Fair"
             else:
                 result["score_label"] = "Needs Work"
-        
+
         if "sections" not in result:
             result["sections"] = {}
-        
+
         return result
-        
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse GPT response as JSON: {e}")
         raise ValueError("Failed to analyze resume. Please try again.")
@@ -756,7 +775,7 @@ If you cannot determine either field, use empty string."""
                     job_description=job_description,
                     openai_client=openai_client
                 ),
-                timeout=120.0  # Increased from 90 to 120 seconds
+                timeout=180.0  # Accommodate gpt-4o
             )
         except TimeoutError:
             refund_credits_atomic(user_id, 5, "resume_workshop_analyze_timeout")
@@ -770,6 +789,7 @@ If you cannot determine either field, use empty string."""
             "score": analysis.get("score", 50),
             "score_label": analysis.get("score_label", "Fair"),
             "sections": analysis.get("sections", {}),
+            "keyword_analysis": analysis.get("keyword_analysis", {}),
             "job_context": {
                 "job_title": job_title,
                 "company": company,
@@ -1591,6 +1611,70 @@ def apply_recommendation():
             "status": "error",
             "message": f"Failed to apply recommendation: {str(exc)}",
             "credits_refunded": credits_refunded
+        }), 500
+
+
+@resume_workshop_bp.route("/library", methods=["POST"])
+@require_firebase_auth
+def save_to_library():
+    """Save a resume to the user's Resume Library."""
+    user_id = request.firebase_user.get('uid') if hasattr(request, 'firebase_user') else None
+    if not user_id:
+        return jsonify({
+            "status": "error",
+            "message": "User not authenticated"
+        }), 401
+
+    payload = request.get_json(force=True, silent=True) or {}
+    display_name = payload.get('display_name') or f"Resume - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    job_title = payload.get('job_title') or ''
+    company = payload.get('company') or ''
+    location = payload.get('location') or ''
+    pdf_base64 = payload.get('pdf_base64')
+    structured_data = payload.get('structured_data')
+    score = payload.get('score')
+    source = payload.get('source') or 'manual'
+
+    if not pdf_base64:
+        return jsonify({
+            "status": "error",
+            "message": "Missing pdf_base64"
+        }), 400
+
+    try:
+        db = get_db()
+        if not db:
+            return jsonify({
+                "status": "error",
+                "message": "Database not available"
+            }), 500
+
+        entry_id = str(uuid.uuid4())
+        entry = {
+            'id': entry_id,
+            'display_name': display_name,
+            'job_title': job_title,
+            'company': company,
+            'location': location,
+            'created_at': datetime.now().isoformat(),
+            'pdf_base64': pdf_base64,
+            'score': score,
+            'source': source,
+        }
+        if structured_data is not None:
+            entry['structured_data'] = structured_data
+
+        db.collection('users').document(user_id).collection('resume_library').document(entry_id).set(entry)
+        logger.info(f"[ResumeWorkshop] Saved resume to library for user {user_id[:8]}... Entry ID: {entry_id}")
+        return jsonify({
+            "status": "ok",
+            "library_entry_id": entry_id,
+        })
+    except Exception as exc:
+        logger.error(f"[ResumeWorkshop] Save to library failed: {type(exc).__name__}: {exc}")
+        return jsonify({
+            "status": "error",
+            "message": str(exc)
         }), 500
 
 

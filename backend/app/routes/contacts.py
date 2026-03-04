@@ -27,41 +27,52 @@ def get_contacts():
             raise OfferloopException("Database not initialized", error_code="DATABASE_ERROR")
         
         # Get pagination parameters
-        page = request.args.get('page', 1, type=int)
         per_page = min(request.args.get('per_page', 50, type=int), 100)  # Max 100 per page
-        page = max(1, page)  # Ensure page is at least 1
-        
+        cursor = request.args.get('cursor')  # Document ID for cursor-based pagination
+        # Legacy support: still accept page param for backwards compat
+        page = request.args.get('page', 1, type=int)
+        page = max(1, page)
+
         contacts_ref = db.collection('users').document(user_id).collection('contacts')
-        
-        # Get total count (for pagination metadata)
-        # Note: Firestore doesn't have efficient count queries, so we'll estimate
-        # For better performance, consider maintaining a count field
-        
-        # Query with pagination
+
+        # Query ordered by createdAt descending
         query = contacts_ref.order_by('createdAt', direction=firestore.Query.DESCENDING)
-        
-        # Calculate offset
-        offset = (page - 1) * per_page
-        
-        # Firestore pagination: get one extra to check if there's a next page
-        docs = list(query.limit(per_page + 1).offset(offset).stream())
-        
+
+        # Cursor-based pagination (efficient — no offset scan)
+        if cursor:
+            try:
+                cursor_doc = contacts_ref.document(cursor).get()
+                if cursor_doc.exists:
+                    query = query.start_after(cursor_doc)
+            except Exception:
+                pass  # If cursor is invalid, start from beginning
+        elif page > 1:
+            # Legacy offset fallback for old clients still sending page=
+            offset = (page - 1) * per_page
+            query = query.offset(offset)
+
+        # Fetch one extra to check if there's a next page
+        docs = list(query.limit(per_page + 1).stream())
+
         has_next = len(docs) > per_page
         items = []
-        
-        for doc in docs[:per_page]:  # Only return requested page size
+        last_id = None
+
+        for doc in docs[:per_page]:
             d = doc.to_dict()
             d['id'] = doc.id
             items.append(d)
-        
+            last_id = doc.id
+
         return jsonify({
             'contacts': items,
             'pagination': {
                 'page': page,
                 'per_page': per_page,
-                'total_items': len(items),  # Approximate (Firestore limitation)
+                'total_items': len(items),
                 'has_next': has_next,
-                'has_prev': page > 1
+                'has_prev': page > 1 or cursor is not None,
+                'next_cursor': last_id if has_next else None,
             }
         })
         
@@ -569,9 +580,10 @@ def bulk_create_contacts():
                 'status': 'Not Contacted',
                 'lastContactDate': today,
                 'userId': user_id,
-                'createdAt': today,
+                'createdAt': datetime.now().isoformat(),
+                'lastActivityAt': datetime.now().isoformat(),
             }
-            
+
             # Add email subject and body if available (from generated personalized emails)
             if email_subject:
                 contact['emailSubject'] = email_subject
@@ -580,8 +592,18 @@ def bulk_create_contacts():
             # Add Gmail draft URL if available (draft has resume attached)
             if gmail_draft_id:
                 contact['gmailDraftId'] = gmail_draft_id
+                contact['pipelineStage'] = 'draft_created'
             if gmail_draft_url:
                 contact['gmailDraftUrl'] = gmail_draft_url
+
+            # Set pipelineStage to "new" for contacts without drafts (from prompt search)
+            if 'pipelineStage' not in contact:
+                # Accept pipelineStage from request if provided and valid
+                req_stage = (rc.get('pipelineStage') or '').strip()
+                if req_stage in ('new', 'draft_created'):
+                    contact['pipelineStage'] = req_stage
+                else:
+                    contact['pipelineStage'] = 'new'
             
             # DEBUG: Log contact being saved to Firestore
             if idx == 0:

@@ -120,8 +120,8 @@ const FirmSearchPage: React.FC = () => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Validation
-  const hasIndustry = query.length > 10;
-  const hasLocation = /in\s+\w+|located|based in/i.test(query);
+  const hasIndustry = /\b(tech(nology)?|fintech|finance|banking|consulting|healthcare|pharma|biotech|energy|legal|law|real estate|insurance|media|advertising|marketing|retail|e-?commerce|education|edtech|telecom|manufacturing|automotive|aerospace|defense|crypto|blockchain|saas|ai|artificial intelligence|machine learning|data|analytics|cybersecurity|cloud|devops|enterprise|logistics|supply chain|food|agri(culture)?|hospitality|travel|gaming|entertainment|sports|venture capital|private equity|investment|wealth management|asset management|accounting|audit|tax|compliance|government|nonprofit|sustainability|cleantech|construction|architecture|design|fashion|beauty|fitness|wellness|startup|b2b|b2c|marketplace|platform|software|engineering|recruiting|staffing|hr|human resources)\b/i.test(query);
+  const hasLocation = /\b(in\s+\w+|located|based in|remote|nationwide|global|worldwide)\b/i.test(query);
   const isValidQuery = query.length > 20 && hasLocation;
 
   // Refresh credits when batch size changes to update UI warnings
@@ -333,169 +333,111 @@ const FirmSearchPage: React.FC = () => {
     // Initialize progress with estimated time
     setSearchProgress({ current: 0, total: batchSize, step: `Starting search... (est. ${estimatedTime})` });
 
-    // Simulate progress while waiting (since search is synchronous)
-    let simulatedProgressPercent = 0;
-    let progressSimulator: NodeJS.Timeout | null = null;
-    let progressPollInterval: NodeJS.Timeout | null = null;
-    let searchId: string | null = null;
-    let isPolling = true;
-
-    // Start simulated progress - convert percentage to actual count
-    progressSimulator = setInterval(() => {
-      simulatedProgressPercent = Math.min(simulatedProgressPercent + 2, 90); // Cap at 90% until real progress
-      const simulatedCount = Math.floor((simulatedProgressPercent / 100) * batchSize);
-      setSearchProgress(prev => prev ? {
-        ...prev,
-        current: Math.max(prev.current, simulatedCount),
-        step: prev.step || 'Searching...'
-      } : null);
-    }, 500); // Update every 500ms
+    let eventSource: EventSource | null = null;
 
     try {
-      const result: FirmSearchResult = await apiService.searchFirms(q, batchSize);
+      // Start async search — returns immediately with searchId
+      const { searchId } = await apiService.searchFirmsAsync(q, batchSize);
 
-      // Clear simulated progress
-      clearInterval(progressSimulator);
+      // Open SSE stream for real-time progress
+      eventSource = await apiService.createFirmSearchStream(searchId);
 
-      // Get searchId from response and start real progress polling
-      if (result.searchId) {
-        searchId = result.searchId;
-
-        // Start polling for final status
-        progressPollInterval = setInterval(async () => {
-          if (!isPolling || !searchId) return;
+      await new Promise<void>((resolve, reject) => {
+        eventSource!.addEventListener('progress', (e: MessageEvent) => {
           try {
-            const status = await apiService.getFirmSearchStatus(searchId);
-            if (status.success && status.progress) {
-              setSearchProgress({
-                current: status.progress.current,
-                total: status.progress.total,
-                step: status.progress.step || 'Searching...'
-              });
-
-              // Stop polling if search is complete or failed
-              if (status.progress.status === 'completed' || status.progress.status === 'failed') {
-                isPolling = false;
-                if (progressPollInterval) {
-                  clearInterval(progressPollInterval);
-                  progressPollInterval = null;
-                }
-              }
-            } else if (status.success === false) {
-              // Search not found or expired - stop polling
-              isPolling = false;
-            }
-          } catch (err) {
-            // Ignore polling errors
-            console.debug('Progress poll error:', err);
-          }
-        }, 1000);
-
-        // Stop polling after a few seconds (search is likely done)
-        setTimeout(() => {
-          isPolling = false;
-          if (progressPollInterval) {
-            clearInterval(progressPollInterval);
-            progressPollInterval = null;
-          }
-        }, 3000);
-      }
-
-      setSearchProgress(null);
-
-      if (result.success) {
-        setParsedFilters(result.parsedFilters);
-
-        if (result.firms.length === 0) {
-          setError('No firms found matching your criteria. Try broadening your search or adjusting the location/industry.');
-
-          openPanelWithSearchHelp({
-            searchType: 'firm',
-            failedSearchParams: {
-              industry: result.parsedFilters?.industry || q,
-              location: result.parsedFilters?.location || '',
-              size: result.parsedFilters?.size || '',
-            },
-            errorType: 'no_results',
-          });
-        } else {
-          const newFirms = result.firms;
-          setResults(newFirms);
-          setSearchComplete(true);
-
-          toast({
-            title: result.partialMessage ? "Partial Results" : "Search Complete!",
-            description: result.partialMessage
-              ? `${result.partialMessage} Used ${result.creditsCharged || 0} credits.`
-              : `Found ${result.firms.length} firm${result.firms.length !== 1 ? 's' : ''}. Used ${result.creditsCharged || 0} credits.`,
-          });
-
-          if (checkCredits) {
-            await checkCredits();
-          }
-        }
-
-        loadHistory();
-      } else if (result.insufficientCredits) {
-        setError(result.error || 'Insufficient credits');
-        toast({
-          title: "Insufficient Credits",
-          description: `You need ${result.creditsNeeded} credits but only have ${result.currentCredits}. Please upgrade your plan or reduce batch size.`,
-          variant: "destructive",
+            const data = JSON.parse(e.data);
+            setSearchProgress({
+              current: data.current ?? 0,
+              total: data.total ?? batchSize,
+              step: data.step || 'Searching...',
+            });
+          } catch { /* ignore parse errors */ }
         });
-      } else {
-        setError(result.error || 'Search failed. Please try again.');
-      }
+
+        eventSource!.addEventListener('complete', (e: MessageEvent) => {
+          eventSource?.close();
+          try {
+            const result = JSON.parse(e.data);
+            setSearchProgress(null);
+
+            if (result.success && result.firms?.length > 0) {
+              setParsedFilters(result.parsedFilters);
+              setResults(result.firms);
+              setSearchComplete(true);
+              toast({
+                title: "Search Complete!",
+                description: `Found ${result.firms.length} firm${result.firms.length !== 1 ? 's' : ''}. Used ${result.creditsCharged || 0} credits.`,
+              });
+              if (checkCredits) checkCredits();
+              loadHistory();
+            } else if (result.firms?.length === 0) {
+              setError('No firms found matching your criteria. Try broadening your search.');
+              openPanelWithSearchHelp({
+                searchType: 'firm',
+                failedSearchParams: { industry: q, location: '', size: '' },
+                errorType: 'no_results',
+              });
+            } else {
+              setError(result.error || 'Search failed. Please try again.');
+            }
+          } catch { setError('Failed to parse search results.'); }
+          resolve();
+        });
+
+        eventSource!.addEventListener('error', (e: MessageEvent) => {
+          eventSource?.close();
+          try {
+            const data = JSON.parse(e.data);
+            setError(data.message || 'Search failed.');
+          } catch {
+            setError('Search connection lost. Please try again.');
+          }
+          resolve();
+        });
+
+        // EventSource native error (connection failure)
+        eventSource!.onerror = () => {
+          eventSource?.close();
+          // Fall back to synchronous search if SSE fails
+          apiService.searchFirms(q, batchSize).then(result => {
+            setSearchProgress(null);
+            if (result.success && result.firms?.length > 0) {
+              setParsedFilters(result.parsedFilters);
+              setResults(result.firms);
+              setSearchComplete(true);
+              toast({ title: "Search Complete!", description: `Found ${result.firms.length} firms.` });
+              if (checkCredits) checkCredits();
+              loadHistory();
+            } else {
+              setError(result.error || 'No firms found.');
+            }
+            resolve();
+          }).catch(fallbackErr => {
+            reject(fallbackErr);
+          });
+        };
+      });
     } catch (err: any) {
       console.error('Search error:', err);
 
       if (err.status === 401 || err.message?.includes('Authentication required')) {
         setError('Authentication required. Please sign in again.');
-        toast({
-          title: "Authentication Required",
-          description: "Your session may have expired. Please sign in again.",
-          variant: "destructive",
-        });
+        toast({ title: "Authentication Required", description: "Your session may have expired.", variant: "destructive" });
       } else if (err.status === 402 || err.error_code === 'INSUFFICIENT_CREDITS') {
         const creditsNeeded = err.creditsNeeded || err.required || (batchSize * creditsPerFirm);
-        const currentCredits = err.currentCredits || err.available || effectiveUser.credits || 0;
-
-        setError(`Insufficient credits. You need ${creditsNeeded} credits but only have ${currentCredits}.`);
-        toast({
-          title: "Insufficient Credits",
-          description: `You need ${creditsNeeded} credits but only have ${currentCredits}. Please upgrade your plan or reduce batch size.`,
-          variant: "destructive",
-        });
-
-        if (checkCredits) {
-          await checkCredits();
-        }
+        const currentCreds = err.currentCredits || err.available || effectiveUser.credits || 0;
+        setError(`Insufficient credits. You need ${creditsNeeded} but have ${currentCreds}.`);
+        toast({ title: "Insufficient Credits", description: `Need ${creditsNeeded}, have ${currentCreds}.`, variant: "destructive" });
+        if (checkCredits) await checkCredits();
       } else if (err.status === 502 || err.error_code === 'EXTERNAL_API_ERROR') {
-        const errorMessage = err.message || 'The search service is temporarily unavailable. Please try again in a few minutes.';
-        setError(errorMessage);
-        toast({
-          title: "Service Temporarily Unavailable",
-          description: errorMessage,
-          variant: "destructive",
-        });
+        setError(err.message || 'Search service temporarily unavailable.');
+        toast({ title: "Service Unavailable", description: err.message || "Try again shortly.", variant: "destructive" });
       } else {
-        setError(err.message || 'An unexpected error occurred. Please try again.');
-        toast({
-          title: "Search Failed",
-          description: err.message || "An error occurred. Please try again.",
-          variant: "destructive",
-        });
+        setError(err.message || 'An unexpected error occurred.');
+        toast({ title: "Search Failed", description: err.message || "Please try again.", variant: "destructive" });
       }
     } finally {
-      // Clean up all intervals
-      if (progressSimulator) {
-        clearInterval(progressSimulator);
-        progressSimulator = null;
-      }
-      if (progressPollInterval) {
-        clearInterval(progressPollInterval);
-        progressPollInterval = null;
-      }
+      eventSource?.close();
       setIsSearching(false);
       setSearchProgress(null);
     }
@@ -708,7 +650,7 @@ const FirmSearchPage: React.FC = () => {
   const handleHistoryClick = (item: SearchHistoryItem) => {
     setQuery(item.query);
     setShowHistory(false);
-    handleSearch(item.query);
+    // Don't auto-fire search — let user review the query and click "Find Companies" manually
   };
 
   // Handle example prompt click

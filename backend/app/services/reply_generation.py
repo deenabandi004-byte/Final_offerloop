@@ -18,15 +18,6 @@ from datetime import datetime
 import re
 
 # ============================================================================
-# TEMPORARY DEBUG UTILITY - FOR DATA INSPECTION ONLY
-# ============================================================================
-# Set this to True to enable debug output for ONE contact (the first one)
-# This will print the full contact object, sender object, and prompt context
-# REMOVE THIS AFTER INSPECTION IS COMPLETE
-DEBUG_EMAIL_DATA_INSPECTION = False  # Set to True to enable
-# ============================================================================
-
-# ============================================================================
 # ANCHOR PRIORITY SYSTEM
 # ============================================================================
 
@@ -343,87 +334,6 @@ def fix_apostrophes_and_formatting(text: str) -> str:
     
     return text
 
-def _debug_print_email_data(contact, user_info, user_profile, contact_context, resume_text, fit_context):
-    """
-    TEMPORARY: Debug utility to inspect all available data for email personalization.
-    Prints full contact object, sender data, and prompt context for inspection.
-    
-    REMOVE THIS FUNCTION AFTER INSPECTION IS COMPLETE.
-    """
-    if not DEBUG_EMAIL_DATA_INSPECTION:
-        return
-    
-    print("\n" + "="*80)
-    print("🔍 EMAIL PERSONALIZATION DATA INSPECTION (TEMPORARY DEBUG)")
-    print("="*80)
-    
-    # Redact sensitive info
-    def redact_email(email):
-        if not email or email == "Not available":
-            return email
-        if "@" in email:
-            parts = email.split("@")
-            if len(parts[0]) > 2:
-                return parts[0][:2] + "***@" + parts[1]
-            return "***@" + parts[1]
-        return email
-    
-    def redact_phone(phone):
-        if not phone:
-            return phone
-        if len(phone) > 4:
-            return "***" + phone[-4:]
-        return "***"
-    
-    # 1. CONTACT DATA (PDL + LinkedIn)
-    print("\n📋 CONTACT DATA (PDL + LinkedIn-derived):")
-    print("-" * 80)
-    contact_copy = contact.copy()
-    if 'Email' in contact_copy:
-        contact_copy['Email'] = redact_email(contact_copy['Email'])
-    if 'WorkEmail' in contact_copy:
-        contact_copy['WorkEmail'] = redact_email(contact_copy['WorkEmail'])
-    if 'PersonalEmail' in contact_copy:
-        contact_copy['PersonalEmail'] = redact_email(contact_copy['PersonalEmail'])
-    if 'Phone' in contact_copy:
-        contact_copy['Phone'] = redact_phone(contact_copy['Phone'])
-    
-    print(json.dumps(contact_copy, indent=2, default=str))
-    
-    # 2. SENDER DATA (Resume + Profile)
-    print("\n👤 SENDER DATA (Resume + Profile-derived):")
-    print("-" * 80)
-    sender_copy = {
-        'user_info': user_info,
-        'user_profile': user_profile,
-        'resume_text_length': len(resume_text) if resume_text else 0,
-        'resume_text_preview': resume_text[:500] if resume_text else None
-    }
-    print(json.dumps(sender_copy, indent=2, default=str))
-    
-    # 3. PROMPT CONTEXT
-    print("\n📝 PROMPT CONTEXT (What gets sent to LLM):")
-    print("-" * 80)
-    print(contact_context)
-    
-    # 4. FIT CONTEXT (if available)
-    if fit_context:
-        print("\n🎯 FIT CONTEXT (Job fit analysis):")
-        print("-" * 80)
-        print(json.dumps(fit_context, indent=2, default=str))
-    
-    # 5. COMMONALITY DETECTION
-    commonality_type, commonality_details = detect_commonality(user_info, contact, resume_text)
-    print("\n🔗 COMMONALITY DETECTION:")
-    print("-" * 80)
-    print(f"Type: {commonality_type}")
-    print(f"Details: {json.dumps(commonality_details, indent=2, default=str)}")
-    
-    print("\n" + "="*80)
-    print("END OF DATA INSPECTION")
-    print("="*80 + "\n")
-
-
 # Purpose values that should include the resume attachment line in the email. Others (sales, follow_up, custom) omit it.
 PURPOSES_INCLUDE_RESUME = (None, "networking", "referral")
 
@@ -590,9 +500,7 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
                 user_info["name"] = (auth_display_name or "").strip()
             if not (user_info.get("name") or "").strip():
                 user_info["name"] = "Student"
-        print(f"DEBUG sender name final: user_info['name']={user_info.get('name', '')!r}", flush=True)
-        
-        print(f"[EmailTemplate] batch_generate_emails template_instructions len={len(template_instructions or '')}, sender name={user_info.get('name', '')!r}")
+        print(f"[EmailTemplate] batch_generate_emails template_instructions len={len(template_instructions or '')}")
         
         # Build sender description
         sender_desc = f"{user_info.get('name', 'Student')} - {user_info.get('year', '')} {user_info.get('major', '')} at {user_info.get('university', '')}"
@@ -690,10 +598,6 @@ ANCHOR DETAIL:
 - Industry: {industry}
 - Connection: {personalization_note if personalization_note else 'No specific connection - find a genuine reason to reach out'}
 - Personalize by: Mentioning their role/company, asking about their experience, showing genuine interest in their work{anchor_detail}"""
-            
-            # TEMPORARY DEBUG: Print data for first contact only
-            if i == 0:
-                _debug_print_email_data(contact, user_info, user_profile, contact_context, resume_text, fit_context)
             
             contact_contexts.append(contact_context)
         
@@ -949,7 +853,8 @@ Return ONLY valid JSON:
         response_text = response.choices[0].message.content.strip()
         
         # Clean the response text of any unicode issues
-        response_text = response_text.encode('ascii', 'ignore').decode('ascii')
+        import unicodedata
+        response_text = unicodedata.normalize('NFKC', response_text)
         
         # Remove markdown if present
         if '```' in response_text:
@@ -1354,7 +1259,8 @@ Return ONLY a JSON object:
         response_text = response.choices[0].message.content.strip()
         
         # Clean the response text
-        response_text = response_text.encode('ascii', 'ignore').decode('ascii')
+        import unicodedata
+        response_text = unicodedata.normalize('NFKC', response_text)
         
         # Remove markdown if present
         if '```' in response_text:

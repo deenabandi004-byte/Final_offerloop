@@ -286,11 +286,15 @@ function truncateUrl(url) {
 
 async function handleFindRecruiters() {
   const btn = document.getElementById('find-recruiters-btn');
-  
+
   // Get auth token
   const authData = await chrome.storage.local.get(['authToken']);
   if (!authData.authToken) {
-    showJobError('Please sign in to use this feature');
+    showJobError('Please sign in to use this feature. <a href="#" id="job-signin-link" style="color:#2563EB;text-decoration:underline;">Sign in</a>');
+    const signinLink = document.getElementById('job-signin-link');
+    if (signinLink) {
+      signinLink.addEventListener('click', (e) => { e.preventDefault(); handleLogin(); });
+    }
     return;
   }
   
@@ -392,11 +396,15 @@ async function handleFindRecruiters() {
 
 async function handleGenerateCoverLetter() {
   const btn = document.getElementById('cover-letter-btn');
-  
+
   // Get auth token
   const authData = await chrome.storage.local.get(['authToken']);
   if (!authData.authToken) {
-    showJobError('Please sign in to use this feature');
+    showJobError('Please sign in to use this feature. <a href="#" id="job-signin-link-cl" style="color:#2563EB;text-decoration:underline;">Sign in</a>');
+    const signinLink = document.getElementById('job-signin-link-cl');
+    if (signinLink) {
+      signinLink.addEventListener('click', (e) => { e.preventDefault(); handleLogin(); });
+    }
     return;
   }
   
@@ -1454,75 +1462,45 @@ function updateCredits(credits) {
   updateCoffeeChatButtonState();
 }
 
-// Silently refresh the Firebase token using Chrome Identity API
-// Returns the new token, or null if silent refresh fails
+// Silently refresh the Firebase token by delegating to the background service worker.
+// The canonical refreshAuthToken() lives in background.js; this avoids duplicating that logic.
+// Returns the new token, or null if silent refresh fails.
 async function refreshAuthToken() {
-  console.log('[Offerloop Popup] Attempting silent token refresh...');
-  
+  console.log('[Offerloop Popup] Requesting token refresh from background...');
+
   try {
-    // First, remove the cached Google token so we get a fresh one
-    const oldGoogleToken = await new Promise((resolve) => {
-      chrome.identity.getAuthToken({ interactive: false }, (token) => {
-        resolve(token || null);
-      });
-    });
-    
-    if (oldGoogleToken) {
-      await new Promise((resolve) => {
-        chrome.identity.removeCachedAuthToken({ token: oldGoogleToken }, resolve);
-      });
-    }
-    
-    // Get a fresh Google token (non-interactive = silent)
-    const googleToken = await new Promise((resolve, reject) => {
-      chrome.identity.getAuthToken({ interactive: false }, (token) => {
-        if (chrome.runtime.lastError || !token) {
-          reject(new Error(chrome.runtime.lastError?.message || 'No token available'));
+    const response = await new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({ action: 'refreshToken' }, (resp) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
         } else {
-          resolve(token);
+          resolve(resp);
         }
       });
     });
-    
-    // Exchange for a new Firebase token
-    const response = await fetch(`${API_BASE_URL}/api/auth/google-extension`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ googleToken }),
-    });
-    
-    if (!response.ok) {
-      throw new Error('Token exchange failed');
+
+    if (!response || !response.success) {
+      console.warn('[Offerloop Popup] Background token refresh failed:', response?.error);
+      return null;
     }
-    
-    const data = await response.json();
-    
-    if (!data.success || !data.token) {
-      throw new Error('No token in response');
-    }
-    
-    // Update storage and state
-    await chrome.storage.local.set({
-      authToken: data.token,
-      isLoggedIn: true,
-      userEmail: data.user.email,
-      userName: data.user.name,
-      userPhoto: data.user.picture,
-      credits: data.credits,
-    });
-    
-    currentState.authToken = data.token;
+
+    // Sync the popup's in-memory state with what the background stored
+    currentState.authToken = response.token;
     currentState.isLoggedIn = true;
-    currentState.user = data.user;
-    currentState.credits = data.credits;
-    
-    if (data.credits !== undefined) {
-      updateCredits(data.credits);
+    currentState.user = {
+      email: response.userEmail,
+      name: response.userName,
+      picture: response.userPhoto,
+    };
+    currentState.credits = response.credits;
+
+    if (response.credits !== undefined) {
+      updateCredits(response.credits);
     }
-    
-    console.log('[Offerloop Popup] Token refreshed successfully');
-    return data.token;
-    
+
+    console.log('[Offerloop Popup] Token refreshed successfully via background');
+    return response.token;
+
   } catch (error) {
     console.warn('[Offerloop Popup] Silent refresh failed:', error.message);
     return null;

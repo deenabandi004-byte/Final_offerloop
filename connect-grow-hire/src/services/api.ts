@@ -249,6 +249,7 @@ export type OutboxStatus =
   | "closed";
 
 export type PipelineStage =
+  | "new"
   | "draft_created"
   | "email_sent"
   | "waiting_on_reply"
@@ -817,67 +818,37 @@ const normalizeUrl = (url: string | undefined): string | undefined => {
 // ================================
 class ApiService {
   // ---- Auth helpers ----
+
   private async getIdToken(forceRefresh: boolean = false): Promise<string> {
     try {
       const { auth } = await import('../lib/firebase');
-      const { onAuthStateChanged } = await import('firebase/auth');
-      
-      // Wait for auth state to be initialized using onAuthStateChanged
-      // This ensures we wait for Firebase auth to be fully ready before checking currentUser
-      // onAuthStateChanged fires immediately with the current auth state once it's determined
-      let unsubscribe: (() => void) | null = null;
-      const authReady = new Promise<any>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          if (unsubscribe) unsubscribe();
-          resolve(null);
-        }, 5000); // 5 second timeout
-        
-        unsubscribe = onAuthStateChanged(
-          auth,
-          (user) => {
-            // onAuthStateChanged fires when auth state is determined
-            // This happens immediately if auth is already initialized, or when it becomes ready
-            clearTimeout(timeout);
-            if (unsubscribe) unsubscribe();
-            resolve(user);
-          },
-          (error) => {
-            clearTimeout(timeout);
-            if (unsubscribe) unsubscribe();
-            reject(error);
-          }
-        );
-      });
-      
-      const firebaseUser = await authReady;
+
+      // Wait for Firebase auth to finish initializing (restores session from persistence).
+      // onAuthStateChanged can fire with null during init; authStateReady() waits until settled.
+      await auth.authStateReady();
+
+      const firebaseUser = auth.currentUser;
       if (!firebaseUser) {
-        console.error('No authenticated user found. Please sign in.');
         const error: any = new Error('Authentication required. Please sign in again.');
         error.status = 401;
         error.needsAuth = true;
         throw error;
       }
-      
-      // Get token, optionally force refresh if requested
-      // Use firebaseUser directly since we've confirmed auth state is ready
+
       const token = await firebaseUser.getIdToken(forceRefresh);
-      
+
       if (!token) {
-        console.error('Failed to get ID token');
         const error: any = new Error('Failed to get authentication token. Please sign in again.');
         error.status = 401;
         error.needsAuth = true;
         throw error;
       }
-      
+
       return token;
     } catch (error: any) {
-      console.error('Error getting Firebase auth token:', error);
-      // If it's already our custom error, re-throw it
       if (error.status === 401 && error.needsAuth) {
         throw error;
       }
-      // Otherwise, wrap it
       const authError: any = new Error('Authentication required. Please sign in again.');
       authError.status = 401;
       authError.needsAuth = true;
@@ -1359,6 +1330,31 @@ class ApiService {
       method: 'GET',
       headers,
     });
+  }
+
+  /**
+   * Start an async firm search. Returns a searchId immediately.
+   * Use streamFirmSearchProgress() to receive real-time SSE progress.
+   */
+  async searchFirmsAsync(query: string, batchSize: number = 10): Promise<{ searchId: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ searchId: string }>('/firm-search/search-async', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ query, batchSize }),
+    });
+  }
+
+  /**
+   * Open an SSE stream for real-time firm search progress.
+   * Returns an EventSource. Listen for 'progress', 'complete', and 'error' events.
+   */
+  async createFirmSearchStream(searchId: string): Promise<EventSource> {
+    const { getAuth } = await import('firebase/auth');
+    const token = await getAuth().currentUser?.getIdToken(true);
+    // EventSource doesn't support custom headers, so pass token as query param
+    const url = `${API_BASE_URL}/api/firm-search/stream/${searchId}?token=${encodeURIComponent(token || '')}`;
+    return new EventSource(url);
   }
 
   async getFirmSearchHistory(limit: number = 10, includeFirms: boolean = false): Promise<SearchHistoryItem[]> {
@@ -1994,6 +1990,29 @@ async syncOutboxThread(
       }
     );
     return response;
+  }
+
+  // ================================
+  // Error Reporting
+  // ================================
+  async reportFrontendError(error: { message: string; stack?: string; componentStack?: string; url?: string }): Promise<void> {
+    try {
+      const headers = await this.getAuthHeaders().catch(() => ({ 'Content-Type': 'application/json' }));
+      await fetch(`${API_BASE_URL}/api/admin/client-error`, {
+        method: 'POST',
+        headers: headers as Record<string, string>,
+        body: JSON.stringify({
+          message: error.message,
+          stack: error.stack?.slice(0, 4000),
+          componentStack: error.componentStack?.slice(0, 2000),
+          url: error.url || window.location.href,
+          userAgent: navigator.userAgent,
+          timestamp: new Date().toISOString(),
+        }),
+      });
+    } catch {
+      // Swallow — error reporting must never throw
+    }
   }
 }
 

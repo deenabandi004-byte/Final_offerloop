@@ -10,16 +10,15 @@ from flask import Blueprint, request, jsonify
 from app.extensions import require_firebase_auth, require_tier, get_db
 from app.config import PROMPT_SEARCH_ENABLED, TIER_CONFIGS
 from app.services.prompt_pdl_search import run_prompt_search
-from app.services.auth import check_and_reset_credits
-from firebase_admin import firestore
+from app.services.auth import check_and_reset_credits, deduct_credits_atomic
 
 prompt_search_bp = Blueprint("prompt_search", __name__, url_prefix="/api/search")
 logger = logging.getLogger(__name__)
 
 
 @prompt_search_bp.route("/prompt-run", methods=["POST"])
-@require_firebase_auth
 @require_tier(['elite'])
+@require_firebase_auth
 def prompt_run():
     """
     Execute prompt-first search with progressive relaxation and post-filtered alumni.
@@ -74,14 +73,11 @@ def prompt_run():
     remaining_credits = credits_available
     if db and user_id and contacts:
         try:
-            user_ref = db.collection('users').document(user_id)
-            user_ref.update({
-                'credits': firestore.Increment(-credits_charged)
-            })
+            deduct_credits_atomic(user_id, credits_charged, "prompt_search")
             remaining_credits = credits_available - credits_charged
-            logger.info(f"✅ Deducted {credits_charged} credits ({len(contacts)} contacts × 15). Remaining: {remaining_credits}")
+            logger.info(f"Deducted {credits_charged} credits ({len(contacts)} contacts x 15). Remaining: {remaining_credits}")
         except Exception as e:
-            logger.error(f"❌ Failed to deduct credits: {e}")
+            logger.error(f"Failed to deduct credits: {e}")
     
     # Add credit information to response
     result['credits_charged'] = credits_charged

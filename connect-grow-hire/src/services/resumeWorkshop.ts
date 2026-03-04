@@ -40,6 +40,13 @@ export interface TailorResult {
     skills?: SkillsSuggestion;
     keywords?: KeywordSuggestion[];
   };
+  keyword_analysis?: {
+    match_percentage: number;
+    required_present: string[];
+    required_missing: string[];
+    preferred_present: string[];
+    preferred_missing: string[];
+  };
   job_context: {
     job_title: string;
     company: string;
@@ -400,6 +407,7 @@ export async function tailorResume(params: {
       score: data.score || 0,
       score_label: data.score_label || '',
       sections: data.sections || {},
+      keyword_analysis: data.keyword_analysis || {},
       job_context: data.job_context || {
         job_title: params.job_title || '',
         company: params.company || '',
@@ -510,6 +518,55 @@ export async function applyRecommendation(params: {
     };
   }
   */
+}
+
+/**
+ * Save a resume to the user's Resume Library
+ */
+export async function saveToResumeLibrary(params: {
+  display_name: string;
+  job_title?: string;
+  company?: string;
+  location?: string;
+  pdf_base64: string;
+  structured_data?: any;
+  score?: number;
+  source?: string;
+}): Promise<{ status: 'ok' | 'error'; library_entry_id?: string; message?: string }> {
+  const firebaseUser = auth.currentUser;
+  const token = firebaseUser ? await firebaseUser.getIdToken() : null;
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/resume-workshop/library`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(params),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return {
+        status: 'error',
+        message: data.message || `HTTP ${response.status}`,
+      };
+    }
+
+    return {
+      status: 'ok',
+      library_entry_id: data.library_entry_id,
+    };
+  } catch (error: any) {
+    return {
+      status: 'error',
+      message: error.message || 'Network error',
+    };
+  }
 }
 
 /**

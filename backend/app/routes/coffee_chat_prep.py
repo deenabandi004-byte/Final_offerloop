@@ -593,8 +593,7 @@ def delete_coffee_chat_prep(prep_id):
         db = get_db()
         user_id = request.firebase_user.get("uid")
         
-        print(f"🗑️ DELETE request for prep_id: {prep_id}")
-        print(f"🗑️ User ID: {user_id}")
+        print(f"[CoffeeChatPrep] DELETE request for prep_id: {prep_id}")
         
         prep_ref = (
             db.collection("users")
@@ -604,7 +603,7 @@ def delete_coffee_chat_prep(prep_id):
         )
         prep_doc = prep_ref.get()
 
-        print(f"🗑️ Prep exists: {prep_doc.exists}")
+        print(f"[CoffeeChatPrep] Prep exists: {prep_doc.exists}")
         
         if not prep_doc.exists:
             # List all preps for this user for debugging

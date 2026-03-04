@@ -1,6 +1,7 @@
 """
 Admin / one-off endpoints (e.g. migrations).
 """
+import os
 import time
 from flask import Blueprint, jsonify, request
 
@@ -11,8 +12,8 @@ from app.services.gmail_client import renew_gmail_watch
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
-# TODO: In production, call POST /api/admin/renew-watches from a cron job every 12 hours
-# so Gmail push watch expirations are renewed before they lapse.
+# In production, call POST /api/admin/renew-watches from a cron job every 12 hours
+# with header X-Cron-Secret matching CRON_SECRET env var.
 
 
 @admin_bp.post("/backfill-stages")
@@ -70,14 +71,37 @@ def sync_stale():
     return jsonify(result), 200
 
 
+def _is_cron_authorized():
+    """Check if the request has a valid cron secret for headless access."""
+    cron_secret = os.getenv("CRON_SECRET")
+    if not cron_secret:
+        return False
+    provided = (request.headers.get("X-Cron-Secret") or "").strip()
+    return provided == cron_secret
+
+
 @admin_bp.post("/renew-watches")
-@require_firebase_auth
 def renew_watches():
     """
     Renew Gmail push watches for all users whose watch expires within 24h or who have
     Gmail connected but no watch. Call periodically (e.g. cron every 12h).
+
+    Auth: accepts either Firebase auth (Bearer token) or X-Cron-Secret header.
     Returns: { "renewed": N, "failed": N, "errors": [ { "uid": "...", "error": "..." }, ... ] }
     """
+    # Allow either Firebase auth or cron secret
+    if not _is_cron_authorized():
+        # Fall back to Firebase auth check
+        from firebase_admin import auth as fb_auth
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return jsonify({"error": "Unauthorized — provide Firebase auth or X-Cron-Secret"}), 401
+        token = auth_header.split("Bearer ", 1)[1]
+        try:
+            fb_auth.verify_id_token(token, clock_skew_seconds=5)
+        except Exception:
+            return jsonify({"error": "Invalid token"}), 401
+
     try:
         db = get_db()
     except RuntimeError as e:
@@ -118,3 +142,43 @@ def renew_watches():
             print(f"[admin/renew-watches] Failed uid={uid}: {e}")
 
     return jsonify({"renewed": renewed, "failed": failed, "errors": errors}), 200
+
+
+@admin_bp.post("/client-error")
+def report_client_error():
+    """
+    Receive frontend error reports from ErrorBoundary.
+    No auth required — error reporting must work even when auth is broken.
+    Rate-limited by IP to prevent abuse.
+    """
+    data = request.get_json(silent=True) or {}
+    message = (data.get("message") or "unknown")[:500]
+    stack = (data.get("stack") or "")[:4000]
+    component_stack = (data.get("componentStack") or "")[:2000]
+    url = (data.get("url") or "")[:500]
+    user_agent = (data.get("userAgent") or "")[:300]
+    timestamp = data.get("timestamp", "")
+
+    # Log to stdout (picked up by Cloud Logging / Sentry)
+    print(f"[ClientError] {message} | url={url} | ts={timestamp}")
+    if stack:
+        print(f"[ClientError] Stack: {stack[:500]}")
+
+    # Also forward to Sentry if configured
+    try:
+        import sentry_sdk
+        if sentry_sdk.is_initialized():
+            sentry_sdk.capture_message(
+                f"Frontend error: {message}",
+                level="error",
+                extras={
+                    "stack": stack,
+                    "componentStack": component_stack,
+                    "url": url,
+                    "userAgent": user_agent,
+                },
+            )
+    except Exception:
+        pass
+
+    return jsonify({"ok": True}), 200

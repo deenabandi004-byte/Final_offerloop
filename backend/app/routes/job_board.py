@@ -1905,6 +1905,23 @@ def build_personalized_queries(user_profile: dict, job_types: List[str]) -> List
     # PHASE 3: Kill generic skill queries for non-technical domains
     # This is handled by domain templates - only technology domain has allowed_skills
     
+    # 5. SOURCE-SPECIFIC queries (Glassdoor, ZipRecruiter, Wellfound, Workday)
+    # Google Jobs aggregates from these platforms; appending the platform name
+    # biases results toward listings sourced from that platform.
+    source_platforms = ["Glassdoor", "ZipRecruiter", "Wellfound", "Workday"]
+    if domain_template.get("allowed_roles"):
+        top_role = domain_template["allowed_roles"][0]
+        primary_location = preferred_locations[0] if preferred_locations else "United States"
+        for platform in source_platforms:
+            queries.append({
+                "query": f"{top_role} {job_type_str} {platform}",
+                "priority": priority,
+                "source": f"platform_{platform.lower()}",
+                "weight": 1.0,
+                "location": primary_location,
+            })
+            priority += 1
+
     # PHASE 7B: Deduplicate queries (remove exact duplicates and near-duplicates)
     seen_queries_normalized = set()
     deduplicated_queries = []
@@ -3381,6 +3398,7 @@ SOURCE_PRIORITY = {
     "ashby": 95,
     "workday": 90,
     "linkedin": 85,
+    "wellfound": 82,
     "builtin": 80,
     "indeed": 75,
     "ziprecruiter": 70,
@@ -3426,7 +3444,11 @@ def get_job_source_score(job: dict) -> int:
             return SOURCE_PRIORITY["simplify"]
         elif "wayup" in via_field:
             return SOURCE_PRIORITY["wayup"]
-    
+        elif "wellfound" in via_field or "angel" in via_field:
+            return SOURCE_PRIORITY["wellfound"]
+        elif "workday" in via_field:
+            return SOURCE_PRIORITY["workday"]
+
     # Try to infer from URL
     url = job.get("url", "").strip().lower()
     if url:
@@ -3462,11 +3484,14 @@ def get_job_source_score(job: dict) -> int:
                 return SOURCE_PRIORITY["simplify"]
             elif "wayup.com" in domain:
                 return SOURCE_PRIORITY["wayup"]
+            elif "wellfound.com" in domain or "angel.co" in domain:
+                return SOURCE_PRIORITY["wellfound"]
             else:
                 # Check if it looks like a company site (common patterns)
                 # If URL doesn't match known aggregators, assume company site
-                aggregator_domains = ["indeed", "linkedin", "glassdoor", "ziprecruiter", 
-                                    "monster", "careerbuilder", "dice", "simplyhired"]
+                aggregator_domains = ["indeed", "linkedin", "glassdoor", "ziprecruiter",
+                                    "monster", "careerbuilder", "dice", "simplyhired",
+                                    "wellfound", "angel.co", "wayup", "builtin"]
                 if not any(agg in domain for agg in aggregator_domains):
                     return SOURCE_PRIORITY["company_site"]
         except Exception:
@@ -3545,8 +3570,9 @@ def get_job_source_name(job: dict) -> str:
                 return "wayup"
             else:
                 # Check if it looks like a company site
-                aggregator_domains = ["indeed", "linkedin", "glassdoor", "ziprecruiter", 
-                                    "monster", "careerbuilder", "dice", "simplyhired"]
+                aggregator_domains = ["indeed", "linkedin", "glassdoor", "ziprecruiter",
+                                    "monster", "careerbuilder", "dice", "simplyhired",
+                                    "wellfound", "angel.co", "wayup", "builtin"]
                 if not any(agg in domain for agg in aggregator_domains):
                     return "company_site"
         except Exception:

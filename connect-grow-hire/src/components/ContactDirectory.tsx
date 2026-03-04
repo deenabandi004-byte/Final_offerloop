@@ -9,6 +9,8 @@ import {
   ExternalLink,
   Download,
   User,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
 import { LoadingSkeleton } from "./LoadingSkeleton";
 import { useNavigate } from "react-router-dom";
@@ -61,6 +63,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
 
   const [replyStatuses, setReplyStatuses] = useState<Record<string, any>>({});
   const [isCheckingReplies, setIsCheckingReplies] = useState(false);
+  const [draftingContactIds, setDraftingContactIds] = useState<Set<string>>(new Set());
 
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const isCheckingRepliesRef = useRef(false);
@@ -403,11 +406,86 @@ const SpreadsheetContactDirectory: React.FC = () => {
     }
   };
 
+  const handleDraftEmail = async (contact: Contact) => {
+    if (!contact.id || !contact.email) return;
+
+    setDraftingContactIds((prev) => new Set(prev).add(contact.id!));
+
+    try {
+      const { auth: fbAuth } = await import("../lib/firebase");
+      const idToken = await fbAuth.currentUser?.getIdToken(true);
+      if (!idToken) throw new Error("Not authenticated");
+
+      const contactsPayload = [{
+        FirstName: contact.firstName || "",
+        LastName: contact.lastName || "",
+        Email: contact.email,
+        Company: contact.company || "",
+        Title: contact.jobTitle || "",
+      }];
+
+      const requestBody: Record<string, unknown> = {
+        contacts: contactsPayload,
+        resumeText: "",
+        userProfile: {},
+        careerInterests: [],
+      };
+
+      // Fetch resume text from Firestore for better email quality
+      try {
+        const { doc, getDoc } = await import("firebase/firestore");
+        const { db } = await import("../lib/firebase");
+        if (fbAuth.currentUser) {
+          const userRef = doc(db, "users", fbAuth.currentUser.uid);
+          const snap = await getDoc(userRef);
+          if (snap.exists()) {
+            const data = snap.data();
+            requestBody.resumeText = data.resumeText || (data.resumeParsed ? JSON.stringify(data.resumeParsed) : "");
+          }
+        }
+      } catch {
+        // Non-critical
+      }
+
+      const API_BASE_URL = window.location.hostname === "localhost" ? "http://localhost:5001" : "https://www.offerloop.ai";
+      const res = await fetch(`${API_BASE_URL}/api/emails/generate-and-draft`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error((errData as any)?.error || `HTTP ${res.status}`);
+      }
+
+      toast({
+        title: "Gmail draft created!",
+        description: `Draft created for ${contact.firstName || contact.email}. Check your Gmail Drafts.`,
+      });
+
+      // Refresh contacts so gmailDraftId/gmailDraftUrl are reflected
+      await loadContacts();
+    } catch (err: any) {
+      toast({
+        title: "Draft creation failed",
+        description: err?.message || "Something went wrong",
+        variant: "destructive",
+      });
+    } finally {
+      setDraftingContactIds((prev) => {
+        const next = new Set(prev);
+        next.delete(contact.id!);
+        return next;
+      });
+    }
+  };
+
   /**
    * Get email subject/body with strict precedence order:
    * 1. Most recent generated email (emailSubject/emailBody) - SOURCE OF TRUTH
    * 2. Fallback template (only if no generated email exists)
-   * 
+   *
    * This ensures we always use the high-quality generated outreach emails
    * that match what users see elsewhere in the app.
    */
@@ -982,6 +1060,37 @@ const SpreadsheetContactDirectory: React.FC = () => {
                             </Button>
                           ) : (
                             <span className="text-gray-300">—</span>
+                          )}
+                          {contact.email && contact.id && (
+                            contact.gmailDraftId ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => window.open(
+                                  contact.gmailDraftUrl || `https://mail.google.com/mail/#drafts`,
+                                  '_blank'
+                                )}
+                                className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                                title="Open Gmail draft"
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleDraftEmail(contact)}
+                                disabled={draftingContactIds.has(contact.id)}
+                                className="text-gray-400 hover:text-purple-600 hover:bg-purple-50"
+                                title="Create Gmail draft"
+                              >
+                                {draftingContactIds.has(contact.id) ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Sparkles className="h-4 w-4" />
+                                )}
+                              </Button>
+                            )
                           )}
                           <Button
                             variant="ghost"

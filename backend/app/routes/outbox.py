@@ -70,15 +70,18 @@ outbox_bp = Blueprint("outbox", __name__, url_prefix="/api/outbox")
 
 # Allowed pipeline stages for manual updates and filtering
 ALLOWED_PIPELINE_STAGES = frozenset({
-    "draft_created", "email_sent", "waiting_on_reply", "replied",
+    "new", "draft_created", "email_sent", "waiting_on_reply", "replied",
     "meeting_scheduled", "connected", "no_response", "bounced", "closed",
 })
 
 
-def _contact_has_thread_or_draft(data):
-    """Same logic as list_threads: include iff gmailThreadId OR gmailDraftId OR gmailDraftUrl. Used by list_threads and stats."""
+def _contact_belongs_in_outbox(data):
+    """Include in outbox if contact has gmailThreadId OR gmailDraftId OR gmailDraftUrl OR pipelineStage is "new"."""
     if not data:
         return False
+    pipeline_stage = data.get("pipelineStage") or data.get("pipeline_stage")
+    if pipeline_stage == "new":
+        return True
     has_thread = bool(data.get("gmailThreadId") or data.get("gmail_thread_id"))
     has_draft = bool(
         data.get("gmailDraftId")
@@ -224,10 +227,13 @@ def _build_outbox_thread(doc):
         or data.get("last_message_snippet")
     )
     
-    # If no snippet and it's a draft (no threadId), use email body
-    if not last_message_snippet and not gmail_thread_id:
+    # Fallback snippet based on contact state
+    stored_stage = data.get("pipelineStage") or data.get("pipeline_stage")
+    if not last_message_snippet and stored_stage == "new":
+        last_message_snippet = "Ready to draft an email"
+    elif not last_message_snippet and not gmail_thread_id:
         last_message_snippet = (
-            data.get("emailBody") 
+            data.get("emailBody")
             or data.get("email_body")
             or "Draft is ready to send in Gmail"
         )
@@ -309,47 +315,26 @@ def list_threads():
         }), 500
     
     uid = request.firebase_user["uid"]
-    print(f"🔍 User authenticated: {uid}")
-    print(f"🔍 User email: {request.firebase_user.get('email')}")
-    
+
     # Pagination and filters
     page = int(request.args.get('page', 1))
-    per_page = int(request.args.get('per_page', 50))  # Default 50, max 100
-    per_page = min(per_page, 100)  # Cap at 100
+    per_page = int(request.args.get('per_page', 200))  # Default 200 to serve most users in one call
+    per_page = min(per_page, 500)  # Cap at 500
     stage_param = (request.args.get('stage') or "").strip()
     stage_filter = [s.strip() for s in stage_param.split(",") if s.strip()] if stage_param else None
     sort_field = request.args.get('sort') or "lastActivityAt"
     sort_dir = (request.args.get('sort_dir') or "desc").strip().lower()
     sort_desc = sort_dir != "asc"
-    
+
     contacts_ref = (
         db.collection("users")
         .document(uid)
         .collection("contacts")
     )
 
+    # Filter contacts that have Gmail thread or draft data
     docs = list(contacts_ref.stream())
-    print(f"📊 Total contacts found: {len(docs)}")
-
-    # Include contacts that have:
-    # 1. A Gmail thread ID, OR
-    # 2. A Gmail draft ID/URL (even if no threadId yet - drafts can become threads)
-    # OPTIMIZATION: Return cached data immediately without Gmail API calls
-    # Gmail sync happens lazily via the /sync endpoint when user opens a thread
-    contacts = []
-    
-    for doc in docs:
-        data = doc.to_dict() or {}
-        if not _contact_has_thread_or_draft(data):
-            continue
-        contacts.append(doc)
-        has_thread_id = bool(data.get("gmailThreadId") or data.get("gmail_thread_id"))
-        has_draft = bool(
-            data.get("gmailDraftId") or data.get("gmail_draft_id") or data.get("gmailDraftUrl") or data.get("gmail_draft_url")
-        )
-        print(f"✅ Contact {doc.id} included: threadId={has_thread_id}, draft={has_draft}")
-
-    print(f"📧 Contacts with threads/drafts: {len(contacts)}")
+    contacts = [doc for doc in docs if _contact_belongs_in_outbox(doc.to_dict() or {})]
     threads = [_build_outbox_thread(doc) for doc in contacts]
 
     # Deduplicate by email: for each email (normalized lower), keep one canonical (most recent lastActivityAt)
@@ -429,8 +414,6 @@ def batch_sync_threads():
 
     results = []
     for i, contact_id in enumerate(contact_ids):
-        if i > 0:
-            time.sleep(1)
         try:
             thread, synced, error_code = _perform_sync(uid, contact_id, user_email)
             if error_code == "contact_not_found":
@@ -1034,7 +1017,7 @@ def outbox_stats():
 
     for doc in docs:
         data = doc.to_dict() or {}
-        if not _contact_has_thread_or_draft(data):
+        if not _contact_belongs_in_outbox(data):
             continue
         total += 1
         stage = data.get("pipelineStage") or data.get("pipeline_stage")

@@ -4,7 +4,7 @@ Email Template API — save/load user default template + CRUD for saved custom t
 from flask import Blueprint, jsonify, request
 from firebase_admin import firestore
 
-from app.extensions import require_firebase_auth, get_db
+from app.extensions import require_firebase_auth, require_tier, get_db
 from email_templates import (
     get_available_presets,
     EMAIL_STYLE_PRESETS,
@@ -156,6 +156,7 @@ def list_presets():
 # ---------------------------------------------------------------------------
 
 @email_template_bp.route("/saved", methods=["GET"])
+@require_tier(['elite'])
 @require_firebase_auth
 def list_saved():
     """List all saved custom email templates for the user."""
@@ -189,6 +190,7 @@ def list_saved():
 
 
 @email_template_bp.route("/saved", methods=["POST"])
+@require_tier(['elite'])
 @require_firebase_auth
 def create_saved():
     """Create (or update) a saved custom email template."""
@@ -231,6 +233,7 @@ def create_saved():
 
 
 @email_template_bp.route("/saved/<template_id>", methods=["DELETE"])
+@require_tier(['elite'])
 @require_firebase_auth
 def delete_saved(template_id):
     """Delete a saved custom email template."""

@@ -94,7 +94,7 @@ def check_credits():
             if user_doc.exists:
                 user_data = user_doc.to_dict()
                 credits = check_and_reset_credits(user_ref, user_data)
-                max_credits = user_data.get('maxCredits', 150)
+                max_credits = user_data.get('maxCredits', TIER_CONFIGS.get(tier, TIER_CONFIGS['free'])['credits'])
                 tier = user_data.get('tier', 'free')
                 
                 # Calculate searches remaining
@@ -136,31 +136,44 @@ def check_credits():
 def update_user_tier():
     """
     Update user tier and credits - ADMIN/INTERNAL USE ONLY
-    SECURITY: This endpoint should only be used by webhooks or admin tools.
-    Tier is validated but comes from request - this is intentional for webhook/admin use.
-    For normal user operations, tier should NEVER be accepted from client.
+    Requires the caller's UID to be in the Firestore 'admins' collection,
+    OR a valid ADMIN_API_SECRET header for server-to-server calls (e.g. Stripe webhooks).
     """
     try:
+        import os
         db = get_db()
+
+        # --- Admin authorization check ---
+        admin_secret = os.getenv("ADMIN_API_SECRET")
+        provided_secret = request.headers.get("X-Admin-Secret", "")
+        caller_uid = request.firebase_user.get('uid')
+
+        is_admin = False
+        # Check 1: server-to-server via shared secret
+        if admin_secret and provided_secret and provided_secret == admin_secret:
+            is_admin = True
+        # Check 2: caller is in the admins collection
+        elif db and caller_uid:
+            admin_doc = db.collection('admins').document(caller_uid).get()
+            if admin_doc.exists:
+                is_admin = True
+
+        if not is_admin:
+            return jsonify({'error': 'Forbidden: admin access required'}), 403
+
         data = request.get_json() or {}
         user_email = data.get('userEmail', '').strip()
         tier = data.get('tier', '').strip()
         credits = data.get('credits', 0)
         max_credits = data.get('maxCredits', 0)
-        
+
         if not user_email or not tier:
             return jsonify({'error': 'User email and tier required'}), 400
-        
+
         # Validate tier
         if tier not in ['free', 'pro', 'elite']:
             return jsonify({'error': 'Invalid tier. Must be "free", "pro", or "elite"'}), 400
-        
-        # SECURITY NOTE: This endpoint accepts tier from request, which is a security risk.
-        # This should only be used by:
-        # 1. Stripe webhooks (which are server-to-server)
-        # 2. Admin tools (which should have additional authentication)
-        # Consider adding admin authentication or removing this endpoint in favor of webhook-only updates.
-        
+
         # Store user tier info
         if db:
             user_ref = db.collection('users').document(user_email.replace('@', '_at_'))
@@ -171,9 +184,7 @@ def update_user_tier():
                 'maxCredits': max_credits,
                 'updated_at': datetime.now().isoformat()
             }, merge=True)
-        
-        print(f"Updated user {user_email} to {tier} tier with {credits} credits")
-        
+
         return jsonify({
             'success': True,
             'user': {
@@ -183,7 +194,7 @@ def update_user_tier():
                 'maxCredits': max_credits
             }
         })
-        
+
     except Exception as e:
         print(f"User tier update error: {e}")
         return jsonify({'error': str(e)}), 500
@@ -569,21 +580,30 @@ def increment_usage():
 
 
 @billing_bp.route('/debug/check-upgrade/<user_id>', methods=['GET'])
+@require_firebase_auth
 def debug_check_upgrade(user_id):
-    """Debug endpoint to check user upgrade status"""
+    """Debug endpoint to check user upgrade status (dev only)"""
+    import os
+    is_dev = (
+        os.getenv("FLASK_ENV") == "development"
+        or os.getenv("FLASK_DEBUG") == "1"
+    )
+    if not is_dev:
+        return jsonify({'error': 'Not available in production'}), 404
+
     try:
         db = get_db()
         if not db:
             return jsonify({'error': 'Firebase not initialized'}), 500
-        
+
         user_ref = db.collection('users').document(user_id)
         user_doc = user_ref.get()
-        
+
         if not user_doc.exists:
             return jsonify({'error': 'User not found'}), 404
-        
+
         user_data = user_doc.to_dict()
-        
+
         return jsonify({
             'user_id': user_id,
             'tier': user_data.get('tier', 'free'),
@@ -593,7 +613,7 @@ def debug_check_upgrade(user_id):
             'customerId': user_data.get('stripeCustomerId'),
             'upgraded_at': user_data.get('upgraded_at')
         })
-        
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

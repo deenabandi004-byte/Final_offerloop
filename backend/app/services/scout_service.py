@@ -1109,7 +1109,7 @@ Be honest but constructive. If the job doesn't align well with their major/backg
                 # This is CRITICAL - we MUST use resume location for search, not job results
                 if not location and user_resume:
                     print(f"[Scout] 🔍 Extracting location from resume for job search...")
-                    print(f"[Scout] DEBUG: user_resume keys: {list(user_resume.keys())}")
+                    pass  # debug removed
                     resume_location = user_resume.get("location")
                     print(f"[Scout] DEBUG: resume_location from user_resume: {resume_location}")
                     

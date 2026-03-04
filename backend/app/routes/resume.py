@@ -268,7 +268,7 @@ def parse_resume():
                 try:
                     decoded = fb_auth.verify_id_token(id_token, clock_skew_seconds=5)
                     user_id = decoded.get('uid')
-                    print(f"👤 User ID: {user_id}")
+                    print(f"[Resume] Processing authenticated upload")
                     
                     if user_id and db:
                         # STEP 4A: Upload file to Firebase Storage
@@ -372,7 +372,7 @@ def delete_resume():
         
         user_data = user_doc.to_dict()
         
-        print(f"[Resume] Starting deletion for user {user_id}")
+        print(f"[Resume] Starting deletion")
         
         # 1. Delete files from Firebase Storage
         storage_urls = [
@@ -413,7 +413,7 @@ def delete_resume():
         
         user_ref.update(update_data)
         
-        print(f"[Resume] Successfully deleted all resume data for user {user_id}")
+        print(f"[Resume] Successfully deleted all resume data")
         
         return jsonify({
             'success': True,

@@ -18,7 +18,7 @@ from app.services.resume_parser import extract_text_from_pdf, extract_text_from_
 from app.services.reply_generation import batch_generate_emails, PURPOSES_INCLUDE_RESUME, email_body_mentions_resume
 from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user, download_resume_from_url, clear_user_gmail_integration
 from app.routes.gmail_oauth import build_gmail_oauth_url_for_user
-from app.services.auth import check_and_reset_credits
+from app.services.auth import check_and_reset_credits, deduct_credits_atomic
 from app.services.hunter import enrich_contacts_with_hunter
 from app.config import TIER_CONFIGS
 from app.utils.exceptions import ValidationError, OfferloopException, InsufficientCreditsError, ExternalAPIError
@@ -111,26 +111,26 @@ def _get_cached_exclusion_list(user_id: str) -> Optional[set]:
         if user_id in _exclusion_list_cache:
             exclusion_set, timestamp = _exclusion_list_cache[user_id]
             if time.time() - timestamp < EXCLUSION_CACHE_TTL:
-                print(f"[ContactSearch] ✅ Using cached exclusion list for {user_id[:8]}... ({len(exclusion_set)} contacts, age: {time.time() - timestamp:.1f}s)")
+                print(f"[ContactSearch] Using cached exclusion list ({len(exclusion_set)} contacts, age: {time.time() - timestamp:.1f}s)")
                 return exclusion_set
             else:
                 # Cache expired, remove it
                 del _exclusion_list_cache[user_id]
-                print(f"[ContactSearch] ⏰ Exclusion list cache expired for {user_id[:8]}...")
+                print(f"[ContactSearch] Exclusion list cache expired")
     return None
 
 def _set_cached_exclusion_list(user_id: str, exclusion_set: set):
     """Cache exclusion list with current timestamp."""
     with _exclusion_cache_lock:
         _exclusion_list_cache[user_id] = (exclusion_set, time.time())
-        print(f"[ContactSearch] 💾 Cached exclusion list for {user_id[:8]}... ({len(exclusion_set)} contacts)")
+        print(f"[ContactSearch] Cached exclusion list ({len(exclusion_set)} contacts)")
 
 def _invalidate_exclusion_cache(user_id: str):
     """Invalidate exclusion list cache (call when contacts are added/removed)."""
     with _exclusion_cache_lock:
         if user_id in _exclusion_list_cache:
             del _exclusion_list_cache[user_id]
-            print(f"[ContactSearch] 🗑️  Invalidated exclusion list cache for {user_id[:8]}...")
+            print(f"[ContactSearch] Invalidated exclusion list cache")
 def _is_valid_email(value: str) -> bool:
     """Basic sanity check for emails."""
     if not isinstance(value, str):
@@ -170,7 +170,7 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
     import time
     start_time = time.time()
     
-    print(f"Starting OPTIMIZED Free tier for {user_email}")
+    print(f"[Runs] Starting OPTIMIZED Free tier search")
     
     try:
         db = get_db()
@@ -266,19 +266,15 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
             return {'contacts': [], 'successful_drafts': 0}
         
         # Resolve email template (request override → user default → none); db and user_id already in scope
-        print(f"[EmailTemplate] free-run email_template from request: {email_template!r}")
         template_instructions, email_template_purpose, template_subject_line, signoff_config = _resolve_email_template(email_template, user_id, db)
-        print(f"DEBUG signoff_config built: {signoff_config}", flush=True)
 
         # Get resume filename for email body reference (file downloaded later for attachment)
         user_resume_filename = None
         if user_data:
             user_resume_filename = user_data.get('resumeFileName')
-            if user_resume_filename:
-                print(f"📎 Resume filename for email body: {user_resume_filename}")
 
         # Generate emails
-        print(f"📧 Generating emails for {len(contacts)} contacts...")
+        print(f"[Runs] Generating emails for {len(contacts)} contacts")
         auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
         try:
             email_results = batch_generate_emails(
@@ -291,14 +287,14 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                 signoff_config=signoff_config,
                 auth_display_name=auth_display_name,
             )
-            print(f"📧 Email generation returned {len(email_results)} results")
+            print(f"[Runs] Email generation returned {len(email_results)} results")
         except Exception as email_gen_error:
-            print(f"❌ Email generation failed: {email_gen_error}")
+            print(f"[Runs] Email generation failed: {email_gen_error}")
             import traceback
             traceback.print_exc()
             # Continue with empty results - contacts won't have emails but search can still complete
             email_results = {}
-        
+
         # Attach email data to ALL contacts FIRST (before draft creation)
         emails_attached = 0
         for i, contact in enumerate(contacts):
@@ -311,14 +307,9 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                     contact['emailSubject'] = subject
                     contact['emailBody'] = body
                     emails_attached += 1
-                    print(f"✅ [{i}] Attached email to {contact.get('FirstName', 'Unknown')}: {subject[:50]}...")
-                else:
-                    print(f"⚠️ [{i}] Email result missing subject/body for {contact.get('FirstName', 'Unknown')}")
-            else:
-                print(f"⚠️ [{i}] No email result found for {contact.get('FirstName', 'Unknown')} (key: {key})")
-        
-        print(f"📧 Attached emails to {emails_attached}/{len(contacts)} contacts")
-        
+
+        print(f"[Runs] Attached emails to {emails_attached}/{len(contacts)} contacts")
+
         # Prepare contacts with email data (and per-contact attach_resume) for draft creation
         contacts_with_emails = []
         for i, contact in enumerate(contacts[:max_contacts]):
@@ -421,19 +412,16 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                                     contact['gmailMessageId'] = message_id
                                 if draft_url:
                                     contact['gmailDraftUrl'] = draft_url
-                                print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
-                            else:
-                                print(f"⚠️ [{i}] Draft creation returned mock/invalid ID for {contact.get('FirstName', 'Unknown')}")
                         except Exception as draft_error:
-                            print(f"❌ [{i}] Failed to process draft result for {contact.get('FirstName', 'Unknown')}: {draft_error}")
+                            print(f"[Runs] [{i}] Failed to process draft result: {draft_error}")
                 else:
-                    print(f"⚠️ No contacts with valid email data to create drafts")
+                    print(f"[Runs] No contacts with valid email data to create drafts")
         except Exception as gmail_error:
             # Token refresh happens automatically in _load_user_gmail_creds
             # Only catch errors that indicate PERMANENT auth failure
             error_str = str(gmail_error).lower()
             if 'invalid_grant' in error_str or 'token has been expired or revoked' in error_str:
-                print(f"⚠️ Gmail token permanently invalid for user {user_id}")
+                print(f"[Runs] Gmail token permanently invalid")
                 return {
                     'error': 'gmail_token_expired',
                     'message': 'Your Gmail connection has expired. Please reconnect your Gmail account.',
@@ -441,20 +429,17 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                     'contacts': contacts
                 }
             else:
-                print(f"⚠️ Gmail draft creation error (continuing without drafts): {gmail_error}")
+                print(f"[Runs] Gmail draft creation error (continuing without drafts): {gmail_error}")
                 # Continue without drafts if other Gmail error
                 pass
         
-        # Deduct credits
-        if db and user_id:
+        # Deduct credits atomically
+        if db and user_id and contacts:
             try:
-                user_ref = db.collection('users').document(user_id)
-                user_ref.update({
-                    'credits': firestore.Increment(-15 * len(contacts))
-                })
+                deduct_credits_atomic(user_id, 15 * len(contacts), "free_search")
             except Exception:
                 pass
-        
+
         # Save contacts to Firestore (networking tracker) - same as pro tier
         if db and user_id:
             try:
@@ -545,7 +530,7 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
     import time
     start_time = time.time()
     
-    print(f"Starting OPTIMIZED Pro tier for {user_email}")
+    print(f"[Runs] Starting OPTIMIZED Pro tier search")
     
     try:
         db = get_db()
@@ -653,12 +638,12 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
             else:
                 contacts_without_email.append(c)
         
-        print(f"\n📧 Email Status: {len(contacts_with_email)}/{len(contacts)} have emails from PDL")
-        
+        print(f"[Runs] Email status: {len(contacts_with_email)}/{len(contacts)} have emails from PDL")
+
         # Only use Hunter.io if we have contacts without emails
         if contacts_without_email:
             needed = max_contacts - len(contacts_with_email)
-            print(f"🔍 Need {needed} more emails, enriching {len(contacts_without_email)} contacts with Hunter.io...")
+            print(f"[Runs] Need {needed} more emails, enriching {len(contacts_without_email)} contacts with Hunter.io")
             
             try:
                 contacts = enrich_contacts_with_hunter(
@@ -671,29 +656,25 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                 traceback.print_exc()
                 # Continue without Hunter enrichment
         else:
-            print(f"✅ All {len(contacts_with_email)} contacts have emails from PDL, skipping Hunter.io enrichment")
-        
-        # ✅ FIX #4: Parse resume ONCE in orchestration layer (not in batch_generate_emails)
-        print(f"📄 Parsing resume once for email generation...")
+            print(f"[Runs] All {len(contacts_with_email)} contacts have emails from PDL, skipping Hunter.io enrichment")
+
+        # FIX #4: Parse resume ONCE in orchestration layer (not in batch_generate_emails)
         user_info = None
         if resume_text or user_profile:
             from app.utils.users import extract_user_info_from_resume_priority
             user_info = extract_user_info_from_resume_priority(resume_text, user_profile)
-            print(f"✅ Resume parsed - extracted user info for {user_info.get('name', 'Unknown')}")
-        
-        # Resolve email template (request override → user default → none)
-        print(f"[EmailTemplate] pro-run email_template from request: {email_template!r}")
+            print(f"[Runs] Resume parsed - extracted user info")
+
+        # Resolve email template (request override -> user default -> none)
         template_instructions, email_template_purpose, template_subject_line, signoff_config = _resolve_email_template(email_template, user_id, db)
 
         # Get resume filename for email body reference
         user_resume_filename = None
         if user_data:
             user_resume_filename = user_data.get('resumeFileName')
-            if user_resume_filename:
-                print(f"📎 Resume filename for email body: {user_resume_filename}")
 
         # Generate emails with pre-parsed user_info
-        print(f"📧 Generating emails for {len(contacts)} contacts...")
+        print(f"[Runs] Generating emails for {len(contacts)} contacts")
         auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
         try:
             # Pass pre-parsed user_info instead of raw resume_text
@@ -711,14 +692,14 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                 signoff_config=signoff_config,
                 auth_display_name=auth_display_name,
             )
-            print(f"📧 Email generation returned {len(email_results)} results")
+            print(f"[Runs] Email generation returned {len(email_results)} results")
         except Exception as email_gen_error:
-            print(f"❌ Email generation failed: {email_gen_error}")
+            print(f"[Runs] Email generation failed: {email_gen_error}")
             import traceback
             traceback.print_exc()
             # Continue with empty results - contacts won't have emails but search can still complete
             email_results = {}
-        
+
         # Attach email data to ALL contacts FIRST (before draft creation)
         emails_attached = 0
         for i, contact in enumerate(contacts):
@@ -731,14 +712,9 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                     contact['emailSubject'] = subject
                     contact['emailBody'] = body
                     emails_attached += 1
-                    print(f"✅ [{i}] Attached email to {contact.get('FirstName', 'Unknown')}: {subject[:50]}...")
-                else:
-                    print(f"⚠️ [{i}] Email result missing subject/body for {contact.get('FirstName', 'Unknown')}")
-            else:
-                print(f"⚠️ [{i}] No email result found for {contact.get('FirstName', 'Unknown')} (key: {key})")
-        
-        print(f"📧 Attached emails to {emails_attached}/{len(contacts)} contacts")
-        
+
+        print(f"[Runs] Attached emails to {emails_attached}/{len(contacts)} contacts")
+
         # Prepare contacts with email data (and per-contact attach_resume) for batch draft creation
         contacts_with_emails = []
         for i, contact in enumerate(contacts[:max_contacts]):
@@ -797,15 +773,9 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
             gmail_service = get_gmail_service_for_user(user_email, user_id=user_id)
             
             if gmail_service:
-                try:
-                    connected_email = gmail_service.users().getProfile(userId="me").execute().get("emailAddress")
-                    print(f"📧 Connected Gmail account: {connected_email}")
-                except Exception:
-                    connected_email = None
-                
                 if contacts_with_emails:
-                    # ✅ TASK 1: Use batch API for single HTTP request instead of 15 parallel requests
-                    print(f"📧 Creating {len(contacts_with_emails)} Gmail drafts using batch API...")
+                    # TASK 1: Use batch API for single HTTP request instead of 15 parallel requests
+                    print(f"[Runs] Creating {len(contacts_with_emails)} Gmail drafts using batch API")
                     draft_results = create_drafts_batch(
                         contacts_with_emails,
                         gmail_service=gmail_service,
@@ -834,24 +804,23 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                                         contact['gmailMessageId'] = message_id
                                     if draft_url:
                                         contact['gmailDraftUrl'] = draft_url
-                                    print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
                                 else:
-                                    print(f"⚠️ [{i}] Draft creation returned mock/invalid ID for {contact.get('FirstName', 'Unknown')}")
+                                    pass
                             else:
                                 error = draft_result.get('error', 'Unknown error') if isinstance(draft_result, dict) else str(draft_result)
-                                print(f"❌ [{i}] Failed to create draft for {contact.get('FirstName', 'Unknown')}: {error}")
+                                print(f"[Runs] [{i}] Failed to create draft: {error}")
                         except Exception as draft_error:
-                            print(f"❌ [{i}] Failed to process draft result for {contact.get('FirstName', 'Unknown')}: {draft_error}")
+                            print(f"[Runs] [{i}] Failed to process draft result: {draft_error}")
                 else:
-                    print(f"⚠️ No contacts with valid email data to create drafts")
+                    print(f"[Runs] No contacts with valid email data to create drafts")
             else:
-                print(f"⚠️ Gmail service unavailable - skipping draft creation")
+                print(f"[Runs] Gmail service unavailable - skipping draft creation")
         except Exception as gmail_error:
             # Token refresh happens automatically in _load_user_gmail_creds
             # Only catch errors that indicate PERMANENT auth failure
             error_str = str(gmail_error).lower()
             if 'invalid_grant' in error_str or 'token has been expired or revoked' in error_str:
-                print(f"⚠️ Gmail token permanently invalid for user {user_id}")
+                print(f"[Runs] Gmail token permanently invalid")
                 return {
                     'error': 'gmail_token_expired',
                     'message': 'Your Gmail connection has expired. Please reconnect your Gmail account.',
@@ -859,20 +828,17 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                     'contacts': contacts
                 }
             else:
-                print(f"⚠️ Gmail draft creation error (continuing without drafts): {gmail_error}")
+                print(f"[Runs] Gmail draft creation error (continuing without drafts): {gmail_error}")
                 # Continue without drafts if other Gmail error
                 pass
         
-        # Deduct credits
-        if db and user_id:
+        # Deduct credits atomically
+        if db and user_id and contacts:
             try:
-                user_ref = db.collection('users').document(user_id)
-                user_ref.update({
-                    'credits': firestore.Increment(-15 * len(contacts))
-                })
+                deduct_credits_atomic(user_id, 15 * len(contacts), "pro_search")
             except Exception:
                 pass
-        
+
         # ✅ FIX #2: Save contacts directly to Firestore after draft creation (eliminates redundant bulk_create_contacts call)
         if db and user_id:
             try:
@@ -1294,8 +1260,6 @@ def prompt_search():
         career_interests = data.get("careerInterests") or (user_data or {}).get("careerInterests", [])
         resume_text = None
         template_instructions, email_template_purpose, template_subject_line, signoff_config = _resolve_email_template(data.get("emailTemplate"), user_id, db)
-        print(f"DEBUG signoff_config built: {signoff_config}", flush=True)
-
         # Get resume filename for email body reference
         user_resume_filename = (user_data or {}).get("resumeFileName")
 
@@ -1312,7 +1276,7 @@ def prompt_search():
                 auth_display_name=auth_display_name,
             )
         except Exception as email_gen_error:
-            print(f"❌ Email generation failed (prompt-search): {email_gen_error}")
+            print(f"[Runs] Email generation failed (prompt-search): {email_gen_error}")
             email_results = {}
 
         for i, contact in enumerate(contacts):
@@ -1395,15 +1359,13 @@ def prompt_search():
                     "require_reauth": True,
                     "contacts": contacts,
                 }), 401
-            print(f"⚠️ Gmail draft error (prompt-search): {gmail_error}")
+            print(f"[Runs] Gmail draft error (prompt-search): {gmail_error}")
 
         if not (db and user_id):
-            print(f"⚠️ Prompt-search: skipping Firestore save (db={db is not None}, user_id={bool(user_id)})")
+            print(f"[Runs] Prompt-search: skipping Firestore save")
         if db and user_id:
             try:
-                db.collection("users").document(user_id).update({
-                    "credits": firestore.Increment(-15 * len(contacts))
-                })
+                deduct_credits_atomic(user_id, 15 * len(contacts), "prompt_search")
             except Exception:
                 pass
             try:

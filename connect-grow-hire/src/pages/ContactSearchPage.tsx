@@ -491,71 +491,16 @@ const ContactSearchPage: React.FC = () => {
 
   const initiateGmailOAuth = async () => {
     try {
-      const { auth } = await import('../lib/firebase');
-      const firebaseUser = auth.currentUser;
-      if (!firebaseUser) return;
-      const token = await firebaseUser.getIdToken(true);
-      const API_BASE_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://www.offerloop.ai';
-      const response = await fetch(`${API_BASE_URL}/api/google/oauth/start`, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
-      });
-      if (!response.ok) return;
-      const data = await response.json();
-      if (data.authUrl) {
+      const authUrl = await apiService.startGmailOAuth();
+      if (authUrl) {
         sessionStorage.setItem('gmail_oauth_return', window.location.pathname);
-        window.location.href = data.authUrl;
+        window.location.href = authUrl;
       }
     } catch (error) {
-      const isDev = import.meta.env.DEV;
-      if (isDev) console.error("Error initiating Gmail OAuth:", error);
+      if (import.meta.env.DEV) console.error("Error initiating Gmail OAuth:", error);
     }
   };
 
-  const generateAndDraftEmailsBatch = async (contacts: any[]) => {
-    const { auth } = await import("../lib/firebase");
-    const idToken = await auth.currentUser?.getIdToken(true);
-    const API_BASE_URL = window.location.hostname === "localhost" ? "http://localhost:5001" : "https://www.offerloop.ai";
-    const userProfile = await getUserProfileData();
-
-    // Get fit context from Scout job analysis (if available)
-    let fitContext = null;
-    try {
-      const storedContext = localStorage.getItem('scout_fit_context');
-      if (storedContext) {
-        fitContext = JSON.parse(storedContext);
-        console.log('[ContactSearch] Using fit context for email generation:', fitContext);
-      }
-    } catch (e) {
-      console.warn('[ContactSearch] Failed to parse fit context:', e);
-    }
-
-    const res = await fetch(`${API_BASE_URL}/api/emails/generate-and-draft`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-      body: JSON.stringify({
-        contacts,
-        resumeText: "",
-        userProfile,
-        careerInterests: userProfile?.careerInterests || [],
-        fitContext: fitContext,  // NEW: Pass fit context
-      }),
-    });
-    const ct = res.headers.get("content-type") || "";
-    const raw = await res.text();
-    const data = raw ? (ct.includes("application/json") ? JSON.parse(raw) : { raw }) : {};
-    if (res.status === 401) {
-      if ((data as any)?.needsAuth && (data as any)?.authUrl) {
-        window.location.href = (data as any).authUrl;
-        return null;
-      }
-      throw new Error((data as any).error || "Gmail session expired — please reconnect.");
-    }
-    if (!res.ok) {
-      throw new Error((data as any).error || `HTTP ${res.status}: ${res.statusText}`);
-    }
-    return data;
-  };
 
   // Check Gmail status on mount
   useEffect(() => {
@@ -952,16 +897,9 @@ const ContactSearchPage: React.FC = () => {
       setProgressValue(100);
       setLastResults(result.contacts);
 
-      setTimeout(() => {
-        setLastSearchStats({
-          successful_drafts: result.successful_drafts ?? 0,
-          total_contacts: result.contacts.length,
-        });
-        setSearchComplete(true);
-      }, 2000);
-
       if (result.contacts.length === 0) {
         triggerScoutForNoResults();
+        setSearchComplete(true);
       }
 
       trackFeatureActionCompleted('contact_search', 'search', true, {
@@ -986,9 +924,25 @@ const ContactSearchPage: React.FC = () => {
         }
       }
 
+      // Save contacts to directory with pipelineStage: "new" (backend sets this automatically)
+      if (result.contacts.length > 0) {
+        try {
+          await autoSaveToDirectory(result.contacts);
+        } catch (saveError) {
+          const isDev = import.meta.env.DEV;
+          if (isDev) console.error("Auto-save to directory failed:", saveError);
+        }
+      }
+
+      setLastSearchStats({
+        successful_drafts: 0,
+        total_contacts: result.contacts.length,
+      });
+      setSearchComplete(true);
+
       toast({
-        title: "Search Complete!",
-        description: `Found ${result.contacts.length} contacts. Used ${creditsUsed} credits. ${newCredits} credits remaining.`,
+        title: "Contacts Found!",
+        description: `Found ${result.contacts.length} contacts — view them in your Outbox to start outreach.`,
         duration: 5000,
       });
     } catch (error: any) {
@@ -1321,7 +1275,7 @@ const ContactSearchPage: React.FC = () => {
                     className="overflow-hidden w-full px-4 py-5 sm:px-10 sm:py-9"
                   >
 
-                    {/* Progress Bar (if searching) */}
+                    {/* Progress Bar (if searching or drafting) */}
                     {isSearching && (
                       <div className="absolute top-0 left-0 right-0 z-10">
                         <Progress value={progressValue} className="h-1 rounded-none bg-blue-50" />
@@ -1478,6 +1432,16 @@ const ContactSearchPage: React.FC = () => {
                         <p className="mt-2 text-sm text-gray-500 text-center">
                           {getContactCountHelper(batchSize)}
                         </p>
+
+                        {/* Credit cost preview */}
+                        <div className="mt-3 flex items-center justify-center gap-2 text-xs">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 font-medium">
+                            {batchSize * 15} credits
+                          </span>
+                          <span className="text-gray-400">
+                            ({effectiveUser.credits ?? 0} available)
+                          </span>
+                        </div>
                       </div>
                       )}
 
@@ -1516,18 +1480,56 @@ const ContactSearchPage: React.FC = () => {
 
                         {/* Search success state */}
                         {hasResults && !isSearching && !linkedInSuccess && (
-                          <div ref={searchSuccessRef} className="flex flex-col items-center gap-3 animate-in fade-in slide-in-from-top-2">
+                          <div ref={searchSuccessRef} className="flex flex-col items-center gap-4 animate-in fade-in slide-in-from-top-2 w-full max-w-2xl mx-auto">
                             <div className="flex items-center gap-1.5 text-sm text-green-600">
                               <CheckCircle className="w-3.5 h-3.5" />
-                              <span>Found {lastResults.length} contacts. Gmail drafts created.</span>
+                              <span>
+                                Found {lastResults.length} contacts — head to your Outbox to draft emails.
+                              </span>
                             </div>
+
+                            {/* Contact cards — only show when batch size is small to avoid crowding */}
+                            {lastResults.length <= 5 && (
+                            <div className="w-full space-y-2">
+                              {lastResults.map((c: any, i: number) => {
+                                const name = [c.FirstName || c.firstName, c.LastName || c.lastName].filter(Boolean).join(' ') || 'Unknown';
+                                const title = c.JobTitle || c.jobTitle || c.Title || '';
+                                const company = c.Company || c.company || '';
+                                const email = c.Email || c.email || '';
+                                const linkedin = c.LinkedIn || c.linkedinUrl || '';
+                                return (
+                                  <div key={i} className="flex items-center gap-3 p-3 bg-white border border-gray-100 rounded-xl hover:border-blue-200 transition-colors">
+                                    <div className="w-9 h-9 rounded-full bg-cyan-50 flex items-center justify-center text-cyan-600 font-semibold text-sm flex-shrink-0">
+                                      {name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium text-gray-900 truncate">{name}</p>
+                                      <p className="text-xs text-gray-500 truncate">{[title, company].filter(Boolean).join(' at ')}</p>
+                                    </div>
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                      {email && (
+                                        <span className="text-xs text-gray-400 hidden sm:inline truncate max-w-[160px]">{email}</span>
+                                      )}
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-cyan-50 text-cyan-700 border border-cyan-100">New</span>
+                                      {linkedin && (
+                                        <a href={linkedin} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-600" onClick={(e) => e.stopPropagation()}>
+                                          <ExternalLink className="w-3.5 h-3.5" />
+                                        </a>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            )}
+
                             <div className="flex items-center gap-3">
                               <Button
-                                onClick={() => window.open('https://mail.google.com/mail/u/0/#drafts', '_blank')}
+                                onClick={() => navigate('/outbox')}
                                 className="h-11 px-6 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
                               >
-                                <ExternalLink className="w-4 h-4" />
-                                Open Gmail Drafts
+                                <Inbox className="w-4 h-4" />
+                                View in Outbox
                               </Button>
                               <Button
                                 variant="outline"

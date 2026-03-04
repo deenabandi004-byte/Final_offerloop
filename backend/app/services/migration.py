@@ -8,6 +8,7 @@ from app.extensions import get_db
 
 # Pipeline stage enum values (canonical)
 PIPELINE_STAGES = (
+    "new",
     "draft_created",
     "email_sent",
     "waiting_on_reply",

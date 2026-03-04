@@ -4,14 +4,15 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';  // ← ADD THIS LINE
 
-// Your web app's Firebase configuration
+// Firebase configuration — read from VITE_ env vars with hardcoded fallbacks
+// so existing deploys continue to work without setting env vars.
 const firebaseConfig = {
-  apiKey: "AIzaSyCxcZbNwbh09DFw70tBQUSoqBIDaXNwZdE",
-  authDomain: "offerloop-native.firebaseapp.com",
-  projectId: "offerloop-native",
-  storageBucket: "offerloop-native.firebasestorage.app",
-  messagingSenderId: "184607281467",
-  appId: "1:184607281467:web:eab1b0e8be341aa8c5271e"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyCxcZbNwbh09DFw70tBQUSoqBIDaXNwZdE",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "offerloop-native.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "offerloop-native",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "offerloop-native.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "184607281467",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:184607281467:web:eab1b0e8be341aa8c5271e",
 };
 
 // Initialize Firebase

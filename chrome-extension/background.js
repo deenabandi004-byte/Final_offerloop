@@ -4,6 +4,21 @@ console.log('[Offerloop Background] Service worker started');
 // Configuration
 const API_BASE_URL = 'https://final-offerloop.onrender.com';
 
+// Fetch wrapper with AbortController timeout (default 30s)
+async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') throw new Error(`Request timed out after ${timeoutMs}ms`);
+    throw err;
+  }
+}
+
 // Refresh the Firebase auth token using Chrome Identity API
 async function refreshAuthToken() {
   console.log('[Offerloop Background] Refreshing auth token...');
@@ -34,7 +49,7 @@ async function refreshAuthToken() {
     });
     
     // Exchange for Firebase token
-    const response = await fetch(`${API_BASE_URL}/api/auth/google-extension`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/auth/google-extension`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ googleToken }),
@@ -108,7 +123,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     case 'getStatus':
       handleGetStatus(sendResponse);
       return true;
-      
+
+    case 'refreshToken':
+      handleRefreshToken(sendResponse);
+      return true;
+
     default:
       console.log('[Offerloop Background] Unknown action:', request.action);
       sendResponse({ error: 'Unknown action' });
@@ -181,7 +200,7 @@ async function importLinkedInContact(linkedInUrl, authToken, isRetry = false) {
   console.log('[Offerloop Background] Importing LinkedIn contact:', linkedInUrl);
   
   try {
-    const response = await fetch(`${API_BASE_URL}/api/contacts/import-linkedin`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/contacts/import-linkedin`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -215,6 +234,7 @@ async function importLinkedInContact(linkedInUrl, authToken, isRetry = false) {
       credits_remaining: data.credits_remaining,
       draft_created: data.draft_created,
       email_found: data.email_found,
+      gmail_draft_url: data.gmail_draft_url,
     };
   } catch (error) {
     console.error('[Offerloop Background] API Error:', error);
@@ -232,7 +252,7 @@ async function handleGetCredits(request, sendResponse) {
       return;
     }
     
-    const response = await fetch(`${API_BASE_URL}/api/check-credits`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/check-credits`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${authToken}`,
@@ -287,6 +307,23 @@ async function handleGetStatus(sendResponse) {
     });
   } catch (error) {
     sendResponse({ error: error.message });
+  }
+}
+
+// Handle token refresh request from popup
+async function handleRefreshToken(sendResponse) {
+  try {
+    const newToken = await refreshAuthToken();
+    if (newToken) {
+      // Read back the full stored state so the popup can sync its local state
+      const stored = await chrome.storage.local.get(['authToken', 'isLoggedIn', 'userEmail', 'userName', 'userPhoto', 'credits']);
+      sendResponse({ success: true, token: newToken, ...stored });
+    } else {
+      sendResponse({ success: false, error: 'Token refresh failed' });
+    }
+  } catch (error) {
+    console.error('[Offerloop Background] Error in handleRefreshToken:', error);
+    sendResponse({ success: false, error: error.message });
   }
 }
 

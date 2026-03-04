@@ -32,6 +32,7 @@ from .app.routes.job_board import job_board_bp
 from .app.routes.scout_assistant import scout_assistant_bp
 from .app.routes.linkedin_import import linkedin_import_bp
 from .app.routes.resume_workshop import resume_workshop_bp
+from .app.routes.resume_pdf_patch import resume_pdf_patch_bp
 from .app.routes.cover_letter_workshop import cover_letter_workshop_bp
 from .app.routes.auth_extension import auth_extension_bp
 from .app.routes.email_template import email_template_bp
@@ -123,25 +124,32 @@ def create_app() -> Flask:
     app.register_blueprint(job_board_bp)
     app.register_blueprint(scout_assistant_bp)
     app.register_blueprint(resume_workshop_bp)
+    app.register_blueprint(resume_pdf_patch_bp)
     app.register_blueprint(cover_letter_workshop_bp)
     app.register_blueprint(auth_extension_bp)
     app.register_blueprint(email_template_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(gmail_webhook_bp)
 
-    # --- Debug route to check frontend build ---
+    # --- Debug route to check frontend build (dev only) ---
     @app.route('/api/debug/frontend')
     def debug_frontend():
+        is_dev = (
+            os.getenv("FLASK_ENV") == "development"
+            or os.getenv("FLASK_DEBUG") == "1"
+            or app.debug
+        )
+        if not is_dev:
+            return {"error": "Not available in production"}, 404
+
         static_dir = app.static_folder
         exists = os.path.exists(static_dir)
         index_exists = os.path.exists(os.path.join(static_dir, 'index.html')) if exists else False
-        
+
         return {
-            'static_folder': static_dir,
             'static_folder_exists': exists,
             'index_html_exists': index_exists,
-            'files_in_static': os.listdir(static_dir)[:20] if exists else [],
-            'repo_root': os.path.dirname(os.path.dirname(__file__))
+            'file_count': len(os.listdir(static_dir)) if exists else 0,
         }
 
     # --- Redirect apex → www (optional but recommended) ---

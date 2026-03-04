@@ -129,14 +129,13 @@ def preview_import():
         
         user_data = user_doc.to_dict()
         tier = user_data.get('tier', 'free')
-        
-        # TODO: Re-enable tier restriction after testing
-        # if tier == 'free':
-        #     return jsonify({
-        #         'error': 'Contact import is available for Pro and Elite users only',
-        #         'upgrade_required': True
-        #     }), 403
-        
+
+        if tier == 'free':
+            return jsonify({
+                'error': 'Contact import is available for Pro and Elite users only',
+                'upgrade_required': True
+            }), 403
+
         # Get file from request
         if 'file' not in request.files:
             raise ValidationError("No file provided", field="file")
@@ -267,14 +266,13 @@ def import_contacts():
         
         user_data = user_doc.to_dict()
         tier = user_data.get('tier', 'free')
-        
-        # TODO: Re-enable tier restriction after testing
-        # if tier == 'free':
-        #     return jsonify({
-        #         'error': 'Contact import is available for Pro and Elite users only',
-        #         'upgrade_required': True
-        #     }), 403
-        
+
+        if tier == 'free':
+            return jsonify({
+                'error': 'Contact import is available for Pro and Elite users only',
+                'upgrade_required': True
+            }), 403
+
         # Get current credits
         credits = user_data.get('credits', 0)
         

@@ -92,7 +92,7 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
             userId: firebaseUser?.uid || "none"
           });
           if (firebaseUser) {
-            console.log("🔐 [AUTH CONTEXT] Loading user data for:", firebaseUser.email);
+            console.log("[AUTH CONTEXT] Loading user data");
             await loadUserData(firebaseUser);
             console.log("🔐 [AUTH CONTEXT] User data loaded");
           } else {
@@ -239,7 +239,7 @@ const signIn = async (opts?: SignInOptions): Promise<NextRoute> => {
   const signOut = async () => {
     try {
       console.log("🔐 [AUTH CONTEXT] signOut() called");
-      console.log("🔐 [AUTH CONTEXT] Current user before signOut:", user?.email || "none");
+      console.log("[AUTH CONTEXT] Signing out");
       await firebaseSignOut(auth);
       // Reset PostHog user session
       try {
@@ -322,8 +322,7 @@ const signIn = async (opts?: SignInOptions): Promise<NextRoute> => {
     }
 
     const ref = doc(db, "users", user.uid);
-    console.log("💾 [ONBOARDING] Writing to path:", `users/${user.uid}`);
-    console.log("💾 [ONBOARDING] Auth UID:", auth.currentUser.uid);
+    console.log("[ONBOARDING] Saving onboarding data");
 
     const clean = (obj: any): any => {
       const out: any = {};

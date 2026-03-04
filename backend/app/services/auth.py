@@ -28,32 +28,33 @@ def _parse_datetime(date_value):
 
 
 def check_and_reset_credits(user_ref, user_data):
-    """Check if 30 days have passed and reset credits if needed"""
+    """Check if a new calendar month has started and reset credits if needed."""
     try:
         last_reset = _parse_datetime(user_data.get('lastCreditReset'))
+        now = datetime.now()
         if not last_reset:
             # If no reset date, set it to now
-            user_ref.update({'lastCreditReset': datetime.now().isoformat()})
+            user_ref.update({'lastCreditReset': now.isoformat()})
             return user_data.get('credits', 0)
-        
-        # Check if 30 days have passed
-        days_since_reset = (datetime.now() - last_reset).days
-        
-        if days_since_reset >= 30:
+
+        # Reset on calendar month boundary (aligned with usage reset)
+        is_new_month = (now.year > last_reset.year) or (now.year == last_reset.year and now.month > last_reset.month)
+
+        if is_new_month:
             # Reset credits
             tier = user_data.get('subscriptionTier') or user_data.get('tier', 'free')
-            max_credits = TIER_CONFIGS[tier]['credits']
-            
+            max_credits = TIER_CONFIGS.get(tier, TIER_CONFIGS['free'])['credits']
+
             user_ref.update({
                 'credits': max_credits,
-                'lastCreditReset': datetime.now().isoformat()
+                'lastCreditReset': now.isoformat()
             })
-            
-            print(f"✅ Credits reset for user {user_data.get('email')} - {max_credits} credits restored")
+
+            print(f"[Auth] Credits reset - {max_credits} credits restored")
             return max_credits
-        
+
         return user_data.get('credits', 0)
-        
+
     except Exception as e:
         print(f"Error checking credit reset: {e}")
         return user_data.get('credits', 0)
@@ -87,7 +88,7 @@ def check_and_reset_usage(user_ref, user_data):
                 'interviewPrepsUsed': 0,
                 'lastUsageReset': now.isoformat()
             })
-            print(f"✅ Usage counters reset for user {user_data.get('email')} ({tier} tier)")
+            print(f"[Auth] Usage counters reset ({tier} tier)")
         
     except Exception as e:
         print(f"Error checking usage reset: {e}")
@@ -166,24 +167,24 @@ def deduct_credits_atomic(user_id: str, amount: int, operation_name: str = "oper
         user_doc = user_ref.get(transaction=transaction)
         
         if not user_doc.exists:
-            print(f"❌ User {user_id} not found for credit deduction")
+            print(f"[Auth] User not found for credit deduction")
             return False, 0
-        
+
         user_data = user_doc.to_dict()
         current_credits = check_and_reset_credits(user_ref, user_data)
-        
+
         if current_credits < amount:
-            print(f"❌ Insufficient credits for {operation_name}: need {amount}, have {current_credits}")
+            print(f"[Auth] Insufficient credits for {operation_name}: need {amount}, have {current_credits}")
             return False, current_credits
-        
+
         # Deduct credits atomically
         new_credits = current_credits - amount
         transaction.update(user_ref, {
             'credits': new_credits,
             'lastCreditUpdate': datetime.now().isoformat()
         })
-        
-        print(f"✅ Deducted {amount} credits for {operation_name}: {current_credits} -> {new_credits}")
+
+        print(f"[Auth] Deducted {amount} credits for {operation_name}: {current_credits} -> {new_credits}")
         return True, new_credits
     
     try:
@@ -191,7 +192,7 @@ def deduct_credits_atomic(user_id: str, amount: int, operation_name: str = "oper
         success, credits = deduct_in_transaction(transaction)
         return success, credits
     except Exception as e:
-        print(f"❌ Error in atomic credit deduction: {e}")
+        print(f"[Auth] Error in atomic credit deduction: {e}")
         # Fallback to non-transactional (less safe but won't crash)
         try:
             user_doc = user_ref.get()
@@ -226,20 +227,20 @@ def refund_credits_atomic(user_id: str, amount: int, operation_name: str = "refu
         user_doc = user_ref.get(transaction=transaction)
         
         if not user_doc.exists:
-            print(f"❌ User {user_id} not found for credit refund")
+            print(f"[Auth] User not found for credit refund")
             return False, 0
-        
+
         user_data = user_doc.to_dict()
         current_credits = check_and_reset_credits(user_ref, user_data)
-        
+
         # Refund credits atomically
         new_credits = current_credits + amount
         transaction.update(user_ref, {
             'credits': new_credits,
             'lastCreditUpdate': datetime.now().isoformat()
         })
-        
-        print(f"✅ Refunded {amount} credits for {operation_name}: {current_credits} -> {new_credits}")
+
+        print(f"[Auth] Refunded {amount} credits for {operation_name}: {current_credits} -> {new_credits}")
         return True, new_credits
     
     try:
@@ -247,5 +248,5 @@ def refund_credits_atomic(user_id: str, amount: int, operation_name: str = "refu
         success, credits = refund_in_transaction(transaction)
         return success, credits
     except Exception as e:
-        print(f"❌ Error in atomic credit refund: {e}")
+        print(f"[Auth] Error in atomic credit refund: {e}")
         return False, 0

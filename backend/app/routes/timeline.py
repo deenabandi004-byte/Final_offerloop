@@ -432,7 +432,7 @@ def generate_timeline():
             Generate a timeline that helps the user achieve their goal of landing this role by the target date.
             Consider typical recruiting cycles for {industry} and create phases that are realistic and actionable."""
         
-        print(f"📅 Generating timeline for user {user_id}: {role} in {industry}")
+        print(f"[Timeline] Generating timeline: {role} in {industry}")
         
         # Call OpenAI
         try:

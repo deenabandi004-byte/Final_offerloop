@@ -99,16 +99,19 @@ def generate_and_draft():
     if contacts_with_emails:
         print(f"📧 Skipping email generation for {len(contacts_with_emails)} contacts that already have emails")
     
-    # Load user's default email template from Firestore (Discover Contacts always uses stored template)
+    # Load email template: prefer request body override, fall back to Firestore stored default
     user_doc = db.collection("users").document(uid).get()
     user_data = user_doc.to_dict() or {}
+    request_template = payload.get("emailTemplate") or {}
     stored_template = user_data.get("emailTemplate") or {}
-    purpose = stored_template.get("purpose")
-    style_preset = stored_template.get("stylePreset")
-    custom_instructions = (stored_template.get("customInstructions") or "").strip()[:4000]
+    # Use request template if it has any meaningful values, otherwise use stored
+    template = request_template if any(request_template.get(k) for k in ("purpose", "stylePreset", "customInstructions")) else stored_template
+    purpose = template.get("purpose")
+    style_preset = template.get("stylePreset")
+    custom_instructions = (template.get("customInstructions") or "").strip()[:4000]
     template_instructions = get_template_instructions(purpose=purpose, style_preset=style_preset, custom_instructions=custom_instructions)
-    signoff_phrase = (stored_template.get("signoffPhrase") or "").strip() or "Best,"
-    signature_block = (stored_template.get("signatureBlock") or "").strip()[:500]
+    signoff_phrase = (template.get("signoffPhrase") or stored_template.get("signoffPhrase") or "").strip() or "Best,"
+    signature_block = (template.get("signatureBlock") or stored_template.get("signatureBlock") or "").strip()[:500]
     signoff_config = {"signoffPhrase": signoff_phrase, "signatureBlock": signature_block}
     draft_resume_filename = (
         payload.get("resumeFileName")
@@ -185,9 +188,29 @@ def generate_and_draft():
     if resume_url:
         resume_url = _normalize_drive_url(resume_url)
 
-    print(f"🔎 Resume discovery → url={resume_url!r}, filename={resume_filename!r}")
-    print(f"🗝️ User doc keys: {list(user_data.keys())[:10]}")
-
+    # Download resume once before the loop (avoid N repeated downloads)
+    _cached_resume_data = None
+    _cached_resume_ctype = None
+    if resume_url:
+        try:
+            _resume_res = requests.get(
+                resume_url, timeout=15,
+                headers={"User-Agent": "Offerloop/1.0"}
+            )
+            _resume_res.raise_for_status()
+            _cached_resume_data = _resume_res.content
+            _cached_resume_ctype = _resume_res.headers.get("content-type", "")
+            # Guard: HTML sharing page instead of file bytes
+            if len(_cached_resume_data) < 1024 and b"<html" in _cached_resume_data[:2048].lower():
+                print("Resume URL returned HTML (likely a sharing page)")
+                _cached_resume_data = None
+            # Guard: skip very large attachments
+            elif len(_cached_resume_data) > 8 * 1024 * 1024:
+                print(f"Resume too large ({len(_cached_resume_data)} bytes) — skipping")
+                _cached_resume_data = None
+        except Exception as e:
+            print(f"Could not download resume from {resume_url}: {e}")
+            _cached_resume_data = None
 
     print(f"👥 Contacts received: {len(contacts)}")
     for i, c in enumerate(contacts):
@@ -329,54 +352,30 @@ def generate_and_draft():
         alt.attach(MIMEText(html_body, "html", "utf-8"))
         msg.attach(alt)
 
-        # --- Attach resume if available ---
-        if resume_url:
+        # --- Attach resume if available (uses pre-downloaded bytes) ---
+        if _cached_resume_data is not None:
             try:
-                # Some CDNs require a UA; keep timeout tight
-                res = requests.get(
-                    resume_url,
-                    timeout=15,
-                    headers={"User-Agent": "Offerloop/1.0"}
-                )
-                res.raise_for_status()
-                data = res.content
+                data = _cached_resume_data
+                filename = resume_filename or "Resume.pdf"
+                # If filename missing extension, try to pull one from the cached content-type
+                if "." not in filename and _cached_resume_ctype and "/" in _cached_resume_ctype:
+                    ext = mimetypes.guess_extension(_cached_resume_ctype.split(";")[0].strip()) or ".pdf"
+                    filename += ext
 
-                # Guard 1: HTML "sharing page" instead of file bytes
-                if len(data) < 1024 and b"<html" in data[:2048].lower():
-                    raise Exception("Resume URL returned HTML (likely a sharing page). Use a direct download URL.")
+                # Infer MIME type
+                ctype_clean = (_cached_resume_ctype or "").split(";", 1)[0].strip()
+                if "/" in ctype_clean:
+                    main, sub = ctype_clean.split("/", 1)
+                else:
+                    main, sub = _infer_mime_type(filename)
 
-                # Guard 2: skip very large attachments (Gmail draft size)
-                MAX_BYTES = 8 * 1024 * 1024  # 8 MB
-                if len(data) > MAX_BYTES:
-                    print(f"⚠️ [{i}] Resume too large ({len(data)} bytes) — skipping attachment")
-                    data = None
-
-                if data is not None:
-                    # Determine filename
-                    filename = resume_filename or "Resume.pdf"
-                    # If filename missing extension, try to pull one from the URL/mimetype
-                    if "." not in filename and "content-type" in res.headers:
-                        ctype_hdr = res.headers.get("content-type", "")
-                        if "/" in ctype_hdr:
-                            ext = mimetypes.guess_extension(ctype_hdr.split(";")[0].strip()) or ".pdf"
-                            filename += ext
-
-                    # Infer MIME type (prefer header, else filename)
-                    ctype_hdr = res.headers.get("content-type", "").split(";", 1)[0].strip()
-                    if "/" in ctype_hdr:
-                        main, sub = ctype_hdr.split("/", 1)
-                    else:
-                        main, sub = _infer_mime_type(filename)
-
-                    part = MIMEBase(main, sub)
-                    part.set_payload(data)
-                    encoders.encode_base64(part)
-                    part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
-                    msg.attach(part)
-                    print(f"✅ [{i}] Attached resume ({len(data)} bytes, {main}/{sub}) as {filename}")
-
+                part = MIMEBase(main, sub)
+                part.set_payload(data)
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
+                msg.attach(part)
             except Exception as e:
-                print(f"⚠️ [{i}] Could not attach resume from {resume_url}: {e}")
+                print(f"[{i}] Could not attach resume: {e}")
 
 
 

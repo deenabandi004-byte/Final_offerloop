@@ -46,7 +46,7 @@ def resolve_email_for_linkedin_import(pdl_contact: dict, person_data: dict) -> d
     if not isinstance(recommended, str):
         recommended = ''
     
-    print(f"[LinkedInImport] PDL Email Data: {len(emails)} email(s) found, recommended: {recommended or 'None'}")
+    print(f"[LinkedInImport] PDL Email Data: {len(emails)} email(s) found")
     
     def is_valid_email(addr: str) -> bool:
         if not isinstance(addr, str):
@@ -64,14 +64,14 @@ def resolve_email_for_linkedin_import(pdl_contact: dict, person_data: dict) -> d
             email_type = (e.get("type") or "").lower()
             if is_valid_email(addr):
                 email_items.append((email_type, addr))
-                print(f"[LinkedInImport] Found valid {email_type or 'unknown'} email: {addr}")
+                print(f"[LinkedInImport] Found valid {email_type or 'unknown'} email")
     
     # Prioritize work/professional emails
     pdl_email = None
     for email_type, addr in email_items:
         if email_type in ("work", "professional"):
             pdl_email = addr
-            print(f"[LinkedInImport] Selected PDL work email: {pdl_email}")
+            print(f"[LinkedInImport] Selected PDL work email")
             break
     
     # Fall back to personal email
@@ -79,18 +79,18 @@ def resolve_email_for_linkedin_import(pdl_contact: dict, person_data: dict) -> d
         for email_type, addr in email_items:
             if email_type == "personal":
                 pdl_email = addr
-                print(f"[LinkedInImport] Selected PDL personal email: {pdl_email}")
+                print(f"[LinkedInImport] Selected PDL personal email")
                 break
     
     # Fall back to recommended email
     if not pdl_email and is_valid_email(recommended):
         pdl_email = recommended
-        print(f"[LinkedInImport] Selected PDL recommended email: {pdl_email}")
+        print(f"[LinkedInImport] Selected PDL recommended email")
     
     # Fall back to first valid email
     if not pdl_email and email_items:
         pdl_email = email_items[0][1]
-        print(f"[LinkedInImport] Selected first available PDL email: {pdl_email}")
+        print(f"[LinkedInImport] Selected first available PDL email")
     
     if not pdl_email:
         print(f"[LinkedInImport] No PDL email found - will rely on Hunter.io")
@@ -105,11 +105,7 @@ def resolve_email_for_linkedin_import(pdl_contact: dict, person_data: dict) -> d
         print(f"[LinkedInImport] No company provided - cannot resolve domain")
     
     # Call get_verified_email with proper parameters
-    print(f"[LinkedInImport] Calling get_verified_email with:")
-    print(f"[LinkedInImport]   - PDL email: {pdl_email or 'None'}")
-    print(f"[LinkedInImport]   - Name: {first_name} {last_name}")
-    print(f"[LinkedInImport]   - Company: {company or 'None'}")
-    print(f"[LinkedInImport]   - Target domain: {target_domain or 'None'}")
+    print(f"[LinkedInImport] Calling get_verified_email (domain: {target_domain or 'None'})")
     
     verified_result = get_verified_email(
         pdl_email=pdl_email,
@@ -125,11 +121,7 @@ def resolve_email_for_linkedin_import(pdl_contact: dict, person_data: dict) -> d
     email_source = verified_result.get('email_source')
     email_verified = verified_result.get('email_verified', False)
     
-    print(f"[LinkedInImport] Email Resolution Result:")
-    print(f"[LinkedInImport]   - Email: {email or 'None'}")
-    print(f"[LinkedInImport]   - Source: {email_source or 'None'}")
-    print(f"[LinkedInImport]   - Verified: {email_verified}")
-    print(f"[LinkedInImport] ========== Email Resolution Complete ==========\n")
+    print(f"[LinkedInImport] Email resolution complete: source={email_source or 'None'}, verified={email_verified}")
     
     # Return structured output only (never "Not available", use None)
     return {
@@ -375,11 +367,7 @@ def import_from_linkedin():
         user_resume = data.get('user_resume', '')
         user_email = request.firebase_user.get('email', 'Unknown')
         
-        print(f"[LinkedInImport] Request Details:")
-        print(f"[LinkedInImport]   - User ID: {user_id}")
-        print(f"[LinkedInImport]   - User Email: {user_email}")
-        print(f"[LinkedInImport]   - LinkedIn URL (raw): {linkedin_url}")
-        print(f"[LinkedInImport]   - Resume provided: {bool(user_resume)}")
+        print(f"[LinkedInImport] Request received: resume_provided={bool(user_resume)}")
         
         if not linkedin_url:
             print(f"[LinkedInImport] ❌ ERROR: Missing LinkedIn URL")
@@ -504,10 +492,7 @@ def import_from_linkedin():
         email_source = email_result['email_source']
         has_email = contact_email is not None
         
-        print(f"[LinkedInImport] Email Resolution Summary:")
-        print(f"[LinkedInImport]   - Email Found: {has_email}")
-        print(f"[LinkedInImport]   - Email: {contact_email or 'None'}")
-        print(f"[LinkedInImport]   - Email Source: {email_source or 'None'}")
+        print(f"[LinkedInImport] Email resolution: found={has_email}, source={email_source or 'None'}")
         
         contact_for_email = pdl_contact.copy()
         contact_for_email['LinkedIn'] = linkedin_url
@@ -529,13 +514,13 @@ def import_from_linkedin():
                 'major': user_data.get('major', ''),
                 'year': user_data.get('year', ''),
             }
-            print(f"[LinkedInImport]   - User Profile: {user_profile.get('name', 'Unknown')} from {user_profile.get('university', 'Unknown')}")
+            print(f"[LinkedInImport] User profile loaded")
         else:
             print(f"[LinkedInImport]   - No user profile found in Firestore")
         # Use request body resume if provided (e.g. from web app); otherwise use saved resume from Firestore (for extension)
         resume_text_for_email = (user_resume or '').strip() or (user_data.get('resumeText') or '')
         if not (user_resume or '').strip() and resume_text_for_email:
-            print(f"[LinkedInImport]   - Using saved resume from Firestore for email generation ({len(resume_text_for_email)} chars)")
+            print(f"[LinkedInImport] Using saved resume from Firestore ({len(resume_text_for_email)} chars)")
         
         email_subject = None
         email_body = None
@@ -557,7 +542,7 @@ def import_from_linkedin():
                 auth_display_name=auth_display_name,
             )
             
-            print(f"[LinkedInImport]   - Email generation result: {bool(email_results)}")
+            print(f"[LinkedInImport] Email generation result: {bool(email_results)}")
             
             if email_results and len(email_results) > 0:
                 # batch_generate_emails returns a dict with integer keys (0, 1, 2, ...)

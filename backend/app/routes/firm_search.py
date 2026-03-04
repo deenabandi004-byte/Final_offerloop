@@ -3,10 +3,12 @@ Firm Search Routes - Flask Blueprint for company discovery
 Endpoints for natural language and structured firm search
 WITH CREDIT SYSTEM INTEGRATION
 """
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response
 from datetime import datetime
 import uuid
 import json
+import threading
+import time
 
 from app.extensions import get_db, require_firebase_auth, require_tier
 from app.services.company_search import (
@@ -107,7 +109,7 @@ def save_search_to_history(uid: str, query: str, parsed_filters: dict, results: 
         }
         
         db.collection('users').document(uid).collection('firmSearches').document(search_id).set(search_doc)
-        print(f"Saved firm search {search_id} for user {uid}")
+        print(f"[FirmSearch] Saved firm search {search_id}")
         return search_id
     except Exception as e:
         print(f"Error saving search to history: {e}")
@@ -228,12 +230,7 @@ def search_firms_route():
             results=firms
         )
         
-        print(f"✅ Firm search successful for user {uid}:")
-        print(f"   - Query: {query}")
-        print(f"   - Batch size requested: {batch_size}")
-        print(f"   - Firms returned: {actual_firms_returned}")
-        print(f"   - Credits charged: {actual_credits_to_charge} ({actual_firms_returned} firms × {CREDITS_PER_FIRM} credits)")
-        print(f"   - New balance: {new_credit_balance}")
+        print(f"[FirmSearch] Search successful: {actual_firms_returned} firms returned, {actual_credits_to_charge} credits charged")
         
         # Mark search as complete
         complete_search_progress(search_id, step="Search complete!")
@@ -293,6 +290,181 @@ def get_search_status(search_id):
         'success': True,
         'progress': progress
     })
+
+
+# In-memory store for async search results keyed by search_id
+_async_results: dict = {}
+
+
+@firm_search_bp.route('/stream/<search_id>', methods=['GET'])
+def stream_search_progress(search_id):
+    """SSE endpoint that streams real-time progress for a running search.
+
+    Accepts auth via Authorization header OR ?token= query param
+    (EventSource API doesn't support custom headers).
+
+    Events:
+      - event: progress  {current, total, step, status}
+      - event: complete   {firms, creditsCharged, remainingCredits, ...}
+      - event: error      {message}
+    """
+    from firebase_admin import auth as fb_auth
+
+    # Accept token from header or query param (EventSource limitation)
+    token = None
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split("Bearer ", 1)[1]
+    if not token:
+        token = request.args.get("token")
+    if not token:
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        fb_auth.verify_id_token(token, clock_skew_seconds=5)
+    except Exception:
+        return jsonify({"error": "Invalid token"}), 401
+    from app.services.search_progress import get_search_progress
+
+    def _generate():
+        last_step = None
+        timeout = 120  # max 2 min
+        start = time.time()
+        while time.time() - start < timeout:
+            progress = get_search_progress(search_id)
+            if progress is None:
+                # Check if result arrived (search finished before SSE connected)
+                if search_id in _async_results:
+                    result_data = _async_results.pop(search_id)
+                    yield f"event: complete\ndata: {json.dumps(result_data)}\n\n"
+                    return
+                yield f"event: error\ndata: {json.dumps({'message': 'Search not found'})}\n\n"
+                return
+
+            status = progress.get("status", "in_progress")
+            step = progress.get("step")
+
+            # Only send if something changed
+            if step != last_step:
+                yield f"event: progress\ndata: {json.dumps(progress)}\n\n"
+                last_step = step
+
+            if status == "completed":
+                # Deliver the full result if available
+                if search_id in _async_results:
+                    result_data = _async_results.pop(search_id)
+                    yield f"event: complete\ndata: {json.dumps(result_data)}\n\n"
+                else:
+                    yield f"event: progress\ndata: {json.dumps(progress)}\n\n"
+                return
+
+            if status == "failed":
+                error_msg = progress.get("error", "Search failed")
+                yield f"event: error\ndata: {json.dumps({'message': error_msg})}\n\n"
+                return
+
+            time.sleep(0.5)
+
+        yield f"event: error\ndata: {json.dumps({'message': 'Stream timeout'})}\n\n"
+
+    return Response(
+        _generate(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',  # Disable nginx buffering
+        }
+    )
+
+
+@firm_search_bp.route('/search-async', methods=['POST'])
+@require_firebase_auth
+def search_firms_async():
+    """Start a firm search in the background and return a search ID immediately.
+
+    The client should connect to /stream/<search_id> to receive real-time progress
+    and the final result.
+
+    Request body: same as /search  { "query": "...", "batchSize": 10 }
+    Response: 202 { "searchId": "..." }
+    """
+    try:
+        uid = request.firebase_user.get('uid')
+        db = get_db()
+        data = request.get_json() or {}
+
+        try:
+            validated_data = validate_request(FirmSearchRequest, data)
+        except ValidationError as ve:
+            return ve.to_response()
+
+        query = validated_data['query']
+        batch_size = validated_data.get('batchSize', 10)
+
+        # Pre-flight credit check
+        current_credits, tier, max_credits_val = get_user_credits_and_tier(db, uid)
+        max_credits_needed = calculate_firm_search_cost(batch_size)
+        if current_credits < max_credits_needed:
+            raise InsufficientCreditsError(max_credits_needed, current_credits)
+
+        search_id = str(uuid.uuid4())
+        create_search_progress(search_id, total=batch_size, step="Starting search...")
+
+        def _run_search():
+            try:
+                result = search_firms(query, limit=batch_size, search_id=search_id)
+                firms = result.get('firms', [])
+
+                if not result.get('success') or not firms:
+                    fail_search_progress(search_id, result.get('error', 'No firms found'))
+                    _async_results[search_id] = {
+                        'success': not result.get('success', True),
+                        'firms': [],
+                        'total': 0,
+                        'creditsCharged': 0,
+                        'remainingCredits': current_credits,
+                        'error': result.get('error', 'No firms found'),
+                    }
+                    return
+
+                firms.sort(
+                    key=lambda f: f.get('employeeCount') if f.get('employeeCount') is not None else 0,
+                    reverse=True,
+                )
+                actual_credits = calculate_firm_search_cost(len(firms))
+                ok, new_balance = deduct_credits_atomic(uid, actual_credits, "firm_search")
+                if not ok:
+                    fail_search_progress(search_id, "Insufficient credits")
+                    _async_results[search_id] = {'success': False, 'error': 'Insufficient credits'}
+                    return
+
+                save_search_to_history(uid=uid, query=query,
+                                       parsed_filters=result.get('parsedFilters', {}),
+                                       results=firms)
+                complete_search_progress(search_id, step="Search complete!")
+                _async_results[search_id] = {
+                    'success': True,
+                    'firms': firms,
+                    'total': len(firms),
+                    'parsedFilters': result.get('parsedFilters'),
+                    'searchId': search_id,
+                    'batchSize': batch_size,
+                    'firmsReturned': len(firms),
+                    'creditsCharged': actual_credits,
+                    'remainingCredits': new_balance,
+                }
+            except Exception as exc:
+                fail_search_progress(search_id, str(exc))
+                _async_results[search_id] = {'success': False, 'error': str(exc)}
+
+        thread = threading.Thread(target=_run_search, daemon=True)
+        thread.start()
+
+        return jsonify({'searchId': search_id}), 202
+
+    except (ValidationError, InsufficientCreditsError, ExternalAPIError, OfferloopException):
+        raise
+    except Exception as e:
+        raise OfferloopException(f"Firm search failed: {str(e)}", error_code="FIRM_SEARCH_ERROR")
 
 
 @firm_search_bp.route('/history', methods=['GET'])
@@ -561,71 +733,7 @@ def delete_firm():
             batch.commit()
             print(f"  ✅ Committed final batch of {batch_count} updates")
         
-        print(f"🗑️ Delete complete: {deleted_count} firms deleted from {updated_searches} searches")
-        
-        # Verify deletion by checking all searches again
-        # Wait a moment for Firestore to propagate the batch write, then verify
-        if deleted_count > 0:
-            import time
-            time.sleep(0.5)  # Small delay to allow Firestore to propagate
-            
-            verification_searches = list(searches_ref.stream())
-            remaining_count = 0
-            
-            # Use the same matching function we used for deletion
-            for search_doc in verification_searches:
-                search_data = search_doc.to_dict()
-                results = search_data.get('results', [])
-                for firm in results:
-                    if matches_this_firm(firm):
-                        remaining_count += 1
-                        print(f"  ⚠️ WARNING: Firm still exists in search {search_doc.id}: {firm.get('id')} ({firm.get('name')})")
-            
-            if remaining_count > 0:
-                print(f"  ⚠️ WARNING: {remaining_count} firm instance(s) still remain after deletion!")
-                print(f"  🔄 Attempting to delete remaining instances...")
-                
-                # Try one more time to delete any remaining instances
-                retry_batch = db.batch()
-                retry_count = 0
-                for search_doc in verification_searches:
-                    search_data = search_doc.to_dict()
-                    results = search_data.get('results', [])
-                    filtered_results = [f for f in results if not matches_this_firm(f)]
-                    
-                    if len(filtered_results) < len(results):
-                        retry_batch.update(search_doc.reference, {
-                            'results': filtered_results,
-                            'resultsCount': len(filtered_results)
-                        })
-                        retry_count += 1
-                        print(f"  🗑️ Retry: Removing firm from search {search_doc.id}")
-                
-                if retry_count > 0:
-                    retry_batch.commit()
-                    print(f"  ✅ Retry: Committed {retry_count} additional deletions")
-                    
-                    # Final verification
-                    time.sleep(0.3)
-                    final_searches = list(searches_ref.stream())
-                    final_remaining = 0
-                    for search_doc in final_searches:
-                        search_data = search_doc.to_dict()
-                        results = search_data.get('results', [])
-                        for firm in results:
-                            if matches_this_firm(firm):
-                                final_remaining += 1
-                    
-                    if final_remaining > 0:
-                        print(f"  ⚠️ WARNING: {final_remaining} firm instance(s) STILL remain after retry!")
-                    else:
-                        print(f"  ✅ Final verification: All matching firms deleted")
-            else:
-                print(f"  ✅ Verification: No matching firms remain in any search")
-        
-        if deleted_count == 0:
-            print(f"⚠️ WARNING: No firms were deleted! Check matching logic.")
-            print(f"   Requested: firmId={firm_id}, firmName={firm_name}, firmLocation={firm_location}")
+        # Firestore batch commits are strongly consistent — no verification/retry needed
         
         return jsonify({
             'success': True,

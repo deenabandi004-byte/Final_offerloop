@@ -71,16 +71,16 @@ def sync_stale_threads(uid, max_threads=10, user_email=None):
             stage = (thread or {}).get("pipelineStage") if thread else None
             if error_code == "recently_synced":
                 skipped_count += 1
-                print(f"[background_sync] uid={uid} contact={contact_id} synced=False (skipped: recently_synced) stage={stage}")
+                print(f"[background_sync] contact synced=False (skipped: recently_synced) stage={stage}")
             elif synced and not error_code:
                 synced_count += 1
-                print(f"[background_sync] uid={uid} contact={contact_id} synced=True stage={stage}")
+                print(f"[background_sync] contact synced=True stage={stage}")
             else:
                 failed_count += 1
-                print(f"[background_sync] uid={uid} contact={contact_id} synced=False stage={stage} error={error_code}")
+                print(f"[background_sync] contact synced=False stage={stage} error={error_code}")
         except Exception as e:
             failed_count += 1
-            print(f"[background_sync] uid={uid} contact={contact_id} synced=False error={e!r}")
+            print(f"[background_sync] contact synced=False error={e!r}")
 
     return {
         "synced_count": synced_count,

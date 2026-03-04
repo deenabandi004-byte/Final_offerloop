@@ -42,7 +42,7 @@ def clear_user_gmail_integration(uid):
         return
     ref = db.collection("users").document(uid).collection("integrations").document("gmail")
     ref.delete()
-    print(f"🗑️ Cleared Gmail integration for user {uid}")
+    print(f"[GmailClient] Cleared Gmail integration")
 
 
 def _save_user_gmail_creds(uid, creds):
@@ -56,7 +56,7 @@ def _save_user_gmail_creds(uid, creds):
         "refresh_token": getattr(creds, "refresh_token", None),
         "token_uri": creds.token_uri,
         "client_id": creds.client_id,
-        "client_secret": creds.client_secret,
+        # Do NOT store client_secret per-user — it's an app-level secret read from env vars.
         "scopes": creds.scopes,
         "expiry": creds.expiry.isoformat() if getattr(creds, "expiry", None) else None,
         "updatedAt": datetime.utcnow(),
@@ -72,21 +72,19 @@ def _load_user_gmail_creds(uid):
         return None
     
     snap = db.collection("users").document(uid).collection("integrations").document("gmail").get()
-    print(f"🔍 DEBUG: Checking integrations/gmail for uid={uid}, exists={snap.exists}")
-    
     if not snap.exists:
-        print(f"❌ No Gmail credentials found for user {uid}")
+        print(f"[GmailClient] No Gmail credentials found")
         return None
-    
+
     data = snap.to_dict() or {}
-    
+
     # Check if we have required data
     if not data.get("token"):
-        print(f"❌ No access token found for user {uid}")
+        print(f"[GmailClient] No access token found")
         return None
-    
+
     if not data.get("refresh_token"):
-        print(f"⚠️ WARNING: No refresh token found for user {uid} - token cannot be refreshed!")
+        print(f"[GmailClient] WARNING: No refresh token found - token cannot be refreshed!")
     
     # Create credentials object
     try:
@@ -142,39 +140,34 @@ def _load_user_gmail_creds(uid):
         # Check if credentials are valid
         # Only log if there's an issue (no expiry or expired)
         if not creds.expiry:
-            print(f"⚠️ No expiry information found for user {uid} - will check/refresh token")
+            print(f"[GmailClient] No expiry information - will check/refresh token")
         elif creds.expired:
-            print(f"⚠️ Gmail token expired for user {uid}")
-            
+            print(f"[GmailClient] Gmail token expired")
+
             if creds.refresh_token:
-                print(f"🔄 Attempting to refresh token...")
                 try:
                     creds.refresh(Request())
-                    print(f"✅ Token refreshed successfully for user {uid}")
-                    
+                    print(f"[GmailClient] Token refreshed successfully")
+
                     # Save the refreshed credentials
                     _save_user_gmail_creds(uid, creds)
-                    print(f"✅ Refreshed token saved to Firestore")
-                    
                 except Exception as refresh_error:
                     error_msg = str(refresh_error).lower()
                     if 'invalid_grant' in error_msg:
-                        print(f"❌ Refresh token is invalid or revoked for user {uid}")
+                        print(f"[GmailClient] Refresh token is invalid or revoked")
                         # Preserve original error message
                         raise Exception(f"Gmail refresh token invalid: {refresh_error}")
                     else:
-                        print(f"❌ Token refresh failed: {refresh_error}")
+                        print(f"[GmailClient] Token refresh failed: {refresh_error}")
                         raise
             else:
-                print(f"❌ No refresh token available for user {uid}")
+                print(f"[GmailClient] No refresh token available")
                 raise Exception("Gmail token expired and no refresh token available")
-        else:
-            print(f"✅ Gmail token is valid for user {uid}")
         
         return creds
         
     except Exception as e:
-        print(f"❌ Error loading/refreshing Gmail credentials for user {uid}: {e}")
+        print(f"[GmailClient] Error loading/refreshing Gmail credentials: {e}")
         import traceback
         traceback.print_exc()
         raise
@@ -215,7 +208,7 @@ def start_gmail_watch(uid):
         "watchExpiration": expiration,
         "watchStartedAt": now_iso,
     }, merge=True)
-    print(f"[gmail_watch] Started watch for uid={uid} historyId={history_id} expiration={expiration}")
+    print(f"[gmail_watch] Started watch historyId={history_id} expiration={expiration}")
     return response
 
 
@@ -237,13 +230,13 @@ def stop_gmail_watch(uid):
             "watchExpiration": firestore.DELETE_FIELD,
             "watchStartedAt": firestore.DELETE_FIELD,
         })
-    print(f"[gmail_watch] Stopped watch for uid={uid}")
+    print(f"[gmail_watch] Stopped watch")
 
 
 def renew_gmail_watch(uid):
     """Renew Gmail watch (same as start — calling watch() again extends expiration)."""
     start_gmail_watch(uid)
-    print(f"[gmail_watch] Renewed watch for uid={uid}")
+    print(f"[gmail_watch] Renewed watch")
 
 
 # Cache for find_uid_by_gmail_address (TTL 5 min) to avoid scanning all users on every notification
@@ -254,8 +247,10 @@ _GMAIL_ADDRESS_CACHE_TTL_SEC = 300
 
 def find_uid_by_gmail_address(email_address):
     """
-    Find user uid whose Gmail integration has the given email (users/{uid}/integrations/gmail.gmailAddress).
-    Uses a module-level cache with 5-min TTL. Returns uid or None.
+    Find user uid whose Gmail integration has the given email.
+    First checks gmail_mappings/{email} for O(1) lookup, then falls back to
+    collection group query on integrations, and finally falls back to full scan.
+    Uses a module-level cache with 5-min TTL.
     """
     global _gmail_address_to_uid_cache, _gmail_address_cache_ts
     import time as _time
@@ -271,6 +266,38 @@ def find_uid_by_gmail_address(email_address):
     db = get_db()
     if not db:
         return None
+
+    # O(1) lookup via gmail_mappings collection
+    try:
+        mapping_doc = db.collection("gmail_mappings").document(key).get()
+        if mapping_doc.exists:
+            uid = (mapping_doc.to_dict() or {}).get("uid")
+            if uid:
+                _gmail_address_to_uid_cache[key] = uid
+                return uid
+    except Exception:
+        pass
+
+    # Fallback: collection group query on "integrations" where gmailAddress matches
+    try:
+        from google.cloud.firestore_v1 import FieldFilter
+        query = db.collection_group("integrations").where(
+            filter=FieldFilter("gmailAddress", "==", key)
+        ).limit(1)
+        for doc in query.stream():
+            # doc path: users/{uid}/integrations/gmail
+            uid = doc.reference.parent.parent.id
+            _gmail_address_to_uid_cache[key] = uid
+            # Backfill the mapping for future O(1) lookups
+            try:
+                db.collection("gmail_mappings").document(key).set({"uid": uid}, merge=True)
+            except Exception:
+                pass
+            return uid
+    except Exception:
+        pass
+
+    # Final fallback: full scan (only reached if collection group index not set up)
     for user_doc in db.collection("users").stream():
         uid = user_doc.id
         gmail_doc = db.collection("users").document(uid).collection("integrations").document("gmail").get()
@@ -280,9 +307,14 @@ def find_uid_by_gmail_address(email_address):
         stored = (data.get("gmailAddress") or "").strip().lower()
         if stored:
             _gmail_address_to_uid_cache[stored] = uid
+            # Backfill mapping
+            try:
+                db.collection("gmail_mappings").document(stored).set({"uid": uid}, merge=True)
+            except Exception:
+                pass
     uid = _gmail_address_to_uid_cache.get(key)
     if uid is None and key not in _gmail_address_to_uid_cache:
-        _gmail_address_to_uid_cache[key] = None  # cache miss to avoid repeated scans
+        _gmail_address_to_uid_cache[key] = None
     return uid
 
 
@@ -689,18 +721,10 @@ def get_gmail_service():
             abs_path = os.path.abspath(path)
             if os.path.exists(abs_path):
                 token_path = abs_path
-                print(f"✅ Found token.pickle at: {token_path}")
                 break
-        
+
         if not token_path:
-            print("❌ token.pickle not found in any of these locations:")
-            for path in possible_paths:
-                abs_path = os.path.abspath(path)
-                exists = "✅ EXISTS" if os.path.exists(abs_path) else "❌ NOT FOUND"
-                print(f"   {exists}: {abs_path}")
-            print(f"   📂 Current working directory: {os.getcwd()}")
-            print(f"   📂 Backend directory: {backend_dir}")
-            print("   📝 To fix: Place token.pickle in backend/ directory")
+            print("[GmailClient] token.pickle not found in expected locations")
             return None
         
         creds = None
@@ -709,14 +733,11 @@ def get_gmail_service():
         
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
-                print("🔄 Refreshing Gmail token...")
                 creds.refresh(Request())
                 with open(token_path, 'wb') as token:
                     pickle.dump(creds, token)
-                print("✅ Token refreshed and saved")
             else:
-                print("❌ No valid Gmail credentials found in token.pickle")
-                print("   📝 To fix: Run setup_gmail.py to re-authenticate")
+                print("[GmailClient] No valid Gmail credentials found in token.pickle")
                 return None
         
         service = build('gmail', 'v1', credentials=creds)
@@ -730,12 +751,12 @@ def get_gmail_service():
             # The email is logged elsewhere when actually used for user operations
         except Exception as profile_error:
             # Only log errors, not successful connections
-            print(f"⚠️ Gmail service connected but couldn't fetch profile: {profile_error}")
+            print(f"[GmailClient] Gmail service connected but couldn't fetch profile: {profile_error}")
         
         return service
         
     except Exception as e:
-        print(f"❌ Gmail service failed: {e}")
+        print(f"[GmailClient] Gmail service failed: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -745,14 +766,12 @@ def get_gmail_service_with_service_account(user_email):
     """Get Gmail service using service account with domain-wide delegation (no OAuth required)"""
     try:
         if not GOOGLE_SERVICE_ACCOUNT_FILE or not os.path.exists(GOOGLE_SERVICE_ACCOUNT_FILE):
-            print(f"⚠️ Service account file not found, falling back to shared account")
+            print(f"[GmailClient] Service account file not found, falling back to shared account")
             return None
-        
+
         if not user_email:
-            print(f"❌ No user email provided")
+            print(f"[GmailClient] No user email provided")
             return None
-        
-        print(f"🔍 Getting Gmail service for user {user_email} using service account")
         
         # Load service account credentials
         creds = service_account.Credentials.from_service_account_file(
@@ -765,16 +784,16 @@ def get_gmail_service_with_service_account(user_email):
             # Delegate domain-wide authority to impersonate the user
             delegated_creds = creds.with_subject(user_email)
             service = build('gmail', 'v1', credentials=delegated_creds)
-            print(f"✅ Gmail service created with domain-wide delegation for {user_email}")
+            print(f"[GmailClient] Gmail service created with domain-wide delegation")
             return service
         else:
             # Use service account directly (shared account)
             service = build('gmail', 'v1', credentials=creds)
-            print(f"✅ Gmail service created using service account")
+            print(f"[GmailClient] Gmail service created using service account")
             return service
         
     except Exception as e:
-        print(f"❌ Error creating service account Gmail service: {e}")
+        print(f"[GmailClient] Error creating service account Gmail service: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -841,33 +860,20 @@ def download_resume_from_url(resume_url):
             content_disp = response.headers['Content-Disposition']
             if 'filename=' in content_disp:
                 filename = content_disp.split('filename=')[1].strip('"').strip("'")
-                print(f"   📝 Filename from headers: {filename}")
         
         if not filename.endswith('.pdf') and not filename.endswith('.docx'):
             # Try to extract from URL
             for part in reversed(resume_url.split('/')):
                 if '.pdf' in part.lower() or '.docx' in part.lower():
                     filename = part.split('?')[0]
-                    print(f"   📝 Filename from URL: {filename}")
                     break
-        
+
         resume_content = response.content
-        print(f"   ✅ Downloaded: {filename} ({len(resume_content)} bytes)")
-        
-        # Verify it's actually a PDF (check magic bytes)
-        if len(resume_content) > 4:
-            pdf_magic = resume_content[:4]
-            if pdf_magic == b'%PDF':
-                print(f"   ✅ Verified PDF format (magic bytes: %PDF)")
-            else:
-                print(f"   ⚠️ Warning: Content doesn't look like PDF (magic bytes: {pdf_magic})")
-                # Still return it - let the caller decide
         
         return resume_content, filename
         
     except Exception as resume_error:
-        print(f"   ❌ Could not download resume: {resume_error}")
-        print(f"   📋 Error type: {type(resume_error).__name__}")
+        print(f"[GmailClient] Could not download resume: {resume_error}")
         import traceback
         traceback.print_exc()
         return None, None
@@ -882,11 +888,9 @@ def get_gmail_service_for_user(user_email, user_id=None):
     """
     try:
         if not user_email:
-            print("⚠️ No user email provided")
+            print("[GmailClient] No user email provided")
             return None
-        
-        print(f"🔍 Getting Gmail service for user: {user_email}")
-        
+
         # Priority 1: Try per-user OAuth credentials if user_id is provided
         if user_id:
             try:
@@ -895,39 +899,26 @@ def get_gmail_service_for_user(user_email, user_id=None):
                     service = _gmail_service(creds)
                     if service:
                         try:
-                            profile = service.users().getProfile(userId='me').execute()
-                            account_email = profile.get('emailAddress', 'unknown')
-                            print(f"✅ Using user's Gmail account: {account_email}")
-                            print(f"   📧 Drafts will appear in: {account_email}")
+                            service.users().getProfile(userId='me').execute()
+                            print(f"[GmailClient] Using user's own Gmail account")
                             return service
                         except Exception as profile_err:
-                            print(f"⚠️ Could not verify per-user account: {profile_err}")
+                            print(f"[GmailClient] Could not verify per-user account: {profile_err}")
                             # Continue to fallback
             except Exception as oauth_err:
-                print(f"⚠️ Per-user OAuth not available: {oauth_err}")
+                print(f"[GmailClient] Per-user OAuth not available: {oauth_err}")
                 # Continue to fallback
-        
+
         # Priority 2: Fallback to shared token.pickle account
-        print(f"📧 Falling back to shared Gmail account (token.pickle)")
         service = get_gmail_service()
         if service:
-            try:
-                profile = service.users().getProfile(userId='me').execute()
-                account_email = profile.get('emailAddress', 'unknown')
-                print(f"✅ Using shared Gmail account: {account_email}")
-                print(f"   📧 Drafts will appear in: {account_email}")
-                print(f"   👤 Requested by user: {user_email}")
-                print(f"   💡 Connect your Gmail account to use your own account")
-            except Exception:
-                pass
             return service
-        
-        print(f"❌ Gmail service not available - token.pickle not found")
-        print(f"   💡 Make sure token.pickle exists in backend/ directory")
+
+        print(f"[GmailClient] Gmail service not available - token.pickle not found")
         return None
         
     except Exception as e:
-        print(f"❌ Error getting Gmail service: {e}")
+        print(f"[GmailClient] Error getting Gmail service: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -965,23 +956,17 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         gmail_service = get_gmail_service_for_user(user_email, user_id=user_id)
         
         if not gmail_service:
-            print(f"❌ Gmail unavailable for {user_email} - creating mock draft")
-            return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}_user_{user_email}"
-        
+            print(f"[GmailClient] Gmail unavailable - creating mock draft")
+            return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
+
         # Get the actual Gmail account email (might be shared account)
         try:
             gmail_account_email = gmail_service.users().getProfile(userId='me').execute().get('emailAddress')
-            print(f"📧 Connected Gmail account: {gmail_account_email}")
         except Exception as profile_error:
-            print(f"⚠️ Could not get Gmail profile: {profile_error}")
+            print(f"[GmailClient] Could not get Gmail profile: {profile_error}")
             gmail_account_email = user_email or os.getenv("DEFAULT_FROM_EMAIL", "noreply@offerloop.ai")
         
-        print(f"📝 Creating {tier.capitalize()} Gmail draft")
-        print(f"   From: {gmail_account_email}")
-        print(f"   For user: {user_email}")
-        print(f"   Contact: {contact.get('FirstName', 'Unknown')}")
-        if resume_content or resume_url:
-            print(f"   With resume attachment")
+        print(f"[GmailClient] Creating {tier.capitalize()} Gmail draft for contact {contact.get('FirstName', 'Unknown')}")
         
         # Get the best available email address
         recipient_email = None
@@ -994,10 +979,8 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
             recipient_email = contact['Email']
         
         if not recipient_email:
-            print(f"❌ No valid email found for {contact.get('FirstName', 'Unknown')} - creating mock draft")
+            print(f"[GmailClient] No valid email found for contact - creating mock draft")
             return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}_no_email"
-        
-        print(f"   To: {recipient_email}")
         
         # Create multipart message
         message = MIMEMultipart('mixed')
@@ -1054,7 +1037,7 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         # Attach resume if available
         # Prefer pre-downloaded resume_content over resume_url to avoid redundant downloads
         if resume_content:
-            print(f"📎 Attaching pre-downloaded resume: {resume_filename or 'resume.pdf'}")
+            print(f"[GmailClient] Attaching resume: {resume_filename or 'resume.pdf'}")
             try:
                 filename = resume_filename or "resume.pdf"
                 
@@ -1070,17 +1053,16 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
                 encoders.encode_base64(attachment)
                 attachment.add_header('Content-Disposition', f'attachment; filename="{filename}"')
                 message.attach(attachment)
-                print(f"   ✅ Resume attached successfully to email draft")
-                
+                print(f"[GmailClient] Resume attached successfully")
+
             except Exception as resume_error:
-                print(f"   ❌ Could not attach resume: {resume_error}")
-                print(f"   📋 Error type: {type(resume_error).__name__}")
+                print(f"[GmailClient] Could not attach resume: {resume_error}")
                 import traceback
                 traceback.print_exc()
                 # Continue without resume - don't fail the entire draft
         elif resume_url:
             # Fallback: download from URL if resume_content not provided (for backward compatibility)
-            print(f"📎 Attempting to attach resume from URL: {resume_url}")
+            print(f"[GmailClient] Attaching resume from URL")
             resume_content, filename = download_resume_from_url(resume_url)
             if resume_content:
                 try:
@@ -1096,17 +1078,14 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
                     encoders.encode_base64(attachment)
                     attachment.add_header('Content-Disposition', f'attachment; filename="{filename}"')
                     message.attach(attachment)
-                    print(f"   ✅ Resume attached successfully to email draft")
+                    print(f"[GmailClient] Resume attached successfully")
                 except Exception as resume_error:
-                    print(f"   ❌ Could not attach resume: {resume_error}")
-                    print(f"   📋 Error type: {type(resume_error).__name__}")
+                    print(f"[GmailClient] Could not attach resume: {resume_error}")
                     import traceback
                     traceback.print_exc()
                     # Continue without resume - don't fail the entire draft
             else:
-                print(f"   ⚠️ Failed to download resume from URL - skipping attachment")
-        else:
-            print(f"   ⚠️ No resume provided - skipping attachment")
+                print(f"[GmailClient] Failed to download resume from URL - skipping attachment")
         
         # Create the draft
         raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
@@ -1119,18 +1098,11 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         
         # Create the draft via Gmail API
         try:
-            print(f"   🔄 Calling Gmail API to create draft...")
             draft_result = gmail_service.users().drafts().create(userId='me', body=draft_body).execute()
             draft_id = draft_result['id']
             message_id = draft_result.get('message', {}).get('id')
-            print(f"   ✅ Gmail API returned draft ID: {draft_id}")
-            if message_id:
-                print(f"   ✅ Gmail API returned message ID: {message_id}")
-            else:
-                print(f"   ⚠️ Message ID not in draft response, will try to fetch it")
         except Exception as api_error:
-            print(f"   ❌ Gmail API error creating draft: {api_error}")
-            print(f"   📋 Error type: {type(api_error).__name__}")
+            print(f"[GmailClient] Gmail API error creating draft: {api_error}")
             import traceback
             traceback.print_exc()
             raise  # Re-raise to be caught by outer exception handler
@@ -1140,10 +1112,8 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
             try:
                 draft_full = gmail_service.users().drafts().get(userId='me', id=draft_id, format='full').execute()
                 message_id = draft_full.get('message', {}).get('id')
-                if message_id:
-                    print(f"   ✅ Fetched message ID: {message_id}")
             except Exception as fetch_err:
-                print(f"   ⚠️ Could not fetch message ID: {fetch_err}")
+                print(f"[GmailClient] Could not fetch message ID: {fetch_err}")
         
         # Get the Gmail account where the draft was created and build draft URL
         # Use message ID format for more reliable draft URL (Option A from fix doc)
@@ -1157,16 +1127,9 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
             else:
                 # Fallback to draft ID format if message ID not available
                 gmail_draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
-            print(f"✅ Created {tier.capitalize()} Gmail draft {draft_id}")
-            print(f"   📧 Draft saved in Gmail account: {account_email}")
-            print(f"   👤 Requested by user: {user_email}")
-            print(f"   📬 To: {recipient_email}")
-            print(f"   📝 Subject: {email_subject[:50]}{'...' if len(email_subject) > 50 else ''}")
-            print(f"   🔗 Draft URL: {gmail_draft_url}")
-            print(f"   💡 Check your Gmail drafts folder to see the draft!")
+            print(f"[GmailClient] Created {tier.capitalize()} Gmail draft {draft_id}")
         except Exception as profile_err:
-            print(f"✅ Created {tier.capitalize()} Gmail draft {draft_id}")
-            print(f"   (Could not fetch account details: {profile_err})")
+            print(f"[GmailClient] Created {tier.capitalize()} Gmail draft {draft_id}")
             # Still create URL even if we can't get profile
             if message_id:
                 gmail_draft_url = f"https://mail.google.com/mail/u/0/#drafts?compose={message_id}"
@@ -1181,13 +1144,13 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         }
         
     except Exception as e:
-        print(f"{tier.capitalize()} Gmail draft creation failed for {user_email}: {e}")
+        print(f"[GmailClient] {tier.capitalize()} Gmail draft creation failed: {e}")
         import traceback
         traceback.print_exc()
-        return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}_user_{user_email}"
+        return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
 
 
-# ✅ ISSUE 3 FIX: Parallel Gmail draft creation with rate limiting
+# ISSUE 3 FIX: Parallel Gmail draft creation with rate limiting
 def create_drafts_parallel(contacts_with_emails, resume_bytes=None, resume_filename=None, user_info=None, user_id=None, tier='free', user_email=None, resume_url=None):
     """
     Create all Gmail drafts in parallel with rate limiting.
@@ -1248,7 +1211,7 @@ def create_drafts_parallel(contacts_with_emails, resume_bytes=None, resume_filen
             return item.get('index', 0), None, str(e)
     
     # Create all drafts in parallel
-    print(f"📧 Creating {len(contacts_with_emails)} Gmail drafts in parallel (max {max_workers} concurrent)...")
+    print(f"[GmailClient] Creating {len(contacts_with_emails)} Gmail drafts in parallel (max {max_workers} concurrent)")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks
         future_to_item = {
@@ -1302,7 +1265,7 @@ def create_drafts_batch(contacts_with_emails, gmail_service, resume_bytes=None, 
     if not contacts_with_emails or not gmail_service:
         return []
     
-    print(f"📧 Creating {len(contacts_with_emails)} Gmail drafts using batch API...")
+    print(f"[GmailClient] Creating {len(contacts_with_emails)} Gmail drafts using batch API")
     
     results = {}
     results_lock = threading.Lock()

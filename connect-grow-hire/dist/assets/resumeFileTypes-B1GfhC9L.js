@@ -1,0 +1,1 @@
+const i={accept:".pdf,.docx,.doc,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"},e=["pdf","docx","doc"];function p(c){var o;const n=(o=c.name.split(".").pop())==null?void 0:o.toLowerCase();return e.includes(n||"")}export{i as A,p as i};
