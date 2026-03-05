@@ -444,6 +444,7 @@ def generate_and_draft():
                     "gmailDraftUrl": gmail_url,
                     "emailSubject": r["subject"],
                     "emailBody": body,
+                    "draftToEmail": to_addr_clean or to_addr,
                     "draftCreatedAt": datetime.utcnow().isoformat(),
                     "lastActivityAt": datetime.utcnow().isoformat(),
                     "hasUnreadReply": False,

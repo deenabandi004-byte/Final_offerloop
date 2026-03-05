@@ -98,6 +98,13 @@ export function ConversationPanel({
               {contact.email}
             </button>
 
+            {/* draft-to email (shown when different from canonical email) */}
+            {contact.draftToEmail && contact.draftToEmail !== contact.email && (
+              <span className="text-xs text-gray-400">
+                Drafted to: {contact.draftToEmail}
+              </span>
+            )}
+
             {/* linkedin */}
             {contact.linkedinUrl && (
               <a

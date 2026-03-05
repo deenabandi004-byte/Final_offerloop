@@ -274,6 +274,7 @@ export interface OutboxThread {
   gmailDraftId?: string | null;
   gmailDraftUrl?: string | null;
   emailSubject?: string | null;
+  draftToEmail?: string | null;
   lastMessageSnippet: string;
   lastMessageFrom?: string | null;
   emailSentAt?: string | null;

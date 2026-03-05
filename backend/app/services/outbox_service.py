@@ -119,6 +119,7 @@ def _contact_to_dict(contact_id, data):
         "gmailDraftId": gmail_draft_id,
         "gmailDraftUrl": gmail_draft_url,
         "emailSubject": data.get("emailSubject"),
+        "draftToEmail": data.get("draftToEmail"),
         "lastMessageSnippet": snippet,
         "lastMessageFrom": data.get("lastMessageFrom"),
         # Timestamps
@@ -428,7 +429,7 @@ def _check_draft_status(gmail_service, data):
                 updates["emailSentAt"] = _now_iso()
         else:
             # Draft gone without threadId - search Gmail for the sent message
-            contact_email = data.get("email")
+            contact_email = data.get("draftToEmail") or data.get("email")
             email_subject = data.get("emailSubject")
             if contact_email and email_subject:
                 try:

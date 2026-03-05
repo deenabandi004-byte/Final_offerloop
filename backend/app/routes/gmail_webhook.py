@@ -197,6 +197,24 @@ def _process_gmail_notification(email_address, history_id):
                         except Exception as e:
                             print(f"[gmail_webhook] Strategy 2b alternateEmails scan error: {e}")
 
+                    # Strategy 2c: match by draftToEmail field
+                    if not contact_ref:
+                        try:
+                            draft_to_matches = contacts_ref.where(
+                                "draftToEmail", "==", to_email
+                            ).where("inOutbox", "==", True).limit(5).get()
+                            for doc in draft_to_matches:
+                                data = doc.to_dict() or {}
+                                stage = data.get("pipelineStage")
+                                has_draft = data.get("gmailDraftId") or data.get("gmailDraftUrl")
+                                if stage == "draft_created" or has_draft:
+                                    contact_doc = doc
+                                    contact_ref = doc.reference
+                                    print(f"[gmail_webhook] Strategy 2c matched: draftToEmail={to_email} for contact {doc.id}")
+                                    break
+                        except Exception as e:
+                            print(f"[gmail_webhook] Strategy 2c draftToEmail scan error: {e}")
+
                 # Strategy 3: find contacts whose draft has disappeared (was sent)
                 if not contact_ref:
                     try:
@@ -270,13 +288,21 @@ def _process_gmail_notification(email_address, history_id):
                 print(f"[gmail_webhook] Contact query error: {e}")
                 continue
 
-            # Fallback: match by from_email against stored email or alternateEmails
+            # Fallback: match by from_email against stored email, draftToEmail, or alternateEmails
             if not contact_docs and from_email:
                 try:
                     email_matches = contacts_ref.where("email", "==", from_email).where("inOutbox", "==", True).limit(1).get()
                     if email_matches:
                         contact_docs = email_matches
-                    else:
+
+                    # Try draftToEmail match
+                    if not contact_docs:
+                        draft_to_matches = contacts_ref.where("draftToEmail", "==", from_email).where("inOutbox", "==", True).limit(1).get()
+                        if draft_to_matches:
+                            contact_docs = draft_to_matches
+                            print(f"[gmail_webhook] Reply matched via draftToEmail: {from_email} -> contact {draft_to_matches[0].id}")
+
+                    if not contact_docs:
                         # Scan outbox contacts for alternateEmails match
                         outbox_contacts = contacts_ref.where("inOutbox", "==", True).get()
                         for doc in outbox_contacts:
