@@ -241,13 +241,6 @@ export interface GenerateReplyResult {
 // ================================
 // Outbox Types
 // ================================
-export type OutboxStatus =
-  | "no_reply_yet"
-  | "new_reply"
-  | "waiting_on_them"
-  | "waiting_on_you"
-  | "closed";
-
 export type PipelineStage =
   | "new"
   | "draft_created"
@@ -260,55 +253,69 @@ export type PipelineStage =
   | "bounced"
   | "closed";
 
+export type Resolution =
+  | "meeting_booked"
+  | "soft_no"
+  | "hard_no"
+  | "ghosted"
+  | "completed";
+
 export interface OutboxThread {
   id: string;
-  contactName: string;
-  jobTitle: string;
-  company: string;
+  name: string;
   email: string;
-  status: OutboxStatus;
+  company: string;
+  title: string;
+  linkedinUrl?: string | null;
+  pipelineStage: PipelineStage | null;
+  inOutbox: boolean;
+  hasUnreadReply: boolean;
+  gmailThreadId?: string | null;
+  gmailDraftId?: string | null;
+  gmailDraftUrl?: string | null;
+  emailSubject?: string | null;
   lastMessageSnippet: string;
-  lastActivityAt: string; // ISO string
-  hasDraft: boolean;
-  suggestedReply?: string;
-  gmailDraftUrl?: string;
-  gmailDraftId?: string;
-  gmailMessageId?: string;
-  replyType?: "positive" | "referral" | "delay" | "decline" | "question";
-  pipelineStage?: PipelineStage | null;
-  lastSyncError?: { code: string; message: string; at: string } | null;
+  lastMessageFrom?: string | null;
   emailSentAt?: string | null;
-  hasUnreadReply?: boolean;
+  draftCreatedAt?: string | null;
+  replyReceivedAt?: string | null;
+  lastActivityAt: string;
+  followUpCount: number;
+  nextFollowUpAt?: string | null;
+  messageCount: number;
+  resolution?: Resolution | null;
+  resolutionDetails?: string | null;
+  conversationSummary?: string | null;
+  archivedAt?: string | null;
+  snoozedUntil?: string | null;
+  updatedAt: string;
+  lastSyncError?: { code: string; message: string; at: string } | null;
   lastSyncAt?: string | null;
+  // Legacy aliases — used by Outbox.tsx and Dashboard.tsx until migrated
+  contactName?: string;
+  jobTitle?: string;
+  hasDraft?: boolean;
+  status?: string;
+  suggestedReply?: string;
+  replyType?: string;
   duplicateOf?: string;
 }
 
 export interface OutboxStats {
-  draft_created: number;
-  email_sent: number;
-  waiting_on_reply: number;
-  replied: number;
-  meeting_scheduled: number;
-  connected: number;
-  no_response: number;
-  bounced: number;
-  closed: number;
   total: number;
+  byStage: Record<PipelineStage, number>;
   replyRate: number;
-  avgResponseTimeDays: number | null;
+  avgResponseTimeHours: number | null;
   meetingRate: number;
+  needsAttentionCount: number;
+  waitingCount: number;
+  doneCount: number;
   thisWeekSent: number;
   thisWeekReplied: number;
 }
 
 export interface OutboxThreadsResponse {
   threads: OutboxThread[];
-}
-
-export interface RegenerateReplyResponse {
-  thread: OutboxThread;
-  success: boolean;
-  message?: string;
 }
 
 // Union type for search results
@@ -1634,27 +1641,16 @@ async generateReplyDraft(contactId: string): Promise<GenerateReplyResult | Error
 // Outbox API
 // ================================
 
-/** Get all Outbox email threads (optional: stage, sort, sort_dir, page, per_page) */
+/** Get all Outbox contacts */
 async getOutboxThreads(params?: {
-  stage?: string;
-  sort?: string;
-  sort_dir?: string;
-  page?: number;
-  per_page?: number;
-}): Promise<{ threads: OutboxThread[]; pagination?: { page: number; per_page: number; total: number; total_pages: number; has_next: boolean; has_prev: boolean } } | { error: string }> {
+  include_archived?: boolean;
+}): Promise<{ threads: OutboxThread[] } | { error: string }> {
   const headers = await this.getAuthHeaders();
   const searchParams = new URLSearchParams();
-  if (params?.stage) searchParams.set("stage", params.stage);
-  if (params?.sort) searchParams.set("sort", params.sort);
-  if (params?.sort_dir) searchParams.set("sort_dir", params.sort_dir);
-  if (params?.page != null) searchParams.set("page", String(params.page));
-  if (params?.per_page != null) searchParams.set("per_page", String(params.per_page));
+  if (params?.include_archived) searchParams.set("include_archived", "true");
   const qs = searchParams.toString();
   const url = qs ? `/outbox/threads?${qs}` : '/outbox/threads';
-  return this.makeRequest<{ threads: OutboxThread[]; pagination?: { page: number; per_page: number; total: number; total_pages: number; has_next: boolean; has_prev: boolean } } | { error: string }>(
-    url,
-    { method: 'GET', headers }
-  );
+  return this.makeRequest<{ threads: OutboxThread[] } | { error: string }>(url, { method: 'GET', headers });
 }
 
 /** Get outbox pipeline stats */
@@ -1664,53 +1660,65 @@ async getOutboxStats(): Promise<OutboxStats | { error: string }> {
 }
 
 /** Update a contact's pipeline stage */
-async patchOutboxStage(contactId: string, pipelineStage: PipelineStage): Promise<{ thread: OutboxThread } | { error: string }> {
+async patchOutboxStage(contactId: string, stage: PipelineStage): Promise<{ thread: OutboxThread } | { error: string }> {
   const headers = await this.getAuthHeaders();
   return this.makeRequest<{ thread: OutboxThread } | { error: string }>(
     `/outbox/threads/${contactId}/stage`,
-    { method: 'PATCH', headers, body: JSON.stringify({ pipelineStage }) }
+    { method: 'PUT', headers, body: JSON.stringify({ stage }) }
   );
 }
 
-/** Batch sync: pass contactIds or { mode: "stale", max?: number } to sync stale threads server-side */
-async batchSyncOutbox(
-  params: { contactIds: string[] } | { mode: 'stale'; max?: number }
-): Promise<{ results: Array<{ contactId: string; synced: boolean; pipelineStage?: string | null; error?: string }> } | { error: string }> {
+/** Sync a specific contact with Gmail */
+async syncOutboxThread(contactId: string): Promise<{ thread: OutboxThread } | { error: string }> {
   const headers = await this.getAuthHeaders();
-  return this.makeRequest<{ results: Array<{ contactId: string; synced: boolean; pipelineStage?: string | null; error?: string }> } | { error: string }>(
-    '/outbox/threads/batch-sync',
-    { method: 'POST', headers, body: JSON.stringify(params) }
-  );
-}
-
-/** Regenerate a suggested reply + Gmail draft for a thread */
-async regenerateOutboxReply(
-  threadId: string
-): Promise<{ thread: OutboxThread } | { error: string }> {
-  const headers = await this.getAuthHeaders();
-
   return this.makeRequest<{ thread: OutboxThread } | { error: string }>(
-    `/outbox/threads/${threadId}/regenerate`,
-    {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({})
-    }
+    `/outbox/threads/${contactId}/sync`,
+    { method: 'POST', headers }
   );
 }
 
-/** Sync a specific thread with Gmail (updates message snippets, status, etc.) */
-async syncOutboxThread(
-  threadId: string
-): Promise<{ thread: OutboxThread } | { error: string }> {
+/** Archive a contact */
+async archiveOutboxThread(contactId: string): Promise<{ thread: OutboxThread } | { error: string }> {
   const headers = await this.getAuthHeaders();
-
   return this.makeRequest<{ thread: OutboxThread } | { error: string }>(
-    `/outbox/threads/${threadId}/sync`,
-    {
-      method: 'POST',
-      headers,
-    }
+    `/outbox/threads/${contactId}/archive`,
+    { method: 'POST', headers }
+  );
+}
+
+/** Unarchive a contact */
+async unarchiveOutboxThread(contactId: string): Promise<{ thread: OutboxThread } | { error: string }> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<{ thread: OutboxThread } | { error: string }>(
+    `/outbox/threads/${contactId}/unarchive`,
+    { method: 'POST', headers }
+  );
+}
+
+/** Snooze a contact until a specific date */
+async snoozeOutboxThread(contactId: string, snoozeUntil: string): Promise<{ thread: OutboxThread } | { error: string }> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<{ thread: OutboxThread } | { error: string }>(
+    `/outbox/threads/${contactId}/snooze`,
+    { method: 'POST', headers, body: JSON.stringify({ snoozeUntil }) }
+  );
+}
+
+/** Mark a contact as won (meeting booked) */
+async markOutboxThreadWon(contactId: string, resolutionDetails?: string): Promise<{ thread: OutboxThread } | { error: string }> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<{ thread: OutboxThread } | { error: string }>(
+    `/outbox/threads/${contactId}/won`,
+    { method: 'POST', headers, body: JSON.stringify({ resolutionDetails }) }
+  );
+}
+
+/** Set a resolution on a contact */
+async setOutboxThreadResolution(contactId: string, resolution: Resolution, details?: string): Promise<{ thread: OutboxThread } | { error: string }> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<{ thread: OutboxThread } | { error: string }>(
+    `/outbox/threads/${contactId}/resolution`,
+    { method: 'POST', headers, body: JSON.stringify({ resolution, details }) }
   );
 }
 

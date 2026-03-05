@@ -23,6 +23,7 @@ import UscBeta from "@/pages/UscBeta";
 // Lazy load heavy pages for code splitting
 const AboutUs = React.lazy(() => import("./pages/AboutUs"));
 const Outbox = React.lazy(() => import("./pages/Outbox"));
+const NetworkTracker = React.lazy(() => import("./pages/NetworkTracker"));
 const CalendarPage = React.lazy(() => import("./pages/CalendarPage"));
 const Contact = React.lazy(() => import("./pages/Contact"));
 const CoffeeChatLibrary = React.lazy(() => import("./pages/CoffeeChatLibrary"));
@@ -213,7 +214,8 @@ const AppRoutes: React.FC = () => {
 
       {/* Protected App Pages - Wrapped in Suspense for lazy loading */}
       <Route path="/dashboard" element={<Navigate to="/contact-search" replace />} />
-      <Route path="/outbox" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><Outbox /></Suspense></ProtectedRoute>} />
+      <Route path="/tracker" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><NetworkTracker /></Suspense></ProtectedRoute>} />
+      <Route path="/outbox" element={<Navigate to="/tracker" replace />} />
       <Route path="/calendar" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CalendarPage /></Suspense></ProtectedRoute>} />
       {/* Legacy /home redirect to contact search */}
       <Route path="/home" element={<Navigate to="/contact-search" replace />} />

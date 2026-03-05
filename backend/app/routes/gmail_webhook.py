@@ -54,7 +54,7 @@ def _process_gmail_notification(email_address, history_id):
             return
 
         gmail_data = gmail_doc.to_dict() or {}
-        last_history_id_raw = gmail_data.get("watchHistoryId") or gmail_data.get("watch_history_id")
+        last_history_id_raw = gmail_data.get("watchHistoryId")
         try:
             last_history_id = str(last_history_id_raw).strip() if last_history_id_raw is not None else None
         except Exception:
@@ -169,12 +169,10 @@ def _process_gmail_notification(email_address, history_id):
                     email_matches = contacts_ref.where("email", "==", to_email).limit(5).get()
                     for doc in email_matches:
                         data = doc.to_dict() or {}
-                        stage = data.get("pipelineStage") or data.get("pipeline_stage")
+                        stage = data.get("pipelineStage")
                         has_draft = (
                             data.get("gmailDraftId")
-                            or data.get("gmail_draft_id")
                             or data.get("gmailDraftUrl")
-                            or data.get("gmail_draft_url")
                         )
                         if stage == "draft_created" or has_draft:
                             contact_doc = doc
@@ -185,7 +183,7 @@ def _process_gmail_notification(email_address, history_id):
                     continue
 
                 contact_data = contact_doc.to_dict() or {}
-                current_stage = contact_data.get("pipelineStage") or contact_data.get("pipeline_stage")
+                current_stage = contact_data.get("pipelineStage")
 
                 # Only update if currently in a draft/pre-send state
                 if current_stage not in (None, "draft_created", "email_sent"):
@@ -194,24 +192,20 @@ def _process_gmail_notification(email_address, history_id):
                 update_fields = {
                     "draftStillExists": False,
                     "pipelineStage": "waiting_on_reply",
-                    "pipeline_stage": "waiting_on_reply",
+                    "inOutbox": True,
                     "lastActivityAt": now_iso,
-                    "last_activity_at": now_iso,
                     "updatedAt": now_iso,
                 }
 
-                if not contact_data.get("emailSentAt") and not contact_data.get("email_sent_at"):
+                if not contact_data.get("emailSentAt"):
                     update_fields["emailSentAt"] = now_iso
-                    update_fields["email_sent_at"] = now_iso
 
-                if not contact_data.get("gmailThreadId") and not contact_data.get("gmail_thread_id"):
+                if not contact_data.get("gmailThreadId"):
                     update_fields["gmailThreadId"] = thread_id
-                    update_fields["gmail_thread_id"] = thread_id
 
                 msg_snippet = msg_resp.get("snippet") or ""
                 if msg_snippet:
                     update_fields["lastMessageSnippet"] = msg_snippet
-                    update_fields["last_message_snippet"] = msg_snippet
 
                 contact_ref.update(update_fields)
                 continue
@@ -220,9 +214,6 @@ def _process_gmail_notification(email_address, history_id):
             try:
                 query = contacts_ref.where("gmailThreadId", "==", thread_id).limit(1)
                 contact_docs = list(query.stream())
-                if not contact_docs:
-                    query = contacts_ref.where("gmail_thread_id", "==", thread_id).limit(1)
-                    contact_docs = list(query.stream())
             except Exception as e:
                 print(f"[gmail_webhook] Contact query error: {e}")
                 continue
@@ -233,10 +224,10 @@ def _process_gmail_notification(email_address, history_id):
             contact_doc = contact_docs[0]
             contact_id = contact_doc.id
             contact_data = contact_doc.to_dict() or {}
-            contact_name = (contact_data.get("firstName") or contact_data.get("first_name") or "").strip()
+            contact_name = (contact_data.get("firstName") or "").strip()
             if contact_name:
                 contact_name += " "
-            contact_name += (contact_data.get("lastName") or contact_data.get("last_name") or "").strip()
+            contact_name += (contact_data.get("lastName") or "").strip()
             contact_name = contact_name.strip() or contact_data.get("email", "")
             company = (contact_data.get("company") or "").strip()
             message_snippet = (msg_resp.get("snippet") or "")[:100]
@@ -244,13 +235,14 @@ def _process_gmail_notification(email_address, history_id):
             contact_ref = contacts_ref.document(contact_id)
             updates = {
                 "pipelineStage": "replied",
+                "inOutbox": True,
                 "hasUnreadReply": True,
                 "lastActivityAt": now_iso,
                 "lastMessageSnippet": message_snippet or (msg_resp.get("snippet") or ""),
                 "threadStatus": "new_reply",
                 "updatedAt": now_iso,
             }
-            if not contact_data.get("replyReceivedAt") and not contact_data.get("reply_received_at"):
+            if not contact_data.get("replyReceivedAt"):
                 updates["replyReceivedAt"] = now_iso
             contact_ref.update(updates)
 

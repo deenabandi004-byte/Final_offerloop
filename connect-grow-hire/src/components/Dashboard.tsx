@@ -6,7 +6,7 @@ import {
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 import { firebaseApi } from '@/services/firebaseApi';
-import { type Firm, apiService, type OutboxThread } from '@/services/api';
+import { type Firm, apiService, type OutboxThread, type OutboxStats } from '@/services/api';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { calculateWeeklySummary, type WeeklySummary } from '@/utils/dashboardStats';
 
@@ -116,6 +116,7 @@ export function Dashboard() {
   }>>([]);
   const [outboxThreads, setOutboxThreads] = useState<OutboxThread[]>([]);
   const [outboxLoading, setOutboxLoading] = useState(true);
+  const [trackerStats, setTrackerStats] = useState<OutboxStats | null>(null);
 
   // Derived values
   const timeSavedHours = useMemo(() => {
@@ -273,54 +274,54 @@ export function Dashboard() {
   // Get the top follow-up for the hero card
   const topFollowUp = followUps[0];
 
-  // Fetch outbox threads to get real draft count
+  // Fetch outbox threads and tracker stats
   useEffect(() => {
-    const fetchOutboxThreads = async () => {
+    const fetchOutboxData = async () => {
       if (!user?.uid) {
         setOutboxLoading(false);
         return;
       }
       try {
         setOutboxLoading(true);
-        const result = await apiService.getOutboxThreads();
-        if ('error' in result) {
-          console.error('❌ Error fetching outbox threads:', result.error);
+        const [threadsResult, statsResult] = await Promise.all([
+          apiService.getOutboxThreads(),
+          apiService.getOutboxStats(),
+        ]);
+        if ('error' in threadsResult) {
           setOutboxThreads([]);
         } else {
-          const threads = result.threads || [];
-          if (process.env.NODE_ENV === 'development') {
-            console.log('✅ Fetched outbox threads:', threads.length, 'threads');
-          }
-          setOutboxThreads(threads);
+          setOutboxThreads(threadsResult.threads || []);
+        }
+        if (!('error' in statsResult)) {
+          setTrackerStats(statsResult as OutboxStats);
         }
       } catch (error) {
-        console.error('❌ Failed to fetch outbox threads:', error);
+        console.error('Failed to fetch outbox data:', error);
         setOutboxThreads([]);
       } finally {
         setOutboxLoading(false);
       }
     };
-    fetchOutboxThreads();
+    fetchOutboxData();
   }, [user?.uid]);
 
   // Quick wins data - using real data
   const quickWins = useMemo(() => {
-    // Count actual drafts ready to send
-    // Simply count threads with hasDraft=true (this is what the backend returns)
-    const emailsReady = outboxThreads.filter(t => Boolean(t.hasDraft)).length;
-    
+    // Use needsAttentionCount from tracker stats (contacts needing action)
+    const emailsReady = trackerStats?.needsAttentionCount ?? outboxThreads.filter(t => Boolean(t.hasDraft)).length;
+
     // Coffee chats that need prep
     const coffeeChatsNeedPrep = coffeeChatCount;
-    
+
     // New company matches
     const newMatches = firmCount > 0 ? firmCount : 0;
-    
+
     return {
       emailsReady,
       coffeeChatsNeedPrep,
       newMatches,
     };
-  }, [outboxThreads, coffeeChatCount, firmCount]);
+  }, [outboxThreads, trackerStats, coffeeChatCount, firmCount]);
 
   // Fetch contacts (needed for follow-up reminders, so fetch first)
   useEffect(() => {
@@ -511,7 +512,7 @@ export function Dashboard() {
             </div>
             <div className="flex items-center gap-3">
               <button
-                onClick={() => navigate('/outbox')}
+                onClick={() => navigate('/tracker')}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-[10px] text-sm font-medium transition-all"
                 style={{
                   background: '#2563EB',
@@ -618,7 +619,7 @@ export function Dashboard() {
           {[
             { icon: <Search className="w-4 h-4" />, label: 'Find People', route: '/contact-search' },
             { icon: <Building2 className="w-4 h-4" />, label: 'Find Companies', route: '/firm-search' },
-            { icon: <Mail className="w-4 h-4" />, label: 'Review Outreach', route: '/outbox' },
+            { icon: <Mail className="w-4 h-4" />, label: 'Review Outreach', route: '/tracker' },
             { icon: <Coffee className="w-4 h-4" />, label: 'Prep for Chat', route: '/coffee-chat-prep' },
           ].map((shortcut, i) => (
             <button
@@ -678,10 +679,10 @@ export function Dashboard() {
               {[
                 {
                   icon: <Mail className="w-5 h-5" style={{ color: 'var(--text-secondary)' }} />,
-                  title: outboxLoading ? '...' : `${quickWins.emailsReady} emails ready`,
-                  description: 'Review and send with one click',
+                  title: outboxLoading ? '...' : `${quickWins.emailsReady} need attention`,
+                  description: 'Review replies and send drafts',
                   badge: '2 min',
-                  route: '/outbox',
+                  route: '/tracker',
                   disabled: quickWins.emailsReady === 0,
                 },
                 {
@@ -880,7 +881,7 @@ export function Dashboard() {
                 {followUps.slice(0, 4).map((followUp) => (
                   <div 
                     key={followUp.id}
-                    onClick={() => navigate('/outbox')}
+                    onClick={() => navigate('/tracker')}
                     className="dashboard-followup-card group relative flex items-center justify-between p-4 rounded-[12px] transition-all cursor-pointer"
                     style={{
                       background: 'var(--bg-white)',
@@ -965,7 +966,7 @@ export function Dashboard() {
               
                 {followUps.length > 4 && (
                   <button 
-                    onClick={() => navigate('/outbox')}
+                    onClick={() => navigate('/tracker')}
                     className="dashboard-view-all-followups mt-4 flex items-center gap-1"
                     style={{
                       fontFamily: 'var(--font-body)',

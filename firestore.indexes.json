@@ -7,6 +7,31 @@
         { "fieldPath": "date", "order": "ASCENDING" },
         { "fieldPath": "time", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "contacts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "inOutbox", "order": "ASCENDING" },
+        { "fieldPath": "pipelineStage", "order": "ASCENDING" },
+        { "fieldPath": "lastActivityAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "contacts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "inOutbox", "order": "ASCENDING" },
+        { "fieldPath": "hasUnreadReply", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "contacts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "inOutbox", "order": "ASCENDING" },
+        { "fieldPath": "nextFollowUpAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

@@ -243,7 +243,7 @@ const navigationSections = [
     id: "track",
     title: "TRACK",
     items: [
-      { title: "Track Email Outreach", url: "/outbox", icon: EmailOutreachIcon, dataTour: "tour-track-email" },
+      { title: "Network Tracker", url: "/tracker", icon: EmailOutreachIcon, dataTour: "tour-track-email" },
       { title: "Calendar", url: "/calendar", icon: CalendarIcon },
       { title: "Networking", url: "/contact-directory", icon: NetworkingIcon },
       { title: "Hiring Managers", url: "/hiring-manager-tracker", icon: FindHiringManagersIcon },
