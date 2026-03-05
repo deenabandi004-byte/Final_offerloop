@@ -61,6 +61,7 @@ export default function NetworkTracker() {
       return res.threads;
     },
     enabled: !!user,
+    refetchInterval: 30_000,
   });
 
   const { data: statsData } = useQuery({
@@ -71,6 +72,7 @@ export default function NetworkTracker() {
       return res as OutboxStats;
     },
     enabled: !!user,
+    refetchInterval: 30_000,
   });
 
   // --- mutations ---

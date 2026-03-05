@@ -179,6 +179,32 @@ def _process_gmail_notification(email_address, history_id):
                             contact_ref = doc.reference
                             break
 
+                # Strategy 3: find contacts whose draft has disappeared (was sent)
+                if not contact_ref:
+                    try:
+                        draft_candidates = contacts_ref.where(
+                            "pipelineStage", "==", "draft_created"
+                        ).where("inOutbox", "==", True).get()
+                        for candidate in draft_candidates:
+                            cdata = candidate.to_dict() or {}
+                            draft_id = cdata.get("gmailDraftId")
+                            if not draft_id:
+                                continue
+                            try:
+                                service.users().drafts().get(
+                                    userId="me", id=draft_id, format="minimal"
+                                ).execute()
+                                # Draft still exists, skip
+                            except Exception as draft_err:
+                                if hasattr(draft_err, "resp") and getattr(draft_err.resp, "status", 0) == 404:
+                                    # Draft is gone — it was sent
+                                    contact_doc = candidate
+                                    contact_ref = candidate.reference
+                                    print(f"[gmail_webhook] Strategy 3 matched: draft {draft_id} gone for contact {candidate.id}")
+                                    break
+                    except Exception as e:
+                        print(f"[gmail_webhook] Strategy 3 draft scan error: {e}")
+
                 if not contact_ref:
                     continue
 

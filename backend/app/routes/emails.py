@@ -449,6 +449,7 @@ def generate_and_draft():
                     "hasUnreadReply": False,
                     "updatedAt": datetime.utcnow().isoformat(),
                     "pipelineStage": "draft_created",
+                    "inOutbox": True,
                 }
                 
                 # Add threadId if we have it
@@ -460,6 +461,15 @@ def generate_and_draft():
                     contact_data["firstName"] = c["FirstName"]
                 if c.get("LastName"):
                     contact_data["lastName"] = c["LastName"]
+                # Build full name for display
+                full_name = (
+                    c.get("full_name")
+                    or c.get("name")
+                    or f"{c.get('FirstName', '')} {c.get('LastName', '')}".strip()
+                    or None
+                )
+                if full_name:
+                    contact_data["name"] = full_name
                 if c.get("Company"):
                     contact_data["company"] = c["Company"]
                 if c.get("Title") or c.get("jobTitle"):
