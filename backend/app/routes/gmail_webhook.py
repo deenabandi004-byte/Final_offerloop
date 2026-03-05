@@ -4,11 +4,12 @@ Gmail push notification webhook — receives Pub/Sub notifications and detects r
 import base64
 import json
 import re
-import threading
 from datetime import datetime
 from email.utils import parseaddr
 
 from flask import Blueprint, jsonify, request
+
+from google.cloud.firestore_v1 import ArrayUnion
 
 from app.config import GMAIL_WEBHOOK_SECRET
 from app.extensions import get_db
@@ -165,7 +166,7 @@ def _process_gmail_notification(email_address, history_id):
                     contact_doc = thread_matches[0]
                     contact_ref = contact_doc.reference
                 else:
-                    # Fallback: contact whose email matches 'To' AND is in draft state
+                    # Strategy 2a: contact whose email matches 'To' AND is in draft state
                     email_matches = contacts_ref.where("email", "==", to_email).limit(5).get()
                     for doc in email_matches:
                         data = doc.to_dict() or {}
@@ -178,6 +179,23 @@ def _process_gmail_notification(email_address, history_id):
                             contact_doc = doc
                             contact_ref = doc.reference
                             break
+
+                    # Strategy 2b: check alternateEmails on draft_created contacts
+                    if not contact_ref:
+                        try:
+                            draft_contacts = contacts_ref.where(
+                                "pipelineStage", "==", "draft_created"
+                            ).where("inOutbox", "==", True).get()
+                            for doc in draft_contacts:
+                                data = doc.to_dict() or {}
+                                alt_emails = data.get("alternateEmails") or []
+                                if to_email in [e.lower() for e in alt_emails]:
+                                    contact_doc = doc
+                                    contact_ref = doc.reference
+                                    print(f"[gmail_webhook] Strategy 2b matched: {to_email} in alternateEmails for contact {doc.id}")
+                                    break
+                        except Exception as e:
+                            print(f"[gmail_webhook] Strategy 2b alternateEmails scan error: {e}")
 
                 # Strategy 3: find contacts whose draft has disappeared (was sent)
                 if not contact_ref:
@@ -200,6 +218,14 @@ def _process_gmail_notification(email_address, history_id):
                                     # Draft is gone — it was sent
                                     contact_doc = candidate
                                     contact_ref = candidate.reference
+                                    # Store the sent-to email as alternateEmail if different from stored email
+                                    stored_email = (cdata.get("email") or "").lower()
+                                    if to_email and to_email != stored_email:
+                                        try:
+                                            contact_ref.update({"alternateEmails": ArrayUnion([to_email])})
+                                            print(f"[gmail_webhook] Stored alternateEmail {to_email} for contact {candidate.id}")
+                                        except Exception as ae:
+                                            print(f"[gmail_webhook] Failed to store alternateEmail: {ae}")
                                     print(f"[gmail_webhook] Strategy 3 matched: draft {draft_id} gone for contact {candidate.id}")
                                     break
                     except Exception as e:
@@ -243,6 +269,25 @@ def _process_gmail_notification(email_address, history_id):
             except Exception as e:
                 print(f"[gmail_webhook] Contact query error: {e}")
                 continue
+
+            # Fallback: match by from_email against stored email or alternateEmails
+            if not contact_docs and from_email:
+                try:
+                    email_matches = contacts_ref.where("email", "==", from_email).where("inOutbox", "==", True).limit(1).get()
+                    if email_matches:
+                        contact_docs = email_matches
+                    else:
+                        # Scan outbox contacts for alternateEmails match
+                        outbox_contacts = contacts_ref.where("inOutbox", "==", True).get()
+                        for doc in outbox_contacts:
+                            data = doc.to_dict() or {}
+                            alt_emails = data.get("alternateEmails") or []
+                            if from_email in [e.lower() for e in alt_emails]:
+                                contact_docs = [doc]
+                                print(f"[gmail_webhook] Reply matched via alternateEmails: {from_email} -> contact {doc.id}")
+                                break
+                except Exception as e:
+                    print(f"[gmail_webhook] Reply email fallback error: {e}")
 
             if not contact_docs:
                 continue
@@ -335,10 +380,6 @@ def webhook():
     email_address = (data.get("emailAddress") or "").strip()
     history_id = str(data.get("historyId", ""))
 
-    threading.Thread(
-        target=_process_gmail_notification,
-        args=(email_address, history_id),
-        daemon=True,
-    ).start()
+    _process_gmail_notification(email_address, history_id)
 
     return jsonify({"status": "ok"}), 200
