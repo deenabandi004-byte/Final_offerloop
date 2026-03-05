@@ -28,10 +28,11 @@ const STAGE_OPTIONS: { value: PipelineStage; label: string }[] = [
   { value: "draft_created", label: "Draft Created" },
   { value: "email_sent", label: "Email Sent" },
   { value: "waiting_on_reply", label: "Waiting on Reply" },
-  { value: "replied", label: "Replied" },
+  { value: "replied", label: "They Replied" },
   { value: "meeting_scheduled", label: "Meeting Scheduled" },
   { value: "connected", label: "Connected" },
   { value: "no_response", label: "No Response" },
+  { value: "bounced", label: "Bounced" },
   { value: "closed", label: "Closed" },
 ];
 
@@ -124,6 +125,13 @@ export function ConversationPanel({
             )}
           </div>
         </div>
+
+        {/* 1b. Sent timestamp */}
+        {contact.emailSentAt && (
+          <p className="text-xs text-gray-500">
+            Sent on {formatDate(contact.emailSentAt)}
+          </p>
+        )}
 
         {/* 2. AI Summary */}
         {contact.conversationSummary && (

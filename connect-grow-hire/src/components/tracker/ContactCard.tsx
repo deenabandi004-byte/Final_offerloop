@@ -21,6 +21,11 @@ function daysBetween(iso: string | null | undefined): number {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
 }
 
+function hoursBetween(iso: string | null | undefined): number {
+  if (!iso) return 0;
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 3_600_000);
+}
+
 function initialsFor(name: string): string {
   return name
     .split(/\s+/)
@@ -42,22 +47,49 @@ function avatarColor(name: string): string {
 
 export type BucketType = "needsAttention" | "waiting" | "done";
 
-function statusLine(c: OutboxThread, _bucket: BucketType): string {
-  if (c.hasUnreadReply) return `Replied ${formatTimeAgo(c.replyReceivedAt || c.lastActivityAt)}`;
+function statusLine(c: OutboxThread): string {
+  // Replied / unread reply — highest priority display
+  if (c.hasUnreadReply || c.pipelineStage === "replied") {
+    const ago = formatTimeAgo(c.replyReceivedAt || c.lastActivityAt);
+    return ago ? `Replied ${ago} — action needed` : "Replied — action needed";
+  }
+  // Draft states
   if (c.pipelineStage === "draft_created") {
     const d = daysBetween(c.draftCreatedAt);
-    return d >= 3 ? `Draft unsent for ${d} days` : "Draft ready to send";
+    if (d >= 1) return `Draft unsent for ${d} day${d !== 1 ? "s" : ""} — send it!`;
+    return "Draft ready to send";
   }
+  // Overdue follow-up
   if (c.nextFollowUpAt && new Date(c.nextFollowUpAt) <= new Date()) return "Follow-up overdue";
-  if (c.pipelineStage === "waiting_on_reply") return `Waiting ${formatTimeAgo(c.emailSentAt || c.lastActivityAt)}`;
-  if (c.pipelineStage === "email_sent") return `Sent ${formatTimeAgo(c.emailSentAt || c.lastActivityAt)}`;
+  // Sent / waiting
+  if (c.pipelineStage === "waiting_on_reply") {
+    if (c.emailSentAt) return `Sent ${formatTimeAgo(c.emailSentAt)} — waiting for reply`;
+    return "Sent — waiting for reply";
+  }
+  if (c.pipelineStage === "email_sent") {
+    if (c.emailSentAt) return `Sent ${formatTimeAgo(c.emailSentAt)} — waiting for reply`;
+    return "Sent — waiting for reply";
+  }
+  // Done states
   if (c.pipelineStage === "meeting_scheduled") return "Meeting scheduled";
   if (c.pipelineStage === "connected") return "Connected";
-  if (c.pipelineStage === "no_response" || c.resolution === "ghosted") return "No response";
-  if (c.pipelineStage === "bounced") return "Bounced";
+  if (c.pipelineStage === "no_response" || c.resolution === "ghosted") return "No response after follow-ups";
+  if (c.pipelineStage === "bounced") return "Email bounced";
   if (c.pipelineStage === "closed") return "Closed";
   if (c.archivedAt) return "Archived";
+  // Fallback
   return c.pipelineStage?.replace(/_/g, " ") || "";
+}
+
+// --- stage-based border color ---
+
+function stageBorderColor(c: OutboxThread, isSelected: boolean): string {
+  if (isSelected) return "border-l-blue-500 bg-blue-50/60";
+  if (c.hasUnreadReply || c.pipelineStage === "replied") return "border-l-red-400 hover:bg-red-50/40";
+  if (c.pipelineStage === "draft_created") return "border-l-amber-400 hover:bg-amber-50/30";
+  if (c.pipelineStage === "email_sent" || c.pipelineStage === "waiting_on_reply") return "border-l-blue-300 hover:bg-blue-50/30";
+  if (c.pipelineStage === "meeting_scheduled" || c.pipelineStage === "connected") return "border-l-green-400 hover:bg-green-50/30";
+  return "border-l-transparent hover:bg-gray-50";
 }
 
 // --- action chip ---
@@ -69,15 +101,26 @@ interface Chip {
 
 function actionChip(c: OutboxThread, bucket: BucketType): Chip | null {
   if (bucket === "done") return null;
-  if (bucket === "needsAttention") {
-    if (c.hasUnreadReply) return { label: "Review Reply", className: "bg-blue-100 text-blue-700" };
-    if (c.pipelineStage === "draft_created" && daysBetween(c.draftCreatedAt) >= 3)
-      return { label: "Send Draft", className: "bg-orange-100 text-orange-700" };
-    if (c.nextFollowUpAt && new Date(c.nextFollowUpAt) <= new Date())
-      return { label: "Follow Up", className: "bg-orange-100 text-orange-700" };
+  // Replied
+  if (c.hasUnreadReply || c.pipelineStage === "replied") {
+    return { label: "View Reply", className: "bg-blue-100 text-blue-700" };
   }
-  if (bucket === "waiting" && (c.gmailDraftUrl || c.gmailThreadId))
+  // Draft
+  if (c.pipelineStage === "draft_created") {
+    return { label: "Send Draft", className: "bg-orange-100 text-orange-700" };
+  }
+  // Overdue follow-up
+  if (c.nextFollowUpAt && new Date(c.nextFollowUpAt) <= new Date()) {
+    return { label: "Follow Up", className: "bg-orange-100 text-orange-700" };
+  }
+  // Sent / waiting — open thread
+  if (c.pipelineStage === "email_sent" || c.pipelineStage === "waiting_on_reply") {
+    if (c.gmailThreadId) return { label: "Open Thread", className: "bg-gray-100 text-gray-600" };
+  }
+  // Fallback
+  if (c.gmailDraftUrl || c.gmailThreadId) {
     return { label: "Open Gmail", className: "bg-gray-100 text-gray-600" };
+  }
   return null;
 }
 
@@ -94,15 +137,12 @@ export function ContactCard({ contact, bucket, isSelected, onClick }: ContactCar
   const name = contact.name || contact.email || "Unknown";
   const subtitle = [contact.title, contact.company].filter(Boolean).join(" at ");
   const chip = actionChip(contact, bucket);
+  const isReplied = contact.hasUnreadReply || contact.pipelineStage === "replied";
 
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all border-l-[3px] ${
-        isSelected
-          ? "border-l-blue-500 bg-blue-50/60"
-          : "border-l-transparent hover:bg-gray-50"
-      }`}
+      className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all border-l-[3px] ${stageBorderColor(contact, isSelected)}`}
     >
       {/* avatar */}
       <div
@@ -114,9 +154,11 @@ export function ContactCard({ contact, bucket, isSelected, onClick }: ContactCar
 
       {/* text */}
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-gray-900 truncate">{name}</p>
+        <p className={`text-sm font-semibold truncate ${isReplied ? "text-gray-900" : "text-gray-900"}`}>{name}</p>
         {subtitle && <p className="text-xs text-gray-500 truncate">{subtitle}</p>}
-        <p className="text-xs text-gray-400 mt-0.5 truncate">{statusLine(contact, bucket)}</p>
+        <p className={`text-xs mt-0.5 truncate ${isReplied ? "text-red-500 font-medium" : "text-gray-400"}`}>
+          {statusLine(contact)}
+        </p>
       </div>
 
       {/* chip */}
