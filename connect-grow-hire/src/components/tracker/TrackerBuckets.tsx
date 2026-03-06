@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { OutboxThread } from "@/services/api";
 import { ContactCard, type BucketType } from "./ContactCard";
@@ -37,11 +37,17 @@ function BucketSection({
   onSelectContact,
 }: BucketSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
+  const userToggled = useRef(false);
+
+  // Sync with defaultOpen prop unless the user has manually toggled
+  useEffect(() => {
+    if (!userToggled.current) setOpen(defaultOpen);
+  }, [defaultOpen]);
 
   return (
     <div>
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => { userToggled.current = true; setOpen(!open); }}
         className="w-full flex items-center gap-2 px-2 py-2 rounded-md hover:bg-gray-50 transition-colors"
       >
         {open ? (

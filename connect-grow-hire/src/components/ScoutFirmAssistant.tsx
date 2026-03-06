@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Loader2, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { auth } from '@/lib/firebase';
 
 const BACKEND_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:5001'
@@ -74,13 +75,16 @@ const ScoutFirmAssistant: React.FC<ScoutFirmAssistantProps> = ({
     setIsLoading(true);
 
     try {
+      const token = await auth.currentUser?.getIdToken();
       const response = await fetch(`${BACKEND_URL}/api/scout/firm-assist`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           message: text,
           firm_context: firmContext,
-          user_resume: userResume,
           fit_context: fitContext,
           conversation_history: messages.map(m => ({
             role: m.role,

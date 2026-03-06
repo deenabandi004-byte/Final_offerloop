@@ -2,30 +2,12 @@ import { ExternalLink, Linkedin, Copy, Check } from "lucide-react";
 import { useState } from "react";
 import type { OutboxThread, PipelineStage } from "@/services/api";
 import { ActionBar } from "./ActionBar";
-
-// --- helpers ---
-
-function formatTimeAgo(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const ms = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(ms / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  const weeks = Math.floor(days / 7);
-  return `${weeks}w ago`;
-}
-
-function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "";
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
+import { formatTimeAgo, formatDate } from "@/lib/formatters";
 
 const STAGE_OPTIONS: { value: PipelineStage; label: string }[] = [
+  { value: "new", label: "New" },
   { value: "draft_created", label: "Draft Created" },
+  { value: "draft_deleted", label: "Draft Deleted" },
   { value: "email_sent", label: "Email Sent" },
   { value: "waiting_on_reply", label: "Waiting on Reply" },
   { value: "replied", label: "They Replied" },
@@ -48,6 +30,7 @@ interface ConversationPanelProps {
   onMarkRead: (contactId: string) => void;
   onRefresh: (contactId: string) => void;
   isSyncing: boolean;
+  isMutating?: boolean;
 }
 
 export function ConversationPanel({
@@ -60,13 +43,18 @@ export function ConversationPanel({
   onMarkRead,
   onRefresh,
   isSyncing,
+  isMutating,
 }: ConversationPanelProps) {
   const [emailCopied, setEmailCopied] = useState(false);
 
-  const copyEmail = () => {
-    navigator.clipboard.writeText(contact.email);
-    setEmailCopied(true);
-    setTimeout(() => setEmailCopied(false), 2000);
+  const copyEmail = async () => {
+    try {
+      await navigator.clipboard.writeText(contact.email);
+      setEmailCopied(true);
+      setTimeout(() => setEmailCopied(false), 2000);
+    } catch {
+      // Clipboard permission denied or not available
+    }
   };
 
   const gmailThreadUrl = contact.gmailThreadId
@@ -97,13 +85,6 @@ export function ConversationPanel({
               {emailCopied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
               {contact.email}
             </button>
-
-            {/* draft-to email (shown when different from canonical email) */}
-            {contact.draftToEmail && contact.draftToEmail !== contact.email && (
-              <span className="text-xs text-gray-400">
-                Drafted to: {contact.draftToEmail}
-              </span>
-            )}
 
             {/* linkedin */}
             {contact.linkedinUrl && (
@@ -187,6 +168,17 @@ export function ConversationPanel({
           </div>
         )}
 
+        {/* 4b. Resolution */}
+        {contact.resolution && (
+          <div className="text-sm text-gray-600">
+            <span className="font-medium">Resolution:</span>{" "}
+            {contact.resolution.replace(/_/g, " ")}
+            {contact.resolutionDetails && (
+              <span className="text-gray-400 ml-1">— {contact.resolutionDetails}</span>
+            )}
+          </div>
+        )}
+
         {/* Sync error */}
         {contact.lastSyncError && (
           <div className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
@@ -216,7 +208,8 @@ export function ConversationPanel({
             onChange={(e) => {
               if (e.target.value) onStageChange(contact.id, e.target.value);
             }}
-            className="w-full max-w-[220px] text-sm bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            disabled={isMutating}
+            className="w-full max-w-[220px] text-sm bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <option value="" disabled>Select stage...</option>
             {STAGE_OPTIONS.map((opt) => (

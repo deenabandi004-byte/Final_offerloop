@@ -422,6 +422,158 @@ function scrapeIndeed() {
 }
 
 // --------------------------------------------
+// GLASSDOOR SCRAPER
+// --------------------------------------------
+function scrapeGlassdoor() {
+  const selectors = {
+    jobTitle: [
+      '[data-test="jobTitle"]',
+      '.job-title',
+      'h1[class*="JobTitle"]',
+      'h1'
+    ],
+    company: [
+      '[data-test="employerName"]',
+      '.employer-name',
+      '[class*="EmployerName"]',
+      '[data-test="employer-name"]'
+    ],
+    location: [
+      '[data-test="location"]',
+      '.location',
+      '[class*="Location"]'
+    ],
+    description: [
+      '[data-test="jobDescription"]',
+      '.job-description',
+      '#JobDescriptionContainer',
+      '[class*="jobDescription"]'
+    ]
+  };
+
+  return {
+    jobTitle: findFirst(selectors.jobTitle),
+    company: findFirst(selectors.company),
+    location: findFirst(selectors.location),
+    description: findFirst(selectors.description),
+    platform: 'glassdoor'
+  };
+}
+
+// --------------------------------------------
+// ZIPRECRUITER SCRAPER
+// --------------------------------------------
+function scrapeZipRecruiter() {
+  const selectors = {
+    jobTitle: [
+      '.job_title',
+      'h1[class*="Title"]',
+      '[data-testid="job-title"]',
+      'h1'
+    ],
+    company: [
+      '.hiring_company_text',
+      'a[data-testid="job-company"]',
+      '[class*="company"]',
+      '.company_name'
+    ],
+    location: [
+      '.location_text',
+      '[data-testid="job-location"]',
+      '[class*="location"]'
+    ],
+    description: [
+      '.job_description',
+      '#job-description',
+      '[data-testid="job-description"]',
+      '.jobDescriptionSection'
+    ]
+  };
+
+  return {
+    jobTitle: findFirst(selectors.jobTitle),
+    company: findFirst(selectors.company),
+    location: findFirst(selectors.location),
+    description: findFirst(selectors.description),
+    platform: 'ziprecruiter'
+  };
+}
+
+// --------------------------------------------
+// WELLFOUND (ANGELLIST) SCRAPER
+// --------------------------------------------
+function scrapeWellfound() {
+  const selectors = {
+    jobTitle: [
+      'h1[class*="jobTitle"]',
+      '[data-test="JobTitle"]',
+      'h1'
+    ],
+    company: [
+      'a[class*="company"]',
+      '[data-test="CompanyName"]',
+      'h2 a'
+    ],
+    location: [
+      '[class*="location"]',
+      '[data-test="Location"]'
+    ],
+    description: [
+      '[class*="description"]',
+      '[data-test="JobDescription"]',
+      '.job-description'
+    ]
+  };
+
+  return {
+    jobTitle: findFirst(selectors.jobTitle),
+    company: findFirst(selectors.company),
+    location: findFirst(selectors.location),
+    description: findFirst(selectors.description),
+    platform: 'wellfound'
+  };
+}
+
+// --------------------------------------------
+// WORKDAY SCRAPER
+// --------------------------------------------
+function scrapeWorkday() {
+  const selectors = {
+    jobTitle: [
+      '[data-automation-id="jobPostingHeader"]',
+      'h2[data-automation-id="jobTitle"]',
+      '.css-req-title',
+      'h1', 'h2'
+    ],
+    company: [
+      '[data-automation-id="companyName"]',
+      '[class*="company"]'
+    ],
+    location: [
+      '[data-automation-id="locations"]',
+      '[class*="location"]'
+    ],
+    description: [
+      '[data-automation-id="jobPostingDescription"]',
+      '[class*="jobDescription"]',
+      '#mainContent'
+    ]
+  };
+
+  // Company often in subdomain: company.myworkdayjobs.com
+  const hostname = window.location.hostname;
+  const companyFromHost = hostname.split('.')[0];
+
+  return {
+    jobTitle: findFirst(selectors.jobTitle),
+    company: findFirst(selectors.company) || titleCase(companyFromHost),
+    location: findFirst(selectors.location),
+    description: findFirst(selectors.description),
+    platform: 'workday'
+  };
+}
+
+// --------------------------------------------
 // JSON-LD FALLBACK (Works on many sites)
 // --------------------------------------------
 function tryJsonLd() {
@@ -492,6 +644,14 @@ function scrapeJobData() {
     data = scrapeHandshake();
   } else if (url.includes('indeed.com')) {
     data = scrapeIndeed();
+  } else if (url.includes('glassdoor.com')) {
+    data = scrapeGlassdoor();
+  } else if (url.includes('ziprecruiter.com')) {
+    data = scrapeZipRecruiter();
+  } else if (url.includes('wellfound.com')) {
+    data = scrapeWellfound();
+  } else if (url.includes('myworkdayjobs.com') || url.includes('workday.com')) {
+    data = scrapeWorkday();
   }
 
   // 2. If platform scraper failed or unknown site, try JSON-LD

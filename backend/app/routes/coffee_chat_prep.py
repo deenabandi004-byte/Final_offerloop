@@ -1,6 +1,7 @@
 """
 Coffee chat prep routes
 """
+import concurrent.futures
 import threading
 from datetime import datetime
 
@@ -13,58 +14,26 @@ from app.services.auth import check_and_reset_credits, deduct_credits_atomic, ch
 from app.utils.exceptions import ValidationError, OfferloopException, InsufficientCreditsError, AuthorizationError
 from app.utils.validation import CoffeeChatPrepRequest, validate_request
 from app.services.coffee_chat import (
-    fetch_serp_research,
-    format_news_for_storage,
+    fetch_comprehensive_research,
     infer_hometown_from_education,
 )
 from app.services.pdl_client import enrich_linkedin_profile
-from app.services.pdf_builder import generate_coffee_chat_pdf
+from app.services.pdf_builder import generate_coffee_chat_pdf_v2
 from app.utils.coffee_chat_prep import (
     generate_coffee_chat_questions,
     generate_coffee_chat_similarity,
+    generate_company_cheat_sheet,
+    generate_conversation_strategy,
 )
-from app.utils.users import parse_resume_info
+from app.utils.users import (
+    parse_resume_info,
+    build_coffee_chat_user_context,
+    _empty_coffee_chat_user_context,
+)
 
 coffee_chat_bp = Blueprint(
     "coffee_chat_prep", __name__, url_prefix="/api/coffee-chat-prep"
 )
-
-
-def _prepare_context(contact_data: dict) -> dict:
-    """
-    Derive division, office, industry and education inputs from contact data.
-    """
-    location_parts = []
-    city = contact_data.get("city") or contact_data.get("City")
-    state = contact_data.get("state") or contact_data.get("State")
-    if city:
-        location_parts.append(city)
-    if state:
-        location_parts.append(state)
-    composite_location = ", ".join(location_parts) or contact_data.get("location", "")
-
-    division = (
-        contact_data.get("Group")
-        or contact_data.get("department")
-        or contact_data.get("jobTitle", "")
-    )
-    industry = (
-        contact_data.get("industry")
-        or contact_data.get("Industry")
-        or contact_data.get("Group")
-        or "General Business"
-    )
-
-    return {
-        "company": contact_data.get("company", ""),
-        "division": division or "",
-        "office": composite_location or "",
-        "industry": industry or "",
-        "education": contact_data.get("education", []) or [],
-        "city": city,
-        "state": state,
-        "location": composite_location,
-    }
 
 
 def _upload_pdf_to_storage(user_id: str, prep_id: str, pdf_bytes: bytes) -> dict:
@@ -79,10 +48,23 @@ def _upload_pdf_to_storage(user_id: str, prep_id: str, pdf_bytes: bytes) -> dict
         blob.make_public()
         pdf_url = blob.public_url
     except Exception as exc:  # pragma: no cover
-        print(f"⚠️ Failed to make PDF public: {exc}")
+        print(f"Failed to make PDF public: {exc}")
         pdf_url = blob.generate_signed_url(expiration=3600)
 
     return {"pdf_storage_path": blob_path, "pdf_url": pdf_url}
+
+
+def _update_stage(prep_ref, stage, label, pct):
+    """Update processing stage for frontend progress display."""
+    try:
+        prep_ref.update({
+            "status": stage,
+            "stage": stage,
+            "stageLabel": label,
+            "progressPct": pct,
+        })
+    except Exception:
+        pass
 
 
 def process_coffee_chat_prep_background(
@@ -108,11 +90,11 @@ def process_coffee_chat_prep_background(
 
         # Step 1: Enrich LinkedIn profile
         print("Step 1: Enriching LinkedIn profile...")
-        prep_ref.update({"status": "enriching_profile"})
+        _update_stage(prep_ref, "enriching", "Looking up LinkedIn profile...", 10)
         contact_data = enrich_linkedin_profile(linkedin_url)
 
         if not contact_data:
-            print("❌ Failed to enrich profile")
+            print("Failed to enrich profile")
             prep_ref.update(
                 {
                     "status": "failed",
@@ -123,87 +105,100 @@ def process_coffee_chat_prep_background(
 
         prep_ref.update({"contactData": contact_data})
 
-        # Step 2: Fetch research via SERP
-        print("Step 2: Researching division news...")
-        prep_ref.update({"status": "fetching_news"})
-        context = _prepare_context(contact_data)
-        extra_context = extra_context or {}
-        if extra_context:
-            context.update({k: v for k, v in extra_context.items() if v})
+        # Step 2: Fetch comprehensive research via SERP
+        print("Step 2: Researching company & industry...")
+        _update_stage(prep_ref, "researching", "Researching company & industry...", 30)
 
-        news_items, industry_summary = fetch_serp_research(
-            company=context["company"],
-            division=context["division"],
-            office=context["office"],
-            industry=context["industry"],
+        research = fetch_comprehensive_research(
+            company=contact_data.get("company", ""),
+            industry=contact_data.get("industry", ""),
             job_title=contact_data.get("jobTitle", ""),
-            time_window=extra_context.get("time_window", "last 90 days")
-            if extra_context
-            else "last 90 days",
-            geo=extra_context.get("geo", "us") if extra_context else "us",
-            language=extra_context.get("language", "en") if extra_context else "en",
+            first_name=contact_data.get("firstName", ""),
+            last_name=contact_data.get("lastName", ""),
         )
 
-        print(f"✅ Found {len(news_items)} curated items")
+        print(f"Found {len(research.get('company_news', []))} news, {len(research.get('person_mentions', []))} mentions")
 
         # Step 3: Build user context from resume or stored profile
         print("Step 3: Building user context...")
-        prep_ref.update({"status": "building_context"})  # Add status update for Step 3
-        if resume_text:
-            user_data = parse_resume_info(resume_text)
-        else:
-            resume_parsed = (user_profile or {}).get("resumeParsed") if user_profile else {}
-            user_data = {
-                "name": (
-                    (resume_parsed or {}).get("name")
-                    or " ".join(
-                        [
-                            (user_profile or {}).get("firstName", ""),
-                            (user_profile or {}).get("lastName", ""),
-                        ]
-                    ).strip()
-                    or (user_profile or {}).get("name", "")
-                ),
-                "university": (resume_parsed or {}).get("university")
-                or (user_profile or {}).get("university", ""),
-                "major": (resume_parsed or {}).get("major")
-                or (user_profile or {}).get("fieldOfStudy")
-                or (user_profile or {}).get("major", ""),
-                "year": (resume_parsed or {}).get("year")
-                or (user_profile or {}).get("graduationYear")
-                or (user_profile or {}).get("year", ""),
-            }
+        _update_stage(prep_ref, "analyzing", "Analyzing career history...", 45)
 
-        if user_profile:
-            prep_ref.update({"userContext": user_data})
+        if resume_text and len(resume_text.strip()) > 50:
+            parsed_resume = parse_resume_info(resume_text)
+            user_context = build_coffee_chat_user_context(parsed_resume, user_profile)
+        else:
+            # Build minimal context from profile
+            user_context = _empty_coffee_chat_user_context()
+            if user_profile:
+                resume_parsed = user_profile.get("resumeParsed")
+                if resume_parsed and isinstance(resume_parsed, dict):
+                    user_context = build_coffee_chat_user_context(resume_parsed, user_profile)
+                else:
+                    user_context["name"] = (
+                        user_profile.get("displayName")
+                        or f"{user_profile.get('firstName', '')} {user_profile.get('lastName', '')}".strip()
+                        or user_profile.get("name", "")
+                    )
+                    user_context["university"] = user_profile.get("university", "")
+                    user_context["major"] = (
+                        user_profile.get("major")
+                        or user_profile.get("fieldOfStudy", "")
+                    )
+                    user_context["year"] = (
+                        user_profile.get("year")
+                        or user_profile.get("graduationYear", "")
+                    )
+
+        prep_ref.update({"userContext": user_context})
 
         # Step 4: Hometown inference
-        print("Step 4: Inferring hometown from education history...")
-        prep_ref.update({"status": "extracting_hometown"})
-        hometown = infer_hometown_from_education(context["education"], contact_data)
+        print("Step 4: Inferring hometown...")
+        education_list = contact_data.get("educationArray", [])
+        education_strings = [
+            f"{e.get('school', '')} {e.get('degree', '')} {e.get('major', '')}"
+            for e in education_list
+        ] if education_list else contact_data.get("education", [])
+        if isinstance(education_strings, str):
+            education_strings = [education_strings]
+        hometown = infer_hometown_from_education(education_strings, contact_data)
         if hometown:
             contact_data["hometown"] = hometown
 
-        # Step 5: Generate similarity + questions
-        print("Step 5: Generating similarity and questions...")
-        prep_ref.update({"status": "generating_content"})
+        # Step 5: Generate AI content (parallel where possible)
+        print("Step 5: Generating AI content...")
+        _update_stage(prep_ref, "generating", "Writing tailored questions...", 65)
 
-        similarity = generate_coffee_chat_similarity(user_data, contact_data)
-        questions = generate_coffee_chat_questions(contact_data, user_data)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            f_similarity = executor.submit(
+                generate_coffee_chat_similarity, contact_data, user_context, research)
+            f_questions = executor.submit(
+                generate_coffee_chat_questions, contact_data, user_context, research)
+            f_cheatsheet = executor.submit(
+                generate_company_cheat_sheet, contact_data, research)
+
+            similarity = f_similarity.result()
+            questions = f_questions.result()
+            cheatsheet = f_cheatsheet.result()
+
+        # Strategy uses similarity output — run after
+        strategy = generate_conversation_strategy(contact_data, user_context, similarity)
+
+        ai_output = {
+            "similarity": similarity,
+            "questions": questions,
+            "cheat_sheet": cheatsheet,
+            "strategy": strategy,
+        }
 
         # Step 6: Generate PDF
         print("Step 6: Generating PDF...")
-        prep_ref.update({"status": "generating_pdf"})
+        _update_stage(prep_ref, "building", "Building your prep sheet...", 85)
 
-        pdf_buffer = generate_coffee_chat_pdf(
-            prep_id=prep_id,
+        pdf_buffer = generate_coffee_chat_pdf_v2(
             contact_data=contact_data,
-            news_items=format_news_for_storage(news_items),
-            industry_summary=industry_summary,
-            similarity_summary=similarity,
-            questions=questions,
-            hometown=hometown,
-            context=context,
+            research=research,
+            ai_output=ai_output,
+            user_context=user_context,
         )
 
         pdf_bytes = pdf_buffer.getvalue()
@@ -214,15 +209,18 @@ def process_coffee_chat_prep_background(
         prep_ref.update(
             {
                 "status": "completed",
+                "stage": "completed",
+                "stageLabel": "Complete!",
+                "progressPct": 100,
                 "completedAt": datetime.now().isoformat(),
-                "companyNews": format_news_for_storage(news_items),
-                "industrySummary": industry_summary,
                 "similaritySummary": similarity,
                 "coffeeQuestions": questions,
-                "hometown": hometown,
+                "companyCheatSheet": cheatsheet,
+                "conversationStrategy": strategy,
+                "research": research,
                 "pdfUrl": upload_result["pdf_url"],
                 "pdfStoragePath": upload_result["pdf_storage_path"],
-                "context": context,
+                "contactName": contact_data.get("fullName", ""),
             }
         )
 
@@ -230,10 +228,10 @@ def process_coffee_chat_prep_background(
         print("Step 8: Deducting credits...")
         success, new_credits = deduct_credits_atomic(user_id, COFFEE_CHAT_CREDITS, "coffee_chat_prep")
         if not success:
-            print(f"⚠️ Credit deduction failed - user may have insufficient credits")
+            print(f"Credit deduction failed - user may have insufficient credits")
         else:
-            print(f"✅ Credits deducted: {credits_available} -> {new_credits}")
-        
+            print(f"Credits deducted: {credits_available} -> {new_credits}")
+
         # Step 9: Increment usage counter
         print("Step 9: Incrementing usage counter...")
         try:
@@ -246,14 +244,14 @@ def process_coffee_chat_prep_background(
                     "coffeeChatPrepsUsed": current_usage + 1,
                     "updatedAt": datetime.now().isoformat()
                 })
-                print(f"✅ Usage counter incremented: {current_usage} -> {current_usage + 1}")
+                print(f"Usage counter incremented: {current_usage} -> {current_usage + 1}")
         except Exception as usage_error:
-            print(f"⚠️ Failed to increment usage counter: {usage_error}")
-        
+            print(f"Failed to increment usage counter: {usage_error}")
+
         print(f"=== PREP {prep_id} COMPLETED SUCCESSFULLY ===\n")
 
     except Exception as e:
-        print(f"❌ Coffee chat prep failed: {e}")
+        print(f"Coffee chat prep failed: {e}")
         import traceback
 
         traceback.print_exc()
@@ -273,13 +271,13 @@ def create_coffee_chat_prep():
         db = get_db()
 
         data = request.get_json() or {}
-        
+
         # Validate request data
         try:
             validated_data = validate_request(CoffeeChatPrepRequest, data)
         except ValidationError as e:
             return jsonify({"error": str(e)}), 400
-        
+
         linkedin_url = validated_data.get("linkedinUrl", "").strip()
 
         if not linkedin_url:
@@ -296,7 +294,7 @@ def create_coffee_chat_prep():
             if user_doc.exists:
                 user_data = user_doc.to_dict()
                 credits_available = check_and_reset_credits(user_ref, user_data)
-                
+
                 # Check and reset usage counters (for Pro/Elite monthly reset)
                 check_and_reset_usage(user_ref, user_data)
                 user_doc = user_ref.get()  # Refresh after potential reset
@@ -314,16 +312,15 @@ def create_coffee_chat_prep():
                         ),
                         400,
                     )
-                
+
                 # Check feature access (coffee chat prep limit)
                 tier = user_data.get("subscriptionTier") or user_data.get("tier", "free")
                 tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS["free"])
                 allowed, reason = can_access_feature(tier, "coffee_chat_prep", user_data, tier_config)
-                
+
                 if not allowed:
                     coffee_chat_limit = tier_config.get("coffee_chat_preps", 0)
                     if coffee_chat_limit == "unlimited":
-                        # Shouldn't happen, but handle gracefully
                         pass
                     else:
                         current_usage = user_data.get("coffeeChatPrepsUsed", 0)
@@ -370,6 +367,9 @@ def create_coffee_chat_prep():
         prep_data = {
             "linkedinUrl": linkedin_url,
             "status": "processing",
+            "stage": "processing",
+            "stageLabel": "Starting...",
+            "progressPct": 0,
             "createdAt": datetime.now().isoformat(),
             "userId": user_id,
             "userEmail": user_email,
@@ -396,9 +396,8 @@ def create_coffee_chat_prep():
         if validated_data.get("industry"):
             extra_context["industry"] = validated_data.get("industry")
 
-        # Start background processing in a thread so status updates can be polled
+        # Start background processing in a thread
         try:
-            # Run in background thread so status updates are visible to frontend polling
             thread = threading.Thread(
                 target=process_coffee_chat_prep_background,
                 args=(
@@ -410,24 +409,23 @@ def create_coffee_chat_prep():
                     extra_context,
                     user_profile_data,
                 ),
-                daemon=True  # Thread will terminate when main process exits
+                daemon=True
             )
             thread.start()
-            
+
             # Return immediately with prep_id so frontend can start polling
-            # Don't wait for completion - frontend will poll for status
             prep_doc = prep_ref.get()
             if prep_doc.exists:
                 prep_data = prep_doc.to_dict()
                 prep_data['id'] = prep_id
                 prep_data['prepId'] = prep_id
-                
+
                 return jsonify(prep_data), 200
             else:
                 return jsonify({"error": "Prep creation failed"}), 500
-                
+
         except Exception as processing_error:
-            print(f"❌ Processing error: {processing_error}")
+            print(f"Processing error: {processing_error}")
             import traceback
             traceback.print_exc()
             return jsonify({"error": str(processing_error)}), 500
@@ -463,7 +461,7 @@ def get_coffee_chat_history():
             history.append({
                 "id": prep.id,
                 "contactName": f"{contact_data.get('firstName', '')} {contact_data.get('lastName', '')}".strip()
-                or "Unknown",
+                or contact_data.get("fullName", "Unknown"),
                 "company": contact_data.get("company", ""),
                 "jobTitle": contact_data.get("jobTitle", ""),
                 "status": prep_data.get("status", "unknown"),
@@ -499,7 +497,7 @@ def get_all_coffee_chat_preps():
             all_preps.append({
                 "id": prep.id,
                 "contactName": f"{contact_data.get('firstName', '')} {contact_data.get('lastName', '')}".strip()
-                or "Unknown",
+                or contact_data.get("fullName", "Unknown"),
                 "company": contact_data.get("company", ""),
                 "jobTitle": contact_data.get("jobTitle", ""),
                 "linkedinUrl": prep_data.get("linkedinUrl", ""),
@@ -561,7 +559,7 @@ def download_coffee_chat_pdf(prep_id):
 @coffee_chat_bp.route("/<prep_id>", methods=["GET"])
 @require_firebase_auth
 def get_coffee_chat_prep(prep_id):
-    """Get prep status"""
+    """Get prep status with stage progress info"""
     try:
         db = get_db()
         user_id = request.firebase_user.get("uid")
@@ -579,6 +577,14 @@ def get_coffee_chat_prep(prep_id):
         prep_data = prep_doc.to_dict()
         prep_data["id"] = prep_id
 
+        # Ensure stage fields are present for frontend
+        if "stage" not in prep_data:
+            prep_data["stage"] = prep_data.get("status", "")
+        if "stageLabel" not in prep_data:
+            prep_data["stageLabel"] = "Working on it..."
+        if "progressPct" not in prep_data:
+            prep_data["progressPct"] = 0
+
         return jsonify(prep_data), 200
 
     except Exception as e:
@@ -592,9 +598,9 @@ def delete_coffee_chat_prep(prep_id):
     try:
         db = get_db()
         user_id = request.firebase_user.get("uid")
-        
+
         print(f"[CoffeeChatPrep] DELETE request for prep_id: {prep_id}")
-        
+
         prep_ref = (
             db.collection("users")
             .document(user_id)
@@ -604,12 +610,11 @@ def delete_coffee_chat_prep(prep_id):
         prep_doc = prep_ref.get()
 
         print(f"[CoffeeChatPrep] Prep exists: {prep_doc.exists}")
-        
+
         if not prep_doc.exists:
-            # List all preps for this user for debugging
             all_preps = db.collection("users").document(user_id).collection("coffee-chat-preps").stream()
             prep_ids = [p.id for p in all_preps]
-            print(f"🗑️ Available prep IDs for user: {prep_ids}")
+            print(f"Available prep IDs for user: {prep_ids}")
             return jsonify({"error": f"Prep not found. Available IDs: {prep_ids}"}), 404
 
         prep_data = prep_doc.to_dict()
@@ -620,16 +625,16 @@ def delete_coffee_chat_prep(prep_id):
                 blob = bucket.blob(pdf_path)
                 if blob.exists():
                     blob.delete()
-                    print(f"🗑️ Deleted PDF at: {pdf_path}")
+                    print(f"Deleted PDF at: {pdf_path}")
             except Exception as e:
-                print(f"🗑️ Failed to delete PDF: {e}")
+                print(f"Failed to delete PDF: {e}")
                 pass
 
         prep_ref.delete()
-        print(f"🗑️ Successfully deleted prep: {prep_id}")
+        print(f"Successfully deleted prep: {prep_id}")
 
         return jsonify({"message": "Prep deleted successfully"})
 
     except Exception as e:
-        print(f"🗑️ Error deleting prep: {e}")
+        print(f"Error deleting prep: {e}")
         return jsonify({"error": str(e)}), 500

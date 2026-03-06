@@ -24,7 +24,7 @@ export const PAGES = {
   },
 
   contactSearch: {
-    route: "/contact-search",
+    route: "/find",
     name: "Contact Search",
     description: "Find professionals at companies to network with. Enter job title, company, and location to discover contacts and automatically generate personalized outreach emails.",
     tabs: ["Contact Search", "Contact Library", "Import Contacts"],
@@ -41,7 +41,7 @@ export const PAGES = {
   },
 
   recruiterSpreadsheet: {
-    route: "/recruiter-spreadsheet",
+    route: "/find?tab=hiring-managers",
     name: "Find Hiring Managers",
     description: "Paste a job posting URL and we'll find the recruiters and hiring managers for that role.",
     tabs: ["Find Hiring Managers"],
@@ -54,7 +54,7 @@ export const PAGES = {
   },
 
   firmSearch: {
-    route: "/firm-search",
+    route: "/find?tab=companies",
     name: "Firm Search",
     description: "Discover companies and firms matching your criteria. Search by industry, location, and size to find potential employers. Describe the type of companies you're looking for in plain English.",
     tabs: ["Firm Search", "Saved Firms", "Search History"],
@@ -609,8 +609,8 @@ export const ROUTE_MAPPING = {
   // Direct page routes
   pages: {
     "/home": ["home", "dashboard", "main", "start"],
-    "/contact-search": ["contact search", "find contacts", "search contacts", "network", "networking", "outreach", "email"],
-    "/firm-search": ["firm search", "company search", "find companies", "find firms", "search firms", "employers"],
+    "/find": ["contact search", "find contacts", "search contacts", "network", "networking", "outreach", "email"],
+    "/find?tab=companies": ["firm search", "company search", "find companies", "find firms", "search firms", "employers"],
     "/job-board": ["job board", "jobs", "job listings", "openings", "positions", "resume", "cover letter", "recruiter"],
     "/coffee-chat-prep": ["coffee chat", "coffee prep", "networking prep", "informational", "prep materials"],
     "/interview-prep": ["interview prep", "interview preparation", "prepare interview", "interview questions"],
@@ -625,8 +625,8 @@ export const ROUTE_MAPPING = {
 
   // Intent to route mapping
   intents: {
-    findContacts: "/contact-search",
-    searchCompanies: "/firm-search",
+    findContacts: "/find",
+    searchCompanies: "/find?tab=companies",
     browseJobs: "/job-board",
     prepareCoffeeChat: "/coffee-chat-prep",
     prepareInterview: "/interview-prep",
@@ -656,13 +656,13 @@ export const SUGGESTED_QUESTIONS = [
 
 /** Context-aware suggestion chips by route. Fallback to SUGGESTED_QUESTIONS for unmapped pages. */
 export const SCOUT_CHIPS_BY_PAGE: Record<string, readonly string[]> = {
-  "/contact-search": [
+  "/find": [
     "Help me narrow my search",
     "What filters work best?",
     "I'm not getting good results",
     "How do credits work with searches?",
   ],
-  "/firm-search": [
+  "/find?tab=companies": [
     "How do I find firms in my industry?",
     "What info do firm profiles show?",
     "Help me narrow these results",

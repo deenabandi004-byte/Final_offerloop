@@ -808,91 +808,6 @@ body {
 }
 
 /* ============================================
-   INTERVIEW PREP STYLES
-   ============================================ */
-
-/* Interview Prep Loading */
-.interview-prep-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 24px 16px;
-}
-
-.interview-prep-loading p {
-  font-size: 14px;
-  color: #6B7280;
-  text-align: center;
-}
-
-/* Interview Prep Results */
-.interview-prep-results {
-  padding: 16px;
-}
-
-.interview-prep-results .result-card {
-  background: #F0FDF4;
-  border: 1px solid #BBF7D0;
-  border-radius: 12px;
-  padding: 16px;
-}
-
-.interview-prep-results .result-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #BBF7D0;
-}
-
-.interview-prep-results .result-name {
-  font-weight: 600;
-  color: #059669;
-  font-size: 15px;
-}
-
-.interview-prep-results .result-contact {
-  font-size: 14px;
-  color: #374151;
-  margin-bottom: 12px;
-}
-
-.interview-prep-results .result-links {
-  font-size: 13px;
-}
-
-.interview-prep-results .result-links p {
-  margin: 6px 0;
-  color: #4B5563;
-}
-
-.interview-prep-results .result-links a {
-  color: #3B82F6;
-  text-decoration: none;
-  font-weight: 500;
-}
-
-.interview-prep-results .result-links a:hover {
-  text-decoration: underline;
-}
-
-/* Interview Prep Error */
-.interview-prep-error {
-  padding: 0 16px 16px;
-}
-
-.interview-prep-error .error-message {
-  color: #DC2626;
-  font-size: 14px;
-  padding: 12px;
-  background: #FEF2F2;
-  border-radius: 8px;
-  border: 1px solid #FECACA;
-  margin: 0;
-}
-
-/* ============================================
    JOB TAB URL-FIRST STYLES
    ============================================ */
 
@@ -923,7 +838,6 @@ body {
 /* Hidden class for Job tab elements */
 .job-results.hidden,
 .cover-letter-results.hidden,
-.interview-prep-results.hidden,
 .job-loading.hidden,
 .job-error.hidden,
 .manual-form.hidden,

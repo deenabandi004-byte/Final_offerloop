@@ -244,6 +244,7 @@ export interface GenerateReplyResult {
 export type PipelineStage =
   | "new"
   | "draft_created"
+  | "draft_deleted"
   | "email_sent"
   | "waiting_on_reply"
   | "replied"
@@ -978,150 +979,6 @@ class ApiService {
   // Contact Search Endpoints
   // ================================
 
-  /**
-   * Free tier search - returns JSON with contacts and email data
-   * Contacts are automatically saved to Contact Library on frontend
-   */
-  async runFreeSearch(request: ContactSearchRequest): Promise<SearchResult> {
-    const headers = await this.getAuthHeaders();
-
-    const backendRequest: Record<string, unknown> = {
-      jobTitle: request.jobTitle,
-      company: request.company,
-      location: request.location,
-      saveToDirectory: false, // Always false since we handle saving on frontend
-      userProfile: request.userProfile,
-      careerInterests: request.careerInterests || [],
-      collegeAlumni: request.collegeAlumni || '', // ✅ Include collegeAlumni
-      batchSize: request.batchSize, // ✅ Include batch size
-    };
-    if (request.emailTemplate && hasEmailTemplateValues(request.emailTemplate)) {
-      backendRequest.emailTemplate = request.emailTemplate;
-    }
-
-    const isDev = import.meta.env.DEV;
-    if (isDev) {
-      console.log(`Free Search Request:`, backendRequest);
-      if (backendRequest.emailTemplate) console.log(`[EmailTemplate] Sending template:`, backendRequest.emailTemplate);
-    }
-
-    return this.makeRequest<SearchResult>('/free-run', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(backendRequest),
-    });
-  }
-
-  /**
-   * Pro tier search - returns JSON with contacts and email data
-   * Contacts are automatically saved to Contact Library on frontend
-   */
-  async runProSearch(request: ProContactSearchRequest): Promise<SearchResult> {
-    const idToken = await this.getIdToken();
-
-    const formData = new FormData();
-    formData.append('jobTitle', request.jobTitle);
-    formData.append('company', request.company);
-    formData.append('location', request.location);
-    formData.append('resume', request.resume);
-    formData.append('saveToDirectory', 'false'); // Always false since we handle saving on frontend
-    formData.append('collegeAlumni', request.collegeAlumni || ''); // ✅ Include collegeAlumni
-    if (request.batchSize) {
-      formData.append('batchSize', request.batchSize.toString()); // ✅ Include batch size
-    }
-
-    if (request.userProfile) {
-      formData.append('userProfile', JSON.stringify(request.userProfile));
-    }
-
-    if (request.careerInterests && request.careerInterests.length > 0) {
-      formData.append('careerInterests', JSON.stringify(request.careerInterests));
-    }
-
-    if (request.emailTemplate && hasEmailTemplateValues(request.emailTemplate)) {
-      formData.append('emailTemplate', JSON.stringify(request.emailTemplate));
-    }
-
-    const isDev = import.meta.env.DEV;
-    if (isDev) {
-      console.log(`Pro Search Request - FormData contents:`);
-      console.log(`  jobTitle: "${request.jobTitle}"`);
-      console.log(`  company: "${request.company}"`);
-      console.log(`  location: "${request.location}"`);
-      console.log(`  resume: ${request.resume.name} (${request.resume.size} bytes)`);
-      console.log(`  batchSize: ${request.batchSize || 'not set'}`);
-      console.log(`  userProfile: ${JSON.stringify(request.userProfile)}`);
-      console.log(`  careerInterests: ${JSON.stringify(request.careerInterests)}`);
-      console.log(`  collegeAlumni: "${request.collegeAlumni || ''}"`);
-      if (request.emailTemplate && hasEmailTemplateValues(request.emailTemplate)) {
-        console.log(`[EmailTemplate] Sending template:`, request.emailTemplate);
-      }
-    }
-
-    return this.makeRequest<SearchResult>('/pro-run', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${idToken}`,
-        // Do not set Content-Type for FormData - the browser will set proper boundary
-      },
-      body: formData,
-    });
-  }
-
-  /**
-   * Optional CSV download for Free tier
-   */
-  async runFreeSearchCsv(request: ContactSearchRequest): Promise<Blob> {
-    const headers = await this.getAuthHeaders();
-
-    const backendRequest = {
-      jobTitle: request.jobTitle,
-      company: request.company,
-      location: request.location,
-      saveToDirectory: false,
-      userProfile: request.userProfile,
-      careerInterests: request.careerInterests || [],
-      collegeAlumni: request.collegeAlumni || '',
-    };
-
-    return this.makeRequest<Blob>('/free-run-csv', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(backendRequest),
-    });
-  }
-
-  /**
-   * Optional CSV download for Pro tier
-   */
-  async runProSearchCsv(request: ProContactSearchRequest): Promise<Blob> {
-    const idToken = await this.getIdToken();
-
-    const formData = new FormData();
-    formData.append('jobTitle', request.jobTitle);
-    formData.append('company', request.company);
-    formData.append('location', request.location);
-    formData.append('resume', request.resume);
-    formData.append('saveToDirectory', 'false');
-    formData.append('collegeAlumni', request.collegeAlumni || '');
-
-    if (request.userProfile) {
-      formData.append('userProfile', JSON.stringify(request.userProfile));
-    }
-
-    if (request.careerInterests && request.careerInterests.length > 0) {
-      formData.append('careerInterests', JSON.stringify(request.careerInterests));
-    }
-
-    return this.makeRequest<Blob>('/pro-run-csv', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${idToken}`,
-      },
-      body: formData,
-    });
-  }
-
   // ================================
   // Email Template Endpoints
   // ================================
@@ -1177,21 +1034,8 @@ class ApiService {
     });
   }
 
-  // ---- Deprecated shims ----
-  /** @deprecated Use runFreeSearch() instead. */
-  async runBasicSearch(request: ContactSearchRequest): Promise<SearchResult> {
-    console.warn('runBasicSearch is deprecated. Use runFreeSearch() instead.');
-    return this.runFreeSearch(request);
-  }
-
-  /** @deprecated Advanced tier removed. Use runFreeSearch() or runProSearch(). */
-  async runAdvancedSearch(request: ContactSearchRequest): Promise<SearchResult> {
-    console.warn('runAdvancedSearch is deprecated. Redirecting to Free tier.');
-    return this.runFreeSearch(request);
-  }
-
   // ================================
-  // Prompt Search Endpoints (Experimental)
+  // Prompt Search Endpoints
   // ================================
 
   /**
@@ -1702,6 +1546,15 @@ async snoozeOutboxThread(contactId: string, snoozeUntil: string): Promise<{ thre
   return this.makeRequest<{ thread: OutboxThread } | { error: string }>(
     `/outbox/threads/${contactId}/snooze`,
     { method: 'POST', headers, body: JSON.stringify({ snoozeUntil }) }
+  );
+}
+
+/** Mark a contact's reply as read */
+async markOutboxThreadRead(contactId: string): Promise<{ thread: OutboxThread } | { error: string }> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<{ thread: OutboxThread } | { error: string }>(
+    `/outbox/threads/${contactId}/mark-read`,
+    { method: 'POST', headers }
   );
 }
 

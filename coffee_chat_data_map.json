@@ -1,0 +1,363 @@
+{
+  "audit_date": "2026-03-05",
+  "data_sources": {
+    "pdl_person_enrichment": {
+      "description": "People Data Labs Person Enrichment API via LinkedIn URL",
+      "endpoint": "GET /person/enrich?profile={linkedin_url}",
+      "fields": {
+        "first_name": {
+          "extracted": true,
+          "passed_to_coffee_chat": true,
+          "used_in_ai_prompt": true,
+          "used_in_pdf": true,
+          "coffee_chat_key": "firstName"
+        },
+        "last_name": {
+          "extracted": true,
+          "passed_to_coffee_chat": true,
+          "used_in_ai_prompt": true,
+          "used_in_pdf": true,
+          "coffee_chat_key": "lastName"
+        },
+        "experience": {
+          "extracted": true,
+          "passed_to_coffee_chat": "partial",
+          "used_in_ai_prompt": "as_flat_string_only",
+          "used_in_pdf": "pdf_checks_for_array_but_only_string_available",
+          "coffee_chat_key": "workExperience",
+          "notes": "Full array with 5+ jobs, titles, dates, companies extracted but flattened to single WorkSummary string. PDF builder has code to iterate experience array but coffee_chat_data only contains [WorkSummary]",
+          "gap": "critical"
+        },
+        "education": {
+          "extracted": true,
+          "passed_to_coffee_chat": "partial",
+          "used_in_ai_prompt": "as_flat_string_only",
+          "used_in_pdf": "pdf_checks_for_array_but_only_string_available",
+          "coffee_chat_key": "education",
+          "notes": "Rich array with schools, degrees, majors, dates extracted but flattened to EducationTop string",
+          "gap": "critical"
+        },
+        "location": {
+          "extracted": true,
+          "passed_to_coffee_chat": true,
+          "used_in_ai_prompt": true,
+          "used_in_pdf": true,
+          "coffee_chat_key": "location, city, state",
+          "sub_fields": {
+            "locality": "mapped to city",
+            "region": "mapped to state"
+          }
+        },
+        "emails": {
+          "extracted": true,
+          "passed_to_coffee_chat": true,
+          "used_in_ai_prompt": false,
+          "used_in_pdf": true,
+          "coffee_chat_key": "email",
+          "notes": "Array of emails extracted, best one selected via Hunter verification"
+        },
+        "interests": {
+          "extracted": true,
+          "passed_to_coffee_chat": false,
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "coffee_chat_key": "interests",
+          "notes": "CRITICAL GAP: Extracted in extract_contact_from_pdl_person_enhanced but hardcoded to [] at line 3127 in coffee chat transform",
+          "gap": "critical"
+        },
+        "summary": {
+          "extracted": true,
+          "passed_to_coffee_chat": false,
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "Only scanned for volunteer-related keywords, not passed as content",
+          "gap": "high"
+        },
+        "profiles": {
+          "extracted": true,
+          "passed_to_coffee_chat": "linkedin_only",
+          "used_in_ai_prompt": false,
+          "used_in_pdf": true,
+          "coffee_chat_key": "linkedinUrl",
+          "notes": "Only LinkedIn URL extracted. GitHub, Twitter, other social profiles discarded",
+          "gap": "medium"
+        },
+        "phone_numbers": {
+          "extracted": true,
+          "passed_to_coffee_chat": false,
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "Extracted to contact dict but not in coffee chat transform",
+          "gap": "low"
+        },
+        "linkedin_connections": {
+          "extracted": true,
+          "passed_to_coffee_chat": false,
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "Available as LinkedInConnections but not in coffee chat data",
+          "gap": "low"
+        },
+        "inferred_years_experience": {
+          "extracted": true,
+          "passed_to_coffee_chat": "embedded_in_work_summary",
+          "used_in_ai_prompt": false,
+          "used_in_pdf": "indirectly",
+          "notes": "Appended to WorkSummary string, not a standalone field",
+          "gap": "medium"
+        },
+        "skills": {
+          "extracted": false,
+          "passed_to_coffee_chat": false,
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "PDF builder has code to display skills (line 247) but skills are NEVER extracted from PDL response. Always empty.",
+          "gap": "critical"
+        },
+        "certifications": {
+          "extracted": false,
+          "passed_to_coffee_chat": false,
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "Available from PDL, completely unused",
+          "gap": "medium"
+        },
+        "languages": {
+          "extracted": false,
+          "passed_to_coffee_chat": false,
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "Available from PDL, completely unused",
+          "gap": "medium"
+        },
+        "industry": {
+          "extracted": false,
+          "passed_to_coffee_chat": false,
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "PDL provides industry field. Currently falls back to fabricated Group field ('{Company} {FirstWord} Team')",
+          "gap": "critical"
+        },
+        "job_company_size": {
+          "extracted": false,
+          "passed_to_coffee_chat": false,
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "Available from PDL, would enrich company context section",
+          "gap": "high"
+        },
+        "job_company_industry": {
+          "extracted": false,
+          "passed_to_coffee_chat": false,
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "Available from PDL, more specific than top-level industry",
+          "gap": "high"
+        },
+        "job_company_founded": {
+          "extracted": false,
+          "passed_to_coffee_chat": false,
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "Available from PDL, unused",
+          "gap": "low"
+        },
+        "job_company_linkedin_url": {
+          "extracted": false,
+          "passed_to_coffee_chat": false,
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "Available from PDL, unused",
+          "gap": "low"
+        },
+        "github_url": {
+          "extracted": false,
+          "passed_to_coffee_chat": false,
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "Available in profiles array, only LinkedIn extracted",
+          "gap": "medium"
+        },
+        "twitter_url": {
+          "extracted": false,
+          "passed_to_coffee_chat": false,
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "Available in profiles array, only LinkedIn extracted",
+          "gap": "low"
+        },
+        "recommended_personal_email": {
+          "extracted": true,
+          "passed_to_coffee_chat": false,
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "Used only for email selection logic, not exposed",
+          "gap": "low"
+        },
+        "inferred_salary": {
+          "extracted": false,
+          "passed_to_coffee_chat": false,
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "Available from PDL, not appropriate for coffee chat use",
+          "gap": "none"
+        },
+        "dataset_version": {
+          "extracted": true,
+          "passed_to_coffee_chat": false,
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "Internal metadata, not relevant for output",
+          "gap": "none"
+        }
+      }
+    },
+    "serpapi_news": {
+      "description": "SerpAPI Google News search for company/industry news",
+      "endpoint": "Google News via serpapi.com",
+      "fields": {
+        "title": {
+          "used_in_ai_prompt": true,
+          "used_in_pdf": true,
+          "notes": "Article title, truncated to 60 chars in PDF"
+        },
+        "url": {
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "Stored but not shown in PDF"
+        },
+        "source": {
+          "used_in_ai_prompt": false,
+          "used_in_pdf": true,
+          "notes": "News source name shown in parentheses"
+        },
+        "published_at": {
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "Stored but not displayed"
+        },
+        "snippet": {
+          "used_in_ai_prompt": true,
+          "used_in_pdf": false,
+          "notes": "Used in summarization prompt but summary replaces it"
+        },
+        "summary": {
+          "used_in_ai_prompt": false,
+          "used_in_pdf": false,
+          "notes": "Generated summary stored in Firestore but not in PDF (only title+source shown)"
+        }
+      },
+      "gaps": [
+        "Only searches news tab, no web results",
+        "No company website scraping",
+        "No Wikipedia/Crunchbase data",
+        "Generated summaries stored but not displayed in PDF",
+        "Article URLs stored but not clickable/shown"
+      ]
+    },
+    "user_profile": {
+      "description": "User's own profile from Firestore or resume text",
+      "fields": {
+        "name": {
+          "used_in_ai_prompt": true,
+          "notes": "User's full name"
+        },
+        "university": {
+          "used_in_ai_prompt": true,
+          "notes": "User's university"
+        },
+        "major": {
+          "used_in_ai_prompt": true,
+          "notes": "User's field of study"
+        },
+        "year": {
+          "used_in_ai_prompt": false,
+          "notes": "Extracted but not passed to any prompt"
+        }
+      },
+      "gaps": [
+        "No user skills passed to prompts",
+        "No user interests passed to prompts",
+        "No user work experience passed to prompts",
+        "No user career goals or target roles",
+        "No user location for geographic matching",
+        "Only 4 fields extracted from entire resume"
+      ]
+    },
+    "openai_gpt4o_mini": {
+      "description": "GPT-4o-mini for content generation",
+      "prompts": {
+        "similarity_summary": {
+          "temperature": 0.5,
+          "max_tokens": 150,
+          "output": "45-60 word paragraph or empty string",
+          "quality": "Well-crafted prompt but data-starved"
+        },
+        "question_generation": {
+          "temperature": 0.6,
+          "max_tokens": 400,
+          "output": "JSON array of 0-8 questions",
+          "quality": "Good filtering rules but limited by thin contact data"
+        },
+        "article_summarization": {
+          "temperature": 0.4,
+          "max_tokens": 120,
+          "output": "30-40 word summary or SKIP",
+          "quality": "Appropriate"
+        },
+        "industry_overview": {
+          "temperature": 0.5,
+          "max_tokens": 120,
+          "output": "30-40 word summary or SKIP",
+          "quality": "Appropriate but often empty due to filtering"
+        }
+      }
+    }
+  },
+  "pdf_output": {
+    "library": "ReportLab (canvas-based)",
+    "pages": 1,
+    "page_size": "Letter (8.5x11)",
+    "font": "Helvetica",
+    "sections": [
+      "Header Bar (teal, logo + name)",
+      "Profile Snapshot (name, company, title, email, location, hometown)",
+      "Professional Background (current role, 3 past roles, 2 schools, skills -- skills always empty)",
+      "Organization & Industry Context (company, division -- fabricated, industry -- fabricated, 3 news items, industry pulse)",
+      "Personal Hooks & Shared Background (similarity paragraph or placeholder)",
+      "Sample Coffee Chat Questions (up to 8, cut off at 0.8 inch from bottom)"
+    ],
+    "visual_quality_score": 4,
+    "visual_issues": [
+      "Dated corporate report aesthetic",
+      "No modern typography (Helvetica only)",
+      "No icons or visual elements beyond header bar",
+      "Monochrome aside from teal",
+      "Fixed layout can't adapt to content length",
+      "Questions cut off if too many"
+    ]
+  },
+  "gap_summary": {
+    "critical": [
+      "skills never extracted from PDL (PDF has dead code for it)",
+      "interests hardcoded to empty array",
+      "industry field fabricated instead of using PDL data",
+      "experience array flattened to single string",
+      "education array flattened to single string"
+    ],
+    "high": [
+      "no company research beyond news headlines",
+      "user context limited to 4 fields from entire resume",
+      "PDL summary field discarded",
+      "job_company_size and job_company_industry not extracted"
+    ],
+    "medium": [
+      "PDF design dated (ReportLab canvas)",
+      "no conversation strategy section",
+      "no icebreaker/common ground section",
+      "certifications and languages not extracted",
+      "social profiles beyond LinkedIn not extracted",
+      "news summaries stored but not displayed in PDF"
+    ]
+  }
+}

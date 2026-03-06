@@ -473,6 +473,7 @@ def get_user_subscription():
             'coffeeChatPrepsLimit': tier_config['coffee_chat_preps'],
             'interviewPrepsUsed': user_data.get('interviewPrepsUsed', 0),
             'interviewPrepsLimit': tier_config['interview_preps'],
+            'resumeFileName': user_data.get('resumeFileName'),
         })
         
     except Exception as e:

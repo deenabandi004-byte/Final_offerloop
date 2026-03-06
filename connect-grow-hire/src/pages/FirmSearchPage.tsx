@@ -65,7 +65,7 @@ const getQuantityMessage = (qty: number) => {
   return "Maximum discovery — cast a wide net";
 };
 
-const FirmSearchPage: React.FC = () => {
+const FirmSearchPage: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const navigate = useNavigate();
   const routerLocation = useLocation();
   const { user, checkCredits } = useFirebaseAuth();
@@ -455,7 +455,7 @@ const FirmSearchPage: React.FC = () => {
       params.set('location', locationParts.join(', '));
     }
 
-    navigate(`/contact-search?${params.toString()}`);
+    navigate(`/find?${params.toString()}`);
   };
 
   // Get unique firm key (helper function)
@@ -735,60 +735,16 @@ const FirmSearchPage: React.FC = () => {
   const maxBatchSize = userTier === 'free' ? 10 : 40;
 
 
-  return (
-    <SidebarProvider>
-      <div className="flex min-h-screen w-full text-foreground">
-        <AppSidebar />
-
-        <MainContentWrapper>
-          <AppHeader />
-
-          <main className="px-3 py-6 sm:px-6 sm:py-12" style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
-            <div>
-
-              {/* Header Section */}
-              <div className="w-full px-3 py-6 sm:px-6 sm:py-12 sm:pt-12 sm:pb-0" style={{ maxWidth: '900px', margin: '0 auto' }}>
-                <h1
-                  className="text-[28px] sm:text-[42px]"
-                  style={{
-                    fontFamily: "'Instrument Serif', Georgia, serif",
-                    fontWeight: 400,
-                    letterSpacing: '-0.025em',
-                    color: '#0F172A',
-                    textAlign: 'center',
-                    marginBottom: '10px',
-                    lineHeight: 1.1,
-                  }}
-                >
-                  Find Companies
-                </h1>
-                <p
-                  style={{
-                    fontFamily: "'DM Sans', system-ui, sans-serif",
-                    fontSize: '16px',
-                    color: '#64748B',
-                    textAlign: 'center',
-                    marginBottom: '28px',
-                    lineHeight: 1.5,
-                  }}
-                >
-                  Describe the type of companies you're looking for in plain English and we'll find them for you.
-                </p>
-                <div style={{ display: 'flex', justifyContent: 'center' }}>
-                  <VideoDemo videoId="n_AYHEJSXrE" />
-                </div>
-              </div>
-
+  // --- Embedded content (rendered inside FindPage wrapper) ---
+  const embeddedContent = (
+    <>
+      <div>
               {/* Navigation Tabs */}
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '36px' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px', marginTop: '-4px' }}>
                 <div
                   style={{
                     display: 'inline-flex',
-                    gap: '0',
-                    background: '#F0F4FD',
-                    borderRadius: '12px',
-                    padding: '4px',
-                    margin: '0 auto',
+                    gap: '6px',
                   }}
                 >
                   <button
@@ -796,21 +752,20 @@ const FirmSearchPage: React.FC = () => {
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '8px',
-                      padding: '10px 20px',
-                      borderRadius: '9px',
-                      border: 'none',
+                      gap: '5px',
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      border: activeTab === 'firm-search' ? '1px solid #CBD5E1' : '1px solid transparent',
                       cursor: 'pointer',
                       fontFamily: "'DM Sans', system-ui, sans-serif",
-                      fontSize: '14px',
+                      fontSize: '12px',
                       fontWeight: 500,
                       transition: 'all 0.15s ease',
-                      background: activeTab === 'firm-search' ? '#2563EB' : 'transparent',
-                      color: activeTab === 'firm-search' ? 'white' : '#64748B',
-                      boxShadow: activeTab === 'firm-search' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
+                      background: activeTab === 'firm-search' ? '#F8FAFC' : 'transparent',
+                      color: activeTab === 'firm-search' ? '#334155' : '#94A3B8',
                     }}
                   >
-                    <Search className="h-4 w-4" />
+                    <Search className="h-3 w-3" />
                     Find Companies
                   </button>
 
@@ -819,32 +774,31 @@ const FirmSearchPage: React.FC = () => {
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '8px',
-                      padding: '10px 20px',
-                      borderRadius: '9px',
-                      border: 'none',
+                      gap: '5px',
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      border: activeTab === 'firm-library' ? '1px solid #CBD5E1' : '1px solid transparent',
                       cursor: 'pointer',
                       fontFamily: "'DM Sans', system-ui, sans-serif",
-                      fontSize: '14px',
+                      fontSize: '12px',
                       fontWeight: 500,
                       transition: 'all 0.15s ease',
-                      background: activeTab === 'firm-library' ? '#2563EB' : 'transparent',
-                      color: activeTab === 'firm-library' ? 'white' : '#64748B',
-                      boxShadow: activeTab === 'firm-library' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
+                      background: activeTab === 'firm-library' ? '#F8FAFC' : 'transparent',
+                      color: activeTab === 'firm-library' ? '#334155' : '#94A3B8',
                     }}
                   >
-                    <Building2 className="h-4 w-4" />
+                    <Building2 className="h-3 w-3" />
                     Company Tracker
                     {results.length > 0 && (
                       <span
                         style={{
-                          marginLeft: '6px',
-                          padding: '2px 8px',
-                          borderRadius: '6px',
-                          background: activeTab === 'firm-library' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(37, 99, 235, 0.08)',
-                          color: activeTab === 'firm-library' ? 'white' : '#2563EB',
+                          marginLeft: '2px',
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          background: 'rgba(100, 116, 139, 0.08)',
+                          color: '#64748B',
                           fontFamily: "'DM Sans', system-ui, sans-serif",
-                          fontSize: '11px',
+                          fontSize: '10px',
                           fontWeight: 600,
                           letterSpacing: '0.03em',
                         }}
@@ -873,20 +827,16 @@ const FirmSearchPage: React.FC = () => {
                     {/* Main Card */}
 <div
                       style={{
-                        background: '#FFFFFF',
-                        border: '1px solid rgba(37, 99, 235, 0.08)',
-                        borderRadius: '14px',
-                        maxWidth: '900px',
+                        maxWidth: '680px',
                         margin: '0 auto',
-                        boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
                         animationDelay: '200ms',
                       }}
-                      className="w-full px-4 py-5 sm:px-10 sm:py-9 overflow-hidden animate-fadeInUp firm-search-form-card"
+                      className="w-full px-4 py-2 sm:px-6 animate-fadeInUp firm-search-form-card"
                     >
-                      {/* Simple gray divider instead of gradient */}
-                      <div className="h-1 bg-gray-100"></div>
+                      {/* spacer */}
+                      <div className="h-1"></div>
 
-                      <div className="p-8 firm-search-form-content">
+                      <div className="py-2 firm-search-form-content">
                         {/* Card Header with History Button */}
                         <div className="flex items-start justify-between mb-6 firm-search-header-row">
                           <div className="flex items-center gap-4 firm-search-header-content">
@@ -898,7 +848,7 @@ const FirmSearchPage: React.FC = () => {
 
                           <button
                             onClick={() => setShowHistory(true)}
-                            className="firm-search-history-btn flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100 hover:border-gray-300 transition-all"
+                            className="firm-search-history-btn flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium text-gray-500 hover:text-blue-600 transition-all border border-transparent hover:border-blue-200/60 hover:bg-white/60"
                           >
                             <History className="w-4 h-4" />
                             History
@@ -913,8 +863,8 @@ const FirmSearchPage: React.FC = () => {
                               <button
                                 key={example.id}
                                 onClick={() => handleExampleClick(example.query, example.id)}
-                                className="px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-full text-sm text-gray-600 
-                                         hover:bg-blue-50 hover:text-gray-900 hover:border-blue-200 
+                                className="px-3 py-1.5 bg-white/50 backdrop-blur-sm border border-black/[0.08] rounded-full text-sm text-gray-600 
+                                         hover:bg-white/90 hover:text-blue-600 hover:border-blue-200/60
                                          transition-all duration-150"
                               >
                                 {example.label}
@@ -993,13 +943,13 @@ const FirmSearchPage: React.FC = () => {
                         )}
 
                         {/* Quantity Selector - Enhanced */}
-                        <div className="mt-8 pt-8 border-t border-gray-100 firm-search-quantity-section">
-                          <h3 className="text-lg font-semibold text-gray-900 mb-2 firm-search-quantity-title">How many companies do you want to find?</h3>
-                          <p className="text-gray-600 mb-5 firm-search-quantity-subtitle">Companies are saved to your Company Tracker for easy access.</p>
+                        <div className="mt-8 pt-8 border-t border-black/[0.06] firm-search-quantity-section">
+                          <h3 className="text-base font-semibold text-gray-900 mb-1 firm-search-quantity-title">How many companies do you want to find?</h3>
+                          <p className="text-sm text-gray-500 mb-5 firm-search-quantity-subtitle">Companies are saved to your Company Tracker for easy access.</p>
 
-                          <div className="bg-gray-50 rounded-xl p-6 firm-search-quantity-card">
+                          <div className="firm-search-quantity-card">
                             <div className="flex items-center justify-between gap-4">
-                              <span className="text-sm font-medium text-gray-700 whitespace-nowrap">Quantity:</span>
+                              <span className="text-sm font-medium text-gray-500 whitespace-nowrap">Quantity:</span>
                               {/* Quantity buttons */}
                               <div className="flex items-center gap-2 firm-search-quantity-buttons flex-1">
                                 {BATCH_OPTIONS.map((option) => (
@@ -1008,12 +958,12 @@ const FirmSearchPage: React.FC = () => {
                                     onClick={() => setBatchSize(option.value)}
                                     disabled={isSearching || option.value > maxBatchSize}
                                     className={`
-                                  px-4 py-2 rounded-lg font-semibold text-sm transition-all duration-150 firm-search-quantity-btn flex-1
+                                  px-4 py-2 rounded-full font-semibold text-sm transition-all duration-150 firm-search-quantity-btn flex-1
                                   ${batchSize === option.value
                                         ? 'bg-blue-600 text-white shadow-sm'
-                                        : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                                        : 'bg-white/60 backdrop-blur-sm text-gray-600 border border-black/[0.08] hover:border-blue-200/60 hover:text-blue-600 hover:bg-white/90'
                                       }
-                                  ${option.value > maxBatchSize ? 'opacity-50 cursor-not-allowed' : ''}
+                                  ${option.value > maxBatchSize ? 'opacity-40 cursor-not-allowed' : ''}
                                 `}
                                   >
                                     {option.value}
@@ -1247,8 +1197,6 @@ const FirmSearchPage: React.FC = () => {
                 </Tabs>
               </div>
             </div>
-          </main>
-        </MainContentWrapper>
 
         {/* Search History Modal */}
         {showHistory && (
@@ -1424,7 +1372,6 @@ const FirmSearchPage: React.FC = () => {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      </div>
 
       {/* Mobile-only CSS overrides */}
       <style>{`
@@ -1735,6 +1682,58 @@ const FirmSearchPage: React.FC = () => {
           <span>Find Companies</span>
         </StickyCTA>
       )}
+    </>
+  );
+
+  if (embedded) return embeddedContent;
+
+  // --- Standalone page with full shell ---
+  return (
+    <SidebarProvider>
+      <div className="flex min-h-screen w-full text-foreground">
+        <AppSidebar />
+
+        <MainContentWrapper>
+          <AppHeader />
+
+          <main className="px-3 py-6 sm:px-6 sm:py-12" style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
+            {/* Header Section */}
+            <div className="w-full px-3 py-6 sm:px-6 sm:py-12 sm:pt-12 sm:pb-0" style={{ maxWidth: '900px', margin: '0 auto' }}>
+              <h1
+                className="text-[28px] sm:text-[42px]"
+                style={{
+                  fontFamily: "'Instrument Serif', Georgia, serif",
+                  fontWeight: 400,
+                  letterSpacing: '-0.025em',
+                  color: '#0F172A',
+                  textAlign: 'center',
+                  marginBottom: '10px',
+                  lineHeight: 1.1,
+                }}
+              >
+                Find Companies
+              </h1>
+              <p
+                style={{
+                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                  fontSize: '16px',
+                  color: '#64748B',
+                  textAlign: 'center',
+                  marginBottom: '28px',
+                  lineHeight: 1.5,
+                }}
+              >
+                Describe the type of companies you're looking for in plain English and we'll find them for you.
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <VideoDemo videoId="n_AYHEJSXrE" />
+              </div>
+            </div>
+
+            {embeddedContent}
+          </main>
+        </MainContentWrapper>
+      </div>
     </SidebarProvider>
   );
 };

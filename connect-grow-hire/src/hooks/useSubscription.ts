@@ -15,6 +15,7 @@ export interface SubscriptionData {
   coffeeChatPrepsLimit: number | 'unlimited';
   interviewPrepsUsed: number;
   interviewPrepsLimit: number | 'unlimited';
+  resumeFileName?: string;
 }
 
 export function useSubscription() {

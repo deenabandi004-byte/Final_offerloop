@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bell, BookOpen, Calendar, Settings } from 'lucide-react';
+import { Bell, BookOpen, Settings } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { MobileMenuButton } from '@/components/ui/sidebar';
@@ -66,11 +66,11 @@ export function AppHeader({
     const prev = prevUnreadCountRef.current;
     const curr = notifications.unreadReplyCount;
     prevUnreadCountRef.current = curr;
-    if (curr > prev && location.pathname !== '/outbox') {
+    if (curr > prev && location.pathname !== '/tracker') {
       const firstUnread = notifications.items.find((i) => !i.read) ?? notifications.items[0];
       if (firstUnread) {
         toast({
-          title: `${firstUnread.contactName} replied to your email`,
+          title: `${firstUnread.contactName} responded to you!`,
           description: firstUnread.snippet ? firstUnread.snippet.slice(0, 80) + (firstUnread.snippet.length > 80 ? '…' : '') : undefined,
         });
       }
@@ -95,11 +95,7 @@ export function AppHeader({
   const handleNotificationClick = (item: NotificationItem) => {
     markOneRead(item.contactId);
     setDropdownOpen(false);
-    navigate('/outbox');
-  };
-
-  const handleCalendarClick = () => {
-    navigate('/home?tab=calendar');
+    navigate('/tracker', { state: { selectContactId: item.contactId } });
   };
 
   const handleSettingsClick = () => {
@@ -128,11 +124,11 @@ export function AppHeader({
               variant="ghost"
               size="icon"
               onClick={handleBellClick}
-              className="h-8 w-8 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+              className={`h-8 w-8 hover:bg-gray-100 ${notifications.unreadReplyCount > 0 ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
               aria-label="Notifications"
             >
               <div className="relative">
-                <Bell className="h-5 w-5" />
+                <Bell className={`h-5 w-5 ${notifications.unreadReplyCount > 0 ? 'fill-blue-600' : ''}`} />
                 {notifications.unreadReplyCount > 0 && (
                   <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[10px] font-medium rounded-full flex items-center justify-center">
                     {notifications.unreadReplyCount > 9 ? '9+' : notifications.unreadReplyCount}
@@ -169,8 +165,7 @@ export function AppHeader({
                             }`}
                           >
                             <p className="text-sm font-medium text-foreground">
-                              {item.contactName}
-                              {item.company ? ` at ${item.company}` : ''} replied
+                              {item.contactName} responded to you!
                             </p>
                             <p className="text-xs text-muted-foreground mt-0.5">
                               {formatNotificationTime(item.timestamp)}
@@ -189,16 +184,7 @@ export function AppHeader({
               </div>
             )}
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleCalendarClick}
-            className="h-8 w-8 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
-            aria-label="View calendar"
-          >
-            <Calendar className="h-5 w-5" />
-          </Button>
-          <Button
+<Button
             variant="ghost"
             size="icon"
             onClick={handleSettingsClick}

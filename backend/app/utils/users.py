@@ -458,6 +458,122 @@ def validate_parsed_resume(parsed: dict) -> tuple[bool, list[str]]:
     return is_valid, errors
 
 
+def build_coffee_chat_user_context(parsed_resume: dict, user_profile: dict = None) -> dict:
+    """
+    Convert a parsed resume (from parse_resume_info) into the rich user context
+    format used by coffee chat AI prompts. Falls back to user_profile fields.
+    """
+    profile = user_profile or {}
+
+    # Extract name
+    name = parsed_resume.get("name", "") or profile.get("displayName", "") or \
+           f"{profile.get('firstName', '')} {profile.get('lastName', '')}".strip()
+
+    # Extract education fields
+    edu = parsed_resume.get("education", {})
+    if isinstance(edu, dict):
+        university = edu.get("university", "") or profile.get("university", "")
+        major = edu.get("major", "") or profile.get("major", "") or profile.get("fieldOfStudy", "")
+        minor = edu.get("minor", "")
+        year = edu.get("graduation", "") or profile.get("year", "") or profile.get("graduationYear", "")
+        gpa = edu.get("gpa")
+    else:
+        university = profile.get("university", "")
+        major = profile.get("major", "") or profile.get("fieldOfStudy", "")
+        minor = ""
+        year = profile.get("year", "") or profile.get("graduationYear", "")
+        gpa = None
+
+    # Extract skills as flat list
+    skills_data = parsed_resume.get("skills", {})
+    skills = []
+    if isinstance(skills_data, dict):
+        for category in ["programming_languages", "tools_frameworks", "databases",
+                         "cloud_devops", "core_skills", "soft_skills"]:
+            skills.extend(skills_data.get(category, []))
+    elif isinstance(skills_data, list):
+        skills = skills_data
+    skills = [s for s in skills if s]
+
+    # Languages
+    languages = []
+    if isinstance(skills_data, dict):
+        languages = skills_data.get("languages", [])
+    languages = [l for l in languages if l]
+
+    # Experiences
+    experiences = []
+    for exp in parsed_resume.get("experience", []):
+        if isinstance(exp, dict):
+            experiences.append({
+                "company": exp.get("company", ""),
+                "title": exp.get("title", ""),
+                "dates": exp.get("dates", ""),
+                "type": "internship" if "intern" in (exp.get("title", "") or "").lower() else "fulltime",
+                "bullets": exp.get("bullets", [])[:3],
+            })
+
+    # Projects
+    projects = []
+    for proj in parsed_resume.get("projects", []):
+        if isinstance(proj, dict):
+            projects.append({
+                "name": proj.get("name", ""),
+                "description": proj.get("description", ""),
+                "tech": proj.get("technologies", []),
+            })
+
+    # Clubs / extracurriculars
+    clubs = []
+    for ext in parsed_resume.get("extracurriculars", []):
+        if isinstance(ext, dict):
+            label = ext.get("activity", "") or ext.get("organization", "")
+            if ext.get("role"):
+                label = f"{ext['role']} — {label}"
+            if label:
+                clubs.append(label)
+
+    # Awards
+    awards = parsed_resume.get("awards", [])
+    if not awards and isinstance(edu, dict):
+        awards = edu.get("honors", [])
+    awards = [a for a in (awards or []) if a]
+
+    # Interests (from extracurriculars as proxy)
+    interests = []
+
+    # Career goals from objective
+    career_goals = parsed_resume.get("objective", "") or ""
+
+    return {
+        "name": name,
+        "university": university,
+        "major": major,
+        "minor": minor,
+        "year": year,
+        "gpa": gpa,
+        "skills": skills,
+        "interests": interests,
+        "clubs": clubs,
+        "awards": awards,
+        "languages": languages,
+        "experiences": experiences,
+        "projects": projects,
+        "careerGoals": career_goals,
+        "targetIndustries": [],
+        "targetRoles": [],
+    }
+
+
+def _empty_coffee_chat_user_context() -> dict:
+    return {
+        "name": "", "university": "", "major": "", "minor": "", "year": "",
+        "gpa": None, "skills": [], "interests": [], "clubs": [], "awards": [],
+        "languages": [], "experiences": [], "projects": [],
+        "careerGoals": "", "targetIndustries": [], "targetRoles": [],
+    }
+
+
 def extract_comprehensive_user_info(resume_text=None, user_profile=None):
     """Extract comprehensive user information from all available sources"""
     user_info = {

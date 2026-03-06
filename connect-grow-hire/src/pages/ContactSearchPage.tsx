@@ -142,7 +142,7 @@ const StripeTabs: React.FC<StripeTabsProps> = ({ activeTab, onTabChange, tabs })
   );
 };
 
-const ContactSearchPage: React.FC = () => {
+const ContactSearchPage: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { user, checkCredits, updateCredits } = useFirebaseAuth();
   const { openPanelWithSearchHelp } = useScout();
   const navigate = useNavigate();
@@ -295,7 +295,7 @@ const ContactSearchPage: React.FC = () => {
       } catch {
         // ignore
       }
-      navigate("/contact-search", { replace: true, state: {} });
+      navigate("/find", { replace: true, state: {} });
       return;
     }
     // Fallback: template may have been stored in sessionStorage if navigation state was lost
@@ -1096,101 +1096,15 @@ const ContactSearchPage: React.FC = () => {
     });
   };
 
-  return (
+  // --- Embedded content (rendered inside FindPage wrapper) ---
+  const embeddedContent = (
     <>
-    <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-[#FAFAFA] text-foreground font-sans">
-        <AppSidebar />
-
-        <MainContentWrapper>
-          <AppHeader
-            title=""
-            onJobTitleSuggestion={handleJobTitleSuggestion}
-            rightContent={
-              <>
-                <button
-                  onClick={() => navigate("/contact-search/templates")}
-                  className="hidden md:flex items-center gap-1 text-xs text-muted-foreground hover:text-primary cursor-pointer transition-colors"
-                >
-                  Using:&nbsp;<span className="font-semibold text-foreground">
-                    {activeEmailTemplate && hasEmailTemplateValues(activeEmailTemplate)
-                      ? (() => {
-                          if (activeEmailTemplate.name && activeEmailTemplate.name.trim()) return activeEmailTemplate.name.trim();
-                          const p = activeEmailTemplate.purpose;
-                          if (p === "networking") return "Networking";
-                          if (p === "referral") return "Referral Request";
-                          if (p === "follow_up") return "Follow-Up";
-                          if (p === "sales") return "Sales";
-                          if (p === "custom") return "Custom Template";
-                          if (p) return p.charAt(0).toUpperCase() + p.slice(1).replace(/_/g, " ");
-                          return "Networking";
-                        })()
-                      : "Networking"}
-                  </span>
-                </button>
-                <Button
-                  type="button"
-                  onClick={() => isElite ? navigate("/contact-search/templates") : setShowEliteGate(true)}
-                  className="h-9 px-5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold text-sm gap-2 shadow-sm hover:shadow-md hover:scale-[1.02] transition-all duration-150"
-                  data-tour="tour-templates-button"
-                >
-                  <FileText className="h-4 w-4 text-white" />
-                  <span className="hidden sm:inline whitespace-nowrap">
-                    Create Your Own Email Template
-                  </span>
-                </Button>
-              </>
-            }
-          />
-
-          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }} className="px-3 py-6 pb-24 sm:px-6 sm:py-12 sm:pb-24">
-            {/* Header Section - per-tab copy from FEATURE_DESCRIPTIONS */}
-            <div className="w-full px-3 py-6 sm:px-6 sm:py-12" style={{ maxWidth: '900px', margin: '0 auto' }}>
-              <h1
-                className="text-[28px] sm:text-[42px]"
-                style={{
-                  fontFamily: "'Instrument Serif', Georgia, serif",
-                  fontWeight: 400,
-                  letterSpacing: '-0.025em',
-                  color: '#0F172A',
-                  textAlign: 'center',
-                  marginBottom: '10px',
-                  lineHeight: 1.1,
-                }}
-              >
-                {(activeTab === 'contact-search' || activeTab === 'import') && 'Find People'}
-                {activeTab === 'contact-library' && 'Track Your Contacts'}
-                {!['contact-search', 'import', 'contact-library'].includes(activeTab) && 'Find your next connection'}
-              </h1>
-              <p
-                style={{
-                  fontFamily: "'DM Sans', system-ui, sans-serif",
-                  fontSize: '16px',
-                  color: '#64748B',
-                  textAlign: 'center',
-                  marginBottom: '28px',
-                  lineHeight: 1.5,
-                }}
-              >
-                {(activeTab === 'contact-search' || activeTab === 'import') && 'Search by name, role, or company — or paste a LinkedIn URL. We\'ll find their emails and draft outreach for you.'}
-                {activeTab === 'contact-library' && 'Everyone you find lands here. Update their status, open email drafts, and export to CSV.'}
-                {!['contact-search', 'import', 'contact-library'].includes(activeTab) && 'Discover professionals who can open doors at your target companies.'}
-              </p>
-
-              <div style={{ display: 'flex', justifyContent: 'center' }}>
-                <VideoDemo videoId={activeTab === 'contact-library' ? 'n_AYHEJSXrE' : 'OTd5LOOpgvQ'} />
-              </div>
-            </div>
-
-            {/* Navigation Tabs */}
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '36px' }} className="overflow-x-auto max-w-full scrollbar-hide">
+      {/* Navigation Tabs */}
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px', marginTop: '-4px' }} className="overflow-x-auto max-w-full scrollbar-hide">
               <div
                 style={{
                   display: 'inline-flex',
-                  gap: '0',
-                  background: '#F0F4FD',
-                  borderRadius: '12px',
-                  padding: '4px',
+                  gap: '6px',
                 }}
               >
                 {[
@@ -1204,21 +1118,20 @@ const ContactSearchPage: React.FC = () => {
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '8px',
-                      padding: '10px 20px',
-                      borderRadius: '9px',
-                      border: 'none',
+                      gap: '5px',
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      border: activeTab === tab.id ? '1px solid #CBD5E1' : '1px solid transparent',
                       cursor: 'pointer',
                       fontFamily: "'DM Sans', system-ui, sans-serif",
-                      fontSize: '14px',
+                      fontSize: '12px',
                       fontWeight: 500,
                       transition: 'all 0.15s ease',
-                      background: activeTab === tab.id ? '#2563EB' : 'transparent',
-                      color: activeTab === tab.id ? 'white' : '#64748B',
-                      boxShadow: activeTab === tab.id ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
+                      background: activeTab === tab.id ? '#F8FAFC' : 'transparent',
+                      color: activeTab === tab.id ? '#334155' : '#94A3B8',
                     }}
                   >
-                    <tab.icon className="h-4 w-4" />
+                    <tab.icon className="h-3 w-3" />
                     {tab.label}
                   </button>
                 ))}
@@ -1265,14 +1178,10 @@ const ContactSearchPage: React.FC = () => {
                   <div 
                     data-tour="tour-search-form"
                     style={{
-                      background: '#FFFFFF',
-                      border: '1px solid rgba(37, 99, 235, 0.08)',
-                      borderRadius: '14px',
-                      maxWidth: '900px',
+                      maxWidth: '680px',
                       margin: '0 auto',
-                      boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
                     }}
-                    className="overflow-hidden w-full px-4 py-5 sm:px-10 sm:py-9"
+                    className="w-full px-4 py-2 sm:px-6"
                   >
 
                     {/* Progress Bar (if searching or drafting) */}
@@ -1282,7 +1191,7 @@ const ContactSearchPage: React.FC = () => {
                       </div>
                     )}
 
-                    <div className="p-4 sm:p-8 md:p-10 lg:p-12">
+                    <div className="py-2">
 
                       <input
                         type="file"
@@ -1381,7 +1290,7 @@ const ContactSearchPage: React.FC = () => {
 
                       {/* Quantity Selector - only for search queries, not LinkedIn */}
                       {!isLinkedInUrl(searchPrompt) && (
-                      <div className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-4 sm:px-6 sm:py-5 mb-10 w-full">
+                      <div className="mb-10 w-full">
                         {/* Header row */}
                         <div className="flex items-center justify-between gap-4 mb-5">
                           <div>
@@ -1450,10 +1359,10 @@ const ContactSearchPage: React.FC = () => {
                         <Button
                           ref={originalButtonRef}
                           onClick={handleSubmit}
-                          disabled={isSearching || linkedInLoading}
+                          disabled={isSearching || linkedInLoading || !searchPrompt.trim()}
                           className={`
                             h-14 px-12 rounded-full text-lg font-medium shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300
-                            ${isSearching || linkedInLoading
+                            ${isSearching || linkedInLoading || !searchPrompt.trim()
                               ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
                               : 'bg-blue-600 text-white hover:bg-blue-700 hover:scale-[1.02]'
                             }
@@ -1653,31 +1562,124 @@ const ContactSearchPage: React.FC = () => {
 
               </Tabs>
             </div>
+
+      {/* Sticky CTA - Only show on contact-search tab */}
+      {activeTab === 'contact-search' && (
+        <StickyCTA
+          originalButtonRef={originalButtonRef}
+          onClick={handleSubmit}
+          isLoading={isSearching || linkedInLoading}
+          disabled={isSearching || linkedInLoading || !searchPrompt.trim() || !user}
+          buttonClassName="rounded-full"
+        >
+          {isLinkedInUrl(searchPrompt)
+            ? <span className="flex items-center gap-2"><Linkedin className="w-4 h-4" />Import from LinkedIn</span>
+            : <span>Discover Contacts</span>
+          }
+        </StickyCTA>
+      )}
+
+      <EliteGateModal open={showEliteGate} onClose={() => setShowEliteGate(false)} />
+    </>
+  );
+
+  if (embedded) return embeddedContent;
+
+  // --- Standalone page with full shell ---
+  return (
+    <>
+    <SidebarProvider>
+      <div className="flex min-h-screen w-full bg-[#FAFAFA] text-foreground font-sans">
+        <AppSidebar />
+
+        <MainContentWrapper>
+          <AppHeader
+            title=""
+            onJobTitleSuggestion={handleJobTitleSuggestion}
+            rightContent={
+              <>
+                <button
+                  onClick={() => navigate("/find/templates")}
+                  className="hidden md:flex items-center gap-1 text-xs text-muted-foreground hover:text-primary cursor-pointer transition-colors"
+                >
+                  Using:&nbsp;<span className="font-semibold text-foreground">
+                    {activeEmailTemplate && hasEmailTemplateValues(activeEmailTemplate)
+                      ? (() => {
+                          if (activeEmailTemplate.name && activeEmailTemplate.name.trim()) return activeEmailTemplate.name.trim();
+                          const p = activeEmailTemplate.purpose;
+                          if (p === "networking") return "Networking";
+                          if (p === "referral") return "Referral Request";
+                          if (p === "follow_up") return "Follow-Up";
+                          if (p === "sales") return "Sales";
+                          if (p === "custom") return "Custom Template";
+                          if (p) return p.charAt(0).toUpperCase() + p.slice(1).replace(/_/g, " ");
+                          return "Networking";
+                        })()
+                      : "Networking"}
+                  </span>
+                </button>
+                <Button
+                  type="button"
+                  onClick={() => isElite ? navigate("/find/templates") : setShowEliteGate(true)}
+                  className="h-9 px-5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold text-sm gap-2 shadow-sm hover:shadow-md hover:scale-[1.02] transition-all duration-150"
+                  data-tour="tour-templates-button"
+                >
+                  <FileText className="h-4 w-4 text-white" />
+                  <span className="hidden sm:inline whitespace-nowrap">
+                    Create Your Own Email Template
+                  </span>
+                </Button>
+              </>
+            }
+          />
+
+          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }} className="px-3 py-6 pb-24 sm:px-6 sm:py-12 sm:pb-24">
+            {/* Header Section */}
+            <div className="w-full px-3 py-6 sm:px-6 sm:py-12" style={{ maxWidth: '900px', margin: '0 auto' }}>
+              <h1
+                className="text-[28px] sm:text-[42px]"
+                style={{
+                  fontFamily: "'Instrument Serif', Georgia, serif",
+                  fontWeight: 400,
+                  letterSpacing: '-0.025em',
+                  color: '#0F172A',
+                  textAlign: 'center',
+                  marginBottom: '10px',
+                  lineHeight: 1.1,
+                }}
+              >
+                {(activeTab === 'contact-search' || activeTab === 'import') && 'Find People'}
+                {activeTab === 'contact-library' && 'Track Your Contacts'}
+                {!['contact-search', 'import', 'contact-library'].includes(activeTab) && 'Find your next connection'}
+              </h1>
+              <p
+                style={{
+                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                  fontSize: '16px',
+                  color: '#64748B',
+                  textAlign: 'center',
+                  marginBottom: '28px',
+                  lineHeight: 1.5,
+                }}
+              >
+                {(activeTab === 'contact-search' || activeTab === 'import') && 'Search by name, role, or company — or paste a LinkedIn URL. We\'ll find their emails and draft outreach for you.'}
+                {activeTab === 'contact-library' && 'Everyone you find lands here. Update their status, open email drafts, and export to CSV.'}
+                {!['contact-search', 'import', 'contact-library'].includes(activeTab) && 'Discover professionals who can open doors at your target companies.'}
+              </p>
+
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <VideoDemo videoId={activeTab === 'contact-library' ? 'n_AYHEJSXrE' : 'OTd5LOOpgvQ'} />
+              </div>
+            </div>
+
+            {embeddedContent}
           </main>
         </MainContentWrapper>
-        
-        {/* Sticky CTA - Only show on contact-search tab */}
-        {activeTab === 'contact-search' && (
-          <StickyCTA
-            originalButtonRef={originalButtonRef}
-            onClick={handleSubmit}
-            isLoading={isSearching || linkedInLoading}
-            disabled={isSearching || linkedInLoading || !searchPrompt.trim() || !user}
-            buttonClassName="rounded-full"
-          >
-            {isLinkedInUrl(searchPrompt)
-              ? <span className="flex items-center gap-2"><Linkedin className="w-4 h-4" />Import from LinkedIn</span>
-              : <span>Discover Contacts</span>
-            }
-          </StickyCTA>
-        )}
       </div>
     </SidebarProvider>
-    <EliteGateModal open={showEliteGate} onClose={() => setShowEliteGate(false)} />
     </>
   );
 
 };
 
 export default ContactSearchPage;
-

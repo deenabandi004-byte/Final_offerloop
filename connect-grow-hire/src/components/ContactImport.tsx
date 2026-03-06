@@ -2,21 +2,14 @@ import React, { useState, useCallback, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import {
   Upload,
-  FileSpreadsheet,
   AlertCircle,
   Loader2,
   Download,
   X,
   ArrowRight,
   CreditCard,
-  Check,
   Table2,
-  Copy,
   CheckCircle,
-  BadgeCheck,
-  FileText,
-  Search,
-  Linkedin,
   Info,
 } from "lucide-react";
 import {
@@ -335,22 +328,17 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
         {/* Main Upload Card — matches LinkedIn tab card styling */}
         <div 
           style={{
-            background: '#FFFFFF',
-            border: '1px solid rgba(37, 99, 235, 0.08)',
-            borderRadius: '14px',
-            maxWidth: '900px',
+            maxWidth: '560px',
             margin: '0 auto',
-            boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
             textAlign: 'center',
           }}
-          className="w-full px-4 py-5 sm:px-10 sm:py-9 overflow-hidden"
+          className="w-full px-4 py-2 sm:px-6"
         >
-          {/* Centered icon */}
-          <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
-            <Upload className="w-8 h-8 text-blue-600" />
+          <div className="w-12 h-12 bg-white/70 backdrop-blur-sm rounded-2xl flex items-center justify-center mx-auto mb-5 border border-black/[0.07] shadow-sm">
+            <Upload className="w-5 h-5 text-blue-600" />
           </div>
 
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Import Contacts</h2>
+          <h2 className="text-[32px] font-normal text-gray-900 mb-2" style={{ fontFamily: "'Instrument Serif', Georgia, serif", letterSpacing: '-0.025em', lineHeight: 1.1 }}>Import Contacts</h2>
           <p className="text-gray-500 mb-8 max-w-md mx-auto">
             Upload a CSV or Excel file to find emails, generate drafts, and save contacts to your library.
           </p>
@@ -363,14 +351,15 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
               className={`
-                relative rounded-xl p-10 text-center cursor-pointer
-                transition-all duration-200
+                relative rounded-2xl p-10 text-center cursor-pointer
+                transition-all duration-200 border border-dashed
                 ${isDragging 
-                  ? 'bg-blue-50 ring-2 ring-blue-500 ring-offset-2' 
+                  ? 'bg-blue-50/80 border-blue-400 shadow-[0_0_0_4px_rgba(59,91,255,0.08)]' 
                   : file 
-                    ? 'bg-gray-50' 
-                    : 'bg-gray-50 hover:bg-blue-50/50'
+                    ? 'bg-white/60 border-black/10' 
+                    : 'bg-white/50 border-black/10 hover:bg-white/70 hover:border-blue-300/50'
                 }
+                backdrop-blur-sm
               `}
             >
               <input
@@ -389,7 +378,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
                   </p>
                   <p className="text-xs text-gray-500 mb-4">or click to browse your files</p>
                   <Button
-                    className="h-12 px-8 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-md hover:shadow-lg transition-all pointer-events-none"
+                    className="h-10 px-6 rounded-full bg-white/80 backdrop-blur-sm border border-blue-200 text-blue-600 font-semibold text-sm hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all shadow-none pointer-events-none"
                   >
                     Choose File
                   </Button>
@@ -517,9 +506,9 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
     return (
       <div className="space-y-6">
         {/* Main Preview Card */}
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp">
-          {/* Gradient accent at top */}
-          <div className="h-1 bg-gradient-to-r from-blue-500 via-blue-600 to-blue-600"></div>
+        <div className="bg-transparent rounded-none shadow-none border-none overflow-hidden animate-fadeInUp">
+          {/* Subtle top accent line */}
+          <div className="h-px bg-gradient-to-r from-transparent via-blue-300/40 to-transparent mb-8"></div>
           
           <div className="p-8">
             {/* Header */}
@@ -745,7 +734,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
       if (onSwitchTab) {
         onSwitchTab('contact-library');
       } else {
-        navigate('/contact-search?tab=contact-library');
+        navigate('/find?tab=contact-library');
       }
     };
 
@@ -753,13 +742,9 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
       <div className="space-y-6">
         <div
           style={{
-            background: '#FFFFFF',
-            border: '1px solid rgba(37, 99, 235, 0.08)',
-            borderRadius: '14px',
-            boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
-            padding: '40px 40px',
             maxWidth: '520px',
             margin: '0 auto',
+            padding: '0',
           }}
         >
           {/* Success header */}
@@ -790,7 +775,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
 
           {detailRows.length > 0 && (
             <>
-              <div style={{ height: 1, background: 'rgba(37, 99, 235, 0.06)', margin: '0 -40px 0 -40px' }} />
+              <div style={{ height: 1, background: 'rgba(0,0,0,0.06)', margin: '0 0' }} />
               <div style={{ paddingTop: 4 }}>
                 {detailRows.map((row) => (
                   <div
@@ -838,7 +823,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
             </span>
           </div>
 
-          <div style={{ height: 1, background: 'rgba(37, 99, 235, 0.06)', margin: '0 -40px 0 -40px' }} />
+          <div style={{ height: 1, background: 'rgba(0,0,0,0.06)', margin: '0' }} />
           <div
             style={{
               display: 'flex',

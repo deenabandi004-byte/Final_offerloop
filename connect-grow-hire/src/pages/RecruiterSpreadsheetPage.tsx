@@ -1,5 +1,5 @@
 // src/pages/RecruiterSpreadsheetPage.tsx
-import { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import RecruiterSpreadsheet from '@/components/RecruiterSpreadsheet';
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -22,7 +22,7 @@ import {
   Mail, Sparkles, Check, ArrowRight, ClipboardList, Loader2, Upload
 } from "lucide-react";
 
-const RecruiterSpreadsheetPage = () => {
+const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { user } = useFirebaseAuth();
   const [activeTab, setActiveTab] = useState('find-hiring-managers');
 
@@ -408,19 +408,14 @@ const RecruiterSpreadsheetPage = () => {
     setJobDescription('');
   };
 
-  return (
-    <SidebarProvider>
-      <div className="flex min-h-screen w-full text-foreground">
-        <AppSidebar />
-
-        <MainContentWrapper>
-          <AppHeader title="" />
-
+  const embeddedContent = (
+    <>
           <ProGate title="Find Hiring Manager" description="Find the recruiters and hiring managers behind any job posting. Paste a URL and get direct contact info in seconds." videoId="TIERqtjc1tk">
           <main className="px-3 py-6 sm:px-6 sm:py-12" style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
             <div>
 
-              {/* Header Section */}
+              {/* Header Section — only when standalone */}
+              {!embedded && (
               <div className="w-full px-3 py-6 sm:px-6 sm:py-12 !pb-0" style={{ maxWidth: '900px', margin: '0 auto' }}>
                 <h1
                   className="text-[28px] sm:text-[42px]"
@@ -452,17 +447,14 @@ const RecruiterSpreadsheetPage = () => {
                   <VideoDemo videoId="TIERqtjc1tk" />
                 </div>
               </div>
+              )}
 
-              {/* Navigation Tabs */}
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '36px' }}>
+              {/* Sub-navigation */}
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px', marginTop: '-4px' }}>
                 <div
                   style={{
                     display: 'inline-flex',
-                    gap: '0',
-                    background: '#F0F4FD',
-                    borderRadius: '12px',
-                    padding: '4px',
-                    margin: '0 auto',
+                    gap: '6px',
                   }}
                 >
                   <button
@@ -470,22 +462,21 @@ const RecruiterSpreadsheetPage = () => {
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '8px',
-                      padding: '10px 20px',
-                      borderRadius: '9px',
-                      border: 'none',
+                      gap: '5px',
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      border: activeTab === 'find-hiring-managers' ? '1px solid #CBD5E1' : '1px solid transparent',
                       cursor: 'pointer',
                       fontFamily: "'DM Sans', system-ui, sans-serif",
-                      fontSize: '14px',
+                      fontSize: '12px',
                       fontWeight: 500,
                       transition: 'all 0.15s ease',
-                      background: activeTab === 'find-hiring-managers' ? '#2563EB' : 'transparent',
-                      color: activeTab === 'find-hiring-managers' ? 'white' : '#64748B',
-                      boxShadow: activeTab === 'find-hiring-managers' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
+                      background: activeTab === 'find-hiring-managers' ? '#F8FAFC' : 'transparent',
+                      color: activeTab === 'find-hiring-managers' ? '#334155' : '#94A3B8',
                     }}
                   >
-                    <Users className="h-4 w-4" />
-                    Find Hiring Managers
+                    <Users className="h-3 w-3" />
+                    Search
                   </button>
 
                   <button
@@ -493,32 +484,31 @@ const RecruiterSpreadsheetPage = () => {
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '8px',
-                      padding: '10px 20px',
-                      borderRadius: '9px',
-                      border: 'none',
+                      gap: '5px',
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      border: activeTab === 'hiring-manager-tracker' ? '1px solid #CBD5E1' : '1px solid transparent',
                       cursor: 'pointer',
                       fontFamily: "'DM Sans', system-ui, sans-serif",
-                      fontSize: '14px',
+                      fontSize: '12px',
                       fontWeight: 500,
                       transition: 'all 0.15s ease',
-                      background: activeTab === 'hiring-manager-tracker' ? '#2563EB' : 'transparent',
-                      color: activeTab === 'hiring-manager-tracker' ? 'white' : '#64748B',
-                      boxShadow: activeTab === 'hiring-manager-tracker' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
+                      background: activeTab === 'hiring-manager-tracker' ? '#F8FAFC' : 'transparent',
+                      color: activeTab === 'hiring-manager-tracker' ? '#334155' : '#94A3B8',
                     }}
                   >
-                    <ClipboardList className="h-4 w-4" />
-                    Hiring Manager Tracker
+                    <ClipboardList className="h-3 w-3" />
+                    Tracker
                     {trackerCount > 0 && (
                       <span
                         style={{
-                          marginLeft: '6px',
-                          padding: '2px 8px',
-                          borderRadius: '6px',
-                          background: activeTab === 'hiring-manager-tracker' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(37, 99, 235, 0.08)',
-                          color: activeTab === 'hiring-manager-tracker' ? 'white' : '#2563EB',
+                          marginLeft: '2px',
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          background: 'rgba(100, 116, 139, 0.08)',
+                          color: '#64748B',
                           fontFamily: "'DM Sans', system-ui, sans-serif",
-                          fontSize: '11px',
+                          fontSize: '10px',
                           fontWeight: 600,
                           letterSpacing: '0.03em',
                         }}
@@ -537,11 +527,8 @@ const RecruiterSpreadsheetPage = () => {
                   {/* TAB 1: Find Hiring Managers */}
                   <TabsContent value="find-hiring-managers" className="mt-0">
                     {/* Main Card */}
-                    <div className="bg-white rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden animate-fadeInUp recruiter-search-form-card" style={{ animationDelay: '200ms' }}>
-                      {/* Simple gray divider */}
-                      <div className="h-1 bg-gray-100"></div>
-
-                      <div className="p-8 recruiter-search-form-content">
+                    <div className="animate-fadeInUp recruiter-search-form-card" style={{ animationDelay: '200ms', maxWidth: '680px', margin: '0 auto' }}>
+                      <div className="py-2 recruiter-search-form-content">
                         {/* Card Header */}
                         <div className="mb-8">
                           <h2 className="text-xl font-semibold text-gray-900 mb-2">Find Hiring Managers</h2>
@@ -565,10 +552,10 @@ const RecruiterSpreadsheetPage = () => {
                               }}
                               placeholder="Paste the job posting URL (LinkedIn, Greenhouse, Lever, etc.)"
                               disabled={isSearching}
-                              className="w-full pl-12 pr-12 py-4 text-base border-2 border-gray-300 rounded-2xl
-                                       text-gray-900 placeholder-gray-400 bg-white
-                                       hover:border-gray-400
-                                       focus:border-blue-400 focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20
+                              className="w-full pl-12 pr-12 py-4 text-base border border-black/[0.09] rounded-2xl
+                                       text-gray-900 placeholder-gray-400 bg-white/60 backdrop-blur-sm
+                                       hover:border-black/[0.15] hover:bg-white/80
+                                       focus:border-blue-400/60 focus:bg-white/95 focus:ring-0 focus:outline-none
                                        transition-all duration-150 disabled:opacity-50"
                             />
                             {jobPostingUrl && isValidUrl(jobPostingUrl) && (
@@ -703,14 +690,14 @@ const RecruiterSpreadsheetPage = () => {
                         )}
 
                         {/* Reassurance line */}
-                        <div className="mb-8 pt-6 border-t border-gray-100">
+                        <div className="mb-8 pt-6 border-t border-black/[0.05]">
                           <p className="text-xs text-gray-400 text-center">
                             Draft emails saved automatically to Gmail • Verified emails • Auto-saved to Hiring Manager Tracker
                           </p>
                         </div>
 
                         {/* Cost & CTA Section */}
-                        <div className="mt-8 pt-8 border-t border-gray-100">
+                        <div className="mt-8 pt-8 border-t border-black/[0.05]">
                           {/* Cost info - neutral and calm */}
                           <div className="mb-6 text-center">
                             <p className="text-sm text-gray-500">
@@ -757,7 +744,7 @@ const RecruiterSpreadsheetPage = () => {
                         </div>
 
                         {/* Resume Section - Simple status row */}
-                        <div className="mt-8 pt-8 border-t border-gray-100">
+                        <div className="mt-8 pt-8 border-t border-black/[0.05]">
                           <input
                             type="file"
                             accept={ACCEPTED_RESUME_TYPES.accept}
@@ -768,7 +755,7 @@ const RecruiterSpreadsheetPage = () => {
                           />
 
                           {savedResumeUrl && savedResumeFileName ? (
-                            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div className="flex items-center justify-between p-3 bg-white/50 backdrop-blur-sm rounded-xl border border-black/[0.06]">
                               <div className="flex items-center gap-3">
                                 <CheckCircle className="w-5 h-5 text-green-500" />
                                 <div>
@@ -779,7 +766,7 @@ const RecruiterSpreadsheetPage = () => {
                               <button
                                 onClick={() => fileInputRef.current?.click()}
                                 disabled={isSearching || isUploadingResume}
-                                className="text-sm text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50"
+                                className="text-sm text-gray-500 hover:text-blue-600 transition-colors disabled:opacity-50"
                               >
                                 {isUploadingResume ? "Uploading..." : "Change"}
                               </button>
@@ -787,7 +774,7 @@ const RecruiterSpreadsheetPage = () => {
                           ) : (
                             <div
                               onClick={() => fileInputRef.current?.click()}
-                              className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+                              className="flex items-center gap-3 p-3 bg-white/50 backdrop-blur-sm rounded-xl border border-dashed border-black/[0.09] hover:bg-white/80 hover:border-blue-300/50 transition-all cursor-pointer"
                             >
                               <Upload className="w-5 h-5 text-gray-400" />
                               <div className="flex-1">
@@ -805,10 +792,8 @@ const RecruiterSpreadsheetPage = () => {
 
                   {/* TAB 2: Hiring Manager Tracker */}
                   <TabsContent value="hiring-manager-tracker" className="mt-0">
-                    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
-                      <div className="h-1 bg-gray-100"></div>
-
-                      <div className="p-8">
+                    <div className="animate-fadeInUp" style={{ animationDelay: '200ms', maxWidth: '900px', margin: '0 auto' }}>
+                      <div className="py-4">
                         <RecruiterSpreadsheet key={refreshKey} />
                       </div>
                     </div>
@@ -818,7 +803,6 @@ const RecruiterSpreadsheetPage = () => {
             </div>
           </main>
           </ProGate>
-        </MainContentWrapper>
 
         {/* Loading Modal */}
         {isSearching && (
@@ -873,7 +857,6 @@ const RecruiterSpreadsheetPage = () => {
             </div>
           </div>
         )}
-      </div>
 
       {/* Mobile-only CSS overrides */}
       <style>{`
@@ -982,7 +965,7 @@ const RecruiterSpreadsheetPage = () => {
           }
         }
       `}</style>
-      
+
       {/* Sticky CTA - Only show on find-hiring-managers tab */}
       {activeTab === 'find-hiring-managers' && (
         <StickyCTA
@@ -995,6 +978,22 @@ const RecruiterSpreadsheetPage = () => {
           <span>Find Hiring Managers</span>
         </StickyCTA>
       )}
+    </>
+  );
+
+  if (embedded) {
+    return embeddedContent;
+  }
+
+  return (
+    <SidebarProvider>
+      <div className="flex min-h-screen w-full text-foreground">
+        <AppSidebar />
+        <MainContentWrapper>
+          <AppHeader title="" />
+          {embeddedContent}
+        </MainContentWrapper>
+      </div>
     </SidebarProvider>
   );
 };

@@ -21,7 +21,7 @@ const ExtensionPrivacyPolicy = () => {
             <div className="max-w-3xl mx-auto px-8 pt-10 pb-8">
               {/* Back button - neutral styling */}
               <button
-                onClick={() => navigate('/contact-search')}
+                onClick={() => navigate('/find')}
                 className="flex items-center gap-2 text-gray-600 text-sm mb-6 hover:scale-105 transition-transform"
               >
                 <ArrowLeft className="h-4 w-4" />

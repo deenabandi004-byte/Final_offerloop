@@ -22,7 +22,6 @@ import UscBeta from "@/pages/UscBeta";
 
 // Lazy load heavy pages for code splitting
 const AboutUs = React.lazy(() => import("./pages/AboutUs"));
-const Outbox = React.lazy(() => import("./pages/Outbox"));
 const NetworkTracker = React.lazy(() => import("./pages/NetworkTracker"));
 const CalendarPage = React.lazy(() => import("./pages/CalendarPage"));
 const Contact = React.lazy(() => import("./pages/Contact"));
@@ -37,13 +36,13 @@ const AccountSettings = React.lazy(() => import("./pages/AccountSettings"));
 const Pricing = React.lazy(() => import("./pages/Pricing"));
 const DocumentationPage = React.lazy(() => import("./pages/DocumentationPage"));
 const JobBoardPage = React.lazy(() => import("./pages/JobBoardPage"));
-const RecruiterSpreadsheetPage = React.lazy(() => import("./pages/RecruiterSpreadsheetPage"));
 const HiringManagerTrackerPage = React.lazy(() => import("./pages/HiringManagerTrackerPage"));
 const NotFound = React.lazy(() => import("./pages/NotFound"));
 const PaymentSuccess = React.lazy(() => import("./pages/PaymentSuccess"));
 // Feature Pages - These are the largest, most important to lazy load
 const CoffeeChatPrepPage = React.lazy(() => import("./pages/CoffeeChatPrepPage"));
 const ContactSearchPage = React.lazy(() => import("./pages/ContactSearchPage"));
+const FindPage = React.lazy(() => import("./pages/FindPage"));
 const EmailTemplatesPage = React.lazy(() => import("./pages/EmailTemplatesPage"));
 const InterviewPrepPage = React.lazy(() => import("./pages/InterviewPrepPage"));
 const FirmSearchPage = React.lazy(() => import("./pages/FirmSearchPage"));
@@ -173,12 +172,12 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   // Only redirect authenticated users if they're not coming from sign-out
   if (user) {
-    const redirectPath = user.needsOnboarding ? "/onboarding" : "/contact-search";
+    const redirectPath = user.needsOnboarding ? "/onboarding" : "/find";
     devLog("🛣️ [PUBLIC ROUTE] User authenticated, redirecting to:", redirectPath);
     return user.needsOnboarding ? (
       <Navigate to="/onboarding" replace />
     ) : (
-      <Navigate to="/contact-search" replace />
+      <Navigate to="/find" replace />
     );
   }
   
@@ -213,12 +212,14 @@ const AppRoutes: React.FC = () => {
       <Route path="/onboarding/*" element={<Navigate to="/onboarding" replace />} />
 
       {/* Protected App Pages - Wrapped in Suspense for lazy loading */}
-      <Route path="/dashboard" element={<Navigate to="/contact-search" replace />} />
+      <Route path="/dashboard" element={<Navigate to="/find" replace />} />
+      <Route path="/find" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><FindPage /></Suspense></ProtectedRoute>} />
+      <Route path="/contact-search" element={<Navigate to="/find" replace />} />
       <Route path="/tracker" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><NetworkTracker /></Suspense></ProtectedRoute>} />
       <Route path="/outbox" element={<Navigate to="/tracker" replace />} />
       <Route path="/calendar" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CalendarPage /></Suspense></ProtectedRoute>} />
       {/* Legacy /home redirect to contact search */}
-      <Route path="/home" element={<Navigate to="/contact-search" replace />} />
+      <Route path="/home" element={<Navigate to="/find" replace />} />
       <Route path="/contact-directory" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ContactDirectory /></Suspense></ProtectedRoute>} />
       <Route path="/coffee-chat-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoffeeChatLibrary /></Suspense></ProtectedRoute>} />
       <Route path="/account-settings" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AccountSettings /></Suspense></ProtectedRoute>} />
@@ -228,14 +229,14 @@ const AppRoutes: React.FC = () => {
       
       {/* Feature Pages - Largest pages, most important to lazy load */}
       <Route path="/coffee-chat-prep" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoffeeChatPrepPage /></Suspense></ProtectedRoute>} />
-      <Route path="/contact-search" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ContactSearchPage /></Suspense></ProtectedRoute>} />
-      <Route path="/contact-search/templates" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><EmailTemplatesPage /></Suspense></ProtectedRoute>} />
+      <Route path="/contact-search/templates" element={<Navigate to="/find/templates" replace />} />
+      <Route path="/find/templates" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><EmailTemplatesPage /></Suspense></ProtectedRoute>} />
       <Route path="/interview-prep" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><InterviewPrepPage /></Suspense></ProtectedRoute>} />
-      <Route path="/firm-search" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><FirmSearchPage /></Suspense></ProtectedRoute>} />
+      <Route path="/firm-search" element={<Navigate to="/find?tab=companies" replace />} />
       <Route path="/job-board" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><JobBoardPage /></Suspense></ProtectedRoute>} />
-      <Route path="/recruiter-spreadsheet" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><RecruiterSpreadsheetPage /></Suspense></ProtectedRoute>} />
+      <Route path="/recruiter-spreadsheet" element={<Navigate to="/find?tab=hiring-managers" replace />} />
       <Route path="/hiring-manager-tracker" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><HiringManagerTrackerPage /></Suspense></ProtectedRoute>} />
-      <Route path="/company-tracker" element={<Navigate to="/firm-search" replace />} />
+      <Route path="/company-tracker" element={<Navigate to="/find?tab=companies" replace />} />
       <Route path="/scout" element={<ProtectedRoute><ScoutRedirect /></ProtectedRoute>} />
       <Route path="/application-lab" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ApplicationLabPage /></Suspense></ProtectedRoute>} />
       
@@ -276,8 +277,8 @@ const ScoutRedirect: React.FC = () => {
     openPanel();
   }, [openPanel]);
   
-  // Redirect to contact search
-  return <Navigate to="/contact-search" replace />;
+  // Redirect to find page
+  return <Navigate to="/find" replace />;
 };
 
 /* ---------------- Conditional Background Wrapper ---------------- */

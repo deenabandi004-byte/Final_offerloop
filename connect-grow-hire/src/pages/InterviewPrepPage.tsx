@@ -570,7 +570,7 @@ const InterviewPrepPage: React.FC = () => {
           <AppHeader title="" />
 
           <ProGate title="Interview Prep" description="Get company-specific behavioral questions, prep guides, and insider context tailored to your target role." videoId="q5ZPtmnZciE">
-          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
+          <main data-tour="tour-interview-prep" style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
             <div className="max-w-4xl mx-auto px-3 py-6 sm:px-6 sm:py-12">
               
               {/* Header Section */}

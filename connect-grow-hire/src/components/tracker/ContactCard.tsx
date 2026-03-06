@@ -1,30 +1,7 @@
 import type { OutboxThread } from "@/services/api";
+import { formatTimeAgo, daysBetween } from "@/lib/formatters";
 
 // --- helpers ---
-
-function formatTimeAgo(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const ms = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(ms / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  const weeks = Math.floor(days / 7);
-  return `${weeks}w ago`;
-}
-
-function daysBetween(iso: string | null | undefined): number {
-  if (!iso) return 0;
-  return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
-}
-
-function hoursBetween(iso: string | null | undefined): number {
-  if (!iso) return 0;
-  return Math.floor((Date.now() - new Date(iso).getTime()) / 3_600_000);
-}
 
 function initialsFor(name: string): string {
   return name
@@ -54,6 +31,9 @@ function statusLine(c: OutboxThread): string {
     return ago ? `Replied ${ago} — action needed` : "Replied — action needed";
   }
   // Draft states
+  if (c.pipelineStage === "draft_deleted") {
+    return "Draft deleted — recreate it";
+  }
   if (c.pipelineStage === "draft_created") {
     const d = daysBetween(c.draftCreatedAt);
     if (d >= 1) return `Draft unsent for ${d} day${d !== 1 ? "s" : ""} — send it!`;
@@ -76,9 +56,11 @@ function statusLine(c: OutboxThread): string {
   if (c.pipelineStage === "no_response" || c.resolution === "ghosted") return "No response after follow-ups";
   if (c.pipelineStage === "bounced") return "Email bounced";
   if (c.pipelineStage === "closed") return "Closed";
+  if (c.pipelineStage === "new") return "Ready to draft an email";
   if (c.archivedAt) return "Archived";
-  // Fallback
-  return c.pipelineStage?.replace(/_/g, " ") || "";
+  // Fallback for any future stages
+  const stage: string = c.pipelineStage || "";
+  return stage.replace(/_/g, " ");
 }
 
 // --- stage-based border color ---
@@ -86,6 +68,8 @@ function statusLine(c: OutboxThread): string {
 function stageBorderColor(c: OutboxThread, isSelected: boolean): string {
   if (isSelected) return "border-l-blue-500 bg-blue-50/60";
   if (c.hasUnreadReply || c.pipelineStage === "replied") return "border-l-red-400 hover:bg-red-50/40";
+  if (c.pipelineStage === "new") return "border-l-gray-300 hover:bg-gray-50";
+  if (c.pipelineStage === "draft_deleted") return "border-l-red-300 hover:bg-red-50/30";
   if (c.pipelineStage === "draft_created") return "border-l-amber-400 hover:bg-amber-50/30";
   if (c.pipelineStage === "email_sent" || c.pipelineStage === "waiting_on_reply") return "border-l-blue-300 hover:bg-blue-50/30";
   if (c.pipelineStage === "meeting_scheduled" || c.pipelineStage === "connected") return "border-l-green-400 hover:bg-green-50/30";
@@ -106,6 +90,9 @@ function actionChip(c: OutboxThread, bucket: BucketType): Chip | null {
     return { label: "View Reply", className: "bg-blue-100 text-blue-700" };
   }
   // Draft
+  if (c.pipelineStage === "draft_deleted") {
+    return { label: "Recreate Draft", className: "bg-red-100 text-red-700" };
+  }
   if (c.pipelineStage === "draft_created") {
     return { label: "Send Draft", className: "bg-orange-100 text-orange-700" };
   }
@@ -154,7 +141,7 @@ export function ContactCard({ contact, bucket, isSelected, onClick }: ContactCar
 
       {/* text */}
       <div className="min-w-0 flex-1">
-        <p className={`text-sm font-semibold truncate ${isReplied ? "text-gray-900" : "text-gray-900"}`}>{name}</p>
+        <p className="text-sm font-semibold truncate text-gray-900">{name}</p>
         {subtitle && <p className="text-xs text-gray-500 truncate">{subtitle}</p>}
         <p className={`text-xs mt-0.5 truncate ${isReplied ? "text-red-500 font-medium" : "text-gray-400"}`}>
           {statusLine(contact)}

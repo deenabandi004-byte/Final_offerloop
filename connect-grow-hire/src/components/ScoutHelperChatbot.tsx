@@ -237,10 +237,7 @@ const ScoutHelperChatbot: React.FC<ScoutHelperChatbotProps> = ({
           message: userMessageText,
           conversation_id: conversationId,
           conversation_history: historyForApi,
-          context: {
-            ...context,
-            user_resume: userResume,
-          },
+          context,
         }),
       });
 

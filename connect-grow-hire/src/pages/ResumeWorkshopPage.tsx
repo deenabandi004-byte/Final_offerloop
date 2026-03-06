@@ -822,7 +822,7 @@ export default function ResumeWorkshopPage() {
         <AppSidebar />
         <MainContentWrapper>
           <AppHeader title="" />
-          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
+          <main data-tour="tour-resume" style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
             <div className="w-full px-3 py-6 sm:px-6 sm:py-12" style={{ maxWidth: '900px', margin: '0 auto' }}>
               
               {/* Header Section */}

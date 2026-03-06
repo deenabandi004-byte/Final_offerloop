@@ -60,15 +60,15 @@ const getActivityIcon = (type: string) => {
 const getActivityRoute = (type: string): string => {
   switch (type) {
     case 'firmSearch':
-      return '/firm-search';
+      return '/find?tab=companies';
     case 'contactSearch':
-      return '/contact-search';
+      return '/find';
     case 'coffeePrep':
       return '/coffee-chat-prep';
     case 'interviewPrep':
       return '/interview-prep';
     default:
-      return '/contact-search';
+      return '/find';
   }
 };
 
@@ -527,7 +527,7 @@ export function Dashboard() {
                 Send Follow-up →
               </button>
               <button
-                onClick={() => navigate('/contact-search')}
+                onClick={() => navigate('/find')}
                 className="text-sm font-medium transition-colors"
                 style={{
                   color: 'var(--text-tertiary)',
@@ -568,7 +568,7 @@ export function Dashboard() {
             </div>
             <div className="flex items-center gap-3">
               <button
-                onClick={() => navigate('/contact-search')}
+                onClick={() => navigate('/find')}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-[10px] text-sm font-medium transition-all"
                 style={{
                   background: '#2563EB',
@@ -583,7 +583,7 @@ export function Dashboard() {
                 Find People →
               </button>
               <button
-                onClick={() => navigate('/firm-search')}
+                onClick={() => navigate('/find?tab=companies')}
                 className="text-sm font-medium transition-colors"
                 style={{
                   color: 'var(--text-tertiary)',
@@ -617,8 +617,8 @@ export function Dashboard() {
         </p>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
-            { icon: <Search className="w-4 h-4" />, label: 'Find People', route: '/contact-search' },
-            { icon: <Building2 className="w-4 h-4" />, label: 'Find Companies', route: '/firm-search' },
+            { icon: <Search className="w-4 h-4" />, label: 'Find People', route: '/find' },
+            { icon: <Building2 className="w-4 h-4" />, label: 'Find Companies', route: '/find?tab=companies' },
             { icon: <Mail className="w-4 h-4" />, label: 'Review Outreach', route: '/tracker' },
             { icon: <Coffee className="w-4 h-4" />, label: 'Prep for Chat', route: '/coffee-chat-prep' },
           ].map((shortcut, i) => (
@@ -698,7 +698,7 @@ export function Dashboard() {
                   title: `${quickWins.newMatches} companies`,
                   description: 'Match your search criteria',
                   badge: 'New',
-                  route: '/firm-search',
+                  route: '/find?tab=companies',
                   disabled: quickWins.newMatches === 0,
                 },
               ].map((win, i) => (
@@ -762,7 +762,7 @@ export function Dashboard() {
               ))}
               {quickWins.emailsReady === 0 && quickWins.coffeeChatsNeedPrep === 0 && quickWins.newMatches === 0 && (
                 <div 
-                  onClick={() => navigate('/contact-search')}
+                  onClick={() => navigate('/find')}
                   className="px-5 py-4 rounded-[12px] transition-all cursor-pointer col-span-full"
                   style={{
                     background: 'var(--bg-white)',

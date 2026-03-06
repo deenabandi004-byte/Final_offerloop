@@ -9,6 +9,7 @@ from flask import Blueprint, jsonify, request
 from app.extensions import require_firebase_auth
 from app.services.outbox_service import (
     archive_contact,
+    clear_unread_reply,
     get_outbox_contacts,
     get_outbox_stats,
     mark_contact_resolution,
@@ -65,6 +66,19 @@ def sync_thread(contact_id):
     uid = request.firebase_user["uid"]
     try:
         contact = sync_contact_thread(uid, contact_id)
+    except ValueError as e:
+        if str(e) == "contact_not_found":
+            return jsonify({"error": "Contact not found"}), 404
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"thread": contact}), 200
+
+
+@outbox_bp.post("/threads/<contact_id>/mark-read")
+@require_firebase_auth
+def mark_read(contact_id):
+    uid = request.firebase_user["uid"]
+    try:
+        contact = clear_unread_reply(uid, contact_id)
     except ValueError as e:
         if str(e) == "contact_not_found":
             return jsonify({"error": "Contact not found"}), 404

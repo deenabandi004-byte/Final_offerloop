@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # Canonical pipeline stages
 ALLOWED_PIPELINE_STAGES = frozenset({
-    "new", "draft_created", "email_sent", "waiting_on_reply", "replied",
+    "new", "draft_created", "draft_deleted", "email_sent", "waiting_on_reply", "replied",
     "meeting_scheduled", "connected", "no_response", "bounced", "closed",
 })
 
@@ -53,7 +53,7 @@ def _parse_iso(s):
 
 
 def _now_iso():
-    return datetime.utcnow().isoformat()
+    return datetime.utcnow().isoformat() + "Z"
 
 
 def _get_contact_ref(uid, contact_id):
@@ -74,7 +74,7 @@ def _contact_to_dict(contact_id, data):
     """Convert raw Firestore contact data to the API response shape."""
     first = (data.get("firstName") or "").strip()
     last = (data.get("lastName") or "").strip()
-    name = f"{first} {last}".strip() or data.get("email", "")
+    name = f"{first} {last}".strip() or data.get("name") or data.get("email", "")
 
     gmail_draft_id = data.get("gmailDraftId")
     gmail_draft_url = data.get("gmailDraftUrl")
@@ -106,7 +106,7 @@ def _contact_to_dict(contact_id, data):
         "id": contact_id,
         # Identity
         "name": name,
-        "email": data.get("email") or "",
+        "email": data.get("draftToEmail") or data.get("email") or "",
         "company": data.get("company") or "",
         "title": data.get("jobTitle") or "",
         "linkedinUrl": ("https://" + data.get("linkedinUrl") if data.get("linkedinUrl") and not data.get("linkedinUrl", "").startswith("http") else data.get("linkedinUrl")),
@@ -126,7 +126,7 @@ def _contact_to_dict(contact_id, data):
         "emailSentAt": data.get("emailSentAt"),
         "draftCreatedAt": data.get("draftCreatedAt"),
         "replyReceivedAt": data.get("replyReceivedAt"),
-        "lastActivityAt": data.get("lastActivityAt") or _now_iso(),
+        "lastActivityAt": data.get("lastActivityAt") or data.get("draftCreatedAt") or data.get("createdAt") or "",
         # Follow-up
         "followUpCount": data.get("followUpCount", 0),
         "nextFollowUpAt": data.get("nextFollowUpAt"),
@@ -180,7 +180,7 @@ def get_outbox_stats(uid):
     Compute outbox statistics from indexed query.
     Returns dict with stage counts, rates, and bucket counts.
     """
-    contacts = get_outbox_contacts(uid, include_archived=True)
+    contacts = get_outbox_contacts(uid, include_archived=False)
     now_utc = datetime.utcnow()
     three_days_ago = now_utc - timedelta(days=3)
     seven_days_ago = now_utc - timedelta(days=7)
@@ -214,15 +214,21 @@ def get_outbox_stats(uid):
         else:
             # Bucket: needs_attention
             is_needs_attention = False
-            if c.get("hasUnreadReply"):
+            # Snoozed contacts are suppressed from needs-attention
+            snoozed_until = _parse_iso(c.get("snoozedUntil"))
+            is_snoozed = snoozed_until and snoozed_until > now_utc
+            if is_snoozed:
+                pass  # skip needs-attention checks
+            elif c.get("hasUnreadReply"):
                 is_needs_attention = True
             elif stage == "draft_created":
                 created_dt = _parse_iso(c.get("draftCreatedAt"))
                 if created_dt and created_dt < three_days_ago:
                     is_needs_attention = True
-            next_fu = _parse_iso(c.get("nextFollowUpAt"))
-            if next_fu and next_fu <= now_utc:
-                is_needs_attention = True
+            if not is_snoozed:
+                next_fu = _parse_iso(c.get("nextFollowUpAt"))
+                if next_fu and next_fu <= now_utc:
+                    is_needs_attention = True
 
             if is_needs_attention:
                 needs_attention += 1
@@ -235,7 +241,7 @@ def get_outbox_stats(uid):
         # Reply rate
         if stage == "replied":
             replied_count += 1
-        if stage in ("waiting_on_reply", "replied", "no_response"):
+        if stage in ("email_sent", "waiting_on_reply", "replied", "no_response"):
             eligible_for_reply_rate += 1
 
         # This-week metrics
@@ -298,6 +304,18 @@ def update_contact_stage(uid, contact_id, new_stage):
     return _contact_to_dict(contact_id, data)
 
 
+def clear_unread_reply(uid, contact_id):
+    """Mark a contact's reply as read by clearing hasUnreadReply."""
+    ref, data = _get_contact(uid, contact_id)
+    updates = {
+        "hasUnreadReply": False,
+        "updatedAt": _now_iso(),
+    }
+    ref.update(updates)
+    data.update(updates)
+    return _contact_to_dict(contact_id, data)
+
+
 def archive_contact(uid, contact_id):
     """Archive a contact."""
     ref, data = _get_contact(uid, contact_id)
@@ -311,12 +329,15 @@ def archive_contact(uid, contact_id):
 
 
 def unarchive_contact(uid, contact_id):
-    """Restore a contact from archive."""
+    """Restore a contact from archive. Resets terminal stages to waiting_on_reply."""
     ref, data = _get_contact(uid, contact_id)
     updates = {
         "archivedAt": None,
         "updatedAt": _now_iso(),
     }
+    # If the contact is in a terminal stage, restore to an active one
+    if data.get("pipelineStage") in DONE_STAGES:
+        updates["pipelineStage"] = "waiting_on_reply"
     ref.update(updates)
     data.update(updates)
     return _contact_to_dict(contact_id, data)
@@ -372,6 +393,7 @@ def mark_contact_resolution(uid, contact_id, resolution, details=None):
         if not data.get("meetingScheduledAt"):
             updates["meetingScheduledAt"] = now
     elif resolution in ("hard_no", "ghosted"):
+        updates["pipelineStage"] = "closed"
         updates["archivedAt"] = now
     elif resolution == "soft_no":
         updates["pipelineStage"] = "no_response"
@@ -420,7 +442,25 @@ def _check_draft_status(gmail_service, data):
             userId="me", id=draft_id, format="minimal"
         ).execute()
         return {"draftStillExists": True}
-    except Exception:
+    except Exception as e:
+        # Only treat 404 as "draft gone"; other errors are transient
+        is_not_found = False
+        if hasattr(e, "resp"):
+            is_not_found = getattr(e.resp, "status", 0) == 404
+        elif "404" in str(e) or "not found" in str(e).lower():
+            is_not_found = True
+
+        if not is_not_found:
+            logger.warning("Transient error checking draft %s: %s", draft_id, e)
+            _capture_sentry(e)
+            return {
+                "lastSyncError": {
+                    "code": "gmail_error",
+                    "message": "Could not check draft status",
+                    "at": _now_iso(),
+                },
+            }
+
         # Draft is gone - was either sent or deleted
         updates = {"draftStillExists": False}
         if data.get("gmailThreadId"):
@@ -429,6 +469,7 @@ def _check_draft_status(gmail_service, data):
                 updates["emailSentAt"] = _now_iso()
         else:
             # Draft gone without threadId - search Gmail for the sent message
+            found_sent = False
             contact_email = data.get("draftToEmail") or data.get("email")
             email_subject = data.get("emailSubject")
             if contact_email and email_subject:
@@ -448,9 +489,13 @@ def _check_draft_status(gmail_service, data):
                             updates["pipelineStage"] = "waiting_on_reply"
                             if not data.get("emailSentAt"):
                                 updates["emailSentAt"] = _now_iso()
+                            found_sent = True
                 except Exception as e:
                     logger.warning("Could not find threadId for sent draft: %s", e)
                     _capture_sentry(e)
+            # No sent message found — draft was deleted, not sent
+            if not found_sent:
+                updates["pipelineStage"] = "draft_deleted"
         return updates
 
 
@@ -467,7 +512,7 @@ def _sync_thread_messages(gmail_service, data, user_email):
     if data.get("draftStillExists") is not False and data.get("gmailDraftId"):
         return {}
 
-    contact_email = data.get("email")
+    contact_email = data.get("draftToEmail") or data.get("email")
     try:
         sync_result = sync_thread_message(
             gmail_service, gmail_thread_id, contact_email, user_email
@@ -499,6 +544,8 @@ def _sync_thread_messages(gmail_service, data, user_email):
     if sync_status in ("new_reply", "waiting_on_you") or sync_result.get("hasUnreadReply"):
         updates["pipelineStage"] = "replied"
         updates["lastMessageFrom"] = "contact"
+        if not data.get("replyReceivedAt"):
+            updates["replyReceivedAt"] = _now_iso()
     elif sync_status == "waiting_on_them":
         updates["lastMessageFrom"] = "user"
 

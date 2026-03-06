@@ -11,7 +11,6 @@ from .app.routes.health import health_bp
 from .app.routes.gmail_oauth import gmail_oauth_bp
 from .app.routes.emails import emails_bp
 from .app.routes.contacts import contacts_bp
-from .app.routes.directory import directory_bp
 from .app.routes.runs import runs_bp
 from .app.routes.enrichment import enrichment_bp
 from .app.routes.resume import resume_bp
@@ -104,7 +103,6 @@ def create_app() -> Flask:
     app.register_blueprint(emails_bp)
     app.register_blueprint(linkedin_import_bp)  # Register before contacts_bp to avoid route conflicts
     app.register_blueprint(contacts_bp)
-    app.register_blueprint(directory_bp)
     app.register_blueprint(runs_bp)
     app.register_blueprint(enrichment_bp)
     app.register_blueprint(resume_bp)

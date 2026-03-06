@@ -1,9 +1,11 @@
 """
-Coffee chat prep utilities - commonality detection, similarity generation
+Coffee chat prep utilities - similarity, questions, cheat sheet, strategy generation
 """
+import json
 import logging
 import re
 
+from app.services.openai_client import get_openai_client
 from app.utils.users import (
     extract_hometown_from_resume,
     extract_companies_from_resume,
@@ -21,11 +23,11 @@ def detect_commonality(user_info, contact, resume_text):
     """
     user_university = (user_info.get('university', '') or '').lower()
     contact_education = (
-        (contact.get('College', '') or '') + ' ' + 
+        (contact.get('College', '') or '') + ' ' +
         (contact.get('EducationTop', '') or '')
     ).lower()
     contact_company = (contact.get('Company', '') or '').lower()
-    
+
     # 1. Check same university (STRONGEST commonality)
     if user_university and user_university in contact_education:
         university = user_info.get('university', '')
@@ -34,7 +36,7 @@ def detect_commonality(user_info, contact, resume_text):
             'university_short': get_university_shorthand(university),
             'mascot': get_university_mascot(university)
         })
-    
+
     # 2. Check same hometown
     user_hometown = extract_hometown_from_resume(resume_text or '')
     contact_city = (contact.get('City', '') or '').lower()
@@ -42,7 +44,7 @@ def detect_commonality(user_info, contact, resume_text):
         return ('hometown', {
             'hometown': user_hometown
         })
-    
+
     # 3. Check same company/internship
     user_companies = extract_companies_from_resume(resume_text or '')
     if contact_company and any(uc.lower() in contact_company for uc in user_companies if uc):
@@ -53,394 +55,400 @@ def detect_commonality(user_info, contact, resume_text):
             'connection_type': connection_type,
             'role_type': role_type
         })
-    
+
     # 4. No strong commonality - use general template
     return ('general', {})
 
 
-def generate_coffee_chat_similarity(user_data, contact_data):
+def generate_coffee_chat_similarity(contact_data: dict, user_context: dict, research: dict) -> str:
     """
-    Generate similarity summary for coffee chat.
-    Returns empty string if no strong similarities found (quality over quantity).
+    Generate an opening observation + icebreaker list using full user and contact data.
+    Returns markdown string.
     """
+    client = get_openai_client()
+    if not client:
+        return ""
+
     try:
-        from app.services.openai_client import get_openai_client
-        client = get_openai_client()
-        if not client:
-            return ""
-        
-        # Check geographic similarity eligibility: require explicit locations from both parties
-        user_location = (user_data.get('contact', {}).get('location', '') if isinstance(user_data.get('contact'), dict) else '') or ''
-        contact_location = (contact_data.get('location', '') or '').strip()
-        user_location = user_location.strip()
-        
-        # Geographic similarity is ONLY allowed if both parties have explicit current locations
-        geographic_similarity_allowed = bool(user_location and contact_location)
-        
-        prompt = f"""You are generating a high-quality coffee chat preparation brief. Your goal is to surface ONLY information that is accurate, clearly relevant, and natural for a real conversation. Silence is preferable to weak or speculative content.
+        # Build experience timeline string for the contact
+        exp_lines = []
+        for e in contact_data.get("experienceArray", [])[:5]:
+            dates = f"{e.get('start_date','')} - {'Present' if e.get('is_current') else e.get('end_date','')}"
+            exp_lines.append(f"  - {e['title']} @ {e['company']} ({dates})")
+        contact_timeline = "\n".join(exp_lines) or contact_data.get("workExperience", [""])[0]
 
-GLOBAL QUALITY RULES:
-1. Do NOT invent, assume, or exaggerate similarities. If a connection is not explicit in the data, use tentative language or omit it entirely.
-2. Do NOT include generic content. If a sentence could apply to most professionals, it must be discarded.
-3. Prefer restraint over coverage. Fewer, stronger items beat more, weaker ones.
-4. If relevance is uncertain → OMIT CONTENT. Return "NONE".
-
-SIMILARITY SUMMARY RULES:
-Generate a 45-60 word paragraph describing 2-3 of the STRONGEST, MOST EXPLICIT connections between the student and professional.
-
-Allowed similarity types (ranked by strength):
-1. Shared university or academic background (EXPLICIT match required)
-2. Similar early career steps or transitions (EXPLICIT evidence required)
-3. Geographic similarity (ONLY if both parties' current locations are explicitly present and match)
-4. Clearly evidenced shared interests or work style (EXPLICIT evidence required)
-
-GEOGRAPHIC SIMILARITY RULES:
-- Geographic similarity is ONLY permitted if BOTH the student's current location AND the professional's current location are explicitly stated in the data.
-- Shared university location (e.g., USC) may be referenced as educational connection, but NOT framed as shared residence or geographic overlap.
-- Do NOT use phrases like "shared geographic link" or "both from [place]" unless BOTH current locations are explicitly present and clearly match.
-- If location confidence is insufficient, OMIT geographic similarity entirely.
-
-STRICT FILTERING RULES:
-- Explicitly ignore weak or generic overlaps (e.g. "both work in the same industry", "both are professionals", "shared commitment to excellence").
-- If a similarity is inferred (not explicit), you MUST use tentative language (e.g. "may reflect", "suggests", "could indicate", "appears to").
-- Never state facts as certain if they are not explicitly in the data.
-- Never overstate entrepreneurial, leadership, or personal traits unless directly supported by explicit data.
-- End with a declarative conversational bridge that frames the conversation (do NOT end with a question).
-- Similarity summaries MUST NOT end with a question mark. Frame the conversation, don't ask questions.
-- If no strong, explicit similarities exist (only generic or weak ones), return ONLY the word "NONE" and nothing else.
-
-USER DATA:
-Name: {user_data.get('name', '')}
-University: {user_data.get('university', '')}
-Major: {user_data.get('major', '')}
-Education: {user_data.get('education', {})}
-Experience: {user_data.get('experience', [])}
-Location: {user_data.get('contact', {}).get('location', '') if isinstance(user_data.get('contact'), dict) else ''}
-
-CONTACT DATA:
-Name: {contact_data.get('firstName', '')} {contact_data.get('lastName', '')}
-Company: {contact_data.get('company', '')}
-Job Title: {contact_data.get('jobTitle', '')}
-Education: {contact_data.get('education', [])}
-Location: {contact_data.get('location', '')}
-Experience: {contact_data.get('experience', []) if isinstance(contact_data.get('experience'), list) else []}
-
-Generate the similarity summary (45-60 words), or return "NONE" if no strong similarities exist."""
-        
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=150,
-            temperature=0.5
-        )
-        
-        result = response.choices[0].message.content.strip()
-        
-        # Return empty string if model indicates no strong similarities
-        if result.upper() == "NONE" or len(result) < 20:
-            logger.debug("SIMILARITY_SKIPPED: no strong explicit similarities")
-            return ""
-        
-        # Post-process to filter out generic language
-        result_lower = result.lower()
-        generic_phrases = [
-            "both work in",
-            "both are professionals",
-            "shared commitment",
-            "both share",
-            "common interest",
-            "similar passion",
-            "both value",
-            "shared values",
-            "both professionals",
-            "both individuals"
+        # Build education string for contact
+        edu_lines = [
+            f"  - {e.get('degree','')} in {e.get('major','')} @ {e.get('school','')} ({e.get('end_date','')})"
+            for e in contact_data.get("educationArray", [])
         ]
-        
-        # Check if result contains too many generic phrases (more than 1 = likely generic)
-        generic_count = sum(1 for phrase in generic_phrases if phrase in result_lower)
-        if generic_count > 1:
-            logger.debug("SIMILARITY_SKIPPED: too many generic phrases")
-            return ""
-        
-        # Check if result lacks specific details (no proper nouns, no specific references)
-        # If it's all generic language, reject it
-        has_specifics = any(
-            word[0].isupper() for word in result.split() 
-            if len(word) > 2 and word[0].isupper()
-        ) or any(
-            keyword in result_lower for keyword in [
-                "university", "college", "school", "company", "firm",
-                "role", "position", "career", "transition"
-            ]
+        contact_education = "\n".join(edu_lines) or contact_data.get("education", "")
+
+        # User experience bullets
+        user_exp_lines = [
+            f"  - {e.get('title','')} at {e.get('company','')} ({e.get('dates','')}): {'; '.join(e.get('bullets',[])[:2])}"
+            for e in user_context.get("experiences", [])[:4]
+        ]
+        user_exp = "\n".join(user_exp_lines) or "No prior experience listed"
+
+        person_mentions = "\n".join([
+            f"  - {r.get('title','')} ({r.get('source','')}): {r.get('snippet','')}"
+            for r in research.get("person_mentions", [])[:3]
+        ]) or "None found"
+
+        prompt = f"""You are helping a college student prepare for a coffee chat. Find genuine, specific common ground between them and their contact. Be warm and conversational — not sycophantic.
+
+STUDENT PROFILE:
+Name: {user_context.get('name', 'the student')}
+University: {user_context.get('university', '')}
+Major: {user_context.get('major', '')}
+Year: {user_context.get('year', '')}
+GPA: {user_context.get('gpa') or 'not provided'}
+Skills: {', '.join(user_context.get('skills', [])[:10]) or 'not provided'}
+Interests/Hobbies: {', '.join(user_context.get('interests', [])[:8]) or 'not provided'}
+Clubs & Activities: {', '.join(user_context.get('clubs', [])[:6]) or 'not provided'}
+Work Experience:
+{user_exp}
+Projects: {', '.join([p.get('name','') for p in user_context.get('projects',[])[:3]]) or 'none listed'}
+Career Goals: {user_context.get('careerGoals', 'not stated')}
+Target Industries: {', '.join(user_context.get('targetIndustries', [])) or 'not stated'}
+Target Roles: {', '.join(user_context.get('targetRoles', [])) or 'not stated'}
+Languages: {', '.join(user_context.get('languages', [])) or 'not stated'}
+
+CONTACT PROFILE:
+Name: {contact_data.get('fullName', '')}
+Current Role: {contact_data.get('jobTitle', '')} at {contact_data.get('company', '')}
+Industry: {contact_data.get('industry', '')}
+Location: {contact_data.get('location', '')}
+Years Experience: {contact_data.get('yearsExperience', 'unknown')}
+Career Timeline:
+{contact_timeline}
+Education:
+{contact_education}
+Skills: {', '.join(contact_data.get('skills', [])[:10]) or 'not available'}
+Interests: {', '.join(contact_data.get('interests', [])[:8]) or 'not available'}
+LinkedIn Summary: {contact_data.get('summary', 'not available')[:300]}
+Languages: {', '.join(contact_data.get('languages', [])) or 'not available'}
+Certifications: {', '.join([c.get('name','') for c in contact_data.get('certifications', [])]) or 'none'}
+
+RESEARCH ABOUT THIS PERSON:
+{person_mentions}
+
+---
+
+Generate a "Common Ground & Icebreakers" section with:
+
+1. An **opening observation** (2-3 sentences) about genuine, specific similarities. Must cite actual evidence (school names, companies, skills, shared interests). No vague language like "both passionate about X".
+
+2. A list of **3-5 icebreaker topics**, each with:
+   - The topic name (short)
+   - Why it connects them (1 sentence, specific)
+
+3. One **secret weapon** — the single most interesting or unexpected connection point.
+
+RULES — read carefully:
+1. PRIORITY ORDER for the opening observation:
+   - FIRST: If student has startup/founder experience → lead with how their product/domain connects to the contact's industry or company. This is ALWAYS the strongest hook.
+   - SECOND: Shared career stage transition (e.g. both moved from engineering to management)
+   - THIRD: Direct industry overlap (contact works in a field the student is targeting)
+   - FOURTH: Shared alma mater or geography
+   - LAST RESORT ONLY: Shared generic skills (Python, C++, Excel) — never lead with these
+
+2. The opening observation must answer: "Why is THIS student uniquely interesting to THIS specific person?" — not just "what do they have in common?"
+
+3. BAD example (never write this):
+   "Both have experience with C++ and software development, providing common technical ground."
+
+4. GOOD example (write like this):
+   "You're building an AI recruiting platform as a USC founder — and Rupesh has spent 20+ years building the wireless infrastructure that smartphones run on. That's not the obvious connection, but it's the real one: you both know what it takes to build technical systems from the ground up inside large constraints, just at different scales."
+
+5. Every icebreaker MUST have a specific "because" citing a real fact.
+   BAD: "Discuss technology trends"
+   GOOD: "His 7 years at Intel on LTE protocols — ask how he thinks about platform transitions, since you're making your own right now as a founder moving from 0→1"
+
+6. The secret weapon must be something that would make the contact genuinely curious — not just a restatement of the opening observation.
+
+7. Do NOT use: "both passionate about", "shared interest in", "common ground in", "aligns well with"
+8. Output clean markdown, no code fences.
+"""
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}],
         )
-        
-        if not has_specifics:
-            logger.debug("SIMILARITY_SKIPPED: lacks specific details")
-            return ""
-        
-        # TASK 2: Post-process to filter out speculative geographic similarity if not allowed
-        if not geographic_similarity_allowed:
-            # Check for geographic similarity language
-            geographic_phrases = [
-                "shared geographic link", "both from", "geographic overlap",
-                "same location", "both in", "shared location", "geographic connection"
-            ]
-            has_geographic_language = any(phrase in result_lower for phrase in geographic_phrases)
-            if has_geographic_language:
-                logger.debug("GEOGRAPHY_SKIPPED: insufficient confidence (both locations not explicitly present)")
-                # Remove geographic similarity - return empty if result becomes too short
-                # For now, we'll filter it out entirely if it's the primary content
-                # This is a conservative approach - we could also try to remove just the geographic part
-                if len(result.split()) < 30:
-                    logger.debug("SIMILARITY_SKIPPED: result too short after geographic filtering")
-                    return ""
-        
-        # TASK 1: Post-generation guard - ensure similarity summary does NOT end with a question mark
-        if result.strip().endswith('?'):
-            # Find the last sentence ending with '?'
-            # Split on sentence boundaries (., !, ?)
-            parts = re.split(r'([.!?])\s+', result)
-            
-            if len(parts) >= 3 and parts[-2] == '?':
-                # Multiple sentences - rebuild all but the last
-                # parts: [text1, '.', ' ', text2, '?', '']
-                previous_parts = []
-                for i in range(0, len(parts) - 3, 2):
-                    if i < len(parts):
-                        punct = parts[i+1] if i+1 < len(parts) else ''
-                        sep = parts[i+2] if i+2 < len(parts) and parts[i+2].isspace() else ' '
-                        previous_parts.append(parts[i] + punct + sep)
-                
-                # Get the last question sentence (text before the final '?')
-                last_sentence = parts[-3].strip() if len(parts) >= 3 else ''
-                
-                # Convert last question sentence to declarative
-                # Remove leading question words if present
-                question_words = r'^(What|How|Why|Where|When|Who|Do|Does|Did|Are|Is|Was|Were|Would|Could|Should|Can)\s+'
-                last_declarative = re.sub(question_words, '', last_sentence, flags=re.IGNORECASE).strip()
-                
-                # Ensure it ends with proper punctuation
-                last_declarative = last_declarative.rstrip('?.,!').strip()
-                if not last_declarative.endswith(('.', '!')):
-                    last_declarative = last_declarative + '.'
-                
-                # Rebuild: join previous sentences + converted last sentence
-                previous_text = ''.join(previous_parts).strip()
-                if previous_text:
-                    result = previous_text + ' ' + last_declarative
-                else:
-                    result = last_declarative
-            else:
-                # Single sentence question - convert to declarative
-                result = result.rstrip('?').strip()
-                # Remove leading question words
-                question_words = r'^(What|How|Why|Where|When|Who|Do|Does|Did|Are|Is|Was|Were|Would|Could|Should|Can)\s+'
-                result = re.sub(question_words, '', result, flags=re.IGNORECASE).strip()
-                # Ensure it ends with proper punctuation
-                result = result.rstrip('?.,!').strip()
-                if not result.endswith(('.', '!')):
-                    result = result + '.'
-            
-            logger.debug("SIMILARITY_GUARD: removed trailing question mark, converted to declarative bridge")
-        
-        return result
-        
+        return response.choices[0].message.content.strip()
+
     except Exception as e:
-        print(f"Similarity generation failed: {e}")
+        logger.error(f"Similarity generation failed: {e}")
         return ""
 
 
-def generate_coffee_chat_questions(contact_data, user_data):
+def generate_coffee_chat_questions(contact_data: dict, user_context: dict, research: dict) -> list:
     """
-    Generate up to 8 candidate coffee chat questions.
-    Only returns questions that are specific, relevant, and non-generic.
+    Generate 10 highly specific questions organized by category.
+    Returns list of {"name": str, "questions": [str, str]}.
     """
+    client = get_openai_client()
+    if not client:
+        return []
+
     try:
-        from app.services.openai_client import get_openai_client
-        client = get_openai_client()
-        if not client:
-            return []
-        
-        prompt = f"""You are generating high-quality coffee chat questions. Your goal is to surface ONLY questions that are accurate, clearly relevant to the specific professional, and natural for a real conversation.
+        exp_lines = []
+        for e in contact_data.get("experienceArray", [])[:5]:
+            dates = f"{e.get('start_date','')}-{'now' if e.get('is_current') else e.get('end_date','')}"
+            exp_lines.append(f"  - {e['title']} @ {e['company']} ({dates})")
+        contact_timeline = "\n".join(exp_lines) or "Not available"
 
-GLOBAL QUALITY RULES:
-1. Do NOT include generic content. If a question could apply to most professionals, it must be discarded.
-2. Silence is preferable to weak or speculative content.
-3. Prefer fewer, stronger questions over more, weaker ones.
+        edu_lines = [
+            f"  - {e.get('degree','')} in {e.get('major','')} @ {e.get('school','')} ({e.get('end_date','')})"
+            for e in contact_data.get("educationArray", [])
+        ]
+        contact_education = "\n".join(edu_lines) or "Not available"
 
-QUESTION GENERATION RULES:
+        user_exp_summary = "; ".join([
+            f"{e.get('title','')} at {e.get('company','')}"
+            for e in user_context.get("experiences", [])[:3]
+        ]) or "No prior experience"
 
-Each question MUST:
-- Reference the professional's specific role, function, or career decisions
-- Reflect genuine curiosity a student would have
-- Be difficult to reuse for a different professional
+        news_lines = "\n".join([
+            f"  - {n.get('title','')} ({n.get('source','')}): {n.get('snippet','')}"
+            for n in research.get("company_news", [])[:4]
+        ]) or "None available"
 
-Explicitly REJECT any question that:
-- Asks "what inspired you to..." without context
-- Asks about a "typical day" without role-specific nuance
-- Could be asked of almost anyone
-- Mentions recruiting, hiring, or job openings
+        industry_trends = "\n".join([
+            f"  - {t.get('title','')} ({t.get('source','')}): {t.get('snippet','')}"
+            for t in research.get("industry_trends", [])[:3]
+        ]) or "None available"
 
-Preferred question types:
-- Career inflection points or decisions
-- Role realities and tradeoffs
-- How school prepared (or failed to prepare) them for this role
-- How their function fits into the broader organization
+        person_mentions = "\n".join([
+            f"  - {r.get('title','')} ({r.get('source','')}): {r.get('snippet','')}"
+            for r in research.get("person_mentions", [])[:3]
+        ]) or "None found"
 
-PROFESSIONAL:
-Name: {contact_data.get('firstName', '')} {contact_data.get('lastName', '')}
-Role: {contact_data.get('jobTitle', '')} at {contact_data.get('company', '')}
-Education: {contact_data.get('education', [])}
-Experience: {contact_data.get('experience', []) if isinstance(contact_data.get('experience'), list) else []}
+        prompt = f"""Generate 10 coffee chat questions for a student to ask their contact. These should make the contact feel genuinely seen and the student seem exceptionally well-prepared.
 
-STUDENT:
-Field of Study: {user_data.get('major', '')}
-University: {user_data.get('university', '')}
+CONTACT:
+Name: {contact_data.get('fullName', '')}
+Title: {contact_data.get('jobTitle', '')} at {contact_data.get('company', '')}
+Industry: {contact_data.get('industry', '')}
+Company Size: {contact_data.get('jobCompanySize', 'unknown')}
+Years Experience: {contact_data.get('yearsExperience', 'unknown')}
+Skills: {', '.join(contact_data.get('skills', [])[:8]) or 'not available'}
+Certifications: {', '.join([c.get('name','') for c in contact_data.get('certifications',[])]) or 'none'}
+Interests: {', '.join(contact_data.get('interests', [])[:6]) or 'not available'}
+LinkedIn Summary: {contact_data.get('summary', '')[:400]}
+Career Timeline:
+{contact_timeline}
+Education:
+{contact_education}
 
-Generate up to 8 candidate questions. If fewer than 8 meet quality standards, return only those that do. Return ONLY a JSON array, no other text:
-["question 1", "question 2", ...]"""
-        
+COMPANY RESEARCH — Recent News:
+{news_lines}
+
+INDUSTRY TRENDS:
+{industry_trends}
+
+PERSON-SPECIFIC RESEARCH (articles, talks, interviews featuring this person):
+{person_mentions}
+
+STUDENT CONTEXT:
+{user_context.get('name','The student')} is a {user_context.get('year','')} studying {user_context.get('major','')} at {user_context.get('university','')}
+Their work experience: {user_exp_summary}
+Their skills: {', '.join(user_context.get('skills',[])[:8]) or 'not listed'}
+Their career goals: {user_context.get('careerGoals','not stated')}
+Their target roles: {', '.join(user_context.get('targetRoles',[])[:4]) or 'not stated'}
+
+---
+
+Generate exactly 5 categories with 2 questions each:
+1. Career Trajectory (reference specific transitions in their timeline)
+2. Company & Role (reference real news or company specifics)
+3. Industry Insight (tie to actual trends from research)
+4. Skill & Craft (reference their specific skills, certs, or tools)
+5. Personal Journey (thoughtful, based on career moves and background)
+
+CRITICAL RULES:
+- Every question MUST reference something specific to this person (company name, school name, specific career move, actual news item, real skill, certification)
+- NO generic questions — "What does a typical day look like?", "What advice would you give?", "What do you wish you'd known?" are ALL banned unless combined with something highly specific
+- Questions should be curious and insightful, not flattering
+- If research found an article/talk/interview mentioning this person, write a question about it
+- If the student has relevant experience or skills that overlap, make some questions implicitly acknowledge that
+- Calibrate question sophistication to the student's background — if they have finance internships, skip basic questions
+
+Return exactly 5 categories in this order:
+1. Career Trajectory
+2. Company & Role
+3. Industry Insight
+4. Skill & Craft
+5. Personal Journey
+
+Each must have exactly 2 questions. Return ONLY valid JSON, no code fences, no preamble.
+{{
+  "categories": [
+    {{
+      "name": "Career Trajectory",
+      "questions": ["question 1", "question 2"]
+    }},
+    ...
+  ]
+}}"""
+
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You generate thoughtful, specific networking questions. Return only valid JSON arrays. Reject generic questions."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=400,
-            temperature=0.6
+            model="gpt-4o",
+            max_tokens=800,
+            messages=[{"role": "user", "content": prompt}],
         )
-        
-        import json
-        result_text = response.choices[0].message.content.strip()
-        # Remove markdown if present
-        if '```' in result_text:
-            result_text = result_text.split('```')[1]
-            if result_text.startswith('json'):
-                result_text = result_text[4:]
-            result_text = result_text.strip()
-        
-        questions = json.loads(result_text)
-        
-        # Strict filtering: reject generic questions and require explicit references
-        generic_patterns = [
-            "what inspired you",
-            "typical day",
-            "what advice would you give",
-            "most rewarding",
-            "how has the industry changed",
-            "what drew you",
-            "what's a typical",
-            "what skills are most important",
-            "what challenges do you face",
-            "what would you do differently",
-            "how did you get into",
-            "what's the most",
-            "what do you enjoy most"
-        ]
-        
-        # Patterns that indicate generic inspiration questions
-        inspiration_patterns = [
-            "what inspired",
-            "what drew you",
-            "how did you get into",
-            "what made you choose"
-        ]
-        
-        filtered = []
-        job_title_lower = (contact_data.get('jobTitle', '') or '').lower()
-        company_lower = (contact_data.get('company', '') or '').lower()
-        
-        for q in questions if isinstance(questions, list) else []:
-            if not q or not isinstance(q, str):
-                continue
-                
-            q_lower = q.lower()
-            
-            # Reject if matches generic patterns
-            is_generic = any(pattern in q_lower for pattern in generic_patterns)
-            if is_generic:
-                continue
-            
-            # Reject generic inspiration questions without context
-            is_generic_inspiration = any(pattern in q_lower for pattern in inspiration_patterns)
-            if is_generic_inspiration:
-                # Only allow if it has specific role/company context
-                has_context = (
-                    job_title_lower in q_lower or
-                    company_lower in q_lower or
-                    any(keyword in q_lower for keyword in ['this role', 'this position', 'this function', 'your division', 'your team', 'at ' + company_lower])
-                )
-                if not has_context:
-                    continue
-            
-            # Require explicit reference to role, company, or career decisions
-            has_role_reference = (
-                job_title_lower in q_lower if job_title_lower else False
-            )
-            has_company_reference = (
-                company_lower in q_lower if company_lower else False
-            )
-            has_career_decision_reference = any(
-                keyword in q_lower for keyword in [
-                    'this role', 'this position', 'this function', 
-                    'your division', 'your team', 'your career',
-                    'transition', 'decision', 'move to', 'switch to',
-                    'chose to', 'decided to'
-                ]
-            )
-            
-            # Must have at least one explicit reference
-            if not (has_role_reference or has_company_reference or has_career_decision_reference):
-                continue
-            
-            # Additional check: reject if question could apply to most professionals
-            could_apply_to_anyone = all(
-                phrase not in q_lower for phrase in [
-                    job_title_lower, company_lower, 'this role', 'this position',
-                    'your division', 'your team', 'at ' + company_lower
-                ]
-            ) if (job_title_lower or company_lower) else True
-            
-            if could_apply_to_anyone:
-                continue
-            
-            filtered.append(q)
-        
-        # If fewer than 2 high-quality questions remain, return empty list
-        if len(filtered) < 2:
-            logger.debug("QUESTIONS_SKIPPED: fewer than 2 quality questions (found {})".format(len(filtered)))
+        raw = response.choices[0].message.content.strip()
+        logger.info(f'[QUESTIONS] raw output: {raw[:500] if raw else None}')
+        raw = re.sub(r"^```json\s*", "", raw)
+        raw = re.sub(r"\s*```$",    "", raw)
+        try:
+            categories = json.loads(raw).get("categories", [])
+            logger.info(f'[QUESTIONS] parsed categories: {len(categories)} — {categories[:1]}')
+            return categories
+        except Exception:
             return []
-        
-        return filtered
-        
+
     except Exception as e:
-        print(f"Question generation failed: {e}")
+        logger.error(f"Question generation failed: {e}")
         return []
 
 
+def generate_company_cheat_sheet(contact_data: dict, research: dict) -> str:
+    """Generate a 4-5 row company cheat sheet. Returns markdown."""
+    client = get_openai_client()
+    if not client:
+        return ""
+
+    try:
+        overview_snippets = "\n".join([
+            f"  - {r.get('title','')} ({r.get('source','')}): {r.get('snippet','')}"
+            for r in research.get("company_overview", [])[:3]
+        ]) or "None found"
+
+        news_snippets = "\n".join([
+            f"  - {n.get('title','')} ({n.get('source','')}): {n.get('snippet','')}"
+            for n in research.get("company_news", [])[:3]
+        ]) or "None found"
+
+        prompt = f"""Generate a concise company cheat sheet for a student preparing to meet someone at {contact_data.get('company','this company')}.
+
+KNOWN DATA:
+- Industry: {contact_data.get('industry', 'unknown')}
+- Company Size: {contact_data.get('jobCompanySize', 'unknown')}
+- Founded: {contact_data.get('jobCompanyFounded', 'unknown')}
+- Contact's Role: {contact_data.get('jobTitle', '')}
+
+RESEARCH:
+Company Overview Articles:
+{overview_snippets}
+
+Recent News:
+{news_snippets}
+
+---
+
+Generate exactly these 4 rows in markdown table format, or as labeled sections:
+
+**What They Do** — 1-2 sentences, plain English, no jargon
+**Key Facts** — 5 bullets: size, founded, HQ, business model, one recent milestone
+**Industry Position** — Main competitors + what makes this company distinct (2 sentences)
+**Culture Signals** — Any signals about values, work style, career paths from research (2 sentences)
+
+Be factual and concise. If a section has no data, write a brief honest note rather than fabricating.
+Output as a short structured markdown block.
+
+IMPORTANT: Do NOT wrap your response in markdown code fences (no ```markdown or ```). Output plain markdown only.
+"""
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=400,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        logger.error(f"Company cheat sheet generation failed: {e}")
+        return ""
+
+
+def generate_conversation_strategy(contact_data: dict, user_context: dict, similarity_text: str) -> str:
+    """Generate a 6-step conversation roadmap with Do/Avoid. Returns markdown."""
+    client = get_openai_client()
+    if not client:
+        return ""
+
+    try:
+        prompt = f"""Create a practical conversation roadmap for a college student meeting with {contact_data.get('fullName','this contact')}.
+
+STUDENT: {user_context.get('name','The student')}, {user_context.get('year','')} studying {user_context.get('major','')} at {user_context.get('university','')}
+CONTACT: {contact_data.get('jobTitle','')} at {contact_data.get('company','')} · {contact_data.get('yearsExperience','?')} years experience
+MEETING: 25-minute coffee chat (virtual or in-person)
+STUDENT GOALS: {user_context.get('careerGoals','Not stated')}
+COMMON GROUND IDENTIFIED:
+{similarity_text[:400]}
+
+---
+
+Generate:
+
+**CONVERSATION FLOW** (6 steps with timing):
+Opening (0-2 min): One specific suggested opener referencing the common ground identified above
+Rapport (2-7 min): 1-2 specific warm-up topics
+Core Questions (7-17 min): Which 3-4 questions to prioritize and why
+Your Story (17-20 min): What to share about themselves and how to connect it
+The Ask (20-23 min): One specific, appropriate ask for this type of contact
+Close (23-25 min): How to wrap up and set up follow-through
+
+**DO THIS** (output exactly this header, then exactly 4 dash-list items):
+- [specific do item 1]
+- [specific do item 2]
+- [specific do item 3]
+- [specific do item 4]
+
+**AVOID THIS** (output exactly this header, then exactly 4 dash-list items):
+- [specific avoid item 1]
+- [specific avoid item 2]
+- [specific avoid item 3]
+- [specific avoid item 4]
+
+Keep it specific to this person and this student's background. No generic advice.
+
+CRITICAL FORMAT RULES — follow exactly:
+- Output ONLY the sections listed above
+- Use **Bold Header:** format for section titles
+- Use "- " (dash space) for all list items — never use numbered lists, never use • bullets
+- Do NOT add any extra sections, headers, or content beyond what is specified
+- Do NOT wrap output in code fences
+- Do NOT add blank lines between list items
+"""
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=500,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        logger.error(f"Conversation strategy generation failed: {e}")
+        return ""
+
+
+# ─── Legacy helper functions (kept for backward compat) ─────────────────────
+
 def _score_similarity_strength(similarity_summary: str) -> float:
-    """
-    Compute a 0-1 score for similarity strength based on content richness.
-    Higher scores indicate more specific, detailed similarities.
-    """
+    """Compute a 0-1 score for similarity strength based on content richness."""
     if not similarity_summary:
         return 0.0
-    
-    import re
-    
-    # Count specific indicators of strong similarity
     score = 0.0
-    
-    # Check for specific entities (proper nouns, capitalized terms)
     capitalized_count = len(re.findall(r'\b[A-Z][a-z]+\b', similarity_summary))
-    score += min(capitalized_count * 0.1, 0.4)  # Max 0.4 from entities
-    
-    # Check for explicit connection words
-    connection_words = ['both', 'shared', 'same', 'similar', 'common', 'also', 'together', 'both']
+    score += min(capitalized_count * 0.1, 0.4)
+    connection_words = ['both', 'shared', 'same', 'similar', 'common', 'also', 'together']
     connection_count = sum(1 for word in connection_words if word.lower() in similarity_summary.lower())
-    score += min(connection_count * 0.05, 0.2)  # Max 0.2 from connections
-    
-    # Check length (longer, more detailed = stronger)
+    score += min(connection_count * 0.05, 0.2)
     word_count = len(similarity_summary.split())
     if word_count >= 50:
         score += 0.3
@@ -448,25 +456,16 @@ def _score_similarity_strength(similarity_summary: str) -> float:
         score += 0.2
     elif word_count >= 25:
         score += 0.1
-    
-    # Check for specific details (numbers, locations, time references)
     has_specifics = bool(re.search(r'\d+|years?|months?|university|college|company|firm', similarity_summary.lower()))
     if has_specifics:
         score += 0.1
-    
     return min(score, 1.0)
 
 
 def _score_question_relevance(question: str, similarity_summary: str) -> float:
-    """
-    Compute a 0-1 relevance score for a question based on similarity summary.
-    """
+    """Compute a 0-1 relevance score for a question based on similarity summary."""
     if not question or not similarity_summary:
         return 0.0
-    
-    import re
-    
-    # Extract meaningful keywords from similarity summary
     stop_words = {
         'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
         'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
@@ -478,74 +477,34 @@ def _score_question_relevance(question: str, similarity_summary: str) -> float:
         'through', 'during', 'before', 'after', 'above', 'below', 'up', 'down',
         'out', 'off', 'over', 'under', 'again', 'further', 'then', 'once'
     }
-    
     similarity_words = set()
-    similarity_lower = similarity_summary.lower()
-    words = re.findall(r'\b[a-zA-Z]{2,}\b', similarity_lower)
+    words = re.findall(r'\b[a-zA-Z]{2,}\b', similarity_summary.lower())
     for word in words:
         if word not in stop_words:
             similarity_words.add(word)
-    
-    capitalized = re.findall(r'\b[A-Z][a-z]+\b', similarity_summary)
-    for word in capitalized:
-        similarity_words.add(word.lower())
-    
     if not similarity_words:
         return 0.0
-    
     question_lower = question.lower()
     overlap_count = sum(1 for keyword in similarity_words if keyword in question_lower)
-    
-    # Normalize to 0-1: more keywords = higher score, but cap based on total keywords
-    if not similarity_words:
-        return 0.0
-    
-    # Score based on proportion of matched keywords (weighted by importance of keywords)
-    max_possible = min(len(similarity_words), 10)  # Cap expected max matches
+    max_possible = min(len(similarity_words), 10)
     normalized_score = min(overlap_count / max_possible, 1.0) if max_possible > 0 else 0.0
-    
-    # Boost score if multiple matches (exponential boost for better matches)
     if overlap_count >= 3:
         normalized_score = min(normalized_score * 1.3, 1.0)
     elif overlap_count >= 2:
         normalized_score = min(normalized_score * 1.1, 1.0)
-    
     return normalized_score
 
 
 def select_relevant_questions(questions: list, similarity_summary: str, max_questions: int = 3) -> list:
-    """
-    Select questions that best relate to the similarity summary.
-    Uses lightweight keyword matching to score questions based on relevance (0-1 scores).
-    
-    Args:
-        questions: List of question strings
-        similarity_summary: The similarity summary text
-        max_questions: Maximum number of questions to return (default 3)
-    
-    Returns:
-        List of selected questions, ordered by relevance score (highest first)
-    """
+    """Select questions that best relate to the similarity summary."""
     if not questions or not similarity_summary:
         return (questions or [])[:max_questions]
-    
-    # Score each question (0-1)
     scored_questions = []
     for question in questions:
         if not question:
             continue
         score = _score_question_relevance(question, similarity_summary)
         scored_questions.append((score, question))
-    
-    # Sort by score (descending)
     scored_questions.sort(key=lambda x: x[0], reverse=True)
-    
-    # Select top N questions (prefer higher scores, but include lower scores if needed)
-    selected = []
-    for score, q in scored_questions:
-        if len(selected) >= max_questions:
-            break
-        selected.append(q)
-    
+    selected = [q for _, q in scored_questions[:max_questions]]
     return selected if selected else (questions or [])[:max_questions]
-

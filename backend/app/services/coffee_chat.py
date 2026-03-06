@@ -494,6 +494,85 @@ def fetch_serp_research(
     return news_items, industry_summary
 
 
+def fetch_comprehensive_research(
+    company: str,
+    industry: str,
+    job_title: str,
+    first_name: str,
+    last_name: str,
+) -> dict:
+    """
+    Run 4 targeted SERP searches. Returns structured research dict with
+    company_news, company_overview, person_mentions, industry_trends.
+    """
+    results = {
+        "company_news":     [],
+        "company_overview": [],
+        "person_mentions":  [],
+        "industry_trends":  [],
+    }
+
+    if not SERPAPI_KEY:
+        print("[SERP] SERPAPI_KEY missing; skipping research")
+        return results
+
+    def safe_search(params):
+        try:
+            params["api_key"] = SERPAPI_KEY
+            search = GoogleSearch(params)
+            data = search.get_dict()
+            return data.get("organic_results", []) or data.get("news_results", []) or []
+        except Exception as e:
+            print(f"[SERP] Search failed: {e}")
+            return []
+
+    def to_result(r):
+        source = r.get("source", "")
+        if isinstance(source, dict):
+            source = source.get("name", "")
+        return {
+            "title":   r.get("title", ""),
+            "url":     r.get("link", ""),
+            "source":  source,
+            "snippet": r.get("snippet", ""),
+            "date":    r.get("date", ""),
+        }
+
+    # 1. Company news (recent, from news tab)
+    if company:
+        raw = safe_search({
+            "engine": "google", "q": f'"{company}" news 2025 2026',
+            "tbm": "nws", "num": 5,
+        })
+        results["company_news"] = [to_result(r) for r in raw[:5]]
+
+    # 2. Company overview (web results)
+    if company:
+        raw = safe_search({
+            "engine": "google",
+            "q": f'"{company}" company overview {industry}',
+            "num": 3,
+        })
+        results["company_overview"] = [to_result(r) for r in raw[:3]]
+
+    # 3. Person-specific mentions (articles, talks, interviews)
+    if first_name and last_name:
+        raw = safe_search({
+            "engine": "google",
+            "q": f'"{first_name} {last_name}" {company} interview OR article OR talk OR paper',
+            "num": 3,
+        })
+        results["person_mentions"] = [to_result(r) for r in raw[:3]]
+
+    # 4. Industry trends
+    if industry or job_title:
+        q = f'{industry or job_title} trends 2025 2026'
+        raw = safe_search({"engine": "google", "q": q, "tbm": "nws", "num": 3})
+        results["industry_trends"] = [to_result(r) for r in raw[:3]]
+
+    return results
+
+
 def infer_hometown_from_education(education: Sequence[str], contact_data: Optional[Dict[str, Any]] = None) -> Optional[str]:
     """
     Extract hometown only if city/state explicitly appears in education or PDL location fields.

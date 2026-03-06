@@ -3054,6 +3054,150 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
     return filtered[:max_contacts]
 
 
+def build_coffee_chat_data(pdl_person: dict, best_email: str) -> dict:
+    """
+    Build the full coffee_chat_data dict from a raw PDL person response.
+    Pass through ALL useful fields — do not flatten or discard.
+    """
+    first = pdl_person.get("first_name", "") or ""
+    last  = pdl_person.get("last_name", "")  or ""
+
+    # ── Social profiles ──────────────────────────────────────────
+    github_url  = ""
+    twitter_url = ""
+    linkedin_url = ""
+    for profile in pdl_person.get("profiles", []):
+        network = (profile.get("network") or "").lower()
+        url     = profile.get("url") or profile.get("clean_url") or ""
+        if network == "github":   github_url   = url
+        if network == "twitter":  twitter_url  = url
+        if network == "linkedin": linkedin_url = url
+
+    # ── Experience array ─────────────────────────────────────────
+    experience_array = []
+    for exp in pdl_person.get("experience", []):
+        start = exp.get("start_date") or ""
+        end   = exp.get("end_date")   or ""
+        is_current = exp.get("is_primary", False) or not end
+        title_obj   = exp.get("title")   or {}
+        company_obj = exp.get("company") or {}
+        experience_array.append({
+            "title":          title_obj.get("name", "") if isinstance(title_obj, dict) else str(title_obj),
+            "company":        company_obj.get("name", "") if isinstance(company_obj, dict) else str(company_obj),
+            "start_date":     start,
+            "end_date":       end,
+            "is_current":     is_current,
+            "location_names": exp.get("location_names", []),
+            "summary":        exp.get("summary", ""),
+        })
+
+    # Current role from first experience entry
+    current_exp     = experience_array[0] if experience_array else {}
+    current_title   = current_exp.get("title", "")
+    current_company = current_exp.get("company", "") or pdl_person.get("job_company_name", "")
+
+    # ── Education array ───────────────────────────────────────────
+    education_array = []
+    for edu in pdl_person.get("education", []):
+        school_obj = edu.get("school") or {}
+        education_array.append({
+            "school":     school_obj.get("name", "") if isinstance(school_obj, dict) else str(school_obj),
+            "degree":     edu.get("degrees", [""])[0] if edu.get("degrees") else "",
+            "major":      edu.get("majors",  [""])[0] if edu.get("majors")  else "",
+            "start_date": edu.get("start_date", ""),
+            "end_date":   edu.get("end_date",   ""),
+            "gpa":        edu.get("gpa"),
+        })
+
+    # ── Skills (ACTUALLY EXTRACT THESE) ─────────────────────────
+    skills = []
+    for s in pdl_person.get("skills", []):
+        name = s.get("name") if isinstance(s, dict) else str(s)
+        if name: skills.append(name)
+
+    # ── Interests (REMOVE THE HARDCODED []) ─────────────────────
+    interests = pdl_person.get("interests", [])
+    if isinstance(interests, list):
+        interests = [i for i in interests if i]
+
+    # ── Certifications ────────────────────────────────────────────
+    certifications = []
+    for cert in pdl_person.get("certifications", []):
+        if isinstance(cert, dict) and cert.get("name"):
+            certifications.append({
+                "name":       cert.get("name", ""),
+                "start_date": cert.get("start_date", ""),
+                "end_date":   cert.get("end_date", ""),
+            })
+
+    # ── Industry (USE REAL PDL FIELD, not fabricated) ───────────
+    industry = (
+        pdl_person.get("job_company_industry")
+        or pdl_person.get("industry")
+        or ""
+    )
+
+    loc = pdl_person.get("location") or {}
+    city    = loc.get("locality") or pdl_person.get("location_locality") or ""
+    state   = loc.get("region")   or pdl_person.get("location_region")   or ""
+    country = loc.get("country")  or pdl_person.get("location_country")  or ""
+    # PDL can return booleans for location fields — coerce to string, skip booleans
+    city    = str(city) if city and not isinstance(city, bool) else ""
+    state   = str(state) if state and not isinstance(state, bool) else ""
+    country = str(country) if country and not isinstance(country, bool) else ""
+    location_display = ", ".join(filter(None, [city, state, country]))
+
+    return {
+        # ── Identity
+        "firstName":             first,
+        "lastName":              last,
+        "fullName":              f"{first} {last}".strip(),
+        "email":                 best_email,
+        "linkedinUrl":           linkedin_url,
+        "githubUrl":             github_url,
+        "twitterUrl":            twitter_url,
+
+        # ── Current role
+        "jobTitle":              current_title,
+        "company":               current_company,
+        "industry":              industry,
+        "jobCompanySize":        pdl_person.get("job_company_size", ""),
+        "jobCompanyFounded":     pdl_person.get("job_company_founded", ""),
+        "jobCompanyLinkedinUrl": pdl_person.get("job_company_linkedin_url", ""),
+
+        # ── Location
+        "city":                  city,
+        "state":                 state,
+        "country":               country,
+        "location":              location_display,
+
+        # ── Rich arrays (NOT flattened)
+        "experienceArray":       experience_array,
+        "educationArray":        education_array,
+
+        # ── Skills / interests (ACTUALLY POPULATED)
+        "skills":                skills,
+        "interests":             interests,
+        "certifications":        certifications,
+        "languages":             pdl_person.get("languages", []),
+
+        # ── PDL summary (LinkedIn about section)
+        "summary":               pdl_person.get("summary", ""),
+        "yearsExperience":       pdl_person.get("inferred_years_experience"),
+        "linkedinConnections":   pdl_person.get("linkedin_connections"),
+
+        # ── Legacy flat strings for backward compat
+        "workExperience": [
+            f"{experience_array[0]['title']} at {experience_array[0]['company']}"
+            if experience_array else ""
+        ],
+        "education": (
+            f"{education_array[0]['degree']} at {education_array[0]['school']}"
+            if education_array else ""
+        ),
+    }
+
+
 def enrich_linkedin_profile(linkedin_url):
     """Use PDL to enrich LinkedIn profile"""
     try:
@@ -3062,27 +3206,27 @@ def enrich_linkedin_profile(linkedin_url):
         if cached:
             print(f"Using cached data for: {linkedin_url}")
             return cached
-        
+
         print(f"Enriching LinkedIn profile: {linkedin_url}")
-        
+
         # Clean the LinkedIn URL - FIXED VERSION
         linkedin_url = linkedin_url.strip()
-        
+
         # Remove protocol if present
         linkedin_url = linkedin_url.replace('https://', '').replace('http://', '')
-        
+
         # Remove www. if present
         linkedin_url = linkedin_url.replace('www.', '')
-        
+
         # If it's just the username (no linkedin.com), add the full path
         if not linkedin_url.startswith('linkedin.com'):
             linkedin_url = f'https://www.linkedin.com/in/{linkedin_url}'
         else:
             # If it already has linkedin.com, just add https://
             linkedin_url = f'https://{linkedin_url}'
-        
+
         print(f"Cleaned URL: {linkedin_url}")
-        
+
         # Use PDL Person Enrichment API
         response = requests.get(
             f"{PDL_BASE_URL}/person/enrich",
@@ -3093,40 +3237,26 @@ def enrich_linkedin_profile(linkedin_url):
             },
             timeout=30
         )
-        
+
         print(f"PDL API response status: {response.status_code}")
-        
+
         if response.status_code == 200:
             person_data = response.json()
             print(f"PDL response status: {person_data.get('status')}")
-            
+
             if person_data.get('status') == 200 and person_data.get('data'):
                 print(f"Successfully enriched profile")
-                
-                # Extract the data using your existing function
-                enriched = extract_contact_from_pdl_person_enhanced(person_data['data'])
-                
-                if not enriched:
-                    print(f"Failed to extract contact data")
-                    return None
-                
-                # Transform to coffee chat format
-                coffee_chat_data = {
-                    'firstName': enriched.get('FirstName', ''),
-                    'lastName': enriched.get('LastName', ''),
-                    'jobTitle': enriched.get('Title', ''),
-                    'company': enriched.get('Company', ''),
-                    'location': f"{enriched.get('City', '')}, {enriched.get('State', '')}",
-                    'workExperience': [enriched.get('WorkSummary', '')],
-                    'education': [enriched.get('EducationTop', '')],
-                    'volunteerWork': [enriched.get('VolunteerHistory', '')] if enriched.get('VolunteerHistory') else [],
-                    'linkedinUrl': enriched.get('LinkedIn', ''),
-                    'email': enriched.get('Email', ''),
-                    'city': enriched.get('City', ''),
-                    'state': enriched.get('State', ''),
-                    'interests': []
-                }
-                
+                pdl_person = person_data['data']
+
+                # Also extract via legacy function for backward compat with other features
+                enriched = extract_contact_from_pdl_person_enhanced(pdl_person)
+                best_email = (enriched or {}).get('Email', '') if enriched else ''
+
+                # Build rich coffee chat data directly from raw PDL response
+                coffee_chat_data = build_coffee_chat_data(pdl_person, best_email)
+
+                print(f"[CoffeeChat] skills={len(coffee_chat_data['skills'])}, interests={len(coffee_chat_data['interests'])}, industry={coffee_chat_data['industry']}")
+
                 print(f"Caching enriched data for: {linkedin_url}")
                 set_pdl_cache(linkedin_url, coffee_chat_data)
                 return coffee_chat_data
@@ -3135,7 +3265,7 @@ def enrich_linkedin_profile(linkedin_url):
                 if person_data.get('error'):
                     print(f"PDL error: {person_data.get('error')}")
                 return None
-        
+
         elif response.status_code == 404:
             print(f"LinkedIn profile not found in PDL database")
             return None
@@ -3149,12 +3279,12 @@ def enrich_linkedin_profile(linkedin_url):
             print(f"PDL enrichment failed with status {response.status_code}")
             print(f"Response: {response.text[:500]}")
             return None
-        
+
     except requests.exceptions.Timeout:
-        print(f"⏱️ PDL API timeout for {linkedin_url}")
+        print(f"PDL API timeout for {linkedin_url}")
         return None
     except Exception as e:
-        print(f"❌ LinkedIn enrichment error: {e}")
+        print(f"LinkedIn enrichment error: {e}")
         import traceback
         traceback.print_exc()
         return None

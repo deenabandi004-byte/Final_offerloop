@@ -258,7 +258,7 @@ export default function EmailTemplatesPage() {
     } catch {
       // ignore
     }
-    navigate("/contact-search", { state: { appliedEmailTemplate: template } });
+    navigate("/find", { state: { appliedEmailTemplate: template } });
     toast({ title: "Applied", description: "Template will be used for your next search." });
   };
 
@@ -294,7 +294,7 @@ export default function EmailTemplatesPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => navigate("/contact-search")}
+                onClick={() => navigate("/find")}
                 className="mb-6 -ml-2 text-gray-600 hover:text-gray-900"
               >
                 <ArrowLeft className="h-4 w-4 mr-2" />

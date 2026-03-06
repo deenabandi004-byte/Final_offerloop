@@ -6,7 +6,6 @@ from app.routes.spa import spa_bp
 from app.routes.gmail_oauth import gmail_oauth_bp
 from app.routes.emails import emails_bp
 from app.routes.contacts import contacts_bp
-from app.routes.directory import directory_bp
 from app.routes.runs import runs_bp
 from app.routes.enrichment import enrichment_bp
 from app.routes.resume import resume_bp
@@ -27,7 +26,6 @@ __all__ = [
     'gmail_oauth_bp',
     'emails_bp',
     'contacts_bp',
-    'directory_bp',
     'runs_bp',
     'enrichment_bp',
     'resume_bp',

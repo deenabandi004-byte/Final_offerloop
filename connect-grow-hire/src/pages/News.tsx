@@ -13,7 +13,7 @@ const News = () => {
       <main className="container mx-auto px-4 py-16">
         <Button 
           variant="ghost" 
-          onClick={() => navigate("/contact-search")} 
+          onClick={() => navigate("/find")} 
           className="mb-8 p-2"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />

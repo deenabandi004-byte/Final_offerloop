@@ -5,10 +5,12 @@ job discovery, and SERP-powered research capabilities.
 from __future__ import annotations
 
 import asyncio
+import os
 import json
 import re
 import time
 import hashlib
+import threading
 import traceback
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional, Tuple, Literal
@@ -142,24 +144,36 @@ class ScoutResponse:
 # ============================================================================
 
 class TTLCache:
-    """Simple in-memory TTL cache."""
-    
-    def __init__(self, default_ttl: int = 3600):  # 1 hour default
+    """Thread-safe in-memory TTL cache with LRU eviction."""
+
+    def __init__(self, default_ttl: int = 3600, max_size: int = 256):
         self._store: Dict[str, Tuple[float, Any]] = {}
         self._default_ttl = default_ttl
+        self._max_size = max_size
+        self._lock = threading.Lock()
 
     def get(self, key: str) -> Optional[Any]:
-        if key not in self._store:
-            return None
-        expires_at, value = self._store[key]
-        if expires_at < time.time():
-            self._store.pop(key, None)
-            return None
-        return value
+        with self._lock:
+            if key not in self._store:
+                return None
+            expires_at, value = self._store[key]
+            if expires_at < time.time():
+                self._store.pop(key, None)
+                return None
+            # Move to end (most recently used)
+            self._store[key] = self._store.pop(key)
+            return value
 
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
         lifetime = ttl if ttl is not None else self._default_ttl
-        self._store[key] = (time.time() + lifetime, value)
+        with self._lock:
+            if key in self._store:
+                del self._store[key]
+            self._store[key] = (time.time() + lifetime, value)
+            # Evict oldest entries if over max size
+            while len(self._store) > self._max_size:
+                oldest_key = next(iter(self._store))
+                del self._store[oldest_key]
 
     def make_key(self, *args) -> str:
         return hashlib.md5(":".join(str(a) for a in args).encode()).hexdigest()
@@ -218,7 +232,7 @@ class ScoutService:
         
         # Classify intent
         intent, extracted = await self._classify_intent(message, context)
-        print(f"[Scout] Intent: {intent}, Extracted: {extracted}")
+        print(f"[Scout] Intent: {intent}")
         
         # Route to appropriate handler
         try:
@@ -1108,56 +1122,45 @@ Be honest but constructive. If the job doesn't align well with their major/backg
                 # Extract location from resume if not already set
                 # This is CRITICAL - we MUST use resume location for search, not job results
                 if not location and user_resume:
-                    print(f"[Scout] 🔍 Extracting location from resume for job search...")
-                    pass  # debug removed
                     resume_location = user_resume.get("location")
-                    print(f"[Scout] DEBUG: resume_location from user_resume: {resume_location}")
-                    
+
                     # Also check resumeParsed.location if user_resume has nested structure
                     if not resume_location:
                         resume_parsed = user_resume.get("resumeParsed") or {}
                         if isinstance(resume_parsed, dict):
                             resume_location = resume_parsed.get("location")
-                            print(f"[Scout] DEBUG: resume_location from resumeParsed: {resume_location}")
                         # Also check if user_resume itself is the parsed structure
                         if not resume_location and isinstance(user_resume, dict):
                             resume_location = user_resume.get("location")
-                    
+
                     if resume_location and isinstance(resume_location, str) and resume_location.strip():
                         location = resume_location.strip()
-                        print(f"[Scout] ✅ Using location from resume for job search: {location}")
                     else:
                         # Fallback: try to extract location from resume text using regex
                         resume_text = user_resume.get("resume_text") or user_resume.get("text") or user_resume.get("rawText") or user_resume.get("resumeText") or ""
-                        print(f"[Scout] DEBUG: resume_text length: {len(resume_text)}")
                         if resume_text:
                             from app.utils.users import extract_hometown_from_resume
                             extracted_location = extract_hometown_from_resume(resume_text)
                             if extracted_location:
                                 location = extracted_location
-                                print(f"[Scout] ✅ Extracted location from resume text for job search: {location}")
-                            else:
-                                print(f"[Scout] ⚠️ Could not extract location from resume text")
-                                print(f"[Scout] ⚠️ Will search without location filter - results may be from anywhere")
-                        else:
-                            print(f"[Scout] ⚠️ No resume text available for location extraction")
-                            print(f"[Scout] ⚠️ Will search without location filter - results may be from anywhere")
-                else:
-                    if not location:
-                        print(f"[Scout] ⚠️ No location extracted and no user_resume provided")
-                        print(f"[Scout] ⚠️ Will search without location filter - results may be from anywhere")
                 
-                # Search for each generated title
+                # Search for each generated title in parallel
+                queries = []
                 for title in job_titles[:3]:  # Max 3 searches
                     query = title
                     if location:
                         query += f" in {location}"
                     else:
-                        query += " jobs"  # Add "jobs" if no location
-                    
-                    print(f"[Scout] Searching: {query}")
-                    jobs = await self._search_jobs(query)
-                    all_jobs.extend(jobs)
+                        query += " jobs"
+                    queries.append(query)
+
+                results = await asyncio.gather(
+                    *(self._search_jobs(q) for q in queries),
+                    return_exceptions=True,
+                )
+                for r in results:
+                    if isinstance(r, list):
+                        all_jobs.extend(r)
                 
                 # Deduplicate by (title, company) tuple
                 seen = set()
@@ -2112,26 +2115,6 @@ Keep it concise but informative. Use formatting for readability.
         context: Dict[str, Any]
     ) -> ScoutResponse:
         """Handle general conversation and follow-ups."""
-        
-        # Quick check: if this looks like a job search, handle it as such
-        if any(word in message.lower() for word in ['find', 'search', 'look for', 'postings', 'openings', 'jobs']) and \
-           any(word in message.lower() for word in ['in', 'at', 'near', 'los angeles', 'san francisco', 'new york', 'nyc', 'sf', 'la']):
-            # Extract what we can
-            extracted = {}
-            location_match = re.search(
-                r'\b(?:in|at|near)\s+([A-Za-z\s,]+?)(?:\s*$|\s+(?:for|as|with))',
-                message, re.IGNORECASE
-            )
-            if location_match:
-                extracted["location"] = location_match.group(1).strip()
-            role_match = re.search(
-                r'\b(find|search|look for|show me|can you find)\s+(.+?)\s+(?:postings?|openings?|jobs?)\s+(?:in|at|near)',
-                message, re.IGNORECASE
-            )
-            if role_match:
-                extracted["job_title"] = role_match.group(2).strip()
-            # Treat as job search
-            return await self._handle_job_search(message, extracted, context)
         
         if not self._openai:
             print("[Scout] OpenAI client not available for conversation")
@@ -3374,74 +3357,43 @@ Keep responses under 100 words unless detail is needed.
             }
 
 
+
     # ========================================================================
     # RESUME FORMATTING
     # ========================================================================
-    
+
     def format_resume_pdf(self, parsed_resume: Dict[str, Any]) -> bytes:
         """
         Generate a professionally styled resume PDF from structured resume data using HTML/CSS template.
-        
-        Args:
-            parsed_resume: Structured resume data dictionary with sections like:
-                - name: str
-                - email, phone, linkedin, location: str (optional)
-                - summary: str (optional)
-                - experience: List[Dict] with keys: title, company, dates, bullets, location
-                - education: List[Dict] with keys: degree, school, dates, gpa, honors, coursework
-                - skills: Dict[str, List[str]] or List[str]
-                - projects: List[Dict] with keys: name, context, bullets, technologies, date
-                - achievements: List[str] or List[Dict]
-                - certifications: List[str] or List[Dict]
-        
-        Returns:
-            PDF bytes
         """
         try:
             from jinja2 import Environment, FileSystemLoader
             from weasyprint import HTML
             import os
-            
-            # Get template directory - templates are in app/templates relative to this file
+
             current_dir = os.path.dirname(os.path.abspath(__file__))
-            app_dir = os.path.dirname(current_dir)  # Go from services/ to app/
+            app_dir = os.path.dirname(current_dir)
             template_dir = os.path.join(app_dir, 'templates')
             env = Environment(loader=FileSystemLoader(template_dir))
             template = env.get_template('resume.html')
-            
-            # Prepare resume data for template
-            # Handle contact info - can be direct fields or nested in 'contact' dict
+
             contact_info = {}
             if isinstance(parsed_resume.get('contact'), dict):
                 contact_info = parsed_resume['contact']
             else:
-                # Extract contact fields directly from resume
-                if parsed_resume.get('email'):
-                    contact_info['email'] = parsed_resume['email']
-                if parsed_resume.get('phone'):
-                    contact_info['phone'] = parsed_resume['phone']
+                for key in ('email', 'phone', 'github', 'website', 'location'):
+                    if parsed_resume.get(key):
+                        contact_info[key] = parsed_resume[key]
                 if parsed_resume.get('linkedin'):
                     linkedin = parsed_resume['linkedin']
                     if not linkedin.startswith('http'):
                         linkedin = f"linkedin.com/in/{linkedin.lstrip('/')}"
                     contact_info['linkedin'] = linkedin
-                if parsed_resume.get('github'):
-                    contact_info['github'] = parsed_resume['github']
-                if parsed_resume.get('website'):
-                    contact_info['website'] = parsed_resume['website']
-                if parsed_resume.get('location'):
-                    contact_info['location'] = parsed_resume['location']
-            
-            # Prepare template context
-            # Handle education - ensure it's a list
+
             education_data = parsed_resume.get('education', [])
             if not isinstance(education_data, list):
-                # If it's a dict, convert to list
-                if isinstance(education_data, dict):
-                    education_data = [education_data]
-                else:
-                    education_data = []
-            
+                education_data = [education_data] if isinstance(education_data, dict) else []
+
             template_data = {
                 'name': parsed_resume.get('name', ''),
                 'contact': contact_info if contact_info else None,
@@ -3453,22 +3405,24 @@ Keep responses under 100 words unless detail is needed.
                 'achievements': parsed_resume.get('achievements', []),
                 'certifications': parsed_resume.get('certifications', []),
             }
-            
-            # Render HTML from template
+
             html_content = template.render(**template_data)
-            
-            # Convert HTML to PDF using WeasyPrint
             html_doc = HTML(string=html_content)
-            pdf_bytes = html_doc.write_pdf()
-            
-            print(f"[Scout] Successfully generated resume PDF ({len(pdf_bytes)} bytes)")
+            _devnull = open(os.devnull, "w")
+            _old_stderr = os.dup(2)
+            os.dup2(_devnull.fileno(), 2)
+            try:
+                pdf_bytes = html_doc.write_pdf()
+            finally:
+                os.dup2(_old_stderr, 2)
+                os.close(_old_stderr)
+                _devnull.close()
+
             return pdf_bytes
-            
+
         except Exception as e:
             print(f"[Scout] Error generating resume PDF: {e}")
-            import traceback
             traceback.print_exc()
-            # Return empty PDF bytes as fallback
             return b""
 
 

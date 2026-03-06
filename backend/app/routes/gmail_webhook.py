@@ -4,6 +4,7 @@ Gmail push notification webhook — receives Pub/Sub notifications and detects r
 import base64
 import json
 import re
+import threading
 from datetime import datetime
 from email.utils import parseaddr
 
@@ -139,11 +140,6 @@ def _process_gmail_notification(email_address, history_id):
                 print(f"[gmail_webhook] messages.get error msg={msg_id}: {e}")
                 continue
 
-            if not thread_id:
-                thread_id = msg_resp.get("threadId")
-            if not thread_id:
-                continue
-
             headers = msg_resp.get("payload", {}).get("headers", [])
             from_header = next((h.get("value", "") for h in headers if h.get("name", "").lower() == "from"), "")
             from_email = _extract_email_from_header(from_header)
@@ -216,15 +212,25 @@ def _process_gmail_notification(email_address, history_id):
                             print(f"[gmail_webhook] Strategy 2c draftToEmail scan error: {e}")
 
                 # Strategy 3: find contacts whose draft has disappeared (was sent)
+                # Capped at 10 candidates to prevent excessive Gmail API calls
+                STRATEGY_3_CAP = 10
                 if not contact_ref:
                     try:
                         draft_candidates = contacts_ref.where(
                             "pipelineStage", "==", "draft_created"
-                        ).where("inOutbox", "==", True).get()
-                        for candidate in draft_candidates:
+                        ).where("inOutbox", "==", True).limit(STRATEGY_3_CAP + 1).get()
+                        candidates_list = list(draft_candidates)
+                        if len(candidates_list) > STRATEGY_3_CAP:
+                            print(f"[gmail_webhook] Strategy 3: {len(candidates_list)}+ draft contacts, capping at {STRATEGY_3_CAP}")
+                            candidates_list = candidates_list[:STRATEGY_3_CAP]
+                        for candidate in candidates_list:
                             cdata = candidate.to_dict() or {}
                             draft_id = cdata.get("gmailDraftId")
                             if not draft_id:
+                                continue
+                            # Verify the contact's intended recipient matches the sent-to address
+                            contact_to = (cdata.get("draftToEmail") or cdata.get("email") or "").lower()
+                            if to_email and contact_to and to_email != contact_to:
                                 continue
                             try:
                                 service.users().drafts().get(
@@ -335,7 +341,7 @@ def _process_gmail_notification(email_address, history_id):
                 "inOutbox": True,
                 "hasUnreadReply": True,
                 "lastActivityAt": now_iso,
-                "lastMessageSnippet": message_snippet or (msg_resp.get("snippet") or ""),
+                "lastMessageSnippet": message_snippet,
                 "threadStatus": "new_reply",
                 "updatedAt": now_iso,
             }
@@ -382,8 +388,8 @@ def _process_gmail_notification(email_address, history_id):
 @gmail_webhook_bp.post("/webhook")
 def webhook():
     """
-    Pub/Sub push endpoint. Verifies token, decodes message, returns 200 immediately,
-    processes notification in a background thread.
+    Pub/Sub push endpoint. Verifies token, decodes message, dispatches processing
+    to a background thread, and returns 200 immediately to avoid Pub/Sub redelivery.
     """
     if GMAIL_WEBHOOK_SECRET:
         token = (request.args.get("token") or "").strip()
@@ -406,6 +412,10 @@ def webhook():
     email_address = (data.get("emailAddress") or "").strip()
     history_id = str(data.get("historyId", ""))
 
-    _process_gmail_notification(email_address, history_id)
+    threading.Thread(
+        target=_process_gmail_notification,
+        args=(email_address, history_id),
+        daemon=True,
+    ).start()
 
     return jsonify({"status": "ok"}), 200

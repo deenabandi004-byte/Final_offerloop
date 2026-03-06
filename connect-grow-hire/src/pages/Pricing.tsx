@@ -307,7 +307,7 @@ const Pricing = () => {
           credits: 300,
           maxCredits: 300
         });
-        navigate("/contact-search");
+        navigate("/find");
       }
       else if (planType === 'pro' || planType === 'elite') {
         trackUpgradeClick(fromFeature || 'pricing', {
@@ -420,7 +420,7 @@ const Pricing = () => {
         {/* Back Navigation */}
         <div className="mb-8 animate-fadeInUp">
           <button
-            onClick={() => navigate("/contact-search")}
+            onClick={() => navigate("/find")}
             className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors group"
           >
             <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />

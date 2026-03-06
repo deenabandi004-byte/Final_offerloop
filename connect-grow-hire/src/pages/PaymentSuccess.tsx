@@ -236,7 +236,7 @@ export default function PaymentSuccess() {
                 Try Again
               </Button>
               <Button 
-                onClick={() => navigate("/contact-search")} 
+                onClick={() => navigate("/find")}
                 variant="outline"
                 className="w-full"
               >

@@ -341,9 +341,10 @@ def get_rate_limit_key():
     Returns None for static assets (which exempts them from rate limiting).
     """
     from flask import request
+    import re as _re
     # Exclude static assets and root route from rate limiting
-    if (request.path.startswith('/assets/') or 
-        request.path == '/favicon.ico' or 
+    if (request.path.startswith('/assets/') or
+        request.path == '/favicon.ico' or
         request.path == '/' or
         request.path.endswith('.js') or
         request.path.endswith('.css') or
@@ -353,6 +354,11 @@ def get_rate_limit_key():
         request.path.endswith('.woff') or
         request.path.endswith('.woff2')):
         return None  # None exempts from rate limiting
+
+    # Exempt coffee chat prep status polling (GET /api/coffee-chat-prep/<id>)
+    if (request.method == 'GET' and
+        _re.match(r'^/api/coffee-chat-prep/[^/]+$', request.path)):
+        return None
     
     # For authenticated requests, use user ID instead of IP address
     if hasattr(request, 'firebase_user') and request.firebase_user:

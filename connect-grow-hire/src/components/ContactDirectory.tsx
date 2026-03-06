@@ -834,7 +834,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
             Use the Find People search to discover and save contacts
           </p>
           <Button
-            onClick={() => navigate('/contact-search')}
+            onClick={() => navigate('/find')}
             className="bg-blue-600 hover:bg-blue-700 text-white"
           >
             Find People

@@ -8,7 +8,7 @@ export const BackToHomeButton = () => {
   return (
     <Button
       size="sm"
-      onClick={() => navigate("/contact-search")}
+      onClick={() => navigate("/find")}
       variant="outline"
       className="bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
     >

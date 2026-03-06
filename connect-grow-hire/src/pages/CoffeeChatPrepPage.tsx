@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -20,8 +21,9 @@ import {
   FileText,
   Newspaper,
   Loader2,
-  FolderOpen,
   AlertCircle,
+  Upload,
+  FolderOpen,
 } from "lucide-react";
 import { UpgradeBanner } from "@/components/UpgradeBanner";
 import { VideoDemo } from "@/components/VideoDemo";
@@ -42,6 +44,7 @@ import { trackFeatureActionCompleted, trackContentViewed, trackError } from "../
 const CoffeeChatPrepPage: React.FC = () => {
   const { user: firebaseUser, checkCredits } = useFirebaseAuth();
   const { subscription } = useSubscription();
+  const navigate = useNavigate();
   const effectiveUser = firebaseUser || {
     credits: 0,
     maxCredits: 0,
@@ -76,15 +79,16 @@ const CoffeeChatPrepPage: React.FC = () => {
   
   const coffeeChatSteps = [
     { id: 'processing', label: 'Initializing...' },
-    { id: 'enriching_profile', label: 'Enriching profile data...' },
-    { id: 'fetching_news', label: 'Fetching recent news...' },
-    { id: 'building_context', label: 'Building user context...' },
-    { id: 'extracting_hometown', label: 'Extracting location...' },
-    { id: 'generating_content', label: 'Generating content...' },
-    { id: 'generating_pdf', label: 'Generating PDF...' },
+    { id: 'enriching', label: 'Looking up LinkedIn profile...' },
+    { id: 'researching', label: 'Researching company & industry...' },
+    { id: 'analyzing', label: 'Analyzing career history...' },
+    { id: 'generating', label: 'Writing tailored questions...' },
+    { id: 'building', label: 'Building your prep sheet...' },
     { id: 'completed', label: 'Complete!' },
   ];
   const coffeeChatPollTimeoutRef = useRef<number | null>(null);
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
 
   // Library State
   const [preps, setPreps] = useState<CoffeeChatPrep[]>([]);
@@ -98,6 +102,19 @@ const CoffeeChatPrepPage: React.FC = () => {
   const isValidLinkedInUrl = (url: string) => {
     return url.match(/^https?:\/\/(www\.)?linkedin\.com\/in\/[\w-]+\/?$/);
   };
+
+  const coffeeChatTabs = [
+    { id: 'coffee-chat-prep', label: 'Coffee Chat Prep', icon: MessageSquare },
+    { id: 'coffee-library', label: 'Coffee Library', icon: FolderOpen },
+  ];
+
+  useLayoutEffect(() => {
+    const activeIndex = coffeeChatTabs.findIndex(t => t.id === activeTab);
+    const el = tabRefs.current[activeIndex];
+    if (el) {
+      setIndicatorStyle({ left: el.offsetLeft, width: el.offsetWidth });
+    }
+  }, [activeTab]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -199,21 +216,23 @@ const CoffeeChatPrepPage: React.FC = () => {
       
       const handleStatusUpdate = (statusResult: any) => {
         if ('status' in statusResult) {
-          const status = statusResult.status;
-          setCurrentPrepStatus(status);
-          
-          const statusMessages: Record<string, string> = {
-            'processing': 'Initializing...',
-            'enriching_profile': 'Enriching profile data...',
-            'fetching_news': 'Fetching recent news...',
-            'building_context': 'Building user context...',
-            'extracting_hometown': 'Extracting location...',
-            'generating_content': 'Generating content...',
-            'generating_pdf': 'Generating PDF...',
-            'completed': 'Coffee Chat Prep ready!',
-            'failed': 'Generation failed',
-          };
-          const progressMessage = statusMessages[status] || 'Processing...';
+          const stage = statusResult.stage || statusResult.status;
+          setCurrentPrepStatus(stage);
+
+          // Use stageLabel from backend if available, otherwise fallback
+          const progressMessage = statusResult.stageLabel || (() => {
+            const statusMessages: Record<string, string> = {
+              'processing': 'Initializing...',
+              'enriching': 'Looking up LinkedIn profile...',
+              'researching': 'Researching company & industry...',
+              'analyzing': 'Analyzing career history...',
+              'generating': 'Writing tailored questions...',
+              'building': 'Building your prep sheet...',
+              'completed': 'Coffee Chat Prep ready!',
+              'failed': 'Generation failed',
+            };
+            return statusMessages[stage] || 'Processing...';
+          })();
           setCoffeeChatProgress(progressMessage);
         }
       };
@@ -264,52 +283,63 @@ const CoffeeChatPrepPage: React.FC = () => {
       };
       
       const pollPromise = new Promise((resolve, reject) => {
-        (async () => {
-          try {
-            const statusResult = await apiService.getCoffeeChatPrepStatus(prepId);
-            
-            if ('pdfUrl' in statusResult && statusResult.pdfUrl) {
-              handleCompletion(statusResult);
-              resolve(statusResult);
-              return;
-            }
-            
-            handleStatusUpdate(statusResult);
-          } catch (error) {
-            console.error(`[CoffeeChatPrep] Initial poll error:`, error);
-          }
-        })();
-        
-        const intervalId = setInterval(async () => {
+        let pollInterval = 3000;
+        const maxInterval = 10000;
+        let polling = false;
+        let stopped = false;
+
+        const doPoll = async () => {
+          if (polling || stopped) return;
+          polling = true;
           pollCount++;
-          
           try {
             const statusResult = await apiService.getCoffeeChatPrepStatus(prepId);
-            
+
             if ('error' in statusResult && !('status' in statusResult)) {
-              clearInterval(intervalId);
+              stopped = true;
               reject(new Error(statusResult.error));
               return;
             }
-            
+
             if ('pdfUrl' in statusResult && statusResult.pdfUrl) {
-              clearInterval(intervalId);
+              stopped = true;
               handleCompletion(statusResult);
               resolve(statusResult);
               return;
             }
-            
+
             handleStatusUpdate(statusResult);
-            
+            // Reset interval on success
+            pollInterval = 3000;
+
             if (pollCount >= maxPolls) {
-              clearInterval(intervalId);
+              stopped = true;
               reject(new Error('Generation timed out'));
+              return;
             }
-          } catch (error) {
-            clearInterval(intervalId);
-            reject(error);
+          } catch (error: any) {
+            // Exponential backoff on 429
+            if (error?.message?.includes('429') || error?.status === 429) {
+              pollInterval = Math.min(pollInterval * 2, maxInterval);
+              console.warn(`[CoffeeChatPrep] 429 — backing off to ${pollInterval}ms`);
+            } else {
+              stopped = true;
+              reject(error);
+              return;
+            }
+          } finally {
+            polling = false;
           }
-        }, 2000);
+          if (!stopped) schedulePoll();
+        };
+
+        const schedulePoll = () => {
+          if (stopped) return;
+          setTimeout(doPoll, pollInterval);
+        };
+
+        // Initial poll immediately
+        doPoll();
       });
       
       await pollPromise;
@@ -567,7 +597,7 @@ const CoffeeChatPrepPage: React.FC = () => {
           <AppHeader title="" />
 
           <ProGate title="Coffee Chat Prep" description="Get AI-generated talking points, background research, and conversation starters for any professional — just paste their LinkedIn." videoId="D1--4aVisho">
-          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }}>
+          <main data-tour="tour-coffee-chat-prep" style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }}>
             <div className="max-w-4xl mx-auto px-3 py-6 sm:px-6 sm:py-12">
               
               {/* Header Section */}
@@ -598,88 +628,45 @@ const CoffeeChatPrepPage: React.FC = () => {
                 >
                   Paste a LinkedIn URL and get a personalized prep sheet with talking points, recent news, and smart questions.
                 </p>
-                <div style={{ display: 'flex', justifyContent: 'center' }}>
-                  <VideoDemo videoId="D1--4aVisho" />
-                </div>
               </div>
 
-              {/* Pill-style Tabs */}
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '36px' }}>
-                <div
-                  style={{
-                    display: 'inline-flex',
-                    gap: '0',
-                    background: '#F0F4FD',
-                    borderRadius: '12px',
-                    padding: '4px',
-                    margin: '0 auto',
-                  }}
-                >
-                  <button
-                    onClick={() => setActiveTab('coffee-chat-prep')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '10px 20px',
-                      borderRadius: '9px',
-                      border: 'none',
-                      cursor: 'pointer',
-                      fontFamily: "'DM Sans', system-ui, sans-serif",
-                      fontSize: '14px',
-                      fontWeight: 500,
-                      transition: 'all 0.15s ease',
-                      background: activeTab === 'coffee-chat-prep' ? '#2563EB' : 'transparent',
-                      color: activeTab === 'coffee-chat-prep' ? 'white' : '#64748B',
-                      boxShadow: activeTab === 'coffee-chat-prep' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
-                    }}
-                  >
-                    <MessageSquare className="h-4 w-4" />
-                    Coffee Chat Prep
-                  </button>
-                  
-                  <button
-                    onClick={() => setActiveTab('coffee-library')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '10px 20px',
-                      borderRadius: '9px',
-                      border: 'none',
-                      cursor: 'pointer',
-                      fontFamily: "'DM Sans', system-ui, sans-serif",
-                      fontSize: '14px',
-                      fontWeight: 500,
-                      transition: 'all 0.15s ease',
-                      background: activeTab === 'coffee-library' ? '#2563EB' : 'transparent',
-                      color: activeTab === 'coffee-library' ? 'white' : '#64748B',
-                      boxShadow: activeTab === 'coffee-library' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
-                    }}
-                  >
-                    <FolderOpen className="h-4 w-4" />
-                    Coffee Library
-                    {preps.length > 0 && (
-                      <span
-                        style={{
-                          marginLeft: '6px',
-                          padding: '2px 8px',
-                          borderRadius: '6px',
-                          background: activeTab === 'coffee-library' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(37, 99, 235, 0.08)',
-                          color: activeTab === 'coffee-library' ? 'white' : '#2563EB',
-                          fontFamily: "'DM Sans', system-ui, sans-serif",
-                          fontSize: '11px',
-                          fontWeight: 600,
-                          letterSpacing: '0.03em',
-                        }}
-                      >
-                        {preps.length}
-                      </span>
-                    )}
-                  </button>
+              {/* Animated underline tabs — matches Find page StripeTabs */}
+              <div className="flex justify-center mb-9">
+              <div className="relative">
+                <div className="flex items-center gap-8">
+                  {coffeeChatTabs.map((tab, index) => (
+                    <button
+                      key={tab.id}
+                      ref={(el) => { tabRefs.current[index] = el; }}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`
+                        relative pb-2.5 text-sm transition-colors duration-150 flex items-center gap-1.5
+                        focus:outline-none focus-visible:outline-none
+                        ${activeTab === tab.id
+                          ? 'text-gray-900 font-bold'
+                          : 'text-gray-400 hover:text-gray-700 font-medium'
+                        }
+                      `}
+                    >
+                      <tab.icon className="w-4 h-4" />
+                      {tab.label}
+                    </button>
+                  ))}
                 </div>
+                {/* Full-width divider line */}
+                <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gray-200" />
+                {/* Animated underline indicator */}
+                <div
+                  className="absolute bottom-0 h-[2px] bg-gray-900 transition-all duration-200 ease-out"
+                  style={{ left: indicatorStyle.left, width: indicatorStyle.width }}
+                />
               </div>
-              
+              </div>
+
+              <div className="flex justify-center mb-6">
+                <VideoDemo videoId="D1--4aVisho" />
+              </div>
+
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
 
                 {/* COFFEE CHAT PREP TAB */}
@@ -701,39 +688,26 @@ const CoffeeChatPrepPage: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Main Card */}
-                  <div className="bg-white rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
-                    {/* Simple gray divider */}
-                    <div className="h-1 bg-gray-100"></div>
-                    
-                    <div className="p-8">
-                      {/* Card Header */}
-                      <div className="text-center mb-8">
-                        <h2 className="text-xl font-semibold text-gray-900 mb-2">Who are you meeting with?</h2>
-                        <p className="text-gray-600 max-w-lg mx-auto">
-                          Enter their LinkedIn profile to generate a personalized prep sheet.
-                        </p>
-                      </div>
-
+                  <div className="animate-fadeInUp" style={{ animationDelay: '200ms' }}>
                       {/* Enhanced URL Input with Integrated Button */}
                       <div className="max-w-2xl mx-auto">
                         <div className="relative flex items-center group">
                           {/* LinkedIn icon inside input */}
-                          <div className="absolute left-4 pointer-events-none">
-                            <Linkedin className="w-5 h-5 text-gray-400 group-focus-within:text-blue-600 transition-colors" />
+                          <div className="absolute left-3 pointer-events-none">
+                            <Linkedin className="w-4 h-4 text-gray-400 group-focus-within:text-blue-600 transition-colors" />
                           </div>
-                          
+
                           <input
                             type="url"
                             value={linkedinUrl}
                             onChange={(e) => setLinkedinUrl(e.target.value)}
                             placeholder="https://linkedin.com/in/username"
                             disabled={coffeeChatLoading || !hasAccess}
-                            className="w-full pl-12 pr-44 py-4 text-lg border-2 border-gray-300 rounded-2xl
-                                       text-gray-900 placeholder-gray-400 bg-white
-                                       hover:border-gray-400
-                                       focus:border-blue-400 focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20
-                                       transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="w-full pl-10 pr-36 h-[46px] text-[13.5px] border border-gray-200 rounded-xl
+                                       text-gray-900 placeholder-gray-300 bg-white
+                                       hover:border-gray-300
+                                       focus:border-blue-300 focus:ring-2 focus:ring-blue-400/10
+                                       transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                           />
                           
                           {/* Button inside input */}
@@ -741,7 +715,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                             onClick={handleCoffeeChatSubmit}
                             disabled={!linkedinUrl.trim() || coffeeChatLoading || !hasAccess || (effectiveUser.credits ?? 0) < COFFEE_CHAT_CREDITS}
                             className={`
-                              absolute right-2 px-6 py-2.5 rounded-full font-semibold text-sm
+                              absolute right-2 px-5 py-2 rounded-full font-semibold text-sm
                               flex items-center gap-2 transition-all duration-150
                               ${linkedinUrl.trim() && !coffeeChatLoading && hasAccess
                                 ? 'bg-blue-600 text-white shadow-md hover:shadow-lg hover:scale-[1.02]'
@@ -762,41 +736,53 @@ const CoffeeChatPrepPage: React.FC = () => {
                           </button>
                         </div>
                         
-                        {/* Validation Feedback */}
-                        {linkedinUrl && !isValidLinkedInUrl(linkedinUrl) && linkedinUrl.length > 10 && (
-                          <p className="text-center text-sm text-gray-600 mt-3 flex items-center justify-center gap-1">
-                            <AlertCircle className="w-4 h-4" />
-                            Please enter a valid LinkedIn profile URL
-                          </p>
-                        )}
-                        
-                        {linkedinUrl && isValidLinkedInUrl(linkedinUrl) && (
-                          <p className="text-center text-sm text-green-600 mt-3 flex items-center justify-center gap-1">
-                            <CheckCircle className="w-4 h-4" />
-                            Valid LinkedIn URL — ready to generate
-                          </p>
-                        )}
-                        
-                        {/* Helper text */}
-                        {!linkedinUrl && (
-                          <p className="text-center text-xs text-gray-400 mt-3">
-                            Uses {COFFEE_CHAT_CREDITS} credits • PDF saved automatically
-                          </p>
-                        )}
+                        {/* Validation + helper — 2 lines max */}
+                        <div className="text-center mt-2 space-y-0.5">
+                          {linkedinUrl && !isValidLinkedInUrl(linkedinUrl) && linkedinUrl.length > 10 ? (
+                            <p className="text-xs text-red-500 flex items-center justify-center gap-1">
+                              <AlertCircle className="w-3 h-3" /> Please enter a valid LinkedIn profile URL
+                            </p>
+                          ) : linkedinUrl && isValidLinkedInUrl(linkedinUrl) ? (
+                            <p className="text-xs text-green-600 flex items-center justify-center gap-1">
+                              <CheckCircle className="w-3 h-3" /> Valid LinkedIn URL — ready to generate
+                            </p>
+                          ) : (
+                            <p className="text-xs text-gray-400">Uses {COFFEE_CHAT_CREDITS} credits · PDF saved automatically</p>
+                          )}
+                          {subscription?.resumeFileName ? (
+                            <p className="text-xs text-center">
+                              <span className="text-green-600 font-medium">✓ Using {subscription.resumeFileName}</span>
+                              <span className="text-gray-400"> — questions personalized to your background</span>
+                            </p>
+                          ) : (
+                            <p className="text-xs text-center">
+                              <span className="text-amber-500">⚠ No resume on file</span>
+                            </p>
+                          )}
+                        </div>
                       </div>
 
                       {/* Progress/Status Display */}
                       {coffeeChatStatus !== 'idle' && (
                         <div className="mt-6 max-w-2xl mx-auto">
                           {coffeeChatStatus === 'completed' ? (
-                            <div className="flex items-center justify-center gap-2 p-4 bg-green-50 border border-green-200 rounded-xl text-green-700">
-                              <CheckCircle className="h-5 w-5" />
-                              <span className="font-medium">{coffeeChatProgress}</span>
+                            <div className="mt-5 flex items-center justify-between px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl animate-in fade-in">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-green-50 border border-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                                  <CheckCircle className="w-4 h-4 text-green-600" />
+                                </div>
+                                <div>
+                                  <p className="text-sm font-medium text-gray-900">
+                                    {coffeeChatResult?.contactData?.firstName} {coffeeChatResult?.contactData?.lastName} — prep sheet ready
+                                  </p>
+                                  <p className="text-xs text-gray-400">{coffeeChatResult?.contactData?.company}</p>
+                                </div>
+                              </div>
                               <button
                                 onClick={() => downloadCoffeeChatPDF()}
-                                className="ml-4 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-full hover:bg-green-700 transition-colors flex items-center gap-2"
+                                className="px-4 py-2 bg-green-600 text-white text-xs font-semibold rounded-full hover:bg-green-700 transition-colors flex items-center gap-1.5 shadow-sm"
                               >
-                                <Download className="h-4 w-4" />
+                                <Download className="w-3.5 h-3.5" />
                                 Download PDF
                               </button>
                             </div>
@@ -806,95 +792,39 @@ const CoffeeChatPrepPage: React.FC = () => {
                               <span>{coffeeChatProgress || 'Generation failed'}</span>
                             </div>
                           ) : (
-                            <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
-                              <div className="flex items-center justify-center gap-2 mb-3">
-                                <Clock className="h-5 w-5 text-gray-600" />
-                                <span className="font-medium text-gray-700">{coffeeChatProgress}</span>
-                              </div>
-                              <SteppedLoadingBar 
-                                steps={coffeeChatSteps} 
-                                currentStepId={currentPrepStatus} 
-                              />
+                            <div className="mt-5 space-y-2.5">
+                              <SteppedLoadingBar steps={coffeeChatSteps} currentStepId={currentPrepStatus} />
+                              <p className="text-xs text-gray-400 text-center">Usually 20–35 seconds</p>
                             </div>
                           )}
                         </div>
                       )}
 
-                      {/* Contact Snapshot (when completed) */}
-                      {coffeeChatStatus === 'completed' && coffeeChatResult && (
-                        <div className="mt-6 max-w-2xl mx-auto space-y-4">
-                          <div className="p-5 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl">
-                            <div className="flex items-center justify-between mb-3">
-                              <h3 className="text-sm font-semibold text-green-700 uppercase tracking-wide">
-                                Contact Snapshot
-                              </h3>
-                              <span className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded-full">
-                                Ready for coffee chat
-                              </span>
-                            </div>
-                            <div className="space-y-1 text-sm text-gray-700">
-                              <p><span className="text-gray-500">Name:</span> {coffeeChatResult.contactData?.firstName} {coffeeChatResult.contactData?.lastName}</p>
-                              <p><span className="text-gray-500">Role:</span> {coffeeChatResult.contactData?.jobTitle}</p>
-                              <p><span className="text-gray-500">Company:</span> {coffeeChatResult.contactData?.company}</p>
-                              <p><span className="text-gray-500">Office:</span> {coffeeChatResult.contactData?.location || coffeeChatResult.context?.office}</p>
-                              {coffeeChatResult.hometown && (
-                                <p><span className="text-gray-500">Hometown:</span> {coffeeChatResult.hometown}</p>
-                              )}
-                            </div>
-                          </div>
-
-                          {coffeeChatResult.similaritySummary && (
-                            <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
-                              <h3 className="text-sm font-semibold text-blue-700 uppercase tracking-wide mb-2">
-                                Common Ground
-                              </h3>
-                              <p className="text-sm text-gray-700 leading-relaxed">
-                                {coffeeChatResult.similaritySummary}
-                              </p>
-                            </div>
-                          )}
-
-                          {coffeeChatResult.industrySummary && (
-                            <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl">
-                              <h3 className="text-sm font-semibold text-purple-700 uppercase tracking-wide mb-2">
-                                Industry Pulse
-                              </h3>
-                              <p className="text-sm text-gray-700 leading-relaxed">
-                                {coffeeChatResult.industrySummary}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* What You'll Receive Section - Demoted */}
+                      {/* What You'll Receive Section */}
                       {coffeeChatStatus !== 'completed' && (
                         <div className="mt-8 pt-6 border-t border-gray-100">
-                          <p className="text-center text-xs text-gray-400 mb-4">Includes curated headlines, talking points, and a PDF prep sheet</p>
-                          
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl mx-auto">
-                            <div className="text-center p-3">
-                              <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-2">
-                                <Newspaper className="w-4 h-4 text-gray-500" />
+                          <p className="text-center text-xs text-gray-400 mb-5">Includes curated headlines, talking points, and a PDF prep sheet</p>
+                          <div className="flex items-start justify-center gap-10 max-w-2xl mx-auto">
+                            <div className="flex flex-col items-center gap-1.5 text-center">
+                              <div className="w-8 h-8 bg-gray-50 border border-gray-100 rounded-lg flex items-center justify-center">
+                                <Newspaper className="w-4 h-4 text-gray-400" />
                               </div>
-                              <p className="font-medium text-gray-700 text-xs">Curated Headlines</p>
-                              <p className="text-xs text-gray-400 mt-0.5">Recent news</p>
+                              <p className="text-xs font-medium text-gray-700">Curated Headlines</p>
+                              <p className="text-[11px] text-gray-400">Recent news</p>
                             </div>
-                            
-                            <div className="text-center p-3">
-                              <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-2">
-                                <MessageSquare className="w-4 h-4 text-gray-500" />
+                            <div className="flex flex-col items-center gap-1.5 text-center">
+                              <div className="w-8 h-8 bg-gray-50 border border-gray-100 rounded-lg flex items-center justify-center">
+                                <MessageSquare className="w-4 h-4 text-gray-400" />
                               </div>
-                              <p className="font-medium text-gray-700 text-xs">Talking Points</p>
-                              <p className="text-xs text-gray-400 mt-0.5">Similarity summary</p>
+                              <p className="text-xs font-medium text-gray-700">Talking Points</p>
+                              <p className="text-[11px] text-gray-400">Similarity summary</p>
                             </div>
-                            
-                            <div className="text-center p-3">
-                              <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-2">
-                                <FileText className="w-4 h-4 text-gray-500" />
+                            <div className="flex flex-col items-center gap-1.5 text-center">
+                              <div className="w-8 h-8 bg-gray-50 border border-gray-100 rounded-lg flex items-center justify-center">
+                                <FileText className="w-4 h-4 text-gray-400" />
                               </div>
-                              <p className="font-medium text-gray-700 text-xs">PDF Prep Sheet</p>
-                              <p className="text-xs text-gray-400 mt-0.5">Auto-saved</p>
+                              <p className="text-xs font-medium text-gray-700">PDF Prep Sheet</p>
+                              <p className="text-[11px] text-gray-400">Auto-saved</p>
                             </div>
                           </div>
                         </div>
@@ -937,7 +867,38 @@ const CoffeeChatPrepPage: React.FC = () => {
                           </div>
                         </div>
                       )}
-                    </div>
+
+                      {/* Resume status — matches Find page style */}
+                      <div className="flex justify-center mt-8 pt-6 border-t border-gray-100">
+                        {subscription?.resumeFileName ? (
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 bg-green-50 border border-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                              <CheckCircle className="w-5 h-5 text-green-600" />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-medium text-gray-900">Resume Active</p>
+                                <span className="text-[10px] font-bold tracking-wider uppercase bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+                                  Optimizing
+                                </span>
+                              </div>
+                              <p className="text-sm text-gray-500">
+                                Using <span className="font-medium text-gray-700">{subscription.resumeFileName}</span>
+                              </p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-4 cursor-pointer group" onClick={() => navigate('/settings')}>
+                            <div className="w-10 h-10 bg-gray-50 border border-gray-200 rounded-full flex items-center justify-center group-hover:bg-blue-50 group-hover:border-blue-200 transition-colors">
+                              <Upload className="w-5 h-5 text-gray-400 group-hover:text-blue-500 transition-colors" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900 group-hover:text-blue-600 transition-colors">Upload Resume</p>
+                              <p className="text-sm text-gray-500">For personalized questions</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                   </div>
                 </TabsContent>
 

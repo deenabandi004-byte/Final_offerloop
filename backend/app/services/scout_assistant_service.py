@@ -856,24 +856,27 @@ Keep the message to 1-2 sentences. Be specific about the company if known."""
         user_message = f"Contact search failed for:\n- Job Title: {job_title or 'Not specified'}\n- Company: {company or 'Not specified'}\n- Location: {location or 'Not specified'}\n\nSuggest alternative job titles."
 
         try:
-            response = await self._openai.chat.completions.create(
-                model=self.DEFAULT_MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message},
-                ],
-                temperature=0.7,
-                max_tokens=300,
-                response_format={"type": "json_object"},
+            response = await asyncio.wait_for(
+                self._openai.chat.completions.create(
+                    model=self.DEFAULT_MODEL,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_message},
+                    ],
+                    temperature=0.7,
+                    max_tokens=300,
+                    response_format={"type": "json_object"},
+                ),
+                timeout=10,
             )
-            
+
             content = response.choices[0].message.content
             parsed = json.loads(content)
-            
+
             message = parsed.get("message", f"That combo didn't return anything — here's what I'd try next:")
             suggestions = parsed.get("suggestions", [])
             recommended = parsed.get("recommended_title", suggestions[0] if suggestions else job_title)
-            
+
             return {
                 "message": message,
                 "suggestions": suggestions[:5],  # Max 5 suggestions
@@ -885,7 +888,7 @@ Keep the message to 1-2 sentences. Be specific about the company if known."""
                 "search_type": "contact",
                 "action": "retry_search",
             }
-            
+
         except Exception as e:
             print(f"[ScoutAssistant] Contact search help failed: {type(e).__name__}: {e}")
             # Fallback suggestions based on common patterns
@@ -965,25 +968,28 @@ Keep the message to 1-2 sentences."""
         user_message = f"Firm search failed for:\n- Industry: {industry or 'Not specified'}\n- Location: {location or 'Not specified'}\n- Size: {size or 'Any'}\n\nSuggest alternatives."
 
         try:
-            response = await self._openai.chat.completions.create(
-                model=self.DEFAULT_MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message},
-                ],
-                temperature=0.7,
-                max_tokens=300,
-                response_format={"type": "json_object"},
+            response = await asyncio.wait_for(
+                self._openai.chat.completions.create(
+                    model=self.DEFAULT_MODEL,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_message},
+                    ],
+                    temperature=0.7,
+                    max_tokens=300,
+                    response_format={"type": "json_object"},
+                ),
+                timeout=10,
             )
-            
+
             content = response.choices[0].message.content
             parsed = json.loads(content)
-            
+
             message = parsed.get("message", f"I couldn't find a match for that. A few things that might help:")
             suggestions = parsed.get("suggestions", [])
             recommended_industry = parsed.get("recommended_industry", suggestions[0] if suggestions else industry)
             recommended_location = parsed.get("recommended_location", location)
-            
+
             return {
                 "message": message,
                 "suggestions": suggestions[:5],  # Max 5 suggestions
@@ -995,7 +1001,7 @@ Keep the message to 1-2 sentences."""
                 "search_type": "firm",
                 "action": "retry_search",
             }
-            
+
         except Exception as e:
             print(f"[ScoutAssistant] Firm search help failed: {type(e).__name__}: {e}")
             # Fallback suggestions

@@ -140,8 +140,8 @@ export function ScoutSidePanel() {
     
     // Navigate to appropriate page
     const targetRoute = searchHelpResponse.search_type === 'contact' 
-      ? '/contact-search' 
-      : '/firm-search';
+      ? '/find'
+      : '/find?tab=companies';
     
     // Close panel and clear search help
     closePanel();

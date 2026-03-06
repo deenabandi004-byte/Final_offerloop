@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "react-router-dom";
 import { RefreshCw, Search, Loader2, AlertCircle } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -10,20 +11,16 @@ import { useNotifications } from "@/hooks/useNotifications";
 import { apiService, type OutboxThread, type OutboxStats } from "@/services/api";
 import { TrackerBuckets } from "@/components/tracker/TrackerBuckets";
 import { ConversationPanel } from "@/components/tracker/ConversationPanel";
+import { DONE_STAGES } from "@/lib/outboxConstants";
+import { daysBetween } from "@/lib/formatters";
 
 // --- bucket sorting helpers ---
 
-const DONE_STAGES = new Set([
-  "connected", "meeting_scheduled", "no_response", "bounced", "closed",
-]);
-
-function daysBetween(iso: string | null | undefined): number {
-  if (!iso) return 0;
-  return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
-}
-
 function isNeedsAttention(c: OutboxThread): boolean {
+  // Snoozed contacts are suppressed from needs-attention until snooze expires
+  if (c.snoozedUntil && new Date(c.snoozedUntil) > new Date()) return false;
   if (c.hasUnreadReply) return true;
+  if (c.pipelineStage === "draft_deleted") return true;
   if (c.pipelineStage === "draft_created" && daysBetween(c.draftCreatedAt) >= 3) return true;
   if (c.nextFollowUpAt && new Date(c.nextFollowUpAt) <= new Date()) return true;
   return false;
@@ -40,11 +37,23 @@ export default function NetworkTracker() {
   const { user } = useFirebaseAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { notifications } = useNotifications();
+  const { notifications, markOneRead } = useNotifications();
+  const location = useLocation();
 
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
+  const [mutatingIds, setMutatingIds] = useState<Set<string>>(new Set());
+
+  // Pre-select contact from notification click
+  useEffect(() => {
+    const state = location.state as { selectContactId?: string } | null;
+    if (state?.selectContactId) {
+      setSelectedContactId(state.selectContactId);
+      // Clear the state so it doesn't re-select on subsequent renders
+      window.history.replaceState({}, "");
+    }
+  }, [location.state]);
 
   // --- queries ---
 
@@ -52,7 +61,6 @@ export default function NetworkTracker() {
     data: threadsData,
     isLoading: threadsLoading,
     isError: threadsError,
-    refetch: refetchThreads,
   } = useQuery({
     queryKey: ["trackerContacts"],
     queryFn: async () => {
@@ -83,18 +91,24 @@ export default function NetworkTracker() {
   };
 
   const stageChangeMutation = useMutation({
-    mutationFn: ({ contactId, stage }: { contactId: string; stage: string }) =>
-      apiService.patchOutboxStage(contactId, stage as any),
+    mutationFn: ({ contactId, stage }: { contactId: string; stage: string }) => {
+      setMutatingIds((prev) => new Set(prev).add(contactId));
+      return apiService.patchOutboxStage(contactId, stage as any);
+    },
     onSuccess: () => {
       invalidateAll();
       toast({ title: "Stage updated" });
     },
     onError: () => toast({ title: "Failed to update stage", variant: "destructive" }),
+    onSettled: (_data, _err, { contactId }) => {
+      setMutatingIds((prev) => { const next = new Set(prev); next.delete(contactId); return next; });
+    },
   });
 
   const archiveMutation = useMutation({
     mutationFn: (contactId: string) => apiService.archiveOutboxThread(contactId),
     onSuccess: () => {
+      setSelectedContactId(null);
       invalidateAll();
       toast({ title: "Contact archived" });
     },
@@ -131,28 +145,23 @@ export default function NetworkTracker() {
 
   const markReadMutation = useMutation({
     mutationFn: (contactId: string) =>
-      apiService.patchOutboxStage(contactId, "replied"),
-    onSuccess: () => {
+      apiService.markOutboxThreadRead(contactId),
+    onSuccess: (_data, contactId) => {
       invalidateAll();
+      markOneRead(contactId);
     },
   });
 
   const syncMutation = useMutation({
-    mutationFn: async (contactId: string) => {
+    mutationFn: (contactId: string) => {
       setSyncingIds((prev) => new Set(prev).add(contactId));
-      try {
-        const res = await apiService.syncOutboxThread(contactId);
-        return res;
-      } finally {
-        setSyncingIds((prev) => {
-          const next = new Set(prev);
-          next.delete(contactId);
-          return next;
-        });
-      }
+      return apiService.syncOutboxThread(contactId);
     },
     onSuccess: () => invalidateAll(),
     onError: () => toast({ title: "Sync failed", variant: "destructive" }),
+    onSettled: (_data, _err, contactId) => {
+      setSyncingIds((prev) => { const next = new Set(prev); next.delete(contactId); return next; });
+    },
   });
 
   // --- bucket computation ---
@@ -181,7 +190,7 @@ export default function NetworkTracker() {
     }
     // Sort each bucket by lastActivityAt descending
     const byActivity = (a: OutboxThread, b: OutboxThread) =>
-      new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime();
+      new Date(b.lastActivityAt || 0).getTime() - new Date(a.lastActivityAt || 0).getTime();
     na.sort(byActivity);
     w.sort(byActivity);
     d.sort(byActivity);
@@ -196,8 +205,7 @@ export default function NetworkTracker() {
   // --- handlers ---
 
   const handleRefreshAll = () => {
-    refetchThreads();
-    queryClient.invalidateQueries({ queryKey: ["trackerStats"] });
+    invalidateAll();
   };
 
   // --- render ---
@@ -208,7 +216,7 @@ export default function NetworkTracker() {
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0">
           <AppHeader />
-          <main className="flex-1 overflow-hidden flex flex-col">
+          <main data-tour="tour-track-email" className="flex-1 overflow-hidden flex flex-col">
             {/* Page header */}
             <div className="px-6 pt-5 pb-4 border-b border-gray-100 bg-white flex-shrink-0">
               <div className="flex items-center justify-between">
@@ -229,19 +237,19 @@ export default function NetworkTracker() {
                 </button>
               </div>
 
-              {/* Stats row */}
-              {statsData && (
+              {/* Stats row — use local bucket counts when searching, backend stats otherwise */}
+              {(statsData || contacts.length > 0) && (
                 <div className="flex items-center gap-4 mt-3 text-sm">
-                  <span className={`font-semibold ${(statsData.needsAttentionCount || 0) > 0 ? "text-orange-600" : "text-gray-500"}`}>
-                    {statsData.needsAttentionCount || 0} Needs Attention
+                  <span className={`font-semibold ${(searchQuery ? needsAttention.length : statsData?.needsAttentionCount || 0) > 0 ? "text-orange-600" : "text-gray-500"}`}>
+                    {searchQuery ? needsAttention.length : statsData?.needsAttentionCount || 0} Needs Attention
                   </span>
                   <span className="text-gray-300">|</span>
                   <span className="text-blue-600 font-medium">
-                    {statsData.waitingCount || 0} Waiting
+                    {searchQuery ? waiting.length : statsData?.waitingCount || 0} Waiting
                   </span>
                   <span className="text-gray-300">|</span>
                   <span className="text-green-600 font-medium">
-                    {statsData.doneCount || 0} Done
+                    {searchQuery ? done.length : statsData?.doneCount || 0} Done
                   </span>
                   {notifications.unreadReplyCount > 0 && (
                     <>
@@ -334,6 +342,7 @@ export default function NetworkTracker() {
                         onMarkRead={(id) => markReadMutation.mutate(id)}
                         onRefresh={(id) => syncMutation.mutate(id)}
                         isSyncing={syncingIds.has(selectedContact.id)}
+                        isMutating={mutatingIds.has(selectedContact.id)}
                       />
                     </>
                   ) : (

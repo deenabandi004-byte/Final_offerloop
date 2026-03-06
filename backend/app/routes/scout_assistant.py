@@ -5,11 +5,11 @@ This is a FREE feature - no credits are charged for using Scout assistant.
 """
 from __future__ import annotations
 
-import asyncio
 from flask import Blueprint, jsonify, request, g
 
 from app.services.scout_assistant_service import scout_assistant_service
 from app.extensions import require_firebase_auth
+from app.utils.async_runner import run_async
 
 scout_assistant_bp = Blueprint("scout_assistant", __name__, url_prefix="/api/scout-assistant")
 
@@ -72,7 +72,7 @@ def scout_assistant_chat():
             user_name = firebase_user.get("name", firebase_user.get("email", "").split("@")[0])
     
     try:
-        result = asyncio.run(
+        result = run_async(
             scout_assistant_service.handle_chat(
                 message=message,
                 conversation_history=conversation_history,
@@ -162,7 +162,7 @@ def scout_search_help():
             user_name = firebase_user.get("name", firebase_user.get("email", "").split("@")[0])
     
     try:
-        result = asyncio.run(
+        result = run_async(
             scout_assistant_service.handle_search_help(
                 search_type=search_type,
                 failed_search_params=failed_search_params,

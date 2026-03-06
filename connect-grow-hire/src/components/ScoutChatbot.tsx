@@ -3,6 +3,7 @@ import { Send, ExternalLink, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingBar, InlineLoadingBar } from '@/components/ui/LoadingBar';
+import { auth } from '@/lib/firebase';
 
 const BACKEND_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:5001'
@@ -197,15 +198,16 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userR
     setIsLoading(true);
 
     try {
+      const token = await auth.currentUser?.getIdToken();
       const response = await fetch(`${BACKEND_URL}/api/scout/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           message: userMessage.content,
-          context: {
-            ...context,
-            user_resume: userResume,
-          },
+          context,
         }),
       });
 
@@ -301,13 +303,14 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userR
     console.log('[Scout] Starting analysis for job:', job.title);
     
     try {
+      const analysisToken = await auth.currentUser?.getIdToken();
       const response = await fetch(`${BACKEND_URL}/api/scout/analyze-job`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          job,
-          user_resume: userResume,
-        }),
+        headers: {
+          'Content-Type': 'application/json',
+          ...(analysisToken ? { 'Authorization': `Bearer ${analysisToken}` } : {}),
+        },
+        body: JSON.stringify({ job }),
       });
       
       console.log('[Scout] Analysis response status:', response.status);
@@ -420,15 +423,16 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userR
       setIsLoading(true);
 
       try {
+        const retryToken = await auth.currentUser?.getIdToken();
         const response = await fetch(`${BACKEND_URL}/api/scout/chat`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(retryToken ? { 'Authorization': `Bearer ${retryToken}` } : {}),
+          },
           body: JSON.stringify({
             message: message,
-            context: {
-              ...context,
-              user_resume: userResume,
-            },
+            context,
           }),
         });
 

@@ -32,22 +32,19 @@ export interface TourStepConfig {
 // Step list (order defines tour flow)
 // -----------------------------------------------------------------------------
 export const TOUR_STEPS: TourStepConfig[] = [
-  { target: '[data-tour="tour-search-form"]', title: 'Search or Import', content: 'Search by name, role, or company — or paste a LinkedIn URL to import a contact. We\'ll find their emails and draft outreach for you.', route: '/contact-search', tab: 'contact-search' },
-  { target: '[data-tour="tour-templates"]', title: 'Customize Your Emails', content: 'Choose a purpose like networking or referral request, pick a tone like casual or professional, and add custom instructions. Set a default and every email you generate will match your style.', route: '/contact-search/templates' },
-  { target: '[data-tour="tour-tracker-table"]', title: 'Track Your Contacts', content: 'Everyone you find lands here. Update their status, open email drafts, and export to CSV.', route: '/contact-search', tab: 'contact-library' },
-  { target: '[data-tour="tour-find-companies"]', title: 'Find Companies', content: 'Describe the type of companies you\'re looking for in plain English and we\'ll find them for you.', route: '/firm-search' },
-  { target: '[data-tour="tour-find-hiring-managers"]', title: 'Find Hiring Managers', content: 'Paste a job posting URL and we\'ll find the recruiters and hiring managers for that role.', route: '/recruiter-spreadsheet' },
+  { target: '[data-tour="tour-search-form"]', title: 'Search or Import', content: 'Search by name, role, or company — or paste a LinkedIn URL to import a contact. We\'ll find their emails and draft outreach for you.', route: '/find', tab: 'contact-search' },
+  { target: '[data-tour="tour-tracker-table"]', title: 'Track Your Contacts', content: 'Everyone you find lands here. Update their status, open email drafts, and export to CSV.', route: '/find', tab: 'contact-library' },
+  { target: '[data-tour="tour-find-companies"]', title: 'Find Companies', content: 'Describe the type of companies you\'re looking for in plain English and we\'ll find them for you.', route: '/find?tab=companies' },
+  { target: '[data-tour="tour-find-hiring-managers"]', title: 'Find Hiring Managers', content: 'Paste a job posting URL and we\'ll find the recruiters and hiring managers for that role.', route: '/find?tab=hiring-managers' },
   { target: '[data-tour="tour-coffee-chat-prep"]', title: 'Coffee Chat Prep', content: 'Paste a LinkedIn URL and get a personalized prep sheet with talking points, recent news, and smart questions.', route: '/coffee-chat-prep' },
-  { target: '[data-tour="tour-interview-prep"]', title: 'Interview Prep', content: 'Paste a job posting URL and get a full interview guide with likely questions and a prep plan.', route: '/interview-prep' },
-  { target: '[data-tour="tour-resume"]', title: 'Resume & Cover Letter', content: 'Upload your resume to get a score and optimization suggestions. Generate tailored cover letters for any job posting.', route: '/write/resume' },
-  { target: '[data-tour="tour-track-email"]', title: 'Track Your Outreach', content: 'Monitor all your email threads, follow-ups, and replies in one place. Use the calendar and networking tabs to stay organized.', route: '/outbox' },
+  { target: '[data-tour="tour-track-email"]', title: 'Track Your Outreach', content: 'Monitor all your email threads, follow-ups, and replies in one place. Use the calendar and networking tabs to stay organized.', route: '/tracker' },
 ];
 
 // -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
 function buildPath(route: string, tab?: string): string {
-  if (route === '/contact-search' && tab) return `${route}?tab=${tab}`;
+  if (route === '/find' && tab) return `${route}?tab=${tab}`;
   return route;
 }
 
@@ -170,6 +167,21 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      if (type === EVENTS.STEP_AFTER && action === ACTIONS.PREV) {
+        const prevIdx = index - 1;
+        if (prevIdx < 0) return;
+        const prevStep = TOUR_STEPS[prevIdx];
+        const prevPath = buildPath(prevStep.route, prevStep.tab);
+        if (currentPath !== prevPath) {
+          setRun(false);
+          pendingStepRef.current = prevIdx;
+          navigate(prevPath);
+        } else {
+          setStepIndex(prevIdx);
+        }
+        return;
+      }
+
       if (type === EVENTS.STEP_AFTER && action === ACTIONS.NEXT) {
         const nextIdx = index + 1;
         if (nextIdx >= TOUR_STEPS.length) {
@@ -191,7 +203,7 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      if ([STATUS.SKIPPED, STATUS.FINISHED].includes(status)) {
+      if ([STATUS.SKIPPED, STATUS.FINISHED].includes(status as typeof STATUS.SKIPPED)) {
         markTourCompleteInFirestore();
         setRun(false);
         if (status === STATUS.FINISHED) {

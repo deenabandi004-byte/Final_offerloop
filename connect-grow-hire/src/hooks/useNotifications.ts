@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 
@@ -47,10 +47,10 @@ export function useNotifications() {
   const markAllRead = async () => {
     if (!user?.uid) return;
     const ref = doc(db, 'users', user.uid, 'notifications', 'outbox');
-    await updateDoc(ref, {
+    await setDoc(ref, {
       unreadReplyCount: 0,
       items: notifications.items.map((i) => ({ ...i, read: true })),
-    });
+    }, { merge: true });
   };
 
   const markOneRead = async (contactId: string) => {
@@ -60,7 +60,7 @@ export function useNotifications() {
       i.contactId === contactId ? { ...i, read: true } : i
     );
     const newUnread = updatedItems.filter((i) => !i.read).length;
-    await updateDoc(ref, { unreadReplyCount: newUnread, items: updatedItems });
+    await setDoc(ref, { unreadReplyCount: newUnread, items: updatedItems }, { merge: true });
   };
 
   return { notifications, markAllRead, markOneRead };

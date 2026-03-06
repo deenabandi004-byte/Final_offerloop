@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   ExternalLink,
   RefreshCw,
@@ -9,6 +9,7 @@ import {
   Eye,
 } from "lucide-react";
 import type { OutboxThread } from "@/services/api";
+import { DONE_STAGES } from "@/lib/outboxConstants";
 
 interface ActionBarProps {
   contact: OutboxThread;
@@ -20,14 +21,6 @@ interface ActionBarProps {
   onRefresh: () => void;
   isSyncing: boolean;
 }
-
-const DONE_STAGES = new Set([
-  "connected",
-  "meeting_scheduled",
-  "no_response",
-  "bounced",
-  "closed",
-]);
 
 function addDays(days: number): string {
   const d = new Date();
@@ -46,6 +39,18 @@ export function ActionBar({
   isSyncing,
 }: ActionBarProps) {
   const [snoozeOpen, setSnoozeOpen] = useState(false);
+  const snoozeRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!snoozeOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (snoozeRef.current && !snoozeRef.current.contains(e.target as Node)) {
+        setSnoozeOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [snoozeOpen]);
 
   const gmailUrl =
     contact.gmailDraftUrl ||
@@ -111,7 +116,7 @@ export function ActionBar({
           </button>
 
           {/* Snooze */}
-          <div className="relative">
+          <div className="relative" ref={snoozeRef}>
             <button
               onClick={() => setSnoozeOpen(!snoozeOpen)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-white border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors"

@@ -238,7 +238,7 @@ const Index = () => {
           <div className="hidden md:flex items-center gap-3">
             {user ? (
               <button
-                onClick={() => navigate('/contact-search')}
+                onClick={() => navigate('/find')}
                 className="btn-ghost"
                 style={{ fontSize: '13px', fontWeight: 700, padding: '8px 16px' }}
               >
@@ -364,7 +364,7 @@ const Index = () => {
               {user ? (
                 <button
                   onClick={() => {
-                    navigate('/contact-search');
+                    navigate('/find');
                     setMobileMenuOpen(false);
                   }}
                   className="btn-primary-lg w-full"

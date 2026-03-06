@@ -66,8 +66,7 @@ def sync_stale():
     max_threads = 10
     if isinstance(body.get("max_threads"), (int, float)):
         max_threads = min(max(1, int(body["max_threads"])), 20)
-    user_email = request.firebase_user.get("email") or ""
-    result = sync_stale_threads(uid, max_threads=max_threads, user_email=user_email)
+    result = sync_stale_threads(uid, max_threads=max_threads)
     return jsonify(result), 200
 
 
