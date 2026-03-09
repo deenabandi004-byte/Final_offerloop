@@ -26,6 +26,9 @@ DONE_STAGES = frozenset({
     "connected", "meeting_scheduled", "no_response", "bounced", "closed",
 })
 
+# Stages that imply a reply was received (for reply rate calculation)
+REPLIED_STAGES = frozenset({"replied", "meeting_scheduled", "connected"})
+
 VALID_RESOLUTIONS = frozenset({
     "meeting_booked", "soft_no", "hard_no", "ghosted", "completed",
 })
@@ -53,7 +56,7 @@ def _parse_iso(s):
 
 
 def _now_iso():
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.utcnow().isoformat() + "Z"  # TODO: deprecated in Python 3.12
 
 
 def _get_contact_ref(uid, contact_id):
@@ -86,8 +89,6 @@ def _contact_to_dict(contact_id, data):
             gmail_draft_url = f"https://mail.google.com/mail/u/0/#drafts?compose={gmail_message_id}"
         else:
             gmail_draft_url = f"https://mail.google.com/mail/u/0/#draft/{gmail_draft_id}"
-    if gmail_draft_url and "#drafts/" in gmail_draft_url and gmail_message_id:
-        gmail_draft_url = f"https://mail.google.com/mail/u/0/#drafts?compose={gmail_message_id}"
     elif gmail_draft_url and "#drafts/" in gmail_draft_url:
         gmail_draft_url = gmail_draft_url.replace("#drafts/", "#draft/")
 
@@ -181,7 +182,7 @@ def get_outbox_stats(uid):
     Returns dict with stage counts, rates, and bucket counts.
     """
     contacts = get_outbox_contacts(uid, include_archived=False)
-    now_utc = datetime.utcnow()
+    now_utc = datetime.utcnow()  # TODO: deprecated in Python 3.12
     three_days_ago = now_utc - timedelta(days=3)
     seven_days_ago = now_utc - timedelta(days=7)
 
@@ -239,9 +240,9 @@ def get_outbox_stats(uid):
                 waiting += 1
 
         # Reply rate
-        if stage == "replied":
+        if stage in REPLIED_STAGES:
             replied_count += 1
-        if stage in ("email_sent", "waiting_on_reply", "replied", "no_response"):
+        if stage in ("email_sent", "waiting_on_reply", "replied", "meeting_scheduled", "connected", "no_response"):
             eligible_for_reply_rate += 1
 
         # This-week metrics
@@ -335,8 +336,9 @@ def unarchive_contact(uid, contact_id):
         "archivedAt": None,
         "updatedAt": _now_iso(),
     }
-    # If the contact is in a terminal stage, restore to an active one
-    if data.get("pipelineStage") in DONE_STAGES:
+    # Only reset negative terminal stages, preserve positive ones
+    RESET_ON_UNARCHIVE = frozenset({"no_response", "bounced", "closed"})
+    if data.get("pipelineStage") in RESET_ON_UNARCHIVE:
         updates["pipelineStage"] = "waiting_on_reply"
     ref.update(updates)
     data.update(updates)
@@ -565,7 +567,7 @@ def sync_contact_thread(uid, contact_id):
     if last_sync:
         last_sync_dt = _parse_iso(last_sync)
         if last_sync_dt:
-            elapsed = (datetime.utcnow() - last_sync_dt).total_seconds()
+            elapsed = (datetime.utcnow() - last_sync_dt).total_seconds()  # TODO: deprecated in Python 3.12
             if elapsed < SYNC_LOCK_SECONDS:
                 return _contact_to_dict(contact_id, data)
 
@@ -611,6 +613,10 @@ def sync_contact_thread(uid, contact_id):
         pass
 
     thread_updates = _sync_thread_messages(gmail_service, data, user_email)
+    # Don't let sync overwrite a manually-set terminal stage
+    current_stage = data.get("pipelineStage", "")
+    if current_stage in DONE_STAGES and "pipelineStage" in thread_updates:
+        del thread_updates["pipelineStage"]
     all_updates.update(thread_updates)
 
     # Write all updates in one batch

@@ -76,6 +76,9 @@ def _process_gmail_notification(email_address, history_id):
             gmail_ref.set({"watchHistoryId": history_id}, merge=True)
             return
 
+        # Save historyId immediately so a crash mid-loop won't cause reprocessing
+        gmail_ref.set({"watchHistoryId": history_id}, merge=True)
+
         user_doc = db.collection("users").document(uid).get()
         user_email = (user_doc.to_dict() or {}).get("email") if user_doc.exists else email_address
         if not user_email:
@@ -86,8 +89,9 @@ def _process_gmail_notification(email_address, history_id):
             print(f"[gmail_webhook] Could not get Gmail service for uid={uid}")
             return
 
-        # Fetch history (paginate)
+        # Fetch history (paginate, deduplicate message IDs)
         all_message_ids = []
+        seen_msg_ids = set()
         page_token = None
         while True:
             try:
@@ -114,14 +118,15 @@ def _process_gmail_notification(email_address, history_id):
                 for added in hist.get("messagesAdded", []):
                     msg = added.get("message", {})
                     msg_id = msg.get("id")
-                    if msg_id:
+                    if msg_id and msg_id not in seen_msg_ids:
+                        seen_msg_ids.add(msg_id)
                         all_message_ids.append((msg_id, msg.get("threadId")))
 
             page_token = history_response.get("nextPageToken")
             if not page_token:
                 break
 
-        now_iso = datetime.utcnow().isoformat() + "Z"
+        now_iso = datetime.utcnow().isoformat() + "Z"  # TODO: deprecated in Python 3.12
         user_email_lower = (user_email or "").lower()
         contacts_ref = db.collection("users").document(uid).collection("contacts")
         notif_ref = db.collection("users").document(uid).collection("notifications").document("outbox")
@@ -354,7 +359,7 @@ def _process_gmail_notification(email_address, history_id):
             # Notification doc
             notif_doc = notif_ref.get()
             notif_data = notif_doc.to_dict() if notif_doc.exists else {}
-            unread_count = int(notif_data.get("unreadReplyCount", 0)) + 1
+            unread_count = max(0, int(notif_data.get("unreadReplyCount", 0))) + 1
             items = list(notif_data.get("items", []))
             items.insert(
                 0,
@@ -377,7 +382,6 @@ def _process_gmail_notification(email_address, history_id):
                 merge=True,
             )
 
-        gmail_ref.set({"watchHistoryId": history_id}, merge=True)
 
     except Exception as e:
         print(f"[gmail_webhook] _process_gmail_notification error: {e}")
@@ -391,10 +395,9 @@ def webhook():
     Pub/Sub push endpoint. Verifies token, decodes message, dispatches processing
     to a background thread, and returns 200 immediately to avoid Pub/Sub redelivery.
     """
-    if GMAIL_WEBHOOK_SECRET:
-        token = (request.args.get("token") or "").strip()
-        if token != GMAIL_WEBHOOK_SECRET:
-            return jsonify({"error": "Forbidden"}), 403
+    token = (request.args.get("token") or "").strip()
+    if not GMAIL_WEBHOOK_SECRET or token != GMAIL_WEBHOOK_SECRET:
+        return jsonify({"error": "Forbidden"}), 403
 
     envelope = request.get_json(silent=True) or {}
     message = envelope.get("message", {})

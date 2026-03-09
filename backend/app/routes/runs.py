@@ -462,7 +462,7 @@ def prompt_search():
                         "status": "Not Contacted",
                         "lastContactDate": today,
                         "userId": user_id,
-                        "createdAt": today,
+                        "createdAt": datetime.utcnow().isoformat() + "Z",  # TODO: deprecated in Python 3.12
                     }
                     if contact.get("emailSubject"):
                         contact_doc["emailSubject"] = contact["emailSubject"]
@@ -474,6 +474,14 @@ def prompt_search():
                         contact_doc["gmailDraftUrl"] = contact["gmailDraftUrl"]
                     if contact.get("gmailDraftId") or contact.get("gmailDraftUrl"):
                         contact_doc["pipelineStage"] = "draft_created"
+                    now_iso = datetime.utcnow().isoformat() + "Z"  # TODO: deprecated in Python 3.12
+                    contact_doc["inOutbox"] = True
+                    contact_doc["draftToEmail"] = email
+                    contact_doc["draftCreatedAt"] = now_iso
+                    contact_doc["draftStillExists"] = True
+                    contact_doc["lastActivityAt"] = now_iso
+                    contact_doc["hasUnreadReply"] = False
+                    contact_doc["gmailMessageId"] = contact.get("gmailMessageId") or None
                     contacts_ref.add(contact_doc)
                     saved_count += 1
                     # Avoid duplicates within same batch

@@ -219,10 +219,10 @@ export function Dashboard() {
         // - Waiting for replies (sent emails)
         // - New replies (need to respond)
         // - Drafts (ready to send)
-        return t.status === "waiting_on_them" || 
-               t.status === "new_reply" || 
-               t.status === "waiting_on_you" ||
-               t.status === "no_reply_yet"; // Include drafts as actionable items
+        return t.status === "waiting_on_reply" ||
+               t.status === "replied" ||
+               t.status === "email_sent" ||
+               t.status === "draft_created"; // Include drafts as actionable items
       })
       .map(thread => {
         // Calculate days since last activity
@@ -233,25 +233,25 @@ export function Dashboard() {
         let priority: 'Hot' | 'Warm' | 'Normal' = 'Normal';
         
         // New replies are always high priority
-        if (thread.status === "new_reply" || thread.status === "waiting_on_you") {
+        if (thread.status === "replied" || thread.hasUnreadReply) {
           priority = 'Hot';
         } else if (daysSince >= 7) {
           priority = 'Hot';
         } else if (daysSince >= 4) {
           priority = 'Warm';
-        } else if (thread.status === "no_reply_yet") {
+        } else if (thread.status === "draft_created") {
           // Drafts are "Normal" priority unless they're old
           priority = daysSince >= 2 ? 'Warm' : 'Normal';
         }
         
         return {
           id: thread.id,
-          personName: thread.contactName,
-          title: thread.jobTitle,
+          personName: thread.name || thread.contactName,
+          title: thread.title || thread.jobTitle,
           company: thread.company,
           daysSinceContact: daysSince,
           priority,
-          emailOpened: thread.status === "new_reply" || thread.status === "waiting_on_you",
+          emailOpened: thread.status === "replied" || thread.hasUnreadReply,
         };
       });
     

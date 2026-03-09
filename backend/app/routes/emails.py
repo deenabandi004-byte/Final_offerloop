@@ -200,6 +200,9 @@ def generate_and_draft():
             _resume_res.raise_for_status()
             _cached_resume_data = _resume_res.content
             _cached_resume_ctype = _resume_res.headers.get("content-type", "")
+            if isinstance(_cached_resume_ctype, bytes):
+                _cached_resume_ctype = _cached_resume_ctype.decode("utf-8", errors="ignore")
+            _cached_resume_ctype = _cached_resume_ctype.lower()
             # Guard: HTML sharing page instead of file bytes
             if len(_cached_resume_data) < 1024 and b"<html" in _cached_resume_data[:2048].lower():
                 print("Resume URL returned HTML (likely a sharing page)")

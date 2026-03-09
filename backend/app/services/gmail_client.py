@@ -59,7 +59,7 @@ def _save_user_gmail_creds(uid, creds):
         # Do NOT store client_secret per-user — it's an app-level secret read from env vars.
         "scopes": creds.scopes,
         "expiry": creds.expiry.isoformat() if getattr(creds, "expiry", None) else None,
-        "updatedAt": datetime.utcnow(),
+        "updatedAt": datetime.utcnow(),  # TODO: deprecated in Python 3.12
     }
     db.collection("users").document(uid).collection("integrations").document("gmail").set(data, merge=True)
 
@@ -189,7 +189,7 @@ def start_gmail_watch(uid):
     service = _gmail_service(creds)
     if not service:
         raise ValueError(f"Failed to build Gmail service for uid={uid}")
-    body = {"topicName": GMAIL_PUBSUB_TOPIC, "labelIds": ["INBOX"]}
+    body = {"topicName": GMAIL_PUBSUB_TOPIC}
     response = service.users().watch(userId="me", body=body).execute()
     history_id = str(response.get("historyId", ""))
     expiration = response.get("expiration")
@@ -202,7 +202,7 @@ def start_gmail_watch(uid):
     if not db:
         raise RuntimeError("Database not available")
     gmail_ref = db.collection("users").document(uid).collection("integrations").document("gmail")
-    now_iso = datetime.utcnow().isoformat() + "Z"
+    now_iso = datetime.utcnow().isoformat() + "Z"  # TODO: deprecated in Python 3.12
     gmail_ref.set({
         "watchHistoryId": history_id,
         "watchExpiration": expiration,
@@ -652,7 +652,7 @@ def sync_thread_message(gmail_service, thread_id, sent_to_email=None, user_email
         last_activity = None
         if timestamp:
             try:
-                last_activity = datetime.fromtimestamp(int(timestamp) / 1000).isoformat()
+                last_activity = datetime.utcfromtimestamp(int(timestamp) / 1000).isoformat() + "Z"  # TODO: deprecated in Python 3.12
             except Exception:
                 pass
         
@@ -682,7 +682,7 @@ def sync_thread_message(gmail_service, thread_id, sent_to_email=None, user_email
         return {
             'snippet': snippet,
             'hasUnreadReply': has_unread and is_from_recipient,
-            'lastActivityAt': last_activity or datetime.utcnow().isoformat(),
+            'lastActivityAt': last_activity or datetime.utcnow().isoformat(),  # TODO: deprecated in Python 3.12
             'messageId': latest_msg.get('id'),
             'status': status,
             'isFromRecipient': is_from_recipient
@@ -695,7 +695,7 @@ def sync_thread_message(gmail_service, thread_id, sent_to_email=None, user_email
         return {
             'snippet': 'Error syncing message from Gmail.',
             'hasUnreadReply': False,
-            'lastActivityAt': datetime.utcnow().isoformat(),
+            'lastActivityAt': datetime.utcnow().isoformat(),  # TODO: deprecated in Python 3.12
             'status': 'waiting_on_them',
             'isFromRecipient': False
         }

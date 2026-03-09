@@ -115,7 +115,7 @@ def create_contact():
             'status': 'Not Contacted',
             'lastContactDate': today,
             'userId': user_id,
-            'createdAt': today,
+            'createdAt': datetime.utcnow().isoformat() + "Z",  # TODO: deprecated in Python 3.12
         }
         
         doc_ref = db.collection('users').document(user_id).collection('contacts').add(contact)
@@ -399,8 +399,36 @@ def generate_reply_draft(contact_id):
         elif 'body' in payload and 'data' in payload['body']:
             body = base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8')
         
-        # Generate reply using AI (placeholder - you'll enhance this later)
-        reply_text = f"Thank you for your reply! I appreciate you taking the time to respond.\n\nBest regards"
+        # Generate reply using AI
+        contact_name = (contact_data.get('firstName') or '').strip()
+        company = (contact_data.get('company') or '').strip()
+        email_subject = contact_data.get('emailSubject') or 'Our conversation'
+        snippet = contact_data.get('lastMessageSnippet') or ''
+
+        try:
+            from app.services.openai_client import get_openai_client
+            oai = get_openai_client()
+            prompt = (
+                f"Write a short, professional reply email (3-5 sentences) to {contact_name}"
+                f"{(' at ' + company) if company else ''}.\n"
+                f"Subject: {email_subject}\n"
+                f"Their latest message: {body[:500] if body else snippet}\n\n"
+                "Be warm but concise. Do not include a subject line. "
+                "End with a professional sign-off like 'Best regards'."
+            )
+            completion = oai.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are a professional networking assistant. Write concise, natural reply emails."},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=300,
+                temperature=0.7,
+            )
+            reply_text = (completion.choices[0].message.content or "").strip()
+        except Exception as ai_err:
+            print(f"AI reply generation failed, using empty draft: {ai_err}")
+            reply_text = ""
         
         # Create draft reply in Gmail
         message = MIMEText(reply_text)
@@ -454,8 +482,6 @@ def bulk_create_contacts():
         data = request.get_json() or {}
         user_id = request.firebase_user['uid']
         raw_contacts = data.get('contacts') or []
-        print(f"DEBUG - Raw contacts received: {json.dumps(raw_contacts, indent=2)}")
-        
         if not db:
             return jsonify({'error': 'Firebase not initialized'}), 500
         
@@ -466,13 +492,6 @@ def bulk_create_contacts():
         today = datetime.now().strftime('%m/%d/%Y')
         
         for idx, rc in enumerate(raw_contacts):
-            # DEBUG: Log first contact received
-            if idx == 0:
-                print(f"[DEBUG] bulk_create_contacts - First raw contact received:")
-                print(f"  emailSubject: {rc.get('emailSubject') or rc.get('email_subject') or 'MISSING'}")
-                print(f"  emailBody: {(rc.get('emailBody') or rc.get('email_body') or 'MISSING')[:100]}...")
-                print(f"  All keys: {list(rc.keys())}")
-            
             first_name = (rc.get('FirstName') or rc.get('firstName') or '').strip()
             last_name = (rc.get('LastName') or rc.get('lastName') or '').strip()
             email = (rc.get('Email') or rc.get('WorkEmail') or rc.get('PersonalEmail') or rc.get('email') or '').strip()
@@ -559,12 +578,6 @@ def bulk_create_contacts():
             gmail_draft_id = (rc.get('gmailDraftId') or rc.get('gmail_draft_id') or '').strip()
             gmail_draft_url = (rc.get('gmailDraftUrl') or rc.get('gmail_draft_url') or '').strip()
             
-            # DEBUG: Log extracted email fields
-            if idx == 0:
-                print(f"[DEBUG] bulk_create_contacts - Extracted email fields:")
-                print(f"  email_subject: {email_subject or 'MISSING'}")
-                print(f"  email_body: {(email_body[:100] + '...') if email_body else 'MISSING'}")
-            
             contact = {
                 'firstName': first_name,
                 'lastName': last_name,
@@ -580,8 +593,8 @@ def bulk_create_contacts():
                 'status': 'Not Contacted',
                 'lastContactDate': today,
                 'userId': user_id,
-                'createdAt': datetime.now().isoformat(),
-                'lastActivityAt': datetime.now().isoformat(),
+                'createdAt': datetime.utcnow().isoformat() + "Z",  # TODO: deprecated in Python 3.12
+                'lastActivityAt': datetime.utcnow().isoformat() + "Z",  # TODO: deprecated in Python 3.12
             }
 
             # Add email subject and body if available (from generated personalized emails)
@@ -593,8 +606,18 @@ def bulk_create_contacts():
             if gmail_draft_id:
                 contact['gmailDraftId'] = gmail_draft_id
                 contact['pipelineStage'] = 'draft_created'
+                contact['draftCreatedAt'] = datetime.utcnow().isoformat() + "Z"  # TODO: deprecated in Python 3.12
+                contact['draftStillExists'] = True
+            else:
+                contact['draftStillExists'] = False
             if gmail_draft_url:
                 contact['gmailDraftUrl'] = gmail_draft_url
+
+            # Outbox fields required for tracker visibility
+            contact['inOutbox'] = True
+            contact['draftToEmail'] = email
+            contact['hasUnreadReply'] = False
+            contact['gmailMessageId'] = (rc.get('gmailMessageId') or rc.get('gmail_message_id') or '').strip() or None
 
             # Set pipelineStage to "new" for contacts without drafts (from prompt search)
             if 'pipelineStage' not in contact:
@@ -604,12 +627,6 @@ def bulk_create_contacts():
                     contact['pipelineStage'] = req_stage
                 else:
                     contact['pipelineStage'] = 'new'
-            
-            # DEBUG: Log contact being saved to Firestore
-            if idx == 0:
-                print(f"[DEBUG] bulk_create_contacts - Contact being saved to Firestore:")
-                print(f"  emailSubject: {contact.get('emailSubject') or 'MISSING'}")
-                print(f"  emailBody: {(contact.get('emailBody', '')[:100] + '...') if contact.get('emailBody') else 'MISSING'}")
             
             doc_ref = contacts_ref.add(contact)
             contact['id'] = doc_ref[1].id

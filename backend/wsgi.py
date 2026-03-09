@@ -1,5 +1,7 @@
 import os
 import logging
+import threading
+import time
 from flask import Flask, send_from_directory, abort, request, redirect
 
 # Configure logging BEFORE importing anything else that uses logging
@@ -185,6 +187,56 @@ def create_app() -> Flask:
             return send_from_directory(app.static_folder, 'index.html')
         else:
             return "Frontend build not found", 500
+
+    # Start Gmail watch renewal background thread (every 6 days)
+    _watch_logger = logging.getLogger("watch_renewal")
+
+    def _watch_renewal_loop():
+        _watch_logger.info("Gmail watch renewal thread started (interval=6 days)")
+        SIX_DAYS = 6 * 24 * 3600
+        while True:
+            time.sleep(SIX_DAYS)
+            try:
+                with app.app_context():
+                    from .app.routes.admin import renew_watches as _renew_endpoint
+                    # Call the core logic directly, not the HTTP handler
+                    from .app.extensions import get_db
+                    from .app.services.gmail_client import renew_gmail_watch
+                    db = get_db()
+                    now_ms = int(time.time() * 1000)
+                    one_day_ms = 86400 * 1000
+                    renewed = 0
+                    failed = 0
+                    for user_doc in db.collection("users").stream():
+                        uid = user_doc.id
+                        gmail_ref = db.collection("users").document(uid).collection("integrations").document("gmail")
+                        gmail_doc = gmail_ref.get()
+                        if not gmail_doc.exists:
+                            continue
+                        data = gmail_doc.to_dict() or {}
+                        if not (data.get("token") or data.get("refresh_token")):
+                            continue
+                        watch_exp = data.get("watchExpiration")
+                        if watch_exp is not None:
+                            try:
+                                watch_exp = int(watch_exp)
+                            except (TypeError, ValueError):
+                                watch_exp = None
+                        if watch_exp is not None and (watch_exp - now_ms) >= one_day_ms:
+                            continue
+                        try:
+                            renew_gmail_watch(uid)
+                            renewed += 1
+                        except Exception as e:
+                            failed += 1
+                            _watch_logger.error("Watch renewal failed uid=%s: %s", uid, e)
+                    _watch_logger.info("Watch renewal complete: renewed=%d failed=%d", renewed, failed)
+            except Exception as e:
+                _watch_logger.error("Watch renewal loop error: %s", e)
+
+    t = threading.Thread(target=_watch_renewal_loop, daemon=True)
+    t.start()
+    _watch_logger.info("Gmail watch renewal thread registered (first run in 6 days)")
 
     return app
 
