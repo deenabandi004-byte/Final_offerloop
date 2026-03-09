@@ -3,12 +3,15 @@ Gmail push notification webhook — receives Pub/Sub notifications and detects r
 """
 import base64
 import json
+import logging
 import re
 import threading
 from datetime import datetime
 from email.utils import parseaddr
 
 from flask import Blueprint, jsonify, request
+
+logger = logging.getLogger(__name__)
 
 from google.cloud.firestore_v1 import ArrayUnion
 
@@ -39,10 +42,12 @@ def _process_gmail_notification(email_address, history_id):
     Background worker: find user, fetch history, detect new replies, update contacts and notifications.
     """
     try:
+        logger.info(f"[gmail_webhook] Processing notification for email={email_address} historyId={history_id}")
         uid = find_uid_by_gmail_address(email_address)
         if not uid:
-            print(f"[gmail_webhook] No user found for Gmail address: {email_address}")
+            logger.info(f"[gmail_webhook] No user found for Gmail address: {email_address}")
             return
+        logger.info(f"[gmail_webhook] Resolved uid={uid} for email={email_address}")
 
         db = get_db()
         if not db:
@@ -126,6 +131,8 @@ def _process_gmail_notification(email_address, history_id):
             if not page_token:
                 break
 
+        logger.info(f"[gmail_webhook] uid={uid} fetched {len(all_message_ids)} new message(s) from history (lastHistoryId={last_history_id} -> {history_id})")
+
         now_iso = datetime.utcnow().isoformat() + "Z"  # TODO: deprecated in Python 3.12
         user_email_lower = (user_email or "").lower()
         contacts_ref = db.collection("users").document(uid).collection("contacts")
@@ -145,30 +152,42 @@ def _process_gmail_notification(email_address, history_id):
                 print(f"[gmail_webhook] messages.get error msg={msg_id}: {e}")
                 continue
 
+            logger.info(f"[gmail_webhook] uid={uid} fetched message msg_id={msg_id} thread_id={thread_id}")
+
             headers = msg_resp.get("payload", {}).get("headers", [])
             from_header = next((h.get("value", "") for h in headers if h.get("name", "").lower() == "from"), "")
             from_email = _extract_email_from_header(from_header)
 
+            logger.info(f"[gmail_webhook] uid={uid} msg_id={msg_id} from={from_email} user_email={user_email_lower}")
+
             if from_email and user_email_lower and from_email == user_email_lower:
                 # --- User sent a message (draft was sent) ---
+                logger.info(f"[gmail_webhook] uid={uid} msg_id={msg_id} detected as SENT message (from==user)")
                 to_header = next((h.get("value", "") for h in headers if h.get("name", "").lower() == "to"), "")
                 _, to_email = parseaddr(to_header)
                 to_email = (to_email or "").lower().strip()
+                logger.info(f"[gmail_webhook] uid={uid} msg_id={msg_id} to_email={to_email}")
 
                 if not to_email or not thread_id:
+                    logger.info(f"[gmail_webhook] uid={uid} msg_id={msg_id} skipping: no to_email or thread_id")
                     continue
 
                 contact_ref = None
                 contact_doc = None
 
                 # Try: contact with gmailThreadId == thread_id
+                logger.info(f"[gmail_webhook] uid={uid} Strategy 1: matching gmailThreadId={thread_id}")
                 thread_matches = contacts_ref.where("gmailThreadId", "==", thread_id).limit(1).get()
                 if thread_matches:
                     contact_doc = thread_matches[0]
                     contact_ref = contact_doc.reference
+                    logger.info(f"[gmail_webhook] uid={uid} Strategy 1 MATCHED: contact_id={contact_doc.id}")
                 else:
+                    logger.info(f"[gmail_webhook] uid={uid} Strategy 1 no match")
                     # Strategy 2a: contact whose email matches 'To' AND is in draft state
+                    logger.info(f"[gmail_webhook] uid={uid} Strategy 2a: matching email={to_email} with draft state")
                     email_matches = contacts_ref.where("email", "==", to_email).limit(5).get()
+                    logger.info(f"[gmail_webhook] uid={uid} Strategy 2a found {len(email_matches)} email matches")
                     for doc in email_matches:
                         data = doc.to_dict() or {}
                         stage = data.get("pipelineStage")
@@ -179,10 +198,15 @@ def _process_gmail_notification(email_address, history_id):
                         if stage == "draft_created" or has_draft:
                             contact_doc = doc
                             contact_ref = doc.reference
+                            logger.info(f"[gmail_webhook] uid={uid} Strategy 2a MATCHED: contact_id={doc.id} stage={stage}")
                             break
+
+                    if not contact_ref:
+                        logger.info(f"[gmail_webhook] uid={uid} Strategy 2a no match")
 
                     # Strategy 2b: check alternateEmails on draft_created contacts
                     if not contact_ref:
+                        logger.info(f"[gmail_webhook] uid={uid} Strategy 2b: scanning alternateEmails for to_email={to_email}")
                         try:
                             draft_contacts = contacts_ref.where(
                                 "pipelineStage", "==", "draft_created"
@@ -200,6 +224,7 @@ def _process_gmail_notification(email_address, history_id):
 
                     # Strategy 2c: match by draftToEmail field
                     if not contact_ref:
+                        logger.info(f"[gmail_webhook] uid={uid} Strategy 2c: matching draftToEmail={to_email}")
                         try:
                             draft_to_matches = contacts_ref.where(
                                 "draftToEmail", "==", to_email
@@ -220,6 +245,7 @@ def _process_gmail_notification(email_address, history_id):
                 # Capped at 10 candidates to prevent excessive Gmail API calls
                 STRATEGY_3_CAP = 10
                 if not contact_ref:
+                    logger.info(f"[gmail_webhook] uid={uid} Strategy 3: checking for disappeared drafts (cap={STRATEGY_3_CAP})")
                     try:
                         draft_candidates = contacts_ref.where(
                             "pipelineStage", "==", "draft_created"
@@ -261,6 +287,7 @@ def _process_gmail_notification(email_address, history_id):
                         print(f"[gmail_webhook] Strategy 3 draft scan error: {e}")
 
                 if not contact_ref:
+                    logger.info(f"[gmail_webhook] uid={uid} msg_id={msg_id} NO CONTACT FOUND for sent message to={to_email} thread={thread_id}")
                     continue
 
                 contact_data = contact_doc.to_dict() or {}
@@ -268,6 +295,7 @@ def _process_gmail_notification(email_address, history_id):
 
                 # Only update if currently in a draft/pre-send state
                 if current_stage not in (None, "draft_created", "email_sent"):
+                    logger.info(f"[gmail_webhook] uid={uid} contact_id={contact_doc.id} skipping update: current stage={current_stage} not in draft/pre-send states")
                     continue
 
                 update_fields = {
@@ -288,19 +316,26 @@ def _process_gmail_notification(email_address, history_id):
                 if msg_snippet:
                     update_fields["lastMessageSnippet"] = msg_snippet
 
+                logger.info(f"[gmail_webhook] uid={uid} contact_id={contact_doc.id} UPDATING sent message: stage draft_created->waiting_on_reply, fields={list(update_fields.keys())}")
                 contact_ref.update(update_fields)
                 continue
 
             # Find contact with this thread (reply from contact)
+            logger.info(f"[gmail_webhook] uid={uid} msg_id={msg_id} detected as INCOMING reply from={from_email}")
+            logger.info(f"[gmail_webhook] uid={uid} Reply Strategy 1: matching gmailThreadId={thread_id}")
             try:
                 query = contacts_ref.where("gmailThreadId", "==", thread_id).limit(1)
                 contact_docs = list(query.stream())
             except Exception as e:
-                print(f"[gmail_webhook] Contact query error: {e}")
+                logger.info(f"[gmail_webhook] Contact query error: {e}")
                 continue
+
+            if contact_docs:
+                logger.info(f"[gmail_webhook] uid={uid} Reply Strategy 1 MATCHED: contact_id={contact_docs[0].id}")
 
             # Fallback: match by from_email against stored email, draftToEmail, or alternateEmails
             if not contact_docs and from_email:
+                logger.info(f"[gmail_webhook] uid={uid} Reply Strategy 1 no match, trying email fallbacks for from={from_email}")
                 try:
                     email_matches = contacts_ref.where("email", "==", from_email).where("inOutbox", "==", True).limit(1).get()
                     if email_matches:
@@ -327,6 +362,7 @@ def _process_gmail_notification(email_address, history_id):
                     print(f"[gmail_webhook] Reply email fallback error: {e}")
 
             if not contact_docs:
+                logger.info(f"[gmail_webhook] uid={uid} msg_id={msg_id} NO CONTACT FOUND for incoming reply from={from_email} thread={thread_id}")
                 continue
 
             contact_doc = contact_docs[0]
@@ -352,9 +388,10 @@ def _process_gmail_notification(email_address, history_id):
             }
             if not contact_data.get("replyReceivedAt"):
                 updates["replyReceivedAt"] = now_iso
+            logger.info(f"[gmail_webhook] uid={uid} contact_id={contact_id} UPDATING reply: stage->replied, hasUnreadReply->True, fields={list(updates.keys())}")
             contact_ref.update(updates)
 
-            print(f"[gmail_webhook] Reply detected for uid={uid} contact={contact_id} from={from_header}")
+            logger.info(f"[gmail_webhook] uid={uid} Reply detected and processed for contact={contact_id} from={from_header}")
 
             # Notification doc
             notif_doc = notif_ref.get()
@@ -381,10 +418,12 @@ def _process_gmail_notification(email_address, history_id):
                 },
                 merge=True,
             )
+            logger.info(f"[gmail_webhook] uid={uid} notification updated: unreadReplyCount={unread_count} for contact={contact_id}")
 
+        logger.info(f"[gmail_webhook] uid={uid} processing complete: handled {len(all_message_ids)} message(s)")
 
     except Exception as e:
-        print(f"[gmail_webhook] _process_gmail_notification error: {e}")
+        logger.error(f"[gmail_webhook] _process_gmail_notification error: {e}")
         import traceback
         traceback.print_exc()
 
