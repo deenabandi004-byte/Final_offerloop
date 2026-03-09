@@ -1136,11 +1136,12 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
             else:
                 gmail_draft_url = f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
         
-        # Return draft_id, message_id, and URL as a dict for easier access
+        # Return draft_id, message_id, URL, and actual recipient as a dict for easier access
         return {
             'draft_id': draft_id,
             'message_id': message_id,
-            'draft_url': gmail_draft_url
+            'draft_url': gmail_draft_url,
+            'recipient_email': recipient_email,
         }
         
     except Exception as e:
@@ -1268,16 +1269,17 @@ def create_drafts_batch(contacts_with_emails, gmail_service, resume_bytes=None, 
     print(f"[GmailClient] Creating {len(contacts_with_emails)} Gmail drafts using batch API")
     
     results = {}
+    recipients = {}  # Track recipient email per request index
     results_lock = threading.Lock()
-    
-    def build_draft_message(item):
-        """Build draft message for a single contact"""
+
+    def build_draft_message(item, index):
+        """Build draft message for a single contact. Returns (raw_message, recipient_email) or (None, None)."""
         from app.utils.contact import clean_email_text
-        
+
         contact = item['contact']
         email_subject = clean_email_text(item['email_subject'])
         email_body = clean_email_text(item['email_body'])
-        
+
         # Get recipient email
         recipient_email = None
         if contact.get('PersonalEmail') and contact['PersonalEmail'] != 'Not available' and '@' in contact['PersonalEmail']:
@@ -1286,9 +1288,11 @@ def create_drafts_batch(contacts_with_emails, gmail_service, resume_bytes=None, 
             recipient_email = contact['WorkEmail']
         elif contact.get('Email') and '@' in contact['Email']:
             recipient_email = contact['Email']
-        
+
         if not recipient_email:
-            return None
+            return None, None
+
+        recipients[str(index)] = recipient_email
         
         # Get Gmail account email
         try:
@@ -1333,8 +1337,8 @@ def create_drafts_batch(contacts_with_emails, gmail_service, resume_bytes=None, 
             except Exception:
                 pass
         
-        return base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
-    
+        return base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8'), recipient_email
+
     def callback(request_id, response, exception):
         """Callback for batch request"""
         with results_lock:
@@ -1356,6 +1360,7 @@ def create_drafts_batch(contacts_with_emails, gmail_service, resume_bytes=None, 
                     'draft_id': draft_id,
                     'message_id': message_id,
                     'draft_url': draft_url,
+                    'recipient_email': recipients.get(request_id),
                     'error': None
                 }
     
@@ -1363,7 +1368,7 @@ def create_drafts_batch(contacts_with_emails, gmail_service, resume_bytes=None, 
     batch = gmail_service.new_batch_http_request(callback=callback)
     
     for i, item in enumerate(contacts_with_emails):
-        raw_message = build_draft_message(item)
+        raw_message, _ = build_draft_message(item, i)
         if raw_message:
             batch.add(
                 gmail_service.users().drafts().create(

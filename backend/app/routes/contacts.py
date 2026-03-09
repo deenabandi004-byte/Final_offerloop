@@ -615,7 +615,7 @@ def bulk_create_contacts():
 
             # Outbox fields required for tracker visibility
             contact['inOutbox'] = True
-            contact['draftToEmail'] = email
+            contact['draftToEmail'] = (rc.get('draftToEmail') or '').strip().lower() or email
             contact['hasUnreadReply'] = False
             contact['gmailMessageId'] = (rc.get('gmailMessageId') or rc.get('gmail_message_id') or '').strip() or None
 

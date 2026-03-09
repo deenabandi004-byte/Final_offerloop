@@ -402,6 +402,8 @@ def prompt_search():
                         if isinstance(draft_result, dict):
                             if draft_result.get("draft_url"):
                                 contact["gmailDraftUrl"] = draft_result["draft_url"]
+                            if draft_result.get("recipient_email"):
+                                contact["_draftRecipientEmail"] = draft_result["recipient_email"]
         except Exception as gmail_error:
             err_str = str(gmail_error).lower()
             if "invalid_grant" in err_str or "token has been expired or revoked" in err_str:
@@ -476,7 +478,7 @@ def prompt_search():
                         contact_doc["pipelineStage"] = "draft_created"
                     now_iso = datetime.utcnow().isoformat() + "Z"  # TODO: deprecated in Python 3.12
                     contact_doc["inOutbox"] = True
-                    contact_doc["draftToEmail"] = email
+                    contact_doc["draftToEmail"] = contact.get("_draftRecipientEmail") or email
                     contact_doc["draftCreatedAt"] = now_iso
                     contact_doc["draftStillExists"] = True
                     contact_doc["lastActivityAt"] = now_iso
