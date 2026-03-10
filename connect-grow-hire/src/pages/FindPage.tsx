@@ -1,11 +1,14 @@
-import React, { Suspense } from "react";
-import { useSearchParams } from "react-router-dom";
+import React, { Suspense, useState, useEffect } from "react";
+import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
-import { Search, Building2, UserCheck } from "lucide-react";
+import { Search, Building2, UserCheck, FileText } from "lucide-react";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
+import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { apiService, type EmailTemplate, hasEmailTemplateValues } from "@/services/api";
+import { EliteGateModal } from "@/components/EliteGateModal";
 
 const ContactSearchPage = React.lazy(() => import("./ContactSearchPage"));
 const FirmSearchPage = React.lazy(() => import("./FirmSearchPage"));
@@ -37,19 +40,98 @@ function resolveTab(raw: string | null): FindTab {
 const FindPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = resolveTab(searchParams.get("tab"));
+  const navigate = useNavigate();
+  const routerLocation = useLocation();
+  const { user } = useFirebaseAuth();
+  const isElite = user?.tier === "elite";
+
+  const [showEliteGate, setShowEliteGate] = useState(false);
+  const [savedEmailTemplate, setSavedEmailTemplate] = useState<EmailTemplate | null>(null);
+  const [sessionEmailTemplate, setSessionEmailTemplate] = useState<EmailTemplate | null>(null);
+  const activeEmailTemplate = sessionEmailTemplate ?? savedEmailTemplate;
+
+  // Load saved email template on mount
+  useEffect(() => {
+    if (!user?.uid) return;
+    apiService.getEmailTemplate().then((t) => {
+      setSavedEmailTemplate({
+        purpose: t.purpose,
+        stylePreset: t.stylePreset,
+        customInstructions: t.customInstructions,
+        signoffPhrase: t.signoffPhrase,
+        signatureBlock: t.signatureBlock,
+        savedTemplateId: t.savedTemplateId,
+      });
+    }).catch(() => {});
+  }, [user?.uid]);
+
+  // Pick up template applied from EmailTemplatesPage via router state or sessionStorage
+  useEffect(() => {
+    const state = (routerLocation.state as { appliedEmailTemplate?: EmailTemplate } | undefined)?.appliedEmailTemplate;
+    if (state) {
+      setSessionEmailTemplate(state);
+      sessionStorage.removeItem("offerloop_applied_email_template");
+      return;
+    }
+    try {
+      const raw = sessionStorage.getItem("offerloop_applied_email_template");
+      if (raw) {
+        const parsed = JSON.parse(raw) as EmailTemplate;
+        if (parsed && typeof parsed === "object") setSessionEmailTemplate(parsed);
+        sessionStorage.removeItem("offerloop_applied_email_template");
+      }
+    } catch {}
+  }, [routerLocation.state]);
 
   const setActiveTab = (tab: FindTab) => {
     setSearchParams({ tab }, { replace: true });
   };
 
+  const templateLabel = activeEmailTemplate && hasEmailTemplateValues(activeEmailTemplate)
+    ? (() => {
+        if (activeEmailTemplate.name?.trim()) return activeEmailTemplate.name.trim();
+        const p = activeEmailTemplate.purpose;
+        if (p === "networking") return "Networking";
+        if (p === "referral") return "Referral Request";
+        if (p === "follow_up") return "Follow-Up";
+        if (p === "sales") return "Sales";
+        if (p === "custom") return "Custom Template";
+        if (p) return p.charAt(0).toUpperCase() + p.slice(1).replace(/_/g, " ");
+        return "Networking";
+      })()
+    : "Networking";
+
   return (
+    <>
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-[#FAFAFA] text-foreground font-sans">
+      <div className="flex min-h-screen w-full bg-white text-foreground font-sans">
         <AppSidebar />
         <MainContentWrapper>
-          <AppHeader />
+          <AppHeader
+            rightContent={
+              <>
+                <button
+                  onClick={() => navigate("/find/templates")}
+                  className="hidden md:flex items-center gap-1 text-xs text-muted-foreground hover:text-primary cursor-pointer transition-colors"
+                >
+                  Using:&nbsp;<span className="font-semibold text-foreground">{templateLabel}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => isElite ? navigate("/find/templates") : setShowEliteGate(true)}
+                  className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-150 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:ring-offset-1 bg-transparent border border-gray-300 text-gray-700 hover:bg-blue-50/50 hover:border-gray-400"
+                  data-tour="tour-templates-button"
+                >
+                  <FileText className="h-4 w-4" />
+                  <span className="hidden sm:inline whitespace-nowrap">
+                    Email Template
+                  </span>
+                </button>
+              </>
+            }
+          />
           <main
-            style={{ background: "#F8FAFF", flex: 1, overflowY: "auto" }}
+            style={{ background: "#FFFFFF", flex: 1, overflowY: "auto" }}
             className="px-3 py-6 pb-24 sm:px-6 sm:py-12 sm:pb-24"
           >
             {/* Shared header */}
@@ -157,6 +239,8 @@ const FindPage: React.FC = () => {
         </MainContentWrapper>
       </div>
     </SidebarProvider>
+    <EliteGateModal open={showEliteGate} onClose={() => setShowEliteGate(false)} />
+    </>
   );
 };
 
