@@ -1,6 +1,7 @@
 """
 Contact utilities - email cleaning, hometown extraction
 """
+import html
 import re
 from app.services.openai_client import get_openai_client
 
@@ -9,7 +10,10 @@ def clean_email_text(text):
     """Clean email text to remove problematic characters"""
     if not text:
         return ""
-    
+
+    # Decode HTML entities (e.g. &#39; -> ', &amp; -> &, etc.)
+    text = html.unescape(text)
+
     # Replace common Unicode characters with ASCII equivalents
     replacements = {
         '\u2019': "'",  # Right single quote

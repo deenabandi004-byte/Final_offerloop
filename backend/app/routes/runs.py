@@ -336,7 +336,8 @@ def prompt_search():
             email_result = email_results.get(i) or email_results.get(key) or email_results.get(f"{i}")
             if email_result and isinstance(email_result, dict):
                 subject = email_result.get("subject", "")
-                body = email_result.get("body", "")
+                # Prefer plain_body (no HTML entities) over body (HTML-escaped)
+                body = email_result.get("plain_body") or email_result.get("body", "")
                 if subject and body:
                     contact["emailSubject"] = subject
                     contact["emailBody"] = body
@@ -347,7 +348,8 @@ def prompt_search():
             email_result = email_results.get(i) or email_results.get(key) or email_results.get(f"{i}")
             if email_result and isinstance(email_result, dict):
                 subject = email_result.get("subject", "")
-                body = email_result.get("body", "")
+                # Prefer plain_body (no HTML entities) over body (HTML-escaped)
+                body = email_result.get("plain_body") or email_result.get("body", "")
                 if subject and body:
                     attach_resume = (email_template_purpose in PURPOSES_INCLUDE_RESUME) or email_body_mentions_resume(body)
                     contacts_with_emails.append({

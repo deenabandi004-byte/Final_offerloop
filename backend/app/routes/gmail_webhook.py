@@ -160,6 +160,12 @@ def _process_gmail_notification(email_address, history_id):
 
             logger.info(f"[gmail_webhook] uid={uid} msg_id={msg_id} from={from_email} user_email={user_email_lower}")
 
+            label_ids = msg_resp.get('labelIds', [])
+            logger.info(f"[gmail_webhook] uid={uid} msg_id={msg_id} labels={label_ids}")
+            if 'SENT' not in label_ids:
+                logger.info(f"[gmail_webhook] uid={uid} msg_id={msg_id} skipping — no SENT label (labels={label_ids})")
+                continue
+
             if from_email and user_email_lower and from_email == user_email_lower:
                 # --- User sent a message (draft was sent) ---
                 logger.info(f"[gmail_webhook] uid={uid} msg_id={msg_id} detected as SENT message (from==user)")

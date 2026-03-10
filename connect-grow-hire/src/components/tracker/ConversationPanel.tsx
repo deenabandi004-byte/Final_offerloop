@@ -2,7 +2,7 @@ import { ExternalLink, Linkedin, Copy, Check } from "lucide-react";
 import { useState } from "react";
 import type { OutboxThread, PipelineStage } from "@/services/api";
 import { ActionBar } from "./ActionBar";
-import { formatTimeAgo, formatDate } from "@/lib/formatters";
+import { formatTimeAgo, formatDate, decodeHtmlEntities } from "@/lib/formatters";
 
 const STAGE_OPTIONS: { value: PipelineStage; label: string }[] = [
   { value: "new", label: "New" },
@@ -127,7 +127,7 @@ export function ConversationPanel({
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">
               AI Summary
             </p>
-            <p className="text-sm text-gray-700 leading-relaxed">{contact.conversationSummary}</p>
+            <p className="text-sm text-gray-700 leading-relaxed">{decodeHtmlEntities(contact.conversationSummary)}</p>
           </div>
         )}
 
@@ -149,7 +149,7 @@ export function ConversationPanel({
               )}
             </div>
             <blockquote className="border-l-2 border-gray-200 pl-3 py-1 text-sm text-gray-600 italic">
-              {contact.lastMessageSnippet}
+              {decodeHtmlEntities(contact.lastMessageSnippet)}
             </blockquote>
           </div>
         )}

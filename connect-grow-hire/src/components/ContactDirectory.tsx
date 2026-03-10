@@ -16,6 +16,7 @@ import { LoadingSkeleton } from "./LoadingSkeleton";
 import { useNavigate } from "react-router-dom";
 import { InlineLoadingBar } from "@/components/ui/LoadingBar";
 import { useFirebaseAuth } from '../contexts/FirebaseAuthContext';
+import { decodeHtmlEntities } from '@/lib/formatters';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -519,11 +520,11 @@ const SpreadsheetContactDirectory: React.FC = () => {
     const generatedBody = contact.emailBody?.trim();
     
     const subject = generatedSubject && generatedSubject.length > 0
-      ? generatedSubject
+      ? decodeHtmlEntities(generatedSubject)
       : `Question about your work at ${contact.company || 'your company'}`;
-    
+
     const body = generatedBody && generatedBody.length > 0
-      ? generatedBody
+      ? decodeHtmlEntities(generatedBody)
       : `Hi ${contact.firstName || 'there'},\n\nI'd love to connect and learn more about your work.\n\nBest regards`;
     
     if (isDev) {

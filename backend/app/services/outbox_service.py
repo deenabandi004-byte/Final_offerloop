@@ -4,6 +4,7 @@ Outbox / Network Tracker service layer.
 All business logic for the outbox feature lives here.
 Routes call these functions; they should never touch Gmail or Firestore directly.
 """
+import html
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -102,6 +103,9 @@ def _contact_to_dict(contact_id, data):
             snippet = data.get("emailBody") or "Draft is ready to send in Gmail"
         else:
             snippet = ""
+    # Gmail API returns HTML-encoded snippets (&#39; &amp; etc.) — decode them
+    if snippet:
+        snippet = html.unescape(snippet)
 
     return {
         "id": contact_id,

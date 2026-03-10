@@ -21,3 +21,14 @@ export function daysBetween(iso: string | null | undefined): number {
   if (!iso) return 0;
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
 }
+
+/** Decode HTML entities (e.g. &#39; &amp; &quot;) to plain text */
+let _textarea: HTMLTextAreaElement | null = null;
+export function decodeHtmlEntities(text: string | null | undefined): string {
+  if (!text) return "";
+  // Fast path: skip if no entities present
+  if (!text.includes("&")) return text;
+  if (!_textarea) _textarea = document.createElement("textarea");
+  _textarea.innerHTML = text;
+  return _textarea.value;
+}
