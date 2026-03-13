@@ -53,7 +53,60 @@ def create_app() -> Flask:
         static_folder=STATIC_DIR,
         static_url_path=""
     )
-    
+
+    # --- Prerender.io middleware for bot crawlers (SEO/AEO) ---
+    PRERENDER_TOKEN = os.environ.get("PRERENDER_TOKEN", "7CEDXDDuzwprjCKsW8Ln")
+    BOT_AGENTS = [
+        'googlebot', 'bingbot', 'yandex', 'duckduckbot', 'slurp',
+        'baiduspider', 'facebookexternalhit', 'twitterbot', 'linkedinbot',
+        'embedly', 'quora link preview', 'showyoubot', 'outbrain',
+        'pinterest', 'developers.google.com/+/web/snippet', 'slackbot',
+        'vkshare', 'w3c_validator', 'redditbot', 'applebot', 'whatsapp',
+        'flipboard', 'tumblr', 'bitlybot', 'skypeuripreview', 'nuzzel',
+        'discordbot', 'google page speed', 'qwantify', 'pinterestbot',
+        'bitrix link preview', 'xing-contenttabreceiver', 'chrome-lighthouse',
+        'telegrambot', 'gptbot', 'claudebot', 'anthropic-ai', 'perplexitybot',
+        'ccbot', 'chatgpt-user', 'google-extended', 'bytespider'
+    ]
+
+    @app.before_request
+    def prerender_middleware():
+        user_agent = request.headers.get('User-Agent', '').lower()
+        is_bot = any(bot in user_agent for bot in BOT_AGENTS)
+
+        # Only prerender GET requests to non-API, non-asset routes
+        if not is_bot:
+            return None
+        if request.method != 'GET':
+            return None
+        if request.path.startswith('/api/'):
+            return None
+        if request.path.startswith('/assets/'):
+            return None
+        if '.' in request.path.split('/')[-1]:  # skip files like .js .css .png
+            return None
+
+        import requests as req
+        prerender_url = f"https://service.prerender.io/{request.url}"
+        try:
+            resp = req.get(
+                prerender_url,
+                headers={
+                    'X-Prerender-Token': PRERENDER_TOKEN,
+                    'User-Agent': request.headers.get('User-Agent', '')
+                },
+                timeout=10
+            )
+            from flask import Response
+            return Response(
+                resp.content,
+                status=resp.status_code,
+                content_type=resp.headers.get('Content-Type', 'text/html')
+            )
+        except Exception as e:
+            app.logger.warning(f"Prerender failed for {request.url}: {e}")
+            return None  # Fall through to normal serving
+
     print("🚀 Initializing app extensions...")
     init_app_extensions(app)
     print("✅ App extensions initialized")

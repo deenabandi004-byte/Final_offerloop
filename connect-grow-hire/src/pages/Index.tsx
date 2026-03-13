@@ -503,8 +503,7 @@ const Index = () => {
               marginBottom: '24px',
             }}
           >
-            Recruiting takes long enough<br />
-            <span style={{ color: '#2563EB' }}>Stop wasting time on the busywork</span>
+            Recruiting takes long enough. <span style={{ color: '#2563EB' }}>Stop wasting time on the busywork.</span>
           </h1>
           <p
             className="hero-fade-up hero-fade-up-delay-3"
