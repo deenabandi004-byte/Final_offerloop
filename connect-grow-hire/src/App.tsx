@@ -64,6 +64,7 @@ const ColdEmailBanking = React.lazy(() => import("./pages/ColdEmailBanking"));
 const ColdEmailTech = React.lazy(() => import("./pages/ColdEmailTech"));
 const AlumniOutreach = React.lazy(() => import("./pages/AlumniOutreach"));
 const CoffeeChatNetworking = React.lazy(() => import("./pages/CoffeeChatNetworking"));
+const Glossary = React.lazy(() => import("./pages/Glossary"));
 
 // Optimized QueryClient with caching
 const queryClient = new QueryClient({
@@ -274,6 +275,7 @@ const AppRoutes: React.FC = () => {
       <Route path="/cold-email-tech-internships" element={<Suspense fallback={<PageLoader />}><ColdEmailTech /></Suspense>} />
       <Route path="/alumni-outreach" element={<Suspense fallback={<PageLoader />}><AlumniOutreach /></Suspense>} />
       <Route path="/coffee-chat-networking" element={<Suspense fallback={<PageLoader />}><CoffeeChatNetworking /></Suspense>} />
+      <Route path="/glossary" element={<Suspense fallback={<PageLoader />}><Glossary /></Suspense>} />
 
       {/* Public informational pages */}
       <Route path="/about" element={<Suspense fallback={<PageLoader />}><AboutUs /></Suspense>} />
