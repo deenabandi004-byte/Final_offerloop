@@ -402,28 +402,17 @@ def init_app_extensions(app: Flask):
     allowed_origins_env = os.getenv("CORS_ORIGINS", "")
     allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()] if allowed_origins_env else []
     
-    # Default origins (always include these)
-    # Prioritize Vite dev server (5173) which is the default
-    default_origins = [
-        "http://localhost:5173",      # Vite default (most common)
-        "http://127.0.0.1:5173",      # Vite default (IP variant)
-        "http://localhost:3000",      # React/Next.js default
-        "http://127.0.0.1:3000",      # React/Next.js default (IP variant)
-        "http://localhost:8080",      # Other dev servers
-        "http://127.0.0.1:8080",      # Other dev servers (IP variant)
-        "https://www.offerloop.ai",
-        "https://offerloop.ai"
-    ]
-    
-    # Get all allowed origins (combine defaults and env vars)
-    all_origins = list(set(default_origins + allowed_origins))
-    
-    # In development, use all default origins (more permissive but still explicit)
     # NOTE: Cannot use "*" with supports_credentials=True - must specify origins explicitly
     if is_dev:
+        # Development: only Vite dev server origins
+        dev_origins = [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ]
+        all_origins = list(set(dev_origins + allowed_origins))
         print(f"🔧 Development mode: CORS configured with origins: {all_origins}")
         cors_config = {
-            "origins": all_origins,  # Explicit list (required when supports_credentials=True)
+            "origins": all_origins,
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
             "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
             "supports_credentials": True,
@@ -431,7 +420,13 @@ def init_app_extensions(app: Flask):
             "expose_headers": ["Content-Type", "Authorization"]
         }
     else:
-        # Production: use specific origins
+        # Production: only production domains (set CORS_ORIGINS env var to
+        # "https://www.offerloop.ai,https://offerloop.ai" on Render)
+        prod_origins = [
+            "https://www.offerloop.ai",
+            "https://offerloop.ai",
+        ]
+        all_origins = list(set(prod_origins + allowed_origins))
         cors_config = {
             "origins": all_origins,
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],

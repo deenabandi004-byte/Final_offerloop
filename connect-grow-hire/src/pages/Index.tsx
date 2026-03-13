@@ -353,6 +353,13 @@ const Index = () => {
                     >
                       Data
                     </Link>
+                    <Link
+                      to="/about"
+                      className="px-4 py-2.5 text-sm font-medium hover:bg-gray-50 transition-colors"
+                      style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-body)' }}
+                    >
+                      About
+                    </Link>
                   </div>
                 </div>
               )}
@@ -510,6 +517,14 @@ const Index = () => {
                 style={{ color: 'var(--text-secondary)' }}
               >
                 Data
+              </Link>
+              <Link
+                to="/about"
+                onClick={() => setMobileMenuOpen(false)}
+                className="block text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                About
               </Link>
             </div>
             <button
