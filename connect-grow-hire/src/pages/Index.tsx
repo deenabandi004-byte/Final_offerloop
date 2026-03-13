@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowRight, Menu, X } from 'lucide-react';
+import { ArrowRight, Menu, X, ChevronDown } from 'lucide-react';
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import OfferloopLogo from '@/assets/offerloop_logo2.png';
 import ChromeExtensionPic from '@/assets/Chrome_extensionpic.png';
@@ -26,6 +26,7 @@ const Index = () => {
   const [scrollProgress, setScrollProgress] = useState(0);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [konamiActivated, setKonamiActivated] = useState(false);
+  const [resourcesOpen, setResourcesOpen] = useState(false);
   const heroRef = useRef<HTMLDivElement>(null);
   const dashboardRef = useRef<HTMLDivElement>(null);
 
@@ -302,6 +303,60 @@ const Index = () => {
             >
               Reviews
             </button>
+            <div
+              className="relative"
+              onMouseEnter={() => setResourcesOpen(true)}
+              onMouseLeave={() => setResourcesOpen(false)}
+            >
+              <button
+                className="nav-link text-sm font-bold relative flex items-center gap-1"
+                style={{
+                  color: 'var(--text-secondary)',
+                  fontFamily: 'var(--font-body)',
+                }}
+              >
+                Resources <ChevronDown className="h-3.5 w-3.5" style={{ opacity: 0.6 }} />
+              </button>
+              {resourcesOpen && (
+                <div
+                  className="absolute top-full left-1/2 pt-2"
+                  style={{ transform: 'translateX(-50%)' }}
+                >
+                  <div
+                    className="flex flex-col py-2 rounded-xl"
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.98)',
+                      border: '1px solid rgba(214, 222, 240, 0.7)',
+                      boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
+                      backdropFilter: 'blur(16px)',
+                      minWidth: '160px',
+                    }}
+                  >
+                    <Link
+                      to="/blog"
+                      className="px-4 py-2.5 text-sm font-medium hover:bg-gray-50 transition-colors"
+                      style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-body)' }}
+                    >
+                      Blog
+                    </Link>
+                    <Link
+                      to="/glossary"
+                      className="px-4 py-2.5 text-sm font-medium hover:bg-gray-50 transition-colors"
+                      style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-body)' }}
+                    >
+                      Glossary
+                    </Link>
+                    <Link
+                      to="/data"
+                      className="px-4 py-2.5 text-sm font-medium hover:bg-gray-50 transition-colors"
+                      style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-body)' }}
+                    >
+                      Data
+                    </Link>
+                  </div>
+                </div>
+              )}
+            </div>
             <button
               onClick={() => navigate('/signin?mode=signup')}
               className="nav-link text-sm font-bold relative"
@@ -430,6 +485,33 @@ const Index = () => {
             >
               Reviews
             </button>
+            <div className="border-t mt-1 pt-1" style={{ borderColor: 'rgba(214, 222, 240, 0.5)' }}>
+              <p className="px-4 py-2 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)', opacity: 0.5 }}>Resources</p>
+              <Link
+                to="/blog"
+                onClick={() => setMobileMenuOpen(false)}
+                className="block text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Blog
+              </Link>
+              <Link
+                to="/glossary"
+                onClick={() => setMobileMenuOpen(false)}
+                className="block text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Glossary
+              </Link>
+              <Link
+                to="/data"
+                onClick={() => setMobileMenuOpen(false)}
+                className="block text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Data
+              </Link>
+            </div>
             <button
               onClick={() => {
                 navigate('/signin?mode=signup');

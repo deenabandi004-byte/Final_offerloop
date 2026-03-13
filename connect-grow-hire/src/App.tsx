@@ -67,6 +67,11 @@ const CoffeeChatNetworking = React.lazy(() => import("./pages/CoffeeChatNetworki
 const Glossary = React.lazy(() => import("./pages/Glossary"));
 const Blog = React.lazy(() => import("./pages/Blog"));
 const BlogPost = React.lazy(() => import("./pages/BlogPost"));
+const NetworkingGuidePage = React.lazy(() => import("./pages/NetworkingGuidePage"));
+const AlumniGuidePage = React.lazy(() => import("./pages/AlumniGuidePage"));
+const ColdEmailGuidePage = React.lazy(() => import("./pages/ColdEmailGuidePage"));
+const CoffeeChatGuidePage = React.lazy(() => import("./pages/CoffeeChatGuidePage"));
+const RoleNetworkingGuidePage = React.lazy(() => import("./pages/RoleNetworkingGuidePage"));
 
 // Optimized QueryClient with caching
 const queryClient = new QueryClient({
@@ -280,6 +285,11 @@ const AppRoutes: React.FC = () => {
       <Route path="/glossary" element={<Suspense fallback={<PageLoader />}><Glossary /></Suspense>} />
       <Route path="/blog" element={<Suspense fallback={<PageLoader />}><Blog /></Suspense>} />
       <Route path="/blog/:slug" element={<Suspense fallback={<PageLoader />}><BlogPost /></Suspense>} />
+      <Route path="/networking/:slug" element={<Suspense fallback={<PageLoader />}><NetworkingGuidePage /></Suspense>} />
+      <Route path="/alumni/:slug" element={<Suspense fallback={<PageLoader />}><AlumniGuidePage /></Suspense>} />
+      <Route path="/cold-email/:slug" element={<Suspense fallback={<PageLoader />}><ColdEmailGuidePage /></Suspense>} />
+      <Route path="/coffee-chat/:slug" element={<Suspense fallback={<PageLoader />}><CoffeeChatGuidePage /></Suspense>} />
+      <Route path="/networking-for/:slug" element={<Suspense fallback={<PageLoader />}><RoleNetworkingGuidePage /></Suspense>} />
 
       {/* Public informational pages */}
       <Route path="/about" element={<Suspense fallback={<PageLoader />}><AboutUs /></Suspense>} />
