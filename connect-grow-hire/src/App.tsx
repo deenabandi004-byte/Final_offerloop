@@ -53,6 +53,12 @@ const ResumePage = React.lazy(() => import("./pages/ResumePage"));
 const CoverLetterPage = React.lazy(() => import("./pages/CoverLetterPage"));
 // New Lovable Onboarding Flow
 const OnboardingFlow = React.lazy(() => import("./pages/OnboardingFlow").then(m => ({ default: m.OnboardingFlow })));
+// SEO Landing Pages
+const ColdEmailConsulting = React.lazy(() => import("./pages/ColdEmailConsulting"));
+const ColdEmailBanking = React.lazy(() => import("./pages/ColdEmailBanking"));
+const ColdEmailTech = React.lazy(() => import("./pages/ColdEmailTech"));
+const AlumniOutreach = React.lazy(() => import("./pages/AlumniOutreach"));
+const CoffeeChatNetworking = React.lazy(() => import("./pages/CoffeeChatNetworking"));
 
 // Optimized QueryClient with caching
 const queryClient = new QueryClient({
@@ -247,6 +253,13 @@ const AppRoutes: React.FC = () => {
       <Route path="/my-resume" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ResumePage /></Suspense></ProtectedRoute>} />
       <Route path="/write/cover-letter" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoverLetterPage /></Suspense></ProtectedRoute>} />
       <Route path="/write/cover-letter-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoverLetterPage /></Suspense></ProtectedRoute>} />
+
+      {/* SEO Landing Pages */}
+      <Route path="/cold-email-consulting" element={<Suspense fallback={<PageLoader />}><ColdEmailConsulting /></Suspense>} />
+      <Route path="/cold-email-investment-banking" element={<Suspense fallback={<PageLoader />}><ColdEmailBanking /></Suspense>} />
+      <Route path="/cold-email-tech-internships" element={<Suspense fallback={<PageLoader />}><ColdEmailTech /></Suspense>} />
+      <Route path="/alumni-outreach" element={<Suspense fallback={<PageLoader />}><AlumniOutreach /></Suspense>} />
+      <Route path="/coffee-chat-networking" element={<Suspense fallback={<PageLoader />}><CoffeeChatNetworking /></Suspense>} />
 
       {/* Public informational pages */}
       <Route path="/about" element={<Suspense fallback={<PageLoader />}><AboutUs /></Suspense>} />
