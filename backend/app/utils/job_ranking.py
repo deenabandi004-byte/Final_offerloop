@@ -40,6 +40,8 @@ MAJOR_FIELD_MAP = {
     "marketing": "marketing", "business administration": "consulting",
     "management": "consulting", "statistics": "data", "mathematics": "data",
     "communications": "marketing", "psychology": "consulting",
+    "real estate": "real_estate", "urban planning": "real_estate",
+    "venture": "venture_capital", "entrepreneurship": "venture_capital",
 }
 
 FIELD_CATEGORY_MAP = {
@@ -48,6 +50,8 @@ FIELD_CATEGORY_MAP = {
     "data":       ["data_science", "software_engineering", "product_management"],
     "marketing":  ["marketing_growth", "product_management"],
     "consulting": ["consulting", "finance_banking", "product_management"],
+    "real_estate": ["real_estate", "finance_banking"],
+    "venture_capital": ["venture_capital", "finance_banking", "consulting"],
 }
 
 

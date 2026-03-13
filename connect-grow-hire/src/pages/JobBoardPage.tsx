@@ -155,6 +155,8 @@ const CATEGORY_OPTIONS = [
   { value: "consulting", label: "Consulting" },
   { value: "product_management", label: "Product Management" },
   { value: "data_science", label: "Data Science" },
+  { value: "venture_capital", label: "Venture Capital" },
+  { value: "real_estate", label: "Real Estate" },
 ];
 
 const TYPE_DISPLAY: Record<string, string> = {

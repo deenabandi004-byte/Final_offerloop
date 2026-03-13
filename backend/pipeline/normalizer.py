@@ -60,9 +60,16 @@ def extract_salary_from_structured(job: dict) -> dict:
     }
 
 
+_SALARY_KEYWORDS = ("salary", "$", "compensation", "pay range", "per hour", "per year", "annually", "stipend", "hourly")
+
+
 def extract_salary_from_description(description: str) -> dict:
     """Use OpenAI gpt-4o-mini to estimate salary from description text. Returns {} on failure."""
     if not description or len(description.strip()) < 50:
+        return {}
+
+    desc_lower = description.lower()
+    if not any(kw in desc_lower for kw in _SALARY_KEYWORDS):
         return {}
 
     snippet = description[:1500]
@@ -176,8 +183,69 @@ def _normalize_location(job: dict) -> tuple[str, bool]:
 # Main normalize
 # ---------------------------------------------------------------------------
 
-def normalize_job(raw: dict) -> dict | None:
-    """Convert a single raw JSearch result to normalized Firestore doc. Returns None if invalid."""
+def _normalize_board_job(raw: dict) -> dict | None:
+    """Normalize a pre-structured job from Greenhouse/Lever/Workday."""
+    job_id = raw.get("job_id")
+    title = raw.get("title")
+    company = raw.get("company")
+
+    if not job_id or not title or not company:
+        return None
+
+    now = datetime.now(timezone.utc)
+    description = (raw.get("description_raw") or "")[:8000]
+    job_type = normalize_type(None, title)
+
+    # Posted date
+    posted_str = raw.get("posted_at")
+    try:
+        posted_at = datetime.fromisoformat(posted_str.replace("Z", "+00:00")) if posted_str else now
+    except (ValueError, AttributeError):
+        posted_at = now
+
+    # Salary — use structured fields if provided, else try AI extraction
+    sal_min = raw.get("salary_min")
+    sal_max = raw.get("salary_max")
+    sal_period = raw.get("salary_period")
+    sal_extracted = False
+
+    if sal_min is None and sal_max is None and description:
+        salary = extract_salary_from_description(description)
+        if salary:
+            sal_min = salary.get("salary_min")
+            sal_max = salary.get("salary_max")
+            sal_period = salary.get("salary_period")
+            sal_extracted = salary.get("salary_extracted", False)
+
+    has_salary = sal_min is not None or sal_max is not None
+
+    return {
+        "job_id": job_id,
+        "source": raw.get("source", "unknown"),
+        "title": title,
+        "company": company,
+        "employer_logo": raw.get("employer_logo"),
+        "location": raw.get("location") or "United States",
+        "remote": bool(raw.get("remote")),
+        "type": job_type,
+        "type_raw": "",
+        "category": raw.get("_category", "other"),
+        "description_raw": description,
+        "apply_url": raw.get("apply_url", ""),
+        "salary_min": sal_min,
+        "salary_max": sal_max,
+        "salary_period": sal_period,
+        "salary_display": _format_salary_display(sal_min, sal_max, sal_period, sal_extracted) if has_salary else None,
+        "salary_normalized_annual": _salary_normalized_annual(sal_min, sal_max, sal_period) if has_salary else None,
+        "salary_extracted": sal_extracted,
+        "posted_at": posted_at,
+        "fetched_at": now,
+        "expires_at": now + timedelta(days=14),
+    }
+
+
+def _normalize_jsearch_job(raw: dict) -> dict | None:
+    """Convert a single raw JSearch result to normalized Firestore doc."""
     job_id = raw.get("job_id")
     title = raw.get("job_title")
     company = raw.get("employer_name")
@@ -233,6 +301,13 @@ def normalize_job(raw: dict) -> dict | None:
         "fetched_at": now,
         "expires_at": now + timedelta(days=14),
     }
+
+
+def normalize_job(raw: dict) -> dict | None:
+    """Normalize a raw job dict from any source. Auto-detects format."""
+    if raw.get("source") in ("greenhouse", "lever", "workday"):
+        return _normalize_board_job(raw)
+    return _normalize_jsearch_job(raw)
 
 
 def normalize_all(raw_jobs: list[dict]) -> list[dict]:

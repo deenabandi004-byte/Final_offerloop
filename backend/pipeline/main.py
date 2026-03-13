@@ -36,12 +36,12 @@ def _bootstrap_app():
 
 
 def run_pipeline():
-    from backend.pipeline.fetcher import fetch_all_categories
+    from backend.pipeline.fetcher import fetch_jobs
     from backend.pipeline.normalizer import normalize_all
     from backend.pipeline.writer import write_jobs
 
-    logger.info("Fetching jobs from JSearch...")
-    raw = fetch_all_categories()
+    logger.info("Fetching jobs from Greenhouse, Lever, and Workday...")
+    raw = fetch_jobs()
 
     logger.info("Normalizing %d raw results...", len(raw))
     normalized = normalize_all(raw)
