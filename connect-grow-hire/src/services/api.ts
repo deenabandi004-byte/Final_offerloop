@@ -637,6 +637,41 @@ export interface JobListingsResponse {
   cached?: boolean;
 }
 
+export interface FeedJob {
+  job_id: string;
+  title: string;
+  company: string;
+  employer_logo: string | null;
+  location: string;
+  remote: boolean;
+  type: "INTERNSHIP" | "FULLTIME" | "PARTTIME";
+  category: string;
+  apply_url: string;
+  salary_display: string | null;
+  salary_normalized_annual: number | null;
+  posted_at: string;
+  match_score: number | null;
+  match_reason: string | null;
+  ranked: boolean;
+}
+
+export interface JobFeedResponse {
+  new_matches: FeedJob[];
+  top_jobs: FeedJob[];
+  new_matches_count: number;
+  top_jobs_count: number;
+  ranked: boolean;
+  no_resume: boolean;
+  cached: boolean;
+}
+
+export interface JobFeedbackRequest {
+  job_id: string;
+  signal: "positive" | "negative";
+  company?: string;
+  category?: string;
+}
+
 export interface OptimizeResumeRequest {
   jobUrl?: string;
   jobDescription?: string;
@@ -1671,6 +1706,28 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
       }
     );
     return response;
+  }
+
+  async getJobFeed(params?: { refresh?: boolean; type?: string; category?: string }): Promise<JobFeedResponse> {
+    const headers = await this.getAuthHeaders();
+    const searchParams = new URLSearchParams();
+    if (params?.refresh) searchParams.set("refresh", "true");
+    if (params?.type) searchParams.set("type", params.type);
+    if (params?.category) searchParams.set("category", params.category);
+    const qs = searchParams.toString();
+    const url = qs ? `/jobs/feed?${qs}` : '/jobs/feed';
+    return this.makeRequest<JobFeedResponse>(url, { method: 'GET', headers });
+  }
+
+  async postJobFeedback(params: JobFeedbackRequest): Promise<{ success: boolean }> {
+    return this.makeRequest<{ success: boolean }>('/jobs/feedback', {
+      method: 'POST',
+      headers: {
+        ...await this.getAuthHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(params),
+    });
   }
 
   async optimizeResume(params: OptimizeResumeRequest): Promise<OptimizeResumeResponse> {

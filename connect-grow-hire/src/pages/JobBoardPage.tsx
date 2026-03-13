@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   Briefcase,
   MapPin,
@@ -55,7 +55,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
-import { apiService, type GenerateCoverLetterRequest, type Recruiter, type SuggestionsResult, type TemplateRebuildResult } from "@/services/api";
+import { apiService, type GenerateCoverLetterRequest, type Recruiter, type SuggestionsResult, type TemplateRebuildResult, type FeedJob, type JobFeedResponse } from "@/services/api";
 import { ResumeOptimizationModal } from '@/components/ResumeOptimizationModal';
 import { SuggestionsView } from '@/components/SuggestionsView';
 import { firebaseApi, type Recruiter as FirebaseRecruiter } from "../services/firebaseApi";
@@ -142,11 +142,58 @@ const COVER_LETTER_CREDIT_COST = 15;
 
 const JOB_TYPE_OPTIONS = [
   { value: "all", label: "All Types" },
-  { value: "Internship", label: "Internship" },
-  { value: "Full-Time", label: "Full-Time" },
-  { value: "Part-Time", label: "Part-Time" },
-  { value: "Contract", label: "Contract" },
+  { value: "INTERNSHIP", label: "Internship" },
+  { value: "FULLTIME", label: "Full-Time" },
+  { value: "PARTTIME", label: "Part-Time" },
 ];
+
+const CATEGORY_OPTIONS = [
+  { value: "all", label: "All Fields" },
+  { value: "software_engineering", label: "Software Engineering" },
+  { value: "finance_banking", label: "Finance & Banking" },
+  { value: "marketing_growth", label: "Marketing & Growth" },
+  { value: "consulting", label: "Consulting" },
+  { value: "product_management", label: "Product Management" },
+  { value: "data_science", label: "Data Science" },
+];
+
+const TYPE_DISPLAY: Record<string, string> = {
+  INTERNSHIP: "Internship",
+  FULLTIME: "Full-Time",
+  PARTTIME: "Part-Time",
+};
+
+/** Convert a FeedJob from the API into the legacy Job shape used by detail views */
+function feedJobToLegacy(fj: FeedJob): Job {
+  return {
+    id: fj.job_id,
+    title: fj.title,
+    company: fj.company,
+    location: fj.location,
+    salary: fj.salary_display || undefined,
+    type: (TYPE_DISPLAY[fj.type] || fj.type) as Job["type"],
+    posted: fj.posted_at,
+    description: "",
+    requirements: [],
+    url: fj.apply_url,
+    logo: fj.employer_logo || undefined,
+    remote: fj.remote,
+    matchScore: fj.match_score ?? undefined,
+  };
+}
+
+/** Format an ISO date string as relative time */
+function formatRelativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const hours = Math.floor(diff / 3_600_000);
+  if (hours < 1) return "Just now";
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "1 day ago";
+  if (days < 7) return `${days} days ago`;
+  const weeks = Math.floor(days / 7);
+  return weeks === 1 ? "1 week ago" : `${weeks} weeks ago`;
+}
 
 // ============================================================================
 // SUBCOMPONENTS
@@ -154,25 +201,28 @@ const JOB_TYPE_OPTIONS = [
 
 const MatchScoreBadge: React.FC<{ score?: number }> = ({ score }) => {
   if (!score && score !== 0) return null;
-  
-  let color = "bg-gray-100 text-gray-600";
-  let label = "Match";
-  
+
+  let barColor = "bg-gray-400";
+  let textColor = "text-gray-600";
+
   if (score >= 80) {
-    color = "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
-    label = "Great Match";
+    barColor = "bg-green-500";
+    textColor = "text-green-700 dark:text-green-400";
   } else if (score >= 60) {
-    color = "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
-    label = "Good Match";
+    barColor = "bg-blue-500";
+    textColor = "text-blue-700 dark:text-blue-400";
   } else if (score >= 40) {
-    color = "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
-    label = "Fair Match";
+    barColor = "bg-yellow-500";
+    textColor = "text-yellow-700 dark:text-yellow-400";
   }
-  
+
   return (
-    <span className={`px-2 py-1 rounded-full text-xs font-medium ${color}`}>
-      {label} • {Math.round(score)}%
-    </span>
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 w-16 bg-muted rounded-full overflow-hidden">
+        <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(score, 100)}%` }} />
+      </div>
+      <span className={`text-xs font-medium ${textColor}`}>{Math.round(score)}%</span>
+    </div>
   );
 };
 
@@ -260,7 +310,7 @@ const JobCard: React.FC<{
     </div>
 
     <div className="mt-4 pt-4 border-t border-border/50 space-y-3">
-      {/* First row: Find Recruiters and Apply */}
+      {/* First row: Find Contact and Apply */}
       <div className="flex gap-2">
       <Button
         variant="outline"
@@ -269,7 +319,7 @@ const JobCard: React.FC<{
         onClick={(e) => { e.stopPropagation(); onSelect(); }}
       >
         <Users className="w-4 h-4 mr-2" />
-        Find Recruiters
+        Find Contact
       </Button>
       <Button
         variant="gradient"
@@ -394,6 +444,7 @@ const EmptyState: React.FC<{
 
 const JobBoardPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { user, isLoading: authLoading, updateCredits } = useFirebaseAuth();
 
   // Determine user tier (cast to include elite for subscription-backed tier)
@@ -411,7 +462,7 @@ const JobBoardPage: React.FC = () => {
     return "free";
   }, [effectiveUser?.tier]);
 
-  const isElite = userTier === "elite";
+  const _isElite = userTier === "elite";
 
   // Tab State
   const [activeTab, setActiveTab] = useState<string>(searchParams.get("tab") || "jobs");
@@ -421,15 +472,17 @@ const JobBoardPage: React.FC = () => {
   const [selectedJobForDetail, setSelectedJobForDetail] = useState<Job | null>(null);
   const [jobDetailActiveTab, setJobDetailActiveTab] = useState<string>("job-application");
 
-  // Jobs Tab State
+  // Jobs Tab State — fed from /api/jobs/feed
+  const [feedData, setFeedData] = useState<JobFeedResponse | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedJobType, setSelectedJobType] = useState("all");
+  const [selectedCategory, setSelectedCategory] = useState("all");
   const [sortBy, setSortBy] = useState<"match" | "date" | "company">("match");
   const [savedJobs, setSavedJobs] = useState<Set<string>>(new Set());
-  const [userPreferences, setUserPreferences] = useState<UserPreferences | null>(null);
+  const [_userPreferences, setUserPreferences] = useState<UserPreferences | null>(null);
 
   // Optimization Tab State
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -557,69 +610,32 @@ const JobBoardPage: React.FC = () => {
     fetchUserPreferences();
   }, [user?.uid]);
 
-  // Track if we're in a search state (vs recommended jobs)
-  const [isSearchState, setIsSearchState] = useState(false);
-  const [, setLastSearchQuery] = useState("");
+  // Fetch job feed from /api/jobs/feed
+  const fetchJobFeed = useCallback(async (refresh = false) => {
+    if (!user?.uid) return;
+    setLoadingJobs(true);
+    try {
+      const response = await apiService.getJobFeed({ refresh });
+      setFeedData(response);
+      // Convert top_jobs to legacy Job format for detail views
+      const legacyJobs = response.top_jobs.map(feedJobToLegacy);
+      setJobs(legacyJobs);
+      console.log(`[JobBoard] Loaded ${response.new_matches.length} new matches, ${response.top_jobs.length} top jobs (ranked=${response.ranked}, cached=${response.cached})`);
+    } catch (error) {
+      console.error("Error fetching job feed:", error);
+      toast({
+        title: "Error loading jobs",
+        description: "Please try again later.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingJobs(false);
+    }
+  }, [user?.uid]);
 
-  // Helper to merge jobs with saved jobs (saved at top)
-  const mergeJobsWithSaved = useCallback((newJobs: Job[]): Job[] => {
-    // Get saved job IDs
-    const savedIds = Array.from(savedJobs);
-    
-    // Separate saved and unsaved jobs
-    const savedJobsList: Job[] = [];
-    const unsavedJobsList: Job[] = [];
-    const savedIdsSet = new Set(savedIds);
-    
-    newJobs.forEach(job => {
-      if (savedIdsSet.has(job.id)) {
-        savedJobsList.push(job);
-      } else {
-        unsavedJobsList.push(job);
-      }
-    });
-    
-    // Return saved jobs first, then unsaved
-    return [...savedJobsList, ...unsavedJobsList];
-  }, [savedJobs]);
-
-  // Fetch recommended jobs - backend returns up to 200 jobs on first page
   useEffect(() => {
-    const fetchJobs = async () => {
-      if (!user?.uid || !userPreferences) return;
-      // Only fetch recommended jobs if not in search state
-      if (isSearchState) return;
-      
-      setLoadingJobs(true);
-      try {
-        // QUICK WIN: Backend now fetches 50 jobs on page 1 for faster loading
-        const response = await apiService.getJobListings({
-          jobTypes: userPreferences.jobTypes || ["Internship"],
-          industries: userPreferences.industries || [],
-          locations: userPreferences.locations || [],
-          page: 1,
-          perPage: 50, // QUICK WIN: Reduced from 200 to 50 for faster initial load
-        });
-        
-        if (response.jobs && response.jobs.length > 0) {
-          // Merge with saved jobs (saved jobs at top)
-          const mergedJobs = mergeJobsWithSaved(response.jobs);
-          setJobs(mergedJobs);
-          console.log(`[JobBoard] Loaded ${response.jobs.length} recommended jobs`);
-        }
-      } catch (error) {
-        console.error("Error fetching jobs:", error);
-        toast({
-          title: "Error loading jobs",
-          description: "Using demo data. Please try again later.",
-          variant: "destructive",
-        });
-      } finally {
-        setLoadingJobs(false);
-      }
-    };
-    fetchJobs();
-  }, [user?.uid, userPreferences, isSearchState, mergeJobsWithSaved]);
+    fetchJobFeed();
+  }, [fetchJobFeed]);
 
   // Load saved jobs from Firestore (with localStorage fallback)
   useEffect(() => {
@@ -666,89 +682,62 @@ const JobBoardPage: React.FC = () => {
     loadSavedJobs();
   }, [user?.uid]);
 
-  // Helper function to parse posted date
-  const parsePostedDate = (posted: string): number => {
-    if (!posted) return 0;
-    const lower = posted.toLowerCase();
-    
-    // Extract days/weeks/months
-    const dayMatch = lower.match(/(\d+)\s*days?/);
-    if (dayMatch) return parseInt(dayMatch[1], 10);
-    
-    const weekMatch = lower.match(/(\d+)\s*weeks?/);
-    if (weekMatch) return parseInt(weekMatch[1], 10) * 7;
-    
-    const monthMatch = lower.match(/(\d+)\s*months?/);
-    if (monthMatch) return parseInt(monthMatch[1], 10) * 30;
-    
-    // "just now", "today", "hours ago" = 0
-    if (lower.includes("just") || lower.includes("today") || lower.includes("hour")) {
-      return 0;
-    }
-    
-    return 999; // Unknown/old dates go to end
-  };
-
-  // Filter jobs (only by type, not by search - search generates new jobs)
-  const filteredJobs = jobs.filter((job) => {
-    const matchesType = selectedJobType === "all" || job.type === selectedJobType;
-    return matchesType;
-  });
-
-  // Sort jobs - saved jobs always at top, then apply sorting
-  const sortedJobs = useMemo(() => {
-    const filtered = [...filteredJobs];
-    
-    // Separate saved and unsaved jobs
-    const savedIdsSet = new Set(savedJobs);
-    const savedJobsList: Job[] = [];
-    const unsavedJobsList: Job[] = [];
-    
-    filtered.forEach(job => {
-      if (savedIdsSet.has(job.id)) {
-        savedJobsList.push(job);
-      } else {
-        unsavedJobsList.push(job);
+  // Client-side filtered top_jobs from feed
+  const filteredFeedJobs = useMemo(() => {
+    if (!feedData) return [];
+    return feedData.top_jobs.filter((job) => {
+      if (selectedJobType !== "all" && job.type !== selectedJobType) return false;
+      if (selectedCategory !== "all" && job.category !== selectedCategory) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        if (!job.title.toLowerCase().includes(q) && !job.company.toLowerCase().includes(q)) return false;
       }
+      return true;
     });
-    
-    // Sort each group
-    const sortJobs = (jobs: Job[]) => {
+  }, [feedData, selectedJobType, selectedCategory, searchQuery]);
+
+  // Client-side filtered new_matches
+  const filteredNewMatches = useMemo(() => {
+    if (!feedData) return [];
+    return feedData.new_matches.filter((job) => {
+      if (selectedJobType !== "all" && job.type !== selectedJobType) return false;
+      if (selectedCategory !== "all" && job.category !== selectedCategory) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        if (!job.title.toLowerCase().includes(q) && !job.company.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [feedData, selectedJobType, selectedCategory, searchQuery]);
+
+  // Legacy filteredJobs kept for detail view flows
+  const _filteredJobs = jobs;
+
+  // Sort top_jobs feed results
+  const sortedFeedJobs = useMemo(() => {
+    const sorted = [...filteredFeedJobs];
     switch (sortBy) {
       case "match":
-          return jobs.sort((a, b) => {
-          const scoreA = a.matchScore ?? a.combinedScore ?? 0;
-          const scoreB = b.matchScore ?? b.combinedScore ?? 0;
-          return scoreB - scoreA;
-        });
+        return sorted.sort((a, b) => (b.match_score ?? 0) - (a.match_score ?? 0));
       case "date":
-          return jobs.sort((a, b) => {
-          const daysA = parsePostedDate(a.posted);
-          const daysB = parsePostedDate(b.posted);
-          return daysA - daysB;
-        });
+        return sorted.sort((a, b) => new Date(b.posted_at).getTime() - new Date(a.posted_at).getTime());
       case "company":
-          return jobs.sort((a, b) => a.company.localeCompare(b.company));
+        return sorted.sort((a, b) => a.company.localeCompare(b.company));
       default:
-          return jobs;
-      }
-    };
-    
-    // Sort saved jobs
-    const sortedSaved = sortJobs(savedJobsList);
-    // Sort unsaved jobs
-    const sortedUnsaved = sortJobs(unsavedJobsList);
-    
-    // Return saved jobs first, then unsaved
-    return [...sortedSaved, ...sortedUnsaved];
-  }, [filteredJobs, sortBy, savedJobs]);
+        return sorted;
+    }
+  }, [filteredFeedJobs, sortBy]);
 
-  // Pagination
-  const totalPages = Math.ceil(sortedJobs.length / JOBS_PER_PAGE);
-  const paginatedJobs = sortedJobs.slice(
+  // sortedJobs alias used by pagination count in the render
+  const _sortedJobs = sortedFeedJobs;
+
+  // Pagination for top_jobs grid
+  const totalPages = Math.ceil(sortedFeedJobs.length / JOBS_PER_PAGE);
+  const paginatedFeedJobs = sortedFeedJobs.slice(
     (currentPage - 1) * JOBS_PER_PAGE,
     currentPage * JOBS_PER_PAGE
   );
+  const _paginatedJobs = paginatedFeedJobs;
 
   // Handlers
   const handleSaveJob = useCallback(async (jobId: string) => {
@@ -824,91 +813,15 @@ const JobBoardPage: React.FC = () => {
     setSelectedJobForDetail(null);
   }, []);
 
-  // Handle search - generates new jobs (Elite only)
-  const handleSearch = useCallback(async () => {
-    if (!isElite) {
-      toast({
-        title: "Elite Feature",
-        description: "Upgrade to Elite to search jobs by company, role, or location.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!searchQuery.trim()) {
-      // Clear search and return to recommended jobs
-      setIsSearchState(false);
-      setLastSearchQuery("");
-      setSearchQuery("");
-      return;
-    }
-
-    if (!user?.uid || !userPreferences) {
-      toast({
-        title: "Error",
-        description: "Please sign in to search jobs.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setLoadingJobs(true);
-    setIsSearchState(true);
-    setLastSearchQuery(searchQuery.trim());
-
-    try {
-      // Generate new jobs based on search query
-      const response = await apiService.getJobListings({
-        jobTypes: userPreferences.jobTypes || ["Internship"],
-        industries: userPreferences.industries || [],
-        locations: userPreferences.locations || [],
-        searchQuery: searchQuery.trim(),
-        page: 1,
-        perPage: 200,
-      });
-
-      if (response.jobs && response.jobs.length > 0) {
-        // Merge with saved jobs (saved jobs at top)
-        const mergedJobs = mergeJobsWithSaved(response.jobs);
-        setJobs(mergedJobs);
-        console.log(`[JobBoard] Generated ${response.jobs.length} jobs for search: "${searchQuery.trim()}"`);
-      } else {
-        toast({
-          title: "No jobs found",
-          description: "Try a different search query.",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      console.error("Error searching jobs:", error);
-      toast({
-        title: "Search failed",
-        description: "Please try again later.",
-        variant: "destructive",
-      });
-    } finally {
-      setLoadingJobs(false);
-    }
-  }, [isElite, searchQuery, user?.uid, userPreferences, mergeJobsWithSaved]);
+  // Search is now client-side filtering — no API call needed
+  const handleSearch = useCallback(() => {
+    // searchQuery state drives filteredFeedJobs via useMemo, nothing else to do
+    setCurrentPage(1);
+  }, []);
 
   const handleRefreshJobs = async () => {
-    setLoadingJobs(true);
-    try {
-      const response = await apiService.getJobListings({
-        jobTypes: userPreferences?.jobTypes || ["Internship"],
-        industries: userPreferences?.industries || [],
-        locations: userPreferences?.locations || [],
-        refresh: true,
-      });
-      if (response.jobs) {
-        setJobs(response.jobs);
-        toast({ title: "Jobs refreshed!" });
-      }
-    } catch (error) {
-      toast({ title: "Refresh Failed", variant: "destructive" });
-    } finally {
-      setLoadingJobs(false);
-    }
+    await fetchJobFeed(true);
+    toast({ title: "Jobs refreshed!" });
   };
 
   // Helper function to save recruiters to Recruiter Spreadsheet
@@ -1289,7 +1202,7 @@ const JobBoardPage: React.FC = () => {
   // Reset page on filter/sort change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, selectedJobType, sortBy]);
+  }, [searchQuery, selectedJobType, selectedCategory, sortBy]);
 
   if (authLoading) return <LoadingSkeleton />;
 
@@ -1339,11 +1252,8 @@ const JobBoardPage: React.FC = () => {
                 </TabsList>
                 </Tabs>
               </div>
-              {activeTab === "jobs" && (
-                <p className="text-center text-muted-foreground text-sm max-w-xl mx-auto pb-4">
-                  Browse job listings tailored to your profile. Optimize your resume for specific jobs, generate cover letters, and find recruiters.
-                </p>
-              )}
+              {/* spacer for tab content */}
+              {activeTab === "jobs" && <div className="pb-2" />}
             </div>
           )}
 
@@ -1766,56 +1676,55 @@ const JobBoardPage: React.FC = () => {
                 {/* JOBS TAB CONTENT */}
                 {activeTab === "jobs" && (
                   <div className="space-y-6">
+                  {/* No-resume banner */}
+                  {feedData?.no_resume && (
+                    <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 flex items-center gap-3">
+                      <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                          Upload your resume to get AI-ranked job matches
+                        </p>
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                          We'll match jobs to your skills, major, and experience.
+                        </p>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => navigate("/resume")} className="border-amber-300 text-amber-700 hover:bg-amber-100">
+                        Upload Resume
+                      </Button>
+                    </div>
+                  )}
+
                   {/* Filters */}
                   <GlassCard className="p-4">
                     <div className="flex flex-col sm:flex-row gap-4">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
                       <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                         <Input
-                                placeholder={isElite ? "Search jobs, companies, locations..." : "Upgrade to Elite to search jobs"}
+                          placeholder="Search jobs by title or company..."
                           value={searchQuery}
-                                onChange={(e) => {
-                                  if (isElite) {
-                                    setSearchQuery(e.target.value);
-                                  }
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' && isElite) {
-                                    handleSearch();
-                                  }
-                                }}
-                                disabled={!isElite}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
                           className="pl-10"
                         />
                       </div>
-                          </TooltipTrigger>
-                          {!isElite && (
-                            <TooltipContent>
-                              <p>Upgrade to Elite to search jobs by company, role, or location</p>
-                            </TooltipContent>
-                          )}
-                        </Tooltip>
-                      </TooltipProvider>
-                      {isElite && (
-                        <Button
-                          variant="outline"
-                          onClick={handleSearch}
-                          disabled={loadingJobs}
-                          className="whitespace-nowrap"
-                        >
-                          <Search className="w-4 h-4 mr-2" />
-                          Search
-                        </Button>
-                      )}
                       <Select value={selectedJobType} onValueChange={setSelectedJobType}>
                         <SelectTrigger className="w-full sm:w-40">
                           <SelectValue placeholder="Job Type" />
                         </SelectTrigger>
                         <SelectContent>
                           {JOB_TYPE_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                        <SelectTrigger className="w-full sm:w-44">
+                          <SelectValue placeholder="Field" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CATEGORY_OPTIONS.map((option) => (
                             <SelectItem key={option.value} value={option.value}>
                               {option.label}
                             </SelectItem>
@@ -1845,7 +1754,68 @@ const JobBoardPage: React.FC = () => {
                     </div>
                   </GlassCard>
 
-                  {/* Jobs Grid */}
+                  {/* New Matches — compact horizontal scroll rail */}
+                  {filteredNewMatches.length > 0 && (
+                    <div>
+                      <h2 className="text-lg font-semibold text-foreground mb-3">New Matches</h2>
+                      <div className="flex gap-3 overflow-x-auto pb-3 scrollbar-thin">
+                        {filteredNewMatches.map((job) => {
+                          const legacyJob = feedJobToLegacy(job);
+                          return (
+                            <div key={job.job_id} className="flex-shrink-0 w-80">
+                              <GlassCard className="p-3 hover:scale-[1.01] transition-transform cursor-pointer">
+                                <div className="flex items-center gap-3">
+                                  {job.employer_logo ? (
+                                    <img src={job.employer_logo} alt={job.company} className="w-8 h-8 rounded-md object-cover bg-muted flex-shrink-0" />
+                                  ) : (
+                                    <div className="w-8 h-8 rounded-md bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center flex-shrink-0">
+                                      <Building2 className="w-4 h-4 text-primary" />
+                                    </div>
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <h3 className="font-medium text-sm text-foreground truncate">{job.title}</h3>
+                                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                      <span className="truncate">{job.company}</span>
+                                      <span>·</span>
+                                      <span className="flex items-center gap-0.5 flex-shrink-0">
+                                        <MapPin className="w-3 h-3" />
+                                        {job.location}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                                    {feedData?.ranked && job.match_score != null && (
+                                      <MatchScoreBadge score={job.match_score} />
+                                    )}
+                                    <Badge variant={job.type === "INTERNSHIP" ? "default" : "outline"} className="text-[10px] px-1.5 py-0.5">
+                                      {TYPE_DISPLAY[job.type] || job.type}
+                                    </Badge>
+                                  </div>
+                                </div>
+                                <div className="flex gap-2 mt-2">
+                                  <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => navigate(`/find?company=${encodeURIComponent(job.company)}`)}>
+                                    <Users className="w-3 h-3 mr-1" />
+                                    Find Contact
+                                  </Button>
+                                  <Button variant="gradient" size="sm" className="flex-1 h-7 text-xs" onClick={() => handleApplyToJob(legacyJob)}>
+                                    <ExternalLink className="w-3 h-3 mr-1" />
+                                    Apply
+                                  </Button>
+                                </div>
+                              </GlassCard>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Top Jobs Grid */}
+                  <div>
+                    <h2 className="text-lg font-semibold text-foreground mb-3">
+                      {feedData?.ranked ? "Top Jobs for You" : "Recent Jobs"}
+                    </h2>
+
                   {loadingJobs ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {[...Array(6)].map((_, i) => (
@@ -1860,42 +1830,49 @@ const JobBoardPage: React.FC = () => {
                         </GlassCard>
                       ))}
                     </div>
-                  ) : sortedJobs.length === 0 ? (
+                  ) : sortedFeedJobs.length === 0 ? (
                     <EmptyState
                       icon={<Briefcase className="w-8 h-8 text-primary" />}
                       title="No jobs found"
                       description="Try adjusting your filters or search query."
                       action={
-                        <Button variant="gradient" onClick={() => { setSearchQuery(""); setSelectedJobType("all"); }}>
+                        <Button variant="gradient" onClick={() => { setSearchQuery(""); setSelectedJobType("all"); setSelectedCategory("all"); }}>
                           Clear Filters
                         </Button>
                       }
                     />
                   ) : (
                     <>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-sm text-muted-foreground mb-3">
                         Showing {(currentPage - 1) * JOBS_PER_PAGE + 1}-
-                        {Math.min(currentPage * JOBS_PER_PAGE, sortedJobs.length)} of {sortedJobs.length} jobs
+                        {Math.min(currentPage * JOBS_PER_PAGE, sortedFeedJobs.length)} of {sortedFeedJobs.length} jobs
                       </p>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {paginatedJobs.map((job) => (
+                        {paginatedFeedJobs.map((job) => {
+                          const legacyJob = feedJobToLegacy(job);
+                          return (
                           <JobCard
-                            key={job.id}
-                            job={job}
-                            isSelected={selectedJob?.id === job.id}
-                            isSaved={savedJobs.has(job.id)}
+                            key={job.job_id}
+                            job={{
+                              ...legacyJob,
+                              posted: formatRelativeTime(job.posted_at),
+                              matchScore: feedData?.ranked ? (job.match_score ?? undefined) : undefined,
+                            }}
+                            isSelected={selectedJob?.id === job.job_id}
+                            isSaved={savedJobs.has(job.job_id)}
                             onSelect={() => {
-                              handleSelectJobForOptimization(job);
-                              setSelectedJobForDetail(job);
+                              handleSelectJobForOptimization(legacyJob);
+                              setSelectedJobForDetail(legacyJob);
                               setShowJobDetailView(true);
                               setJobDetailActiveTab("contact-recruiter");
                             }}
-                            onSave={() => handleSaveJob(job.id)}
-                            onApply={() => handleApplyToJob(job)}
-                            onOptimize={() => handleSelectJobForOptimization(job)}
+                            onSave={() => handleSaveJob(job.job_id)}
+                            onApply={() => handleApplyToJob(legacyJob)}
+                            onOptimize={() => handleSelectJobForOptimization(legacyJob)}
                           />
-                        ))}
+                          );
+                        })}
                       </div>
 
                       {/* Pagination */}
@@ -1924,6 +1901,7 @@ const JobBoardPage: React.FC = () => {
                       )}
                     </>
                   )}
+                  </div>
                   </div>
                 )}
 

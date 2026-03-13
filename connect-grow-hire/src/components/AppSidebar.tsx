@@ -11,6 +11,7 @@ import {
   PanelLeft,
   Tag,
   FileText,
+  Briefcase,
 } from "lucide-react";
 import CupIcon from "@/assets/sidebaricons/icons8-cup-48.png";
 import MailIcon from "@/assets/sidebaricons/icons8-important-mail-48.png";
@@ -53,6 +54,7 @@ type NavItemDef = {
 // Group 1 — main nav
 const mainNavItems: NavItemDef[] = [
   { title: "Find", url: "/find", iconSrc: MagnifyingGlassIcon },
+  { title: "Job Board", url: "/job-board", LucideIcon: Briefcase },
   { title: "Coffee Chat Prep", url: "/coffee-chat-prep", iconSrc: CupIcon, dataTour: "tour-coffee-chat-prep" },
   { title: "Tracker", url: "/tracker", iconSrc: MailIcon, dataTour: "tour-track-email" },
 ];
