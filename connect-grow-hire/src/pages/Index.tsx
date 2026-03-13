@@ -1,5 +1,6 @@
 // src/pages/Index.tsx
 import { useState, useEffect, useRef } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { useNavigate, Link } from 'react-router-dom';
 import { ArrowRight, Menu, X } from 'lucide-react';
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
@@ -133,6 +134,85 @@ const Index = () => {
 
   return (
     <div className="min-h-screen w-full" style={{ fontFamily: 'var(--font-body)', background: 'var(--bg-white)' }}>
+      <Helmet>
+        <title>Offerloop — AI Networking for College Students | Find, Reach & Track Professionals</title>
+        <meta name="description" content="Offerloop helps college students find professionals, generate personalized cold emails, and track networking conversations. Search 2.2B verified contacts. Built for consulting, IB, and tech recruiting." />
+        <link rel="canonical" href="https://offerloop.ai/" />
+        <meta property="og:title" content="Offerloop — AI Networking for College Students" />
+        <meta property="og:description" content="Search 2.2B verified contacts, generate AI-personalized outreach emails, and track your networking pipeline. Free to start." />
+        <meta property="og:url" content="https://offerloop.ai/" />
+        <meta property="og:type" content="website" />
+        <script type="application/ld+json">{JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "FAQPage",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "How do I write a coffee chat email to someone I've never met?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "A strong coffee chat email should be concise (3-5 sentences), mention a specific reason you're reaching out to that person, and propose a clear ask like a 15-minute virtual call. Personalization is critical — reference their career path, a recent project, or a shared alma mater. Offerloop uses AI to draft personalized coffee chat requests by pulling context from a contact's background, saving hours of manual research and writing."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "What should I include in a cold email to a consultant at McKinsey, BCG, or Bain?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Your cold email to an MBB consultant should include a brief introduction (school, year, relevant interest), one specific reason you're reaching out to them personally, and a low-commitment ask such as a 15-minute call. Avoid generic flattery and instead reference something concrete like their office location, practice area, or a published insight. Offerloop's AI email writer generates personalized consulting outreach emails by analyzing each contact's firm, role, and background from its 2.2 billion contact database."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How do I cold email investment banking analysts and associates for networking?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "When cold emailing IB professionals, keep your message under 100 words, lead with a shared connection point (alma mater, hometown, or mutual contact), and ask for a brief phone call rather than an in-person meeting. A subject line like 'Fellow [University] Student — Quick Question on [Group Name]' tends to perform well. Offerloop helps students find verified emails of bankers across bulge brackets and elite boutiques while generating tailored outreach."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How can I find the professional email address of someone I want to network with?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Professional email addresses can often be found through company email pattern recognition, LinkedIn profile clues, or dedicated lookup tools. Offerloop provides access to a database of over 2.2 billion verified contacts, allowing college students to instantly find professional email addresses for alumni, recruiters, and industry professionals without needing multiple free tools."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How do I reach out to alumni from my university for career advice?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Start by identifying alumni in your target industry through your university's alumni directory, LinkedIn, or a networking platform. Your outreach should mention your shared school, express genuine curiosity about their career path, and request a specific time commitment like a 15-minute call. Offerloop lets students search for alumni by university, company, and role, then auto-generates personalized emails sent directly through Gmail with conversation tracking built in."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "What's the best strategy for networking to land an internship as a college freshman or sophomore?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Start early by building relationships before recruiting season — reach out to upperclassmen, recent alumni, and professionals in your target industry 3-6 months before application deadlines. Focus on learning rather than asking for referrals in your initial conversations, and aim to build a network of 15-20 meaningful contacts in your target field. Offerloop removes the biggest barriers to networking — finding contacts, writing compelling emails, and staying organized."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Is there a better alternative to LinkedIn for college students trying to network?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "LinkedIn is useful for browsing profiles, but it wasn't designed for proactive outreach — students often hit connection request limits, get ignored in DMs, and lack access to direct email addresses. Offerloop is designed as a LinkedIn alternative for students, combining a 2.2 billion contact database with AI-powered email generation and Gmail integration so students can move beyond passive profile browsing into active, measurable networking."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "What's a good networking email template for college students?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "A strong networking template has four parts: a personalized opening line (shared school, mutual connection, or specific interest in their work), one sentence about you, a clear and low-commitment ask (15-minute call), and a gracious close. Offerloop's AI generates unique emails for each contact by analyzing their professional background — the efficiency of a template with the authenticity of a hand-written message."
+              }
+            }
+          ]
+        })}</script>
+      </Helmet>
       {/* Scroll Progress Bar */}
       <div 
         className="scroll-progress" 
@@ -1111,6 +1191,45 @@ const Index = () => {
                 Create free account
               </button>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* FAQ SECTION */}
+      <section id="faq" style={{marginTop: '64px', padding: '0 24px', maxWidth: '800px', margin: '64px auto'}}>
+        <h2 style={{fontSize: '24px', fontWeight: '700', marginBottom: '24px'}}>Frequently Asked Questions</h2>
+        <div>
+          <div style={{marginBottom: '20px'}}>
+            <h3 style={{fontSize: '16px', fontWeight: '600', marginBottom: '8px'}}>How do I write a coffee chat email to someone I've never met?</h3>
+            <p style={{fontSize: '14px', lineHeight: '1.6', color: '#4a5568'}}>A strong coffee chat email should be concise (3-5 sentences), mention a specific reason you're reaching out to that person, and propose a clear ask like a 15-minute virtual call. Personalization is critical — reference their career path, a recent project, or a shared alma mater. Offerloop uses AI to draft personalized coffee chat requests by pulling context from a contact's background, saving hours of manual research and writing.</p>
+          </div>
+          <div style={{marginBottom: '20px'}}>
+            <h3 style={{fontSize: '16px', fontWeight: '600', marginBottom: '8px'}}>What should I include in a cold email to a consultant at McKinsey, BCG, or Bain?</h3>
+            <p style={{fontSize: '14px', lineHeight: '1.6', color: '#4a5568'}}>Your cold email to an MBB consultant should include a brief introduction (school, year, relevant interest), one specific reason you're reaching out to them personally, and a low-commitment ask such as a 15-minute call. Avoid generic flattery and instead reference something concrete like their office location, practice area, or a published insight. Offerloop's AI email writer generates personalized consulting outreach emails by analyzing each contact's firm, role, and background from its 2.2 billion contact database.</p>
+          </div>
+          <div style={{marginBottom: '20px'}}>
+            <h3 style={{fontSize: '16px', fontWeight: '600', marginBottom: '8px'}}>How do I cold email investment banking analysts and associates for networking?</h3>
+            <p style={{fontSize: '14px', lineHeight: '1.6', color: '#4a5568'}}>When cold emailing IB professionals, keep your message under 100 words, lead with a shared connection point (alma mater, hometown, or mutual contact), and ask for a brief phone call rather than an in-person meeting. A subject line like 'Fellow [University] Student — Quick Question on [Group Name]' tends to perform well. Offerloop helps students find verified emails of bankers across bulge brackets and elite boutiques while generating tailored outreach.</p>
+          </div>
+          <div style={{marginBottom: '20px'}}>
+            <h3 style={{fontSize: '16px', fontWeight: '600', marginBottom: '8px'}}>How can I find the professional email address of someone I want to network with?</h3>
+            <p style={{fontSize: '14px', lineHeight: '1.6', color: '#4a5568'}}>Professional email addresses can often be found through company email pattern recognition, LinkedIn profile clues, or dedicated lookup tools. Offerloop provides access to a database of over 2.2 billion verified contacts, allowing college students to instantly find professional email addresses for alumni, recruiters, and industry professionals without needing multiple free tools.</p>
+          </div>
+          <div style={{marginBottom: '20px'}}>
+            <h3 style={{fontSize: '16px', fontWeight: '600', marginBottom: '8px'}}>How do I reach out to alumni from my university for career advice?</h3>
+            <p style={{fontSize: '14px', lineHeight: '1.6', color: '#4a5568'}}>Start by identifying alumni in your target industry through your university's alumni directory, LinkedIn, or a networking platform. Your outreach should mention your shared school, express genuine curiosity about their career path, and request a specific time commitment like a 15-minute call. Offerloop lets students search for alumni by university, company, and role, then auto-generates personalized emails sent directly through Gmail with conversation tracking built in.</p>
+          </div>
+          <div style={{marginBottom: '20px'}}>
+            <h3 style={{fontSize: '16px', fontWeight: '600', marginBottom: '8px'}}>What's the best strategy for networking to land an internship as a college freshman or sophomore?</h3>
+            <p style={{fontSize: '14px', lineHeight: '1.6', color: '#4a5568'}}>Start early by building relationships before recruiting season — reach out to upperclassmen, recent alumni, and professionals in your target industry 3-6 months before application deadlines. Focus on learning rather than asking for referrals in your initial conversations, and aim to build a network of 15-20 meaningful contacts in your target field. Offerloop removes the biggest barriers to networking — finding contacts, writing compelling emails, and staying organized.</p>
+          </div>
+          <div style={{marginBottom: '20px'}}>
+            <h3 style={{fontSize: '16px', fontWeight: '600', marginBottom: '8px'}}>Is there a better alternative to LinkedIn for college students trying to network?</h3>
+            <p style={{fontSize: '14px', lineHeight: '1.6', color: '#4a5568'}}>LinkedIn is useful for browsing profiles, but it wasn't designed for proactive outreach — students often hit connection request limits, get ignored in DMs, and lack access to direct email addresses. Offerloop is designed as a LinkedIn alternative for students, combining a 2.2 billion contact database with AI-powered email generation and Gmail integration so students can move beyond passive profile browsing into active, measurable networking.</p>
+          </div>
+          <div style={{marginBottom: '20px'}}>
+            <h3 style={{fontSize: '16px', fontWeight: '600', marginBottom: '8px'}}>What's a good networking email template for college students?</h3>
+            <p style={{fontSize: '14px', lineHeight: '1.6', color: '#4a5568'}}>A strong networking template has four parts: a personalized opening line (shared school, mutual connection, or specific interest in their work), one sentence about you, a clear and low-commitment ask (15-minute call), and a gracious close. Offerloop's AI generates unique emails for each contact by analyzing their professional background — the efficiency of a template with the authenticity of a hand-written message.</p>
           </div>
         </div>
       </section>

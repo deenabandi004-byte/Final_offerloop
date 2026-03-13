@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Helmet } from "react-helmet-async";
 import { Check, ArrowLeft, Settings, Shield, ChevronDown, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
@@ -415,6 +416,11 @@ const Pricing = () => {
 
   return (
     <div style={{ background: '#F8FAFF', minHeight: '100vh' }}>
+      <Helmet>
+        <title>Offerloop Pricing — Free, Pro & Elite Plans for Student Networking</title>
+        <meta name="description" content="Start free or upgrade to Pro ($14.99/mo) or Elite ($34.99/mo). Offerloop helps college students network into consulting, investment banking, and tech." />
+        <link rel="canonical" href="https://offerloop.ai/pricing" />
+      </Helmet>
       <div className="w-full px-3 py-6 sm:px-6 sm:py-12" style={{ maxWidth: '900px', margin: '0 auto' }}>
         
         {/* Back Navigation */}

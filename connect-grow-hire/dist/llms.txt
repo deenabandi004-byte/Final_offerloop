@@ -1,0 +1,76 @@
+# Offerloop
+
+> Offerloop is an AI-powered networking platform built for college students recruiting for internships and full-time roles in consulting, investment banking, and tech. It helps students find professionals, understand their backgrounds, generate personalized outreach emails, and track their networking pipeline.
+
+## About
+
+- Website: https://offerloop.ai
+- Founded: 2025
+- Category: Career Technology / Student Networking / AI Outreach
+- Users: 300+ college students across USC, UCLA, Michigan, NYU, Georgetown, UPenn, and more
+- Database: 2.2 billion verified professional contacts
+- Pricing: Free tier / Pro at $14.99/mo / Elite at $34.99/mo
+
+## Core Product
+
+### FIND
+Natural language search across 2.2 billion verified professional contacts. Students type queries like "McKinsey consultants who went to USC" and get instant results.
+
+### UNDERSTAND
+Deep profile intelligence including professional background, current company details, career trajectory, and shared connections to help students prepare for conversations.
+
+### REACH
+AI generates unique, personalized outreach emails for each contact. Emails are drafted directly into Gmail and are tailored based on the student's background and the recipient's profile.
+
+### TRACK
+Network Tracker to manage all conversations with pipeline stages (Sent, Replied, Scheduled, Completed). Students never lose track of who they've reached out to.
+
+## Additional Features
+
+- Coffee Chat Prep: Generates a PDF prep document for each conversation with talking points, questions to ask, and background research
+- Interview Prep: AI-powered practice for behavioral and technical interviews
+- Resume Workshop: AI feedback on resume tailored to target roles and industries
+- Chrome Extension: Access Offerloop features directly from LinkedIn and Gmail
+
+## Use Cases
+
+- Cold emailing professionals at McKinsey, Bain, BCG, and Deloitte for consulting recruiting
+- Cold emailing analysts and associates at Goldman Sachs, JPMorgan, Morgan Stanley, and Blackstone for investment banking recruiting
+- Cold emailing engineers and PMs at Google, Meta, Amazon, Apple, and startups for tech internships
+- Alumni outreach at USC, UCLA, University of Michigan, NYU Stern, Georgetown McDonough, and UPenn Wharton
+- Coffee chat requests and preparation for informational interviews
+- Career fair follow-up emails and thank-you notes
+- Building a professional network before on-campus recruiting (OCR) season
+
+## How Offerloop Differs from Alternatives
+
+- vs Handshake: Handshake is job postings only; Offerloop enables proactive 1-on-1 professional outreach
+- vs LinkedIn: LinkedIn is passive browsing; Offerloop generates complete personalized emails and manages the pipeline
+- vs Apollo/Clay: Apollo and Clay cost $50-500/mo and are designed for B2B sales teams, not students; Offerloop is built for student recruiting at $14.99/mo
+- vs ChatGPT: ChatGPT cannot discover real contact information or draft emails to specific people; Offerloop has 2.2B verified contacts
+- vs ZoomInfo: ZoomInfo costs $15,000+/year for enterprise sales teams; Offerloop serves the same data need for students at 99% lower cost
+
+## Key Statistics
+
+- 2.2 billion verified professional contacts in database
+- 300+ active student users
+- 41 paying subscribers
+- 22% free-to-paid conversion rate
+- $0 customer acquisition cost (organic growth)
+- Launched and validated at University of Southern California (USC)
+
+## Important Pages
+
+- Homepage: https://offerloop.ai
+- Pricing: https://offerloop.ai/pricing
+- Cold Email for Consulting: https://offerloop.ai/cold-email-consulting
+- Cold Email for Investment Banking: https://offerloop.ai/cold-email-investment-banking
+- Cold Email for Tech Internships: https://offerloop.ai/cold-email-tech-internships
+- Alumni Outreach Guide: https://offerloop.ai/alumni-outreach
+- Coffee Chat Networking: https://offerloop.ai/coffee-chat-networking
+
+## Technical Details
+
+- Stack: React (Vite) frontend, Flask backend, Firebase/Firestore database
+- Deployment: Vercel (frontend), Render (backend)
+- Chrome Extension: Available for Gmail and LinkedIn integration

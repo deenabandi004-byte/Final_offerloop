@@ -1,5 +1,5 @@
 """
-Fetch job listings from Greenhouse, Lever, and Workday board APIs.
+Fetch job listings from Greenhouse, Lever, Workday, and Ashby board APIs.
 Outputs a list of pre-normalized job dicts ready for the normalizer/writer.
 """
 import logging
@@ -18,12 +18,14 @@ REQUEST_TIMEOUT = 15
 # ---------------------------------------------------------------------------
 
 GREENHOUSE_SLUGS = [
-    "stripe", "figma", "notion", "airbnb", "doordash", "lyft", "coinbase",
-    "robinhood", "palantir", "snap", "pinterest", "reddit", "dropbox",
-    "twilio", "brex", "plaid", "rippling", "airtable", "carta", "chime",
-    "ramp", "scaleai", "verkada", "benchling", "discord", "duolingo",
-    "gitlab", "grammarly", "intercom", "retool", "webflow", "gusto",
-    "lattice", "mercury", "faire", "canva",
+    "stripe", "figma", "airbnb", "doordash", "lyft", "coinbase", "robinhood",
+    "palantir", "snap", "pinterest", "reddit", "dropbox", "twilio", "brex",
+    "plaid", "airtable", "carta", "chime", "scaleai", "verkada", "benchling",
+    "discord", "duolingo", "gitlab", "grammarly", "intercom", "webflow",
+    "gusto", "lattice", "mercury", "faire", "canva", "shopify-1",
+    "squarespace", "hubspot", "zendesk-inc", "boxinc", "cloudflare",
+    "hashicorp-inc", "mongodb", "databricks", "snowflake-computing",
+    "confluent-inc",
 ]
 
 LEVER_SLUGS = [
@@ -50,6 +52,14 @@ WORKDAY_COMPANIES = [
     ("EY", "ey", "EYJobSearch"),
     ("Bank of America", "bofa", "en-US"),
     ("Bridgewater", "bridgewater", "Bridgewater"),
+]
+
+ASHBY_SLUGS = [
+    "linear", "vercel", "loom", "descript", "notion",
+    "retool", "mercury", "ramp", "rippling", "deel",
+    "brex", "runway", "replit", "supabase", "planetscale",
+    "ashby", "coda", "superhuman", "figma", "clerk",
+    "resend", "cal", "raycast", "Screen", "turso",
 ]
 
 # ---------------------------------------------------------------------------
@@ -269,21 +279,86 @@ def _fetch_all_workday() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Ashby fetcher
+# ---------------------------------------------------------------------------
+
+_ASHBY_TYPE_MAP = {
+    "FullTime": "FULLTIME",
+    "PartTime": "PARTTIME",
+    "Intern": "INTERNSHIP",
+}
+
+
+def _fetch_ashby(slug: str) -> list[dict]:
+    url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
+    try:
+        resp = requests.get(url, timeout=REQUEST_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        logger.warning("Ashby [%s] failed: %s", slug, exc)
+        return []
+
+    jobs = []
+    for job in data.get("jobs", []):
+        title = job.get("title", "")
+        location = job.get("locationName") or "Remote"
+        description = _strip_html(job.get("descriptionHtml") or "")[:8000]
+        employment_type = job.get("employmentType") or ""
+
+        jobs.append({
+            "job_id": f"ashby_{slug}_{job['id']}",
+            "source": "ashby",
+            "title": title,
+            "company": slug.replace("-", " ").title(),
+            "employer_logo": None,
+            "location": location,
+            "remote": bool(job.get("isRemote")),
+            "description_raw": description,
+            "apply_url": job.get("jobUrl", ""),
+            "posted_at": job.get("publishedAt"),
+            "salary_min": None,
+            "salary_max": None,
+            "salary_period": None,
+            "_employment_type": _ASHBY_TYPE_MAP.get(employment_type, ""),
+        })
+
+    logger.info("  Ashby [%s] → %d jobs", slug, len(jobs))
+    return jobs
+
+
+def _fetch_all_ashby() -> list[dict]:
+    results = []
+    companies_with_jobs = 0
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(_fetch_ashby, slug): slug for slug in ASHBY_SLUGS}
+        for future in as_completed(futures):
+            jobs = future.result()
+            if jobs:
+                companies_with_jobs += 1
+            results.extend(jobs)
+    logger.info("Ashby: %d jobs from %d companies", len(results), companies_with_jobs)
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
 def fetch_jobs() -> list[dict]:
-    """Fetch jobs from Greenhouse, Lever, and Workday concurrently.
+    """Fetch jobs from Greenhouse, Lever, Workday, and Ashby concurrently.
     Returns a list of pre-normalized job dicts."""
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         gh_future = pool.submit(_fetch_all_greenhouse)
         lv_future = pool.submit(_fetch_all_lever)
         wd_future = pool.submit(_fetch_all_workday)
+        ab_future = pool.submit(_fetch_all_ashby)
 
         greenhouse_jobs = gh_future.result()
         lever_jobs = lv_future.result()
         workday_jobs = wd_future.result()
+        ashby_jobs = ab_future.result()
 
-    all_jobs = greenhouse_jobs + lever_jobs + workday_jobs
+    all_jobs = greenhouse_jobs + lever_jobs + workday_jobs + ashby_jobs
     logger.info("Total: %d jobs fetched", len(all_jobs))
     return all_jobs

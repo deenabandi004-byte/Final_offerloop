@@ -8,6 +8,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-route
 import { FirebaseAuthProvider, useFirebaseAuth } from "./contexts/FirebaseAuthContext";
 import { ScoutProvider, useScout } from "./contexts/ScoutContext";
 import { TourProvider } from "./contexts/TourContext";
+import { HelmetProvider } from "react-helmet-async";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DynamicGradientBackground } from "./components/background/DynamicGradientBackground";
 import { LoadingSkeleton } from "./components/LoadingSkeleton";
@@ -325,6 +326,7 @@ const KeyboardShortcutHandler: React.FC = () => {
 /* ---------------- App Root ---------------- */
 const App: React.FC = () => {
   return (
+    <HelmetProvider>
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <FirebaseAuthProvider>
@@ -351,6 +353,7 @@ const App: React.FC = () => {
         </FirebaseAuthProvider>
       </TooltipProvider>
     </QueryClientProvider>
+    </HelmetProvider>
   );
 };
 

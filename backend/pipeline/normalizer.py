@@ -4,11 +4,15 @@ Uses OpenAI gpt-4o-mini for salary extraction when structured data is missing.
 """
 import json
 import logging
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 from backend.app.services.openai_client import get_openai_client
 
 logger = logging.getLogger(__name__)
+
+_openai_semaphore = threading.Semaphore(3)
 
 # ---------------------------------------------------------------------------
 # Job type normalization
@@ -73,7 +77,9 @@ def extract_salary_from_description(description: str) -> dict:
         return {}
 
     snippet = description[:1500]
+    _openai_semaphore.acquire()
     try:
+        time.sleep(0.5)
         client = get_openai_client()
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -110,6 +116,8 @@ def extract_salary_from_description(description: str) -> dict:
     except Exception as exc:
         logger.debug("Salary extraction via OpenAI failed: %s", exc)
         return {}
+    finally:
+        _openai_semaphore.release()
 
 
 _ANNUAL_MULTIPLIER = {
@@ -305,7 +313,7 @@ def _normalize_jsearch_job(raw: dict) -> dict | None:
 
 def normalize_job(raw: dict) -> dict | None:
     """Normalize a raw job dict from any source. Auto-detects format."""
-    if raw.get("source") in ("greenhouse", "lever", "workday"):
+    if raw.get("source") in ("greenhouse", "lever", "workday", "ashby"):
         return _normalize_board_job(raw)
     return _normalize_jsearch_job(raw)
 
