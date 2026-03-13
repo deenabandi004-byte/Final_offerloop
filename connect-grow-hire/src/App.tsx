@@ -54,6 +54,10 @@ const CoverLetterPage = React.lazy(() => import("./pages/CoverLetterPage"));
 // New Lovable Onboarding Flow
 const OnboardingFlow = React.lazy(() => import("./pages/OnboardingFlow").then(m => ({ default: m.OnboardingFlow })));
 // SEO Landing Pages
+const CompareHandshake = React.lazy(() => import("./pages/CompareHandshake"));
+const CompareLinkedIn = React.lazy(() => import("./pages/CompareLinkedIn"));
+const CompareApollo = React.lazy(() => import("./pages/CompareApollo"));
+const CompareChatGPT = React.lazy(() => import("./pages/CompareChatGPT"));
 const ColdEmailConsulting = React.lazy(() => import("./pages/ColdEmailConsulting"));
 const ColdEmailBanking = React.lazy(() => import("./pages/ColdEmailBanking"));
 const ColdEmailTech = React.lazy(() => import("./pages/ColdEmailTech"));
@@ -253,6 +257,12 @@ const AppRoutes: React.FC = () => {
       <Route path="/my-resume" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ResumePage /></Suspense></ProtectedRoute>} />
       <Route path="/write/cover-letter" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoverLetterPage /></Suspense></ProtectedRoute>} />
       <Route path="/write/cover-letter-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoverLetterPage /></Suspense></ProtectedRoute>} />
+
+      {/* Competitor Comparison Pages */}
+      <Route path="/compare/handshake" element={<Suspense fallback={<PageLoader />}><CompareHandshake /></Suspense>} />
+      <Route path="/compare/linkedin" element={<Suspense fallback={<PageLoader />}><CompareLinkedIn /></Suspense>} />
+      <Route path="/compare/apollo" element={<Suspense fallback={<PageLoader />}><CompareApollo /></Suspense>} />
+      <Route path="/compare/chatgpt" element={<Suspense fallback={<PageLoader />}><CompareChatGPT /></Suspense>} />
 
       {/* SEO Landing Pages */}
       <Route path="/cold-email-consulting" element={<Suspense fallback={<PageLoader />}><ColdEmailConsulting /></Suspense>} />
