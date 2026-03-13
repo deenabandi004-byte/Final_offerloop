@@ -228,6 +228,19 @@ def create_app() -> Flask:
     def index():
         return send_from_directory(app.static_folder, 'index.html')
 
+    # --- Serve SEO/AEO root files explicitly ---
+    @app.route('/sitemap.xml')
+    def sitemap():
+        return send_from_directory(app.static_folder, 'sitemap.xml', mimetype='application/xml')
+
+    @app.route('/robots.txt')
+    def robots():
+        return send_from_directory(app.static_folder, 'robots.txt', mimetype='text/plain')
+
+    @app.route('/llms.txt')
+    def llms():
+        return send_from_directory(app.static_folder, 'llms.txt', mimetype='text/plain')
+
     # --- 404 handler for SPA (catches all unmatched routes) ---
     @app.errorhandler(404)
     def not_found(e):
