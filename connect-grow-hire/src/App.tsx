@@ -53,6 +53,7 @@ const ResumePage = React.lazy(() => import("./pages/ResumePage"));
 const CoverLetterPage = React.lazy(() => import("./pages/CoverLetterPage"));
 // New Lovable Onboarding Flow
 const OnboardingFlow = React.lazy(() => import("./pages/OnboardingFlow").then(m => ({ default: m.OnboardingFlow })));
+const DataStats = React.lazy(() => import("./pages/DataStats"));
 // SEO Landing Pages
 const CompareHandshake = React.lazy(() => import("./pages/CompareHandshake"));
 const CompareLinkedIn = React.lazy(() => import("./pages/CompareLinkedIn"));
@@ -257,6 +258,9 @@ const AppRoutes: React.FC = () => {
       <Route path="/my-resume" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ResumePage /></Suspense></ProtectedRoute>} />
       <Route path="/write/cover-letter" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoverLetterPage /></Suspense></ProtectedRoute>} />
       <Route path="/write/cover-letter-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoverLetterPage /></Suspense></ProtectedRoute>} />
+
+      {/* Data & Stats */}
+      <Route path="/data" element={<Suspense fallback={<PageLoader />}><DataStats /></Suspense>} />
 
       {/* Competitor Comparison Pages */}
       <Route path="/compare/handshake" element={<Suspense fallback={<PageLoader />}><CompareHandshake /></Suspense>} />
