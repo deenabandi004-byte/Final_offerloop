@@ -572,6 +572,332 @@ function scrapeJobDescription() {
   return null;
 }
 
+// ============================================
+// AUTOFILL FORM DETECTION & FILLING
+// ============================================
+
+const AUTOFILL_ATTR = 'data-ol-field-id';
+const AUTOFILL_FILLED_ATTR = 'data-ol-filled';
+
+const ATS_FORM_SIGNATURES = [
+  { name: 'Greenhouse', selector: '#application_form, form#app_form, .application--form' },
+  { name: 'Lever', selector: 'form.application-form, .posting-apply form' },
+  { name: 'Workday', selector: '[data-automation-id="applicationPage"], form[data-automation-id]' },
+  { name: 'Ashby', selector: 'form[class*="ApplicationForm"], [class*="ashby-application"]' },
+  { name: 'iCIMS', selector: 'form#iCIMS_MainColumn' },
+  { name: 'BambooHR', selector: 'form#applicationForm' },
+  { name: 'SmartRecruiters', selector: 'form.application-form, [class*="application-form"]' },
+  { name: 'Handshake', selector: 'form[class*="application"], [data-testid*="apply"]' },
+  { name: 'Generic', selector: 'form' },
+];
+
+const FILLABLE_SELECTORS = [
+  'input[type="text"]',
+  'input[type="email"]',
+  'input[type="tel"]',
+  'input[type="url"]',
+  'input[type="number"]',
+  'textarea',
+  'select',
+];
+
+let detectedApplicationForm = null;
+let autofillFloatingBtn = null;
+
+const APPLICATION_FIELD_PATTERN = /\b(name|first.?name|last.?name|email|e-mail|resume|cv|cover.?letter|phone|telephone|mobile|linkedin|linked.?in|address|city|state|zip|salary|start.?date|visa|sponsor|authorization|gender|race|ethnicity|veteran|disability)\b/i;
+
+function detectApplicationForm() {
+  // 1. Try ATS-specific selectors first (preserves ATS name for badge)
+  for (const sig of ATS_FORM_SIGNATURES) {
+    if (sig.name === 'Generic') continue; // skip generic, handled below
+    try {
+      const candidates = document.querySelectorAll(sig.selector);
+      for (const form of candidates) {
+        const inputs = form.querySelectorAll(FILLABLE_SELECTORS.join(','));
+        if (inputs.length >= 2) return { form, ats: sig.name };
+      }
+    } catch (_) {}
+  }
+
+  // 2. Generic detection: any <form> with application-like fields
+  const allForms = document.querySelectorAll('form');
+  for (const form of allForms) {
+    if (formLooksLikeApplication(form)) return { form, ats: 'Generic' };
+  }
+
+  // 3. Formless page: look for application fields anywhere in the body
+  if (formLooksLikeApplication(document.body)) {
+    return { form: document.body, ats: 'Generic' };
+  }
+
+  return null;
+}
+
+function formLooksLikeApplication(container) {
+  // Check for file upload inputs (resume/CV upload is a strong signal)
+  const fileInputs = container.querySelectorAll('input[type="file"]');
+  if (fileInputs.length > 0) return true;
+
+  // Check for inputs whose name/id/placeholder/aria-label match application keywords
+  const allInputs = container.querySelectorAll(FILLABLE_SELECTORS.join(','));
+  let matchCount = 0;
+  for (const el of allInputs) {
+    if (el.style.display === 'none' || el.style.visibility === 'hidden') continue;
+    if (['hidden', 'submit', 'button', 'image', 'reset'].includes(el.type)) continue;
+    const haystack = [
+      el.name || '',
+      el.id || '',
+      el.placeholder || '',
+      el.getAttribute('aria-label') || '',
+    ].join(' ');
+    if (APPLICATION_FIELD_PATTERN.test(haystack)) {
+      matchCount++;
+      if (matchCount >= 2) return true;
+    }
+  }
+
+  // Also check labels pointing to inputs inside the container
+  if (matchCount < 2) {
+    const labels = container.querySelectorAll('label');
+    for (const lbl of labels) {
+      if (APPLICATION_FIELD_PATTERN.test(lbl.textContent)) {
+        matchCount++;
+        if (matchCount >= 2) return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function resolveFieldLabel(el) {
+  const ariaLabel = el.getAttribute('aria-label');
+  if (ariaLabel && ariaLabel.trim().length > 1) return ariaLabel.trim();
+
+  const labelledBy = el.getAttribute('aria-labelledby');
+  if (labelledBy) {
+    const ref = document.getElementById(labelledBy);
+    if (ref) return ref.innerText.trim();
+  }
+
+  if (el.id) {
+    const lbl = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+    if (lbl) return lbl.innerText.trim();
+  }
+
+  const wrappingLabel = el.closest('label');
+  if (wrappingLabel) return wrappingLabel.innerText.replace(el.value || '', '').trim();
+
+  let prev = el.previousElementSibling;
+  for (let i = 0; i < 3 && prev; i++) {
+    const txt = prev.innerText?.trim();
+    if (txt && txt.length > 1 && txt.length < 200) return txt;
+    prev = prev.previousElementSibling;
+  }
+
+  const parent = el.parentElement;
+  if (parent) {
+    let prevSib = parent.previousElementSibling;
+    for (let i = 0; i < 2 && prevSib; i++) {
+      const txt = prevSib.innerText?.trim();
+      if (txt && txt.length > 1 && txt.length < 200) return txt;
+      prevSib = prevSib.previousElementSibling;
+    }
+  }
+
+  return el.placeholder || el.name || null;
+}
+
+function extractFormQuestions(form) {
+  const fields = [];
+  const inputs = form.querySelectorAll(FILLABLE_SELECTORS.join(','));
+
+  inputs.forEach((el, i) => {
+    if (['hidden', 'submit', 'button', 'file', 'image', 'reset'].includes(el.type)) return;
+    if (el.closest('[data-ol-skip]')) return;
+    if (el.style.display === 'none' || el.style.visibility === 'hidden') return;
+
+    const fieldId = `ol_${i}_${Date.now()}`;
+    el.setAttribute(AUTOFILL_ATTR, fieldId);
+
+    const label = resolveFieldLabel(el);
+    if (!label) return;
+
+    const fieldType = el.tagName === 'SELECT' ? 'select'
+      : el.tagName === 'TEXTAREA' ? 'textarea'
+      : el.type || 'text';
+
+    const options = el.tagName === 'SELECT'
+      ? Array.from(el.options).map(o => o.text).filter(t => t.trim() && t !== '-')
+      : null;
+
+    fields.push({ fieldId, question: label, fieldType, options, currentValue: el.value || '', placeholder: el.placeholder || '' });
+  });
+
+  return fields;
+}
+
+function fillFormAnswers(answers) {
+  let filled = 0;
+  const toSave = [];
+
+  answers.forEach(({ fieldId, question, answer, source }) => {
+    if (!answer) return;
+    const el = document.querySelector(`[${AUTOFILL_ATTR}="${fieldId}"]`);
+    if (!el) return;
+
+    try {
+      if (el.tagName === 'SELECT') {
+        const opts = Array.from(el.options);
+        const match = opts.find(o =>
+          o.text.toLowerCase().includes(answer.toLowerCase()) ||
+          o.value.toLowerCase() === answer.toLowerCase()
+        ) || opts.find(o => answer.toLowerCase().includes(o.text.toLowerCase()));
+        if (match) {
+          el.value = match.value;
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      } else {
+        const nativeSetter =
+          Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set ||
+          Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+        if (nativeSetter) nativeSetter.call(el, answer);
+        else el.value = answer;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        el.dispatchEvent(new Event('blur', { bubbles: true }));
+      }
+
+      el.setAttribute(AUTOFILL_FILLED_ATTR, source || 'ai');
+      el.style.outline = `2px solid ${source === 'resume' ? '#3B82F6' : '#10B981'}`;
+      el.style.outlineOffset = '1px';
+      el.style.transition = 'outline 0.3s ease';
+      setTimeout(() => { el.style.outline = ''; el.style.outlineOffset = ''; }, 4000);
+
+      filled++;
+      toSave.push({ question, answer, fieldType: el.type || el.tagName.toLowerCase(), source });
+    } catch (err) {
+      console.warn('[Offerloop Autofill] Failed to fill field:', err);
+    }
+  });
+
+  return { filled, toSave };
+}
+
+function injectAutofillButton(atsName) {
+  if (document.getElementById('ol-autofill-btn')) return;
+
+  const btn = document.createElement('button');
+  btn.id = 'ol-autofill-btn';
+  btn.className = 'ol-autofill-fab';
+  btn.setAttribute('title', `Offerloop Autofill — ${atsName} form detected`);
+  btn.innerHTML = `
+    <img src="${chrome.runtime.getURL('icons/icon48.png')}" alt="Offerloop" width="20" height="20" style="border-radius:2px;">
+    <span>Autofill Application</span>
+  `;
+  btn.addEventListener('click', handleAutofillClick);
+  document.body.appendChild(btn);
+  autofillFloatingBtn = btn;
+}
+
+async function handleAutofillClick() {
+  const btn = document.getElementById('ol-autofill-btn');
+  if (!btn || btn.classList.contains('ol-autofill-loading')) return;
+
+  const detected = detectApplicationForm();
+  if (!detected) { showToast('No application form detected on this page.', 'error'); return; }
+
+  const questions = extractFormQuestions(detected.form);
+  if (questions.length === 0) { showToast('No fillable fields found in the form.', 'error'); return; }
+
+  btn.classList.add('ol-autofill-loading');
+  btn.innerHTML = `<div class="offerloop-spinner"></div><span>Generating answers...</span>`;
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      action: 'autofillAnswers',
+      questions: questions.map(q => ({
+        fieldId: q.fieldId,
+        question: q.question,
+        fieldType: q.fieldType,
+        options: q.options,
+        currentValue: q.currentValue,
+      })),
+      pageContext: {
+        url: window.location.href,
+        title: document.title,
+        hostname: window.location.hostname,
+      },
+    });
+
+    if (response.error) throw new Error(response.error);
+
+    const answers = response.answers || [];
+    if (answers.length === 0) {
+      showToast('No answers generated. Make sure your resume is uploaded.', 'error');
+      btn.classList.remove('ol-autofill-loading');
+      btn.innerHTML = `<img src="${chrome.runtime.getURL('icons/icon48.png')}" alt="Offerloop" width="20" height="20" style="border-radius:2px;"><span>Autofill Application</span>`;
+      return;
+    }
+
+    const { filled, toSave } = fillFormAnswers(answers);
+
+    if (toSave.length > 0) {
+      chrome.runtime.sendMessage({ action: 'saveAutofillAnswers', answers: toSave, domain: window.location.hostname });
+    }
+
+    showToast(`✓ Filled ${filled} field${filled !== 1 ? 's' : ''} — review before submitting`, 'success');
+
+    btn.classList.remove('ol-autofill-loading');
+    btn.innerHTML = `<img src="${chrome.runtime.getURL('icons/icon48.png')}" alt="Offerloop" width="20" height="20" style="border-radius:2px;"><span>✓ Filled ${filled} fields</span>`;
+    setTimeout(() => {
+      btn.innerHTML = `<img src="${chrome.runtime.getURL('icons/icon48.png')}" alt="Offerloop" width="20" height="20" style="border-radius:2px;"><span>Autofill Application</span>`;
+    }, 4000);
+
+  } catch (err) {
+    console.error('[Offerloop Autofill] Error:', err);
+    showToast(err.message || 'Autofill failed. Please try again.', 'error');
+    btn.classList.remove('ol-autofill-loading');
+    btn.innerHTML = `<img src="${chrome.runtime.getURL('icons/icon48.png')}" alt="Offerloop" width="20" height="20" style="border-radius:2px;"><span>Autofill Application</span>`;
+  }
+}
+
+function initAutofill() {
+  // Don't run on LinkedIn — that page has its own Offerloop UI
+  if (window.location.href.includes('linkedin.com')) return;
+
+  // Delay initial detection to let SPA pages (Greenhouse, Workday, etc.) render
+  setTimeout(() => {
+    const detected = detectApplicationForm();
+    if (detected) {
+      detectedApplicationForm = detected.form;
+      injectAutofillButton(detected.ats);
+      return;
+    }
+
+    // Watch for dynamically rendered forms (Workday, Ashby, etc. load async)
+    const formObserver = new MutationObserver(debounce(() => {
+      if (document.getElementById('ol-autofill-btn')) return;
+      const d = detectApplicationForm();
+      if (d) {
+        detectedApplicationForm = d.form;
+        injectAutofillButton(d.ats);
+      }
+    }, 1000));
+
+    formObserver.observe(document.body, { childList: true, subtree: true });
+  }, 800);
+}
+
+function debounce(fn, delay) {
+  let timer;
+  return function (...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), delay);
+  };
+}
+
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // Handle LinkedIn profile URL request
@@ -583,6 +909,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
   
+  // Handle form fields scraping (for popup Autofill tab preview)
+  if (request.action === 'scrapeFormFields') {
+    const detected = detectApplicationForm();
+    if (!detected) {
+      sendResponse({ found: false, fields: [], ats: null });
+      return true;
+    }
+    const fields = extractFormQuestions(detected.form);
+    sendResponse({ found: true, fields, ats: detected.ats, url: window.location.href });
+    return true;
+  }
+
+  // Handle autofill trigger from popup
+  if (request.action === 'triggerAutofill') {
+    handleAutofillClick();
+    sendResponse({ triggered: true });
+    return true;
+  }
+
   // Handle job description scraping (for Cover Letter)
   if (request.action === 'scrapeJobDescription') {
     const description = scrapeJobDescription();
@@ -607,9 +952,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Wait for page to be ready
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', () => { init(); initAutofill(); });
 } else {
   init();
+  initAutofill();
 }
 
 // Also handle SPA navigation

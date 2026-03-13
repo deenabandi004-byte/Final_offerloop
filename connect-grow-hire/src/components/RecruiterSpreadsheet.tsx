@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Mail,
@@ -8,14 +7,9 @@ import {
   Trash2,
   ExternalLink,
   Download,
-  User,
-  ChevronRight,
-  CheckCircle2,
-  AlertCircle
 } from "lucide-react";
 import { LoadingSkeleton } from "./LoadingSkeleton";
 import { useNavigate } from "react-router-dom";
-import { InlineLoadingBar } from "@/components/ui/LoadingBar";
 import { useFirebaseAuth } from '../contexts/FirebaseAuthContext';
 import {
   AlertDialog,
@@ -32,14 +26,24 @@ import type { Recruiter } from '../services/firebaseApi';
 import { toast } from "@/hooks/use-toast";
 
 const STATUS_OPTIONS = [
-  { value: 'Not Contacted', color: '#A0A0A0', label: 'Not Contacted' },
-  { value: 'Contacted', color: '#4285F4', label: 'Contacted' },
-  { value: 'Followed Up', color: '#FB8C00', label: 'Followed Up' },
-  { value: 'Responded', color: '#34A853', label: 'Responded' },
-  { value: 'Call Scheduled', color: '#9C27B0', label: 'Call Scheduled' },
-  { value: 'Rejected', color: '#EA4335', label: 'Rejected' },
-  { value: 'Hired', color: '#FFD700', label: 'Hired' }
+  { value: 'Not Contacted', color: '#999999', label: 'Not Contacted', bg: '#f0f0ee' },
+  { value: 'Contacted', color: '#555555', label: 'Contacted', bg: '#f0f0ee' },
+  { value: 'Followed Up', color: '#555555', label: 'Followed Up', bg: '#f0f0ee' },
+  { value: 'Responded', color: '#2a2a2a', label: 'Responded', bg: '#f0f0ee' },
+  { value: 'Call Scheduled', color: '#2a2a2a', label: 'Call Scheduled', bg: '#f0f0ee' },
+  { value: 'Rejected', color: '#c00000', label: 'Rejected', bg: '#fce8e6' },
+  { value: 'Hired', color: '#2a2a2a', label: 'Hired', bg: '#f0f0ee' }
 ];
+
+const REC_COLS = [
+  { key: 'name', letter: 'A', label: 'Recruiter', width: '14%' },
+  { key: 'linkedin', letter: 'B', label: 'LinkedIn', width: '8%' },
+  { key: 'email', letter: 'C', label: 'Email', width: '16%' },
+  { key: 'company', letter: 'D', label: 'Company', width: '14%' },
+  { key: 'jobTitle', letter: 'E', label: 'Title', width: '14%' },
+  { key: 'associatedJob', letter: 'F', label: 'Job', width: '14%' },
+  { key: 'status', letter: 'G', label: 'Status', width: '10%' },
+] as const;
 
 const RecruiterSpreadsheet: React.FC = () => {
   const navigate = useNavigate();
@@ -54,7 +58,9 @@ const RecruiterSpreadsheet: React.FC = () => {
   const [mailAppDialogOpen, setMailAppDialogOpen] = useState(false);
   const [selectedRecruiterForEmail, setSelectedRecruiterForEmail] = useState<Recruiter | null>(null);
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
-  
+  const [activeCell, setActiveCell] = useState<{ rowId: string; col: string } | null>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+
   // Track pending saves to prevent data loss
   const [pendingSaves, setPendingSaves] = useState<Set<string>>(new Set());
   const [saveQueue, setSaveQueue] = useState<Map<string, { recruiterId: string; field: keyof Recruiter; value: string }>>(new Map());
@@ -583,6 +589,33 @@ const RecruiterSpreadsheet: React.FC = () => {
     }
   };
 
+  const mono = "'IBM Plex Mono', monospace";
+  const GUTTER_W = 40;
+
+  const getActiveCellRef = (): string => {
+    if (!activeCell) return 'A1';
+    const col = REC_COLS.find(c => c.key === activeCell.col);
+    const letter = col?.letter || 'A';
+    const idx = filteredRecruiters.findIndex(r => r.id === activeCell.rowId);
+    return `${letter}${idx >= 0 ? idx + 1 : 1}`;
+  };
+
+  const getActiveCellValue = (): string => {
+    if (!activeCell) return '';
+    const r = filteredRecruiters.find(r => r.id === activeCell.rowId);
+    if (!r) return '';
+    switch (activeCell.col) {
+      case 'name': return getDisplayName(r);
+      case 'linkedin': return r.linkedinUrl || '';
+      case 'email': return r.email || '';
+      case 'company': return r.company || '';
+      case 'jobTitle': return r.jobTitle || '';
+      case 'associatedJob': return r.associatedJobTitle || '';
+      case 'status': return r.status || '';
+      default: return '';
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-4">
@@ -592,599 +625,278 @@ const RecruiterSpreadsheet: React.FC = () => {
   }
 
   return (
-    <div className="space-y-4 recruiter-spreadsheet-page">
-      {/* Export CSV Card */}
-      {recruiters.length > 0 && (
-        <div className="flex justify-between items-center bg-card rounded-lg border border-border p-4 recruiter-info-card">
-          <div>
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-medium text-foreground">
-                {recruiters.length} recruiter{recruiters.length !== 1 ? 's' : ''} saved
-              </p>
-              {pendingSaves.size > 0 && (
-                <div className="flex items-center gap-1.5 text-xs text-blue-600">
-                  <RefreshCw className="h-3 w-3 animate-spin" />
-                  <span>Saving {pendingSaves.size} change{pendingSaves.size !== 1 ? 's' : ''}...</span>
-                </div>
-              )}
-              {pendingSaves.size === 0 && saveQueue.size === 0 && recruiters.length > 0 && (
-                <div className="flex items-center gap-1 text-xs text-green-600">
-                  <CheckCircle2 className="h-3 w-3" />
-                  <span>All changes saved</span>
-                </div>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Export your recruiters to CSV for further analysis
-            </p>
-          </div>
-          <div className="flex gap-2 recruiter-action-buttons">
-            <Button
-              onClick={handleExportCsv}
-              disabled={currentUser?.tier === 'free'}
-              className={`gap-2 recruiter-export-btn ${
-                currentUser?.tier === 'free' 
-                  ? 'bg-gray-400 hover:bg-gray-400 cursor-not-allowed opacity-60' 
-                  : 'bg-blue-600 hover:bg-blue-700'
-              }`}
-              title={currentUser?.tier === 'free' ? 'Upgrade to Pro or Elite to export CSV' : 'Export recruiters to CSV'}
-            >
-              <Download className="h-4 w-4" />
-              Export CSV
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadRecruiters}
-              disabled={isLoading}
-              className="relative overflow-hidden border-border text-foreground hover:bg-secondary recruiter-refresh-btn"
-            >
-              <RefreshCw className="h-4 w-4" />
-              <InlineLoadingBar isLoading={isLoading} />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={clearAllRecruiters}
-              className="text-destructive border-destructive hover:bg-destructive/10 recruiter-delete-btn"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
+    <div
+      className="recruiter-spreadsheet-page"
+      style={{ fontFamily: mono, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: '#fff' }}
+      onClick={(e) => { if (sheetRef.current && !sheetRef.current.contains(e.target as Node)) setActiveCell(null); }}
+    >
+      {/* Toolbar */}
+      <div className="recruiter-toolbar" style={{
+        flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6,
+        padding: '5px 10px', background: '#ffffff', borderBottom: '1px solid #e5e5e3',
+      }}>
+        <div className="relative recruiter-search-wrap" style={{ flex: '0 0 220px' }}>
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3" style={{ color: '#bbb' }} />
+          <input
+            type="text" placeholder="Search..." value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ fontFamily: mono, fontSize: 12, color: '#2a2a2a', background: '#fff', border: '1px solid #e5e5e3', outline: 'none', padding: '4px 6px 4px 24px', width: '100%' }}
+          />
         </div>
-      )}
+        <div style={{ flex: 1 }} />
+        <button
+          onClick={handleExportCsv}
+          disabled={recruiters.length === 0 || currentUser?.tier === 'free'}
+          className="disabled:opacity-40"
+          style={{ fontFamily: mono, fontSize: 11, border: '1px solid #e5e5e3', background: '#fff', color: '#555', padding: '4px 10px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+        >
+          <Download className="h-3 w-3" /> Export CSV
+        </button>
+        <button onClick={loadRecruiters} disabled={isLoading} className="disabled:opacity-40"
+          style={{ border: '1px solid #e5e5e3', background: '#fff', color: '#555', padding: '4px 8px', cursor: 'pointer' }}>
+          <RefreshCw className="h-3.5 w-3.5" />
+        </button>
+        <button onClick={clearAllRecruiters} disabled={recruiters.length === 0} className="disabled:opacity-40"
+          style={{ border: '1px solid #e5c5c5', background: '#fff', color: '#c00', padding: '4px 8px', cursor: 'pointer' }}>
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+        <span style={{ fontSize: 11, color: '#999', marginLeft: 6 }}>
+          {recruiters.length} recruiter{recruiters.length !== 1 ? 's' : ''}
+          {pendingSaves.size > 0 && <span style={{ color: '#555', marginLeft: 6 }}>saving...</span>}
+        </span>
+      </div>
+
+      {/* Formula Bar */}
+      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', height: 26, borderBottom: '1px solid #e5e5e3', background: '#fff' }}>
+        <div style={{ width: 60, height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#ffffff', borderRight: '1px solid #e5e5e3', fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', color: '#2a2a2a', fontFamily: mono }}>
+          {getActiveCellRef()}
+        </div>
+        <div style={{ padding: '0 10px', borderRight: '1px solid #e5e5e3', fontSize: 11, color: '#bbb', fontStyle: 'italic', fontFamily: mono, display: 'flex', alignItems: 'center', height: '100%' }}>fx</div>
+        <div style={{ flex: 1, padding: '0 10px', fontSize: 12, color: '#2a2a2a', fontFamily: mono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', height: '100%' }}>
+          {getActiveCellValue()}
+        </div>
+      </div>
 
       {error && (
-        <div className="bg-destructive/10 border border-destructive text-destructive px-6 py-3 rounded-lg">
-          {error}
-        </div>
+        <div style={{ flexShrink: 0, background: '#fce8e6', border: '1px solid #e5c5c5', color: '#c00', padding: '6px 12px', fontSize: 11, fontFamily: mono }}>{error}</div>
       )}
 
-      {recruiters.length === 0 ? (
-        <div className="bg-card rounded-lg border border-border p-12 text-center">
-          <Mail className="h-10 w-10 text-muted-foreground mx-auto mb-4" />
-          <p className="text-foreground mb-2">No recruiters to display yet</p>
-          <p className="text-sm text-muted-foreground">
-            Recruiters found from "Find Recruiters" will automatically appear here
-          </p>
-        </div>
-      ) : (
-        <div className="bg-card backdrop-blur-sm rounded-xl shadow-sm border border-border overflow-hidden recruiter-table-wrapper">
-          {/* Results Header */}
-          <div className="px-6 py-4 border-b border-border bg-muted recruiter-section-header">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2 recruiter-section-header-content">
-                <Mail className="h-5 w-5 text-blue-400" />
-                <span className="font-medium text-foreground recruiter-section-header-text">
-                  {filteredRecruiters.length} {filteredRecruiters.length === 1 ? 'recruiter' : 'recruiters'}
-                  {searchQuery && ` (filtered from ${recruiters.length})`}
-                </span>
-              </div>
-              <div className="flex items-center gap-3 recruiter-scroll-hint">
-                {hasHorizontalOverflow && !hasScrolled && (
-                  <div className="swipe-hint flex items-center gap-1.5 text-sm font-bold text-black">
-                    <span>Scroll</span>
-                    <ChevronRight className="h-4 w-4 swipe-hint-arrow" />
-                  </div>
-                )}
-              </div>
-            </div>
+      {/* Sheet */}
+      <div ref={sheetRef} style={{ flex: 1, overflow: 'auto' }}>
+        {recruiters.length === 0 ? (
+          <div style={{ padding: '60px 24px', textAlign: 'center', fontFamily: mono }}>
+            <p style={{ color: '#2a2a2a', fontWeight: 500, fontSize: 13, marginBottom: 6 }}>No hiring managers saved yet</p>
+            <p style={{ color: '#999', fontSize: 12 }}>Hiring managers found from job URL search will automatically appear here</p>
           </div>
-
-          {/* Search Bar */}
-          <div className="px-6 py-4 border-b border-border bg-background recruiter-search-section">
-            <div className="relative w-80 recruiter-search-wrapper">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-              <Input
-                type="text"
-                placeholder="Search recruiters..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 bg-muted border-border text-foreground placeholder-muted-foreground focus:border-primary focus:ring-primary recruiter-search-input"
-              />
-            </div>
-          </div>
-
-          {/* Empty State for No Search Results */}
-          {filteredRecruiters.length === 0 && recruiters.length > 0 && searchQuery && (
-            <div className="px-6 py-12 text-center">
-              <p className="text-muted-foreground mb-2">No recruiters match your search.</p>
-              <button
-                onClick={() => setSearchQuery('')}
-                className="text-sm text-blue-600 hover:text-blue-700 underline"
-              >
-                Clear search
-              </button>
-            </div>
-          )}
-
-          {/* Table */}
-          {filteredRecruiters.length > 0 && (
-            <div ref={tableContainerRef} className="overflow-x-auto recruiter-table-container">
-              <table className="min-w-full divide-y divide-border recruiter-table">
-                <thead className="bg-muted">
-                  <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Recruiter
-                    </th>
-                    <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      LinkedIn
-                    </th>
-                    <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Email
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Company
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Title
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Associated Job
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-background divide-y divide-border">
-                  {filteredRecruiters.map((recruiter, index) => {
-                    const statusOption = STATUS_OPTIONS.find(opt => opt.value === recruiter.status);
-                    const recruiterId = recruiter.id || '';
-                    const isSaving = recruiterId && Array.from(pendingSaves).some(key => key.startsWith(recruiterId + '_'));
-
+        ) : (
+          <div ref={tableContainerRef} className="recruiter-table-container" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <table className="recruiter-table" style={{ width: '100%', minWidth: 1100, borderCollapse: 'collapse', fontFamily: mono }}>
+              <thead>
+                {/* Column Letter Row */}
+                <tr style={{ borderBottom: '1px solid #e5e5e3' }}>
+                  <th style={{ width: GUTTER_W, background: '#ffffff', borderRight: '1px solid #e5e5e3', padding: 0 }} />
+                  {REC_COLS.map((col) => {
+                    const isActive = activeCell?.col === col.key;
                     return (
-                      <tr
-                        key={recruiter.id}
-                        className={`hover:bg-secondary transition-colors ${isSaving ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}`}
-                      >
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <div className="flex-shrink-0 h-10 w-10 bg-blue-500/20 rounded-lg flex items-center justify-center border border-blue-500/30">
-                              <User className="h-5 w-5 text-blue-400" />
-                            </div>
-                            <div className="ml-4 flex-1">
-                              {editingCell?.row === index && editingCell?.col === 'name' ? (
-                                <div className="space-y-1">
-                                  <Input
-                                    value={recruiter.firstName}
-                                    onChange={(e) => handleCellEdit(recruiter.id!, 'firstName', e.target.value)}
-                                    onBlur={handleCellBlur}
-                                    placeholder="First name"
-                                    className="text-sm h-8 bg-background border-input text-foreground"
-                                    autoFocus
-                                  />
-                                  <Input
-                                    value={recruiter.lastName}
-                                    onChange={(e) => handleCellEdit(recruiter.id!, 'lastName', e.target.value)}
-                                    onBlur={handleCellBlur}
-                                    placeholder="Last name"
-                                    className="text-sm h-8 bg-background border-input text-foreground"
-                                  />
-                                </div>
-                              ) : (
-                                <div
-                                  onClick={() => handleCellClick(index, 'name')}
-                                  className="cursor-text"
-                                >
-                                  <div className="text-sm font-medium text-foreground">
-                                    {getDisplayName(recruiter)}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-
-                        <td className="px-4 py-4 whitespace-nowrap">
-                          {recruiter.linkedinUrl ? (
-                            <a
-                              href={
-                                recruiter.linkedinUrl.startsWith('http')
-                                  ? recruiter.linkedinUrl
-                                  : `https://${recruiter.linkedinUrl}`
-                              }
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 hover:underline text-sm"
-                            >
-                              <ExternalLink className="h-4 w-4" />
-                              <span className="truncate max-w-[200px]">{recruiter.linkedinUrl.replace(/^https?:\/\//g, '')}</span>
-                            </a>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
-
-                        <td className="px-4 py-4 whitespace-nowrap">
-                          {recruiter.email ? (
-                            <span className="text-sm text-foreground">{recruiter.email}</span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
-
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {editingCell?.row === index && editingCell?.col === 'company' ? (
-                            <Input
-                              value={recruiter.company}
-                              onChange={(e) => handleCellEdit(recruiter.id!, 'company', e.target.value)}
-                              onBlur={handleCellBlur}
-                              className="text-sm h-8 bg-background border-input text-foreground"
-                              autoFocus
-                            />
-                          ) : (
-                            <div
-                              onClick={() => handleCellClick(index, 'company')}
-                              className="cursor-text hover:bg-muted rounded px-2 py-1 text-sm text-foreground"
-                            >
-                              {recruiter.company || <span className="text-muted-foreground">—</span>}
-                            </div>
-                          )}
-                        </td>
-
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {editingCell?.row === index && editingCell?.col === 'jobTitle' ? (
-                            <Input
-                              value={recruiter.jobTitle}
-                              onChange={(e) => handleCellEdit(recruiter.id!, 'jobTitle', e.target.value)}
-                              onBlur={handleCellBlur}
-                              className="text-sm h-8 bg-background border-input text-foreground"
-                              autoFocus
-                            />
-                          ) : (
-                            <div
-                              onClick={() => handleCellClick(index, 'jobTitle')}
-                              className="cursor-text hover:bg-muted rounded px-2 py-1 text-sm text-foreground"
-                            >
-                              {recruiter.jobTitle || <span className="text-muted-foreground">—</span>}
-                            </div>
-                          )}
-                        </td>
-
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {recruiter.associatedJobTitle ? (
-                            <div className="text-sm text-foreground">
-                              <div className="font-medium">{recruiter.associatedJobTitle}</div>
-                              {recruiter.associatedJobUrl && (
-                                <a
-                                  href={recruiter.associatedJobUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-xs text-blue-600 hover:underline"
-                                >
-                                  View Job
-                                </a>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
-
-                        {/* Status */}
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <select
-                            value={recruiter.status}
-                            onChange={(e) => handleCellEdit(recruiter.id!, 'status', e.target.value)}
-                            className="flex-1 text-xs bg-background border-input text-foreground focus:ring-1 focus:ring-blue-500 cursor-pointer rounded px-2 py-1"
-                            style={{ color: statusOption?.color }}
-                          >
-                            {STATUS_OPTIONS.map(option => (
-                              <option
-                                key={option.value}
-                                value={option.value}
-                                style={{ color: option.color, backgroundColor: '#ffffff' }}
-                              >
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-
-                        <td className="px-6 py-4 whitespace-nowrap text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            {recruiter.email || recruiter.workEmail ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => handleEmailClick(recruiter)}
-                                className="hover:bg-muted text-muted-foreground hover:text-foreground"
-                                title={`Email ${getDisplayName(recruiter)}`}
-                              >
-                                <Mail className="h-4 w-4 text-blue-600" />
-                              </Button>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation(); // Prevent row selection
-                                handleDeleteRecruiter(recruiter.id!, getDisplayName(recruiter));
-                              }}
-                              className="h-8 w-8 p-0 text-muted-foreground hover:text-red-500 hover:bg-red-50"
-                              title="Delete recruiter"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
+                      <th key={col.letter} style={{ fontSize: 10, color: isActive ? '#2a2a2a' : '#999', fontWeight: isActive ? 500 : 400, background: isActive ? '#f0f0ee' : '#ffffff', borderRight: '1px solid #e5e5e3', textAlign: 'center', padding: '3px 0', width: col.width }}>
+                        {col.letter}
+                      </th>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  <th style={{ background: '#ffffff', padding: 0, width: 70 }} />
+                </tr>
 
-          {/* Footer */}
-          {filteredRecruiters.length > 0 && (
-            <div className="px-6 py-4 border-t border-border bg-muted recruiter-helper-text">
-              <div className="flex justify-between items-center text-sm text-muted-foreground">
-                <p className="text-center flex-1 recruiter-helper-text-content">
-                  Click on cells to edit recruiter information
-                </p>
-              </div>
-            </div>
-          )}
+                {/* Column Label Row */}
+                <tr style={{ borderBottom: '2px solid #e5e5e3' }}>
+                  <th style={{ width: GUTTER_W, background: '#ffffff', borderRight: '1px solid #e5e5e3', fontSize: 10, color: '#999', textAlign: 'center', padding: '11px 0', position: 'sticky', top: 0, zIndex: 10 }}>#</th>
+                  {REC_COLS.map((col) => {
+                    const isActive = activeCell?.col === col.key;
+                    return (
+                      <th key={col.key} style={{ padding: '11px 12px', textAlign: 'left', fontSize: 10, fontWeight: 400, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#999', background: isActive ? '#f0f0ee' : '#ffffff', whiteSpace: 'nowrap', width: col.width, position: 'sticky', top: 0, zIndex: 10 }}>
+                        {col.label}
+                      </th>
+                    );
+                  })}
+                  <th style={{ background: '#ffffff', padding: '11px 8px', width: 70, position: 'sticky', top: 0, zIndex: 10 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRecruiters.length === 0 && searchQuery ? (
+                  <tr><td colSpan={REC_COLS.length + 2} style={{ padding: '40px 24px', textAlign: 'center', color: '#999', fontSize: 12 }}>
+                    No recruiters match your search. <button onClick={() => setSearchQuery('')} style={{ fontSize: 11, color: '#555', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', fontFamily: mono }}>Clear</button>
+                  </td></tr>
+                ) : filteredRecruiters.map((recruiter, index) => {
+                  const statusOption = STATUS_OPTIONS.find(opt => opt.value === recruiter.status);
+                  const cellStyle = (col: string) => ({
+                    padding: '0 12px' as const, whiteSpace: 'nowrap' as const, position: 'relative' as const,
+                    ...(activeCell?.rowId === recruiter.id && activeCell?.col === col ? { outline: '2px solid #2a2a2a', outlineOffset: -2, background: '#fff', zIndex: 1 } : {}),
+                  });
+
+                  return (
+                    <tr
+                      key={recruiter.id}
+                      style={{ height: 28, borderBottom: '1px solid #f0f0ee', background: 'white', transition: 'background 0.08s' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = '#f5f5f3'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'white'; }}
+                    >
+                      {/* Row Number */}
+                      <td style={{ width: GUTTER_W, textAlign: 'center', fontSize: 10, color: '#999', background: '#ffffff', borderRight: '1px solid #e5e5e3', padding: '0 4px' }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = '#f0f0ee'; e.currentTarget.style.color = '#555'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.color = '#999'; }}
+                      >{index + 1}</td>
+
+                      {/* Name */}
+                      <td onClick={() => { setActiveCell({ rowId: recruiter.id || '', col: 'name' }); handleCellClick(index, 'name'); }} style={cellStyle('name')}>
+                        {editingCell?.row === index && editingCell?.col === 'name' ? (
+                          <div className="space-y-1" style={{ padding: '2px 0' }}>
+                            <Input value={recruiter.firstName} onChange={(e) => handleCellEdit(recruiter.id!, 'firstName', e.target.value)} onBlur={handleCellBlur} placeholder="First" className="text-sm h-6 border-gray-300" style={{ fontFamily: mono }} autoFocus />
+                            <Input value={recruiter.lastName} onChange={(e) => handleCellEdit(recruiter.id!, 'lastName', e.target.value)} onBlur={handleCellBlur} placeholder="Last" className="text-sm h-6 border-gray-300" style={{ fontFamily: mono }} />
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: 12, fontWeight: 500, color: '#2a2a2a', cursor: 'default' }}>{getDisplayName(recruiter)}</span>
+                        )}
+                      </td>
+
+                      {/* LinkedIn */}
+                      <td onClick={() => setActiveCell({ rowId: recruiter.id || '', col: 'linkedin' })} style={cellStyle('linkedin')}>
+                        {recruiter.linkedinUrl ? (
+                          <a href={recruiter.linkedinUrl.startsWith('http') ? recruiter.linkedinUrl : `https://${recruiter.linkedinUrl}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                            style={{ fontSize: 11, color: '#555', textDecoration: 'none', borderBottom: '1px solid #e5e5e3', paddingBottom: 1 }}
+                            onMouseEnter={(e) => { e.currentTarget.style.color = '#2a2a2a'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#555'; }}
+                          >↗ view</a>
+                        ) : <span style={{ color: '#bbb' }}>—</span>}
+                      </td>
+
+                      {/* Email */}
+                      <td onClick={() => setActiveCell({ rowId: recruiter.id || '', col: 'email' })} style={cellStyle('email')}>
+                        <span style={{ fontSize: 12, color: '#555' }}>{recruiter.email || '—'}</span>
+                      </td>
+
+                      {/* Company */}
+                      <td onClick={() => { setActiveCell({ rowId: recruiter.id || '', col: 'company' }); handleCellClick(index, 'company'); }} style={cellStyle('company')}>
+                        {editingCell?.row === index && editingCell?.col === 'company' ? (
+                          <Input value={recruiter.company} onChange={(e) => handleCellEdit(recruiter.id!, 'company', e.target.value)} onBlur={handleCellBlur} className="text-sm h-6 border-gray-300" style={{ fontFamily: mono }} autoFocus />
+                        ) : (
+                          <span style={{ fontSize: 12, color: '#555', cursor: 'default' }}>{recruiter.company || '—'}</span>
+                        )}
+                      </td>
+
+                      {/* Title */}
+                      <td onClick={() => { setActiveCell({ rowId: recruiter.id || '', col: 'jobTitle' }); handleCellClick(index, 'jobTitle'); }} style={cellStyle('jobTitle')}>
+                        {editingCell?.row === index && editingCell?.col === 'jobTitle' ? (
+                          <Input value={recruiter.jobTitle} onChange={(e) => handleCellEdit(recruiter.id!, 'jobTitle', e.target.value)} onBlur={handleCellBlur} className="text-sm h-6 border-gray-300" style={{ fontFamily: mono }} autoFocus />
+                        ) : (
+                          <span style={{ fontSize: 12, color: '#555', cursor: 'default' }}>{recruiter.jobTitle || '—'}</span>
+                        )}
+                      </td>
+
+                      {/* Associated Job */}
+                      <td onClick={() => setActiveCell({ rowId: recruiter.id || '', col: 'associatedJob' })} style={cellStyle('associatedJob')}>
+                        {recruiter.associatedJobTitle ? (
+                          <div>
+                            <span style={{ fontSize: 12, color: '#2a2a2a', fontWeight: 500 }}>{recruiter.associatedJobTitle}</span>
+                            {recruiter.associatedJobUrl && (
+                              <a href={recruiter.associatedJobUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                                style={{ fontSize: 11, color: '#555', textDecoration: 'none', borderBottom: '1px solid #e5e5e3', marginLeft: 6 }}
+                                onMouseEnter={(e) => { e.currentTarget.style.color = '#2a2a2a'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#555'; }}
+                              >↗</a>
+                            )}
+                          </div>
+                        ) : <span style={{ color: '#bbb' }}>—</span>}
+                      </td>
+
+                      {/* Status */}
+                      <td onClick={() => setActiveCell({ rowId: recruiter.id || '', col: 'status' })} style={cellStyle('status')}>
+                        <span
+                          style={{ display: 'inline-block', fontSize: 11, fontFamily: mono, padding: '2px 8px', background: statusOption?.bg || '#f0f0ee', color: statusOption?.color || '#999', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const idx = STATUS_OPTIONS.findIndex(o => o.value === recruiter.status);
+                            const next = STATUS_OPTIONS[(idx + 1) % STATUS_OPTIONS.length];
+                            handleCellEdit(recruiter.id!, 'status', next.value);
+                          }}
+                        >
+                          {recruiter.status || 'Not Contacted'}
+                        </span>
+                      </td>
+
+                      {/* Actions */}
+                      <td style={{ padding: '0 8px', whiteSpace: 'nowrap', textAlign: 'right', width: 70 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
+                          {(recruiter.email || recruiter.workEmail) && (
+                            <button onClick={() => handleEmailClick(recruiter)} title={`Email ${getDisplayName(recruiter)}`}
+                              style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', padding: 3 }}
+                              onMouseEnter={(e) => { e.currentTarget.style.color = '#2a2a2a'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#999'; }}
+                            ><Mail className="h-3 w-3" /></button>
+                          )}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteRecruiter(recruiter.id!, getDisplayName(recruiter)); }}
+                            title="Delete" style={{ background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', padding: 3 }}
+                            onMouseEnter={(e) => { e.currentTarget.style.color = '#c00'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#bbb'; }}
+                          ><Trash2 className="h-3 w-3" /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Bottom Bar */}
+      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'stretch', height: 30, background: '#ffffff', borderTop: '1px solid #e5e5e3', fontFamily: mono }}>
+        <div style={{ flex: 1 }} />
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: 10, color: '#bbb', whiteSpace: 'nowrap' }}>
+          {filteredRecruiters.length} rows · offerloop.ai
         </div>
-      )}
+      </div>
 
       {/* Mail App Selection Dialog */}
       {mailAppDialogOpen && selectedRecruiterForEmail && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-card rounded-lg p-6 max-w-md w-full mx-4 border border-border shadow-lg">
-            <h3 className="text-xl font-semibold text-foreground mb-4">Choose Email App</h3>
-            <p className="text-muted-foreground mb-6">
-              Send email to {getDisplayName(selectedRecruiterForEmail)}
-            </p>
-
-            <div className="flex gap-3">
-              <Button
-                onClick={() => handleMailAppSelect('apple')}
-                className="flex-1 bg-muted hover:bg-muted/80 text-foreground py-6"
-              >
-                <div className="flex flex-col items-center gap-2">
-                  <Mail className="h-6 w-6" />
-                  <span>Apple Mail</span>
-                </div>
-              </Button>
-
-              <Button
-                onClick={() => handleMailAppSelect('gmail')}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-6"
-              >
-                <div className="flex flex-col items-center gap-2">
-                  <Mail className="h-6 w-6" />
-                  <span>Gmail</span>
-                </div>
-              </Button>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div style={{ background: '#fff', border: '1px solid #e5e5e3', padding: 24, maxWidth: 400, width: '100%', margin: '0 16px' }}>
+            <h3 style={{ fontSize: 14, fontWeight: 500, color: '#2a2a2a', marginBottom: 12, fontFamily: mono }}>Choose Email App</h3>
+            <p style={{ fontSize: 12, color: '#555', marginBottom: 20, fontFamily: mono }}>Send email to {getDisplayName(selectedRecruiterForEmail)}</p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => handleMailAppSelect('apple')}
+                style={{ flex: 1, padding: '16px 0', border: '1px solid #e5e5e3', background: '#fff', cursor: 'pointer', fontFamily: mono, fontSize: 12, color: '#555', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#ffffff'; }} onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; }}
+              ><Mail className="h-4 w-4" />Apple Mail</button>
+              <button onClick={() => handleMailAppSelect('gmail')}
+                style={{ flex: 1, padding: '16px 0', border: '1px solid #e5e5e3', background: '#fff', cursor: 'pointer', fontFamily: mono, fontSize: 12, color: '#555', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#ffffff'; }} onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; }}
+              ><Mail className="h-4 w-4" />Gmail</button>
             </div>
-
-            <Button
-              onClick={() => {
-                setMailAppDialogOpen(false);
-                setSelectedRecruiterForEmail(null);
-              }}
-              variant="ghost"
-              className="w-full mt-4 text-muted-foreground hover:text-foreground"
-            >
-              Cancel
-            </Button>
+            <button onClick={() => { setMailAppDialogOpen(false); setSelectedRecruiterForEmail(null); }}
+              style={{ fontFamily: mono, fontSize: 11, color: '#999', background: 'none', border: 'none', cursor: 'pointer', width: '100%', marginTop: 16, textAlign: 'center' }}>Cancel</button>
           </div>
         </div>
       )}
 
-      {/* Upgrade Dialog for CSV Export */}
+      {/* Upgrade Dialog */}
       <AlertDialog open={showUpgradeDialog} onOpenChange={setShowUpgradeDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Upgrade to Export CSV</AlertDialogTitle>
-            <AlertDialogDescription>
-              CSV export is available for Pro and Elite tier users. Upgrade your plan to export your recruiters to CSV for further analysis.
-            </AlertDialogDescription>
+            <AlertDialogDescription>CSV export is available for Pro and Elite tier users.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => navigate('/pricing')}
-              className="bg-blue-600 hover:bg-blue-700 focus:ring-blue-600"
-            >
-              Upgrade to Pro/Elite
-            </AlertDialogAction>
+            <AlertDialogAction onClick={() => navigate('/pricing')}>Upgrade</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Mobile-only CSS overrides */}
+      {/* Mobile CSS */}
       <style>{`
         @media (max-width: 768px) {
-          /* 1. MAIN PAGE CONTAINER */
-          .recruiter-spreadsheet-page {
-            width: 100%;
-            max-width: 100vw;
-            overflow-x: hidden;
-            box-sizing: border-box;
-          }
-
-          /* 5. INFO CARD */
-          .recruiter-info-card {
-            width: 100%;
-            max-width: calc(100% - 32px);
-            margin: 0 16px;
-            box-sizing: border-box;
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 12px;
-            padding: 16px !important;
-          }
-
-          .recruiter-info-card > div:first-child {
-            width: 100%;
-            max-width: 100%;
-            box-sizing: border-box;
-          }
-
-          .recruiter-info-card p,
-          .recruiter-info-card span {
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-            font-size: 0.75rem !important;
-          }
-
-          .recruiter-info-card > div:first-child > div {
-            flex-wrap: wrap;
-            gap: 8px;
-          }
-
-          .recruiter-action-buttons {
-            width: 100%;
-            flex-wrap: wrap;
-            gap: 8px;
-            justify-content: flex-start;
-          }
-
-          .recruiter-export-btn {
-            flex: 1 1 auto;
-            min-width: fit-content;
-            padding: 8px 12px !important;
-            font-size: 0.75rem;
-            box-sizing: border-box;
-          }
-
-          .recruiter-refresh-btn,
-          .recruiter-delete-btn {
-            min-width: 44px;
-            min-height: 44px;
-            padding: 8px !important;
-            box-sizing: border-box;
-          }
-
-          /* 6. SECTION HEADER */
-          .recruiter-section-header {
-            width: 100%;
-            max-width: 100%;
-            padding: 12px 16px !important;
-            box-sizing: border-box;
-          }
-
-          .recruiter-section-header-content {
-            flex: 1;
-            min-width: 0;
-          }
-
-          .recruiter-section-header-text {
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-            font-size: 0.875rem !important;
-          }
-
-          .recruiter-scroll-hint {
-            flex-shrink: 0;
-          }
-
-          /* 7. SEARCH INPUT */
-          .recruiter-search-section {
-            width: 100%;
-            max-width: 100%;
-            padding: 12px 16px !important;
-            box-sizing: border-box;
-          }
-
-          .recruiter-search-wrapper {
-            width: 100%;
-            max-width: calc(100% - 32px);
-            margin: 0 auto;
-            box-sizing: border-box;
-          }
-
-          .recruiter-search-input {
-            width: 100%;
-            max-width: 100%;
-            box-sizing: border-box;
-          }
-
-          /* 8. ACTION BUTTONS ROW - Already handled in info card above */
-
-          /* 9. SCROLL INDICATOR - Keep within viewport */
-          .swipe-hint {
-            font-size: 0.75rem !important;
-            white-space: nowrap;
-          }
-
-          /* 10. TABLE CONTAINER */
-          .recruiter-table-wrapper {
-            width: 100%;
-            max-width: 100vw;
-            box-sizing: border-box;
-            margin: 0;
-            overflow: visible;
-          }
-
-          .recruiter-table-container {
-            width: 100%;
-            overflow-x: auto;
-            overflow-y: visible;
-            -webkit-overflow-scrolling: touch;
-            box-sizing: border-box;
-          }
-
-          .recruiter-table {
-            min-width: 800px;
-            width: 100%;
-            box-sizing: border-box;
-          }
-
-          /* 11. HELPER TEXT */
-          .recruiter-helper-text {
-            width: 100%;
-            max-width: 100%;
-            padding: 12px 16px !important;
-            box-sizing: border-box;
-          }
-
-          .recruiter-helper-text-content {
-            width: 100%;
-            text-align: left;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-            font-size: 0.75rem !important;
-          }
-
-          /* GENERAL - Ensure all elements use box-sizing */
-          .recruiter-spreadsheet-page * {
-            box-sizing: border-box;
-          }
-
-          /* Prevent page-level horizontal scroll */
-          .recruiter-spreadsheet-page {
-            overflow-x: hidden;
-          }
+          .recruiter-spreadsheet-page { width: 100%; max-width: 100vw; box-sizing: border-box; }
+          .recruiter-toolbar { flex-wrap: wrap; gap: 6px; padding: 6px 8px; }
+          .recruiter-search-wrap { flex: 1 1 100% !important; }
+          .recruiter-table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+          .recruiter-table { min-width: 900px; }
         }
       `}</style>
     </div>

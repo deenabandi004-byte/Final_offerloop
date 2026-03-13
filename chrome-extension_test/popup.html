@@ -20,6 +20,7 @@
     <div class="tab-switcher">
       <button class="tab active" data-tab="contact">Contact</button>
       <button class="tab" data-tab="job">Job</button>
+      <button class="tab" data-tab="autofill">Autofill</button>
     </div>
 
     <!-- Main Content -->
@@ -254,6 +255,93 @@
         <div class="job-error hidden" id="job-error">
           <p class="error-message" id="job-error-message"></p>
         </div>
+      </div>
+      <!-- Autofill Tab Content -->
+      <div class="tab-content hidden" id="autofill-tab">
+
+        <!-- Not logged in -->
+        <div id="autofill-login-section" class="section hidden">
+          <div class="message-box">
+            <svg class="message-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+              <polyline points="10 17 15 12 10 7"/>
+              <line x1="15" y1="12" x2="3" y2="12"/>
+            </svg>
+            <h3>Sign in to use Autofill</h3>
+            <p>Log into Offerloop so we can reference your resume and past answers.</p>
+          </div>
+        </div>
+
+        <!-- Main autofill UI -->
+        <div id="autofill-main-section" class="section hidden">
+          <div class="autofill-status-row" id="autofill-page-status">
+            <div class="autofill-status-dot" id="autofill-status-dot"></div>
+            <span id="autofill-status-text" class="autofill-status-label">Scanning page...</span>
+          </div>
+
+          <div id="autofill-fields-preview" class="autofill-fields-box hidden">
+            <div class="autofill-fields-header">
+              <span id="autofill-fields-count" class="autofill-fields-count">0 fields</span>
+              <span id="autofill-ats-badge" class="autofill-ats-badge"></span>
+            </div>
+            <ul id="autofill-fields-list" class="autofill-fields-list"></ul>
+          </div>
+
+          <button id="autofill-fill-btn" class="btn btn-primary btn-full" disabled>
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 20h9"/>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+            <span>Autofill This Application</span>
+          </button>
+
+          <p class="autofill-hint">AI uses your resume + past answers to fill fields. Always review before submitting.</p>
+
+          <div id="autofill-loading" class="loading hidden">
+            <div class="spinner"></div>
+            <p id="autofill-loading-text">Generating answers...</p>
+          </div>
+
+          <div id="autofill-result" class="result-card hidden">
+            <div class="result-header">
+              <span id="autofill-result-label" class="result-name">✓ Fields filled</span>
+              <span class="status-badge">Done</span>
+            </div>
+            <p class="autofill-review-note">Review each field before submitting your application.</p>
+          </div>
+
+          <div id="autofill-error" class="error-box hidden">
+            <svg class="error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <p id="autofill-error-text">An error occurred</p>
+          </div>
+
+          <div class="autofill-history-section">
+            <div class="autofill-history-header">
+              <span class="autofill-history-title">Saved Answers</span>
+              <button id="autofill-clear-history-btn" class="autofill-clear-btn">Clear</button>
+            </div>
+            <p id="autofill-history-count" class="autofill-history-count">Loading...</p>
+          </div>
+        </div>
+
+        <!-- No form detected -->
+        <div id="autofill-no-form-section" class="section hidden">
+          <div class="message-box">
+            <svg class="message-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <line x1="9" y1="9" x2="15" y2="9"/>
+              <line x1="9" y1="12" x2="15" y2="12"/>
+              <line x1="9" y1="15" x2="12" y2="15"/>
+            </svg>
+            <h3>No Application Form Found</h3>
+            <p>Navigate to a job application page (Greenhouse, Lever, Workday, etc.) and Offerloop will detect the form automatically.</p>
+          </div>
+        </div>
+
       </div>
     </main>
 

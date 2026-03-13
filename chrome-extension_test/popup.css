@@ -1064,3 +1064,148 @@ body {
   border: 1px solid #FECACA;
   margin: 0;
 }
+
+/* ============================================
+   AUTOFILL TAB STYLES
+   ============================================ */
+
+.autofill-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0 6px;
+}
+
+.autofill-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #94A3B8;
+  flex-shrink: 0;
+}
+
+.autofill-dot-active {
+  background: #10B981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+  animation: autofill-dot-pulse 2s ease-in-out infinite;
+}
+
+@keyframes autofill-dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2); }
+  50%       { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.08); }
+}
+
+.autofill-dot-inactive { background: #94A3B8; }
+
+.autofill-status-label {
+  font-size: 12px;
+  color: #475569;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.autofill-fields-box {
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px 0 12px;
+}
+
+.autofill-fields-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.autofill-fields-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1E40AF;
+}
+
+.autofill-ats-badge {
+  font-size: 10px;
+  font-weight: 600;
+  background: #EFF6FF;
+  color: #2563EB;
+  border: 1px solid #BFDBFE;
+  border-radius: 4px;
+  padding: 2px 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.autofill-fields-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.autofill-field-item {
+  font-size: 11.5px;
+  color: #475569;
+  padding: 3px 0;
+  border-bottom: 1px solid #F1F5F9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.autofill-field-item:last-child { border-bottom: none; }
+.autofill-field-more { color: #94A3B8; font-style: italic; }
+
+.autofill-hint {
+  font-size: 11px;
+  color: #94A3B8;
+  text-align: center;
+  margin: 6px 0 0;
+  line-height: 1.5;
+}
+
+.autofill-review-note {
+  font-size: 12px;
+  color: #64748B;
+  margin: 6px 0 0;
+}
+
+.autofill-history-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #F1F5F9;
+}
+
+.autofill-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.autofill-history-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.autofill-clear-btn {
+  font-size: 11px;
+  color: #94A3B8;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s;
+}
+
+.autofill-clear-btn:hover { color: #EF4444; }
+
+.autofill-history-count {
+  font-size: 11.5px;
+  color: #94A3B8;
+  line-height: 1.5;
+}

@@ -3,7 +3,7 @@ OpenAI client service - email generation and AI operations
 """
 from openai import OpenAI, AsyncOpenAI
 import httpx
-from app.config import OPENAI_API_KEY
+from backend.app.config import OPENAI_API_KEY
 
 # Create custom HTTP client configurations for better connection pool handling
 _httpx_timeout = httpx.Timeout(

@@ -1,32 +1,14 @@
 /**
- * FirmSearchResults.tsx - Spreadsheet-style table for displaying firm search results
- * 
- * Dark theme styling to match the rest of the application
- * 
- * Columns:
- * A. Company Name
- * B. Website (icon/link)
- * C. LinkedIn (icon/link)
- * D. Location (City, State, Country)
- * E. Industry
- * F. Actions (View Contacts button)
+ * FirmSearchResults.tsx - Google Sheets-style table for firm search results
  */
 
-import { useState, useEffect } from 'react';
-import { 
-  Globe, 
-  Linkedin, 
-  MapPin, 
-  Building2, 
-  ChevronUp,
-  ChevronDown,
-  UserSearch,
+import { useState, useEffect, useRef } from 'react';
+import {
   Search,
   Trash2,
+  UserSearch,
   Loader2
 } from 'lucide-react';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 import { Firm } from '../services/api';
 
 interface FirmSearchResultsProps {
@@ -39,380 +21,297 @@ interface FirmSearchResultsProps {
 type SortField = 'name' | 'location' | 'industry';
 type SortDirection = 'asc' | 'desc';
 
+const mono = "'IBM Plex Mono', monospace";
+
+const FIRM_COLS = [
+  { key: 'name', letter: 'A', label: 'Company', width: '22%' },
+  { key: 'website', letter: 'B', label: 'Website', width: '10%' },
+  { key: 'linkedin', letter: 'C', label: 'LinkedIn', width: '10%' },
+  { key: 'location', letter: 'D', label: 'Location', width: '22%' },
+  { key: 'industry', letter: 'E', label: 'Industry', width: '20%' },
+] as const;
+
+const GUTTER_W = 40;
+const CHECKBOX_W = 32;
+
 export default function FirmSearchResults({ firms, onViewContacts, onDelete, deletingId }: FirmSearchResultsProps) {
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredFirms, setFilteredFirms] = useState<Firm[]>(firms);
-  
-  // Filter firms based on search query
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [activeCell, setActiveCell] = useState<{ firmKey: string; col: string } | null>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!searchQuery.trim()) {
       setFilteredFirms(firms);
       return;
     }
-    
     const filtered = firms.filter((firm) => {
-      const searchLower = searchQuery.toLowerCase();
-      
-      // Search through all relevant fields
+      const s = searchQuery.toLowerCase();
       return (
-        firm.name?.toLowerCase().includes(searchLower) ||
-        firm.industry?.toLowerCase().includes(searchLower) ||
-        firm.location?.display?.toLowerCase().includes(searchLower) ||
-        firm.location?.city?.toLowerCase().includes(searchLower) ||
-        firm.location?.state?.toLowerCase().includes(searchLower) ||
-        firm.location?.country?.toLowerCase().includes(searchLower) ||
-        firm.website?.toLowerCase().includes(searchLower)
+        firm.name?.toLowerCase().includes(s) ||
+        firm.industry?.toLowerCase().includes(s) ||
+        firm.location?.display?.toLowerCase().includes(s) ||
+        firm.website?.toLowerCase().includes(s)
       );
     });
-    
     setFilteredFirms(filtered);
   }, [searchQuery, firms]);
-  
-  // Sort filtered firms
+
   const sortedFirms = [...filteredFirms].sort((a, b) => {
-    let aVal: any;
-    let bVal: any;
-    
+    let aVal: string, bVal: string;
     switch (sortField) {
-      case 'name':
-        aVal = a.name?.toLowerCase() || '';
-        bVal = b.name?.toLowerCase() || '';
-        break;
-      case 'location':
-        aVal = a.location?.display?.toLowerCase() || '';
-        bVal = b.location?.display?.toLowerCase() || '';
-        break;
-      case 'industry':
-        aVal = a.industry?.toLowerCase() || '';
-        bVal = b.industry?.toLowerCase() || '';
-        break;
-      default:
-        return 0;
+      case 'name': aVal = a.name?.toLowerCase() || ''; bVal = b.name?.toLowerCase() || ''; break;
+      case 'location': aVal = a.location?.display?.toLowerCase() || ''; bVal = b.location?.display?.toLowerCase() || ''; break;
+      case 'industry': aVal = a.industry?.toLowerCase() || ''; bVal = b.industry?.toLowerCase() || ''; break;
+      default: return 0;
     }
-    
     if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
     if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
     return 0;
   });
-  
-  // Handle column header click for sorting
+
   const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('desc');
+    if (sortField === field) setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    else { setSortField(field); setSortDirection('desc'); }
+  };
+
+  const getFirmKey = (firm: Firm): string => firm.id || `${firm.name}-${firm.location?.display}`;
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredFirms.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(filteredFirms.map(f => getFirmKey(f))));
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const getActiveCellRef = (): string => {
+    if (!activeCell) return 'A1';
+    const col = FIRM_COLS.find(c => c.key === activeCell.col);
+    const letter = col?.letter || 'A';
+    const idx = sortedFirms.findIndex(f => getFirmKey(f) === activeCell.firmKey);
+    return `${letter}${idx >= 0 ? idx + 1 : 1}`;
+  };
+
+  const getActiveCellValue = (): string => {
+    if (!activeCell) return '';
+    const firm = sortedFirms.find(f => getFirmKey(f) === activeCell.firmKey);
+    if (!firm) return '';
+    switch (activeCell.col) {
+      case 'name': return firm.name || '';
+      case 'website': return firm.website || '';
+      case 'linkedin': return firm.linkedinUrl || '';
+      case 'location': return firm.location?.display || '';
+      case 'industry': return firm.industry || '';
+      default: return '';
     }
   };
-  
-  // Sort indicator component
-  const SortIndicator = ({ field }: { field: SortField }) => {
-    if (sortField !== field) return null;
-    return sortDirection === 'asc' ? (
-      <ChevronUp className="h-4 w-4 inline-block ml-1" />
-    ) : (
-      <ChevronDown className="h-4 w-4 inline-block ml-1" />
-    );
-  };
-  
-  // Get unique firm key
-  const getFirmKey = (firm: Firm): string => {
-    return firm.id || `${firm.name}-${firm.location?.display}`;
-  };
+
+  const sortableFields: Record<string, SortField> = { name: 'name', location: 'location', industry: 'industry' };
 
   return (
-    <div className="bg-card backdrop-blur-sm rounded-xl shadow-sm border border-border overflow-hidden firm-search-results-wrapper">
-      {/* Results Header */}
-      <div className="px-6 py-4 border-b border-border bg-muted firm-results-header">
-        <div className="flex items-center justify-between firm-results-header-row">
-          <div className="flex items-center space-x-2 firm-results-header-content">
-            <Building2 className="h-5 w-5 text-blue-400" />
-            <span className="font-medium text-foreground firm-results-count">
-              {filteredFirms.length} {filteredFirms.length === 1 ? 'firm' : 'firms'} 
-              {searchQuery && ` (filtered from ${firms.length})`}
-            </span>
-          </div>
-          <p className="text-sm text-muted-foreground firm-results-helper-text">
-            Click "View Contacts" to find professionals at any firm
-          </p>
-        </div>
-      </div>
-      
-      {/* Search Bar */}
-      <div className="px-6 py-4 border-b border-border bg-background">
-        <div className="relative w-80">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-          <Input
-            type="text"
-            placeholder="Search firms..."
-            value={searchQuery}
+    <div
+      className="firm-search-results-page"
+      style={{ fontFamily: mono, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: '#fff' }}
+      onClick={(e) => { if (sheetRef.current && !sheetRef.current.contains(e.target as Node)) setActiveCell(null); }}
+    >
+      {/* Toolbar */}
+      <div style={{
+        flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6,
+        padding: '5px 10px', background: '#ffffff', borderBottom: '1px solid #e5e5e3',
+      }}>
+        <div className="relative firm-search-input-wrap" style={{ flex: '0 0 220px' }}>
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3" style={{ color: '#bbb' }} />
+          <input
+            type="text" placeholder="Search..." value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 bg-muted border-border text-foreground placeholder-muted-foreground focus:border-primary focus:ring-primary"
+            style={{ fontFamily: mono, fontSize: 12, color: '#2a2a2a', background: '#fff', border: '1px solid #e5e5e3', outline: 'none', padding: '4px 6px 4px 24px', width: '100%' }}
           />
         </div>
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: 11, color: '#999' }}>
+          {filteredFirms.length} firm{filteredFirms.length !== 1 ? 's' : ''}
+          {searchQuery && ` of ${firms.length}`}
+        </span>
       </div>
-      
-      {/* Empty State for No Search Results */}
-      {filteredFirms.length === 0 && firms.length > 0 && searchQuery && (
-        <div className="px-6 py-12 text-center">
-          <p className="text-muted-foreground mb-2">No firms match your search.</p>
-          <button
-            onClick={() => setSearchQuery('')}
-            className="text-sm text-blue-400 hover:text-blue-300 underline"
-          >
-            Clear search
-          </button>
-        </div>
-      )}
-      
-      {/* Table */}
-      {filteredFirms.length > 0 && (
-        <div className="overflow-x-auto firm-table-wrapper">
-          <table className="min-w-full divide-y divide-border firm-table">
-          <thead className="bg-muted">
-            <tr>
-              {/* Company Name */}
-              <th 
-                scope="col" 
-                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-secondary transition-colors"
-                onClick={() => handleSort('name')}
-              >
-                Company Name
-                <SortIndicator field="name" />
-              </th>
-              
-              {/* Website */}
-              <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Website
-              </th>
-              
-              {/* LinkedIn */}
-              <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                LinkedIn
-              </th>
-              
-              {/* Location */}
-              <th 
-                scope="col" 
-                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-secondary transition-colors"
-                onClick={() => handleSort('location')}
-              >
-                Location
-                <SortIndicator field="location" />
-              </th>
-              
-              {/* Industry */}
-              <th 
-                scope="col" 
-                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-secondary transition-colors"
-                onClick={() => handleSort('industry')}
-              >
-                Industry
-                <SortIndicator field="industry" />
-              </th>
-              
-              {/* Actions */}
-              <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          
-          <tbody className="bg-background divide-y divide-border">
-            {sortedFirms.map((firm, index) => (
-              <tr 
-                key={firm.id || index} 
-                className="hover:bg-secondary transition-colors"
-              >
-                {/* Company Name */}
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0 h-10 w-10 bg-blue-500/20 rounded-lg flex items-center justify-center border border-blue-500/30">
-                      <Building2 className="h-5 w-5 text-blue-400" />
-                    </div>
-                    <div className="ml-4">
-                      <div className="text-sm font-medium text-foreground">
-                        {firm.name}
-                      </div>
-                    </div>
-                  </div>
-                </td>
-                
-                {/* Website */}
-                <td className="px-4 py-4 whitespace-nowrap text-center">
-                  {firm.website ? (
-                    <a
-                      href={firm.website}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center justify-center p-2 text-muted-foreground hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
-                      title={firm.website}
-                    >
-                      <Globe className="h-5 w-5" />
-                    </a>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </td>
-                
-                {/* LinkedIn */}
-                <td className="px-4 py-4 whitespace-nowrap text-center">
-                  {firm.linkedinUrl ? (
-                    <a
-                      href={firm.linkedinUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center justify-center p-2 text-muted-foreground hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
-                      title="View on LinkedIn"
-                    >
-                      <Linkedin className="h-5 w-5" />
-                    </a>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </td>
-                
-                {/* Location */}
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex items-center text-sm text-foreground">
-                    <MapPin className="h-4 w-4 text-muted-foreground mr-1.5 flex-shrink-0" />
-                    <span>{firm.location?.display || '—'}</span>
-                  </div>
-                </td>
-                
-                {/* Industry */}
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30 capitalize">
-                    {firm.industry || '—'}
-                  </span>
-                </td>
-                
-                {/* Actions */}
-                <td className="px-6 py-4 whitespace-nowrap text-right">
-                  <div className="flex items-center justify-end gap-2">
-                    <button
-                      onClick={() => onViewContacts(firm)}
-                      className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-blue-300 bg-blue-500/20 border border-blue-500/30 rounded-lg hover:bg-blue-500/30 hover:text-blue-200 transition-colors"
-                    >
-                      <UserSearch className="h-4 w-4 mr-1.5" />
-                      View Contacts
-                    </button>
-                    {onDelete && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-red-300 hover:text-red-200 hover:bg-red-500/10"
-                        disabled={deletingId === getFirmKey(firm)}
-                        onClick={() => onDelete(firm)}
-                      >
-                        {deletingId === getFirmKey(firm) ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                      </Button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        </div>
-      )}
-      
-      {/* Footer */}
-      {filteredFirms.length > 0 && (
-        <div className="px-6 py-4 border-t border-border bg-muted firm-helper-text">
-          <p className="text-sm text-muted-foreground text-center firm-helper-text-content">
-            Click on column headers to sort • Click "View Contacts" to find professionals at any firm
-          </p>
-        </div>
-      )}
 
-      {/* Mobile-only CSS overrides */}
+      {/* Formula Bar */}
+      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', height: 26, borderBottom: '1px solid #e5e5e3', background: '#fff' }}>
+        <div style={{ width: 60, height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#ffffff', borderRight: '1px solid #e5e5e3', fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', color: '#2a2a2a', fontFamily: mono }}>
+          {getActiveCellRef()}
+        </div>
+        <div style={{ padding: '0 10px', borderRight: '1px solid #e5e5e3', fontSize: 11, color: '#bbb', fontStyle: 'italic', fontFamily: mono, display: 'flex', alignItems: 'center', height: '100%' }}>fx</div>
+        <div style={{ flex: 1, padding: '0 10px', fontSize: 12, color: '#2a2a2a', fontFamily: mono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', height: '100%' }}>
+          {getActiveCellValue()}
+        </div>
+      </div>
+
+      {/* Sheet */}
+      <div ref={sheetRef} style={{ flex: 1, overflow: 'auto' }}>
+        {filteredFirms.length === 0 && firms.length > 0 && searchQuery ? (
+          <div style={{ padding: '40px 24px', textAlign: 'center', fontFamily: mono }}>
+            <p style={{ color: '#999', fontSize: 12, marginBottom: 8 }}>No firms match your search.</p>
+            <button onClick={() => setSearchQuery('')} style={{ fontSize: 11, color: '#555', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', fontFamily: mono }}>Clear search</button>
+          </div>
+        ) : filteredFirms.length > 0 && (
+          <div className="firm-table-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <table className="firm-table" style={{ width: '100%', minWidth: 900, borderCollapse: 'collapse', fontFamily: mono }}>
+              <thead>
+                {/* Column Letter Row */}
+                <tr style={{ borderBottom: '1px solid #e5e5e3' }}>
+                  <th style={{ width: GUTTER_W, background: '#ffffff', borderRight: '1px solid #e5e5e3', padding: 0 }} />
+                  <th style={{ width: CHECKBOX_W, background: '#ffffff', borderRight: '1px solid #e5e5e3', padding: 0 }} />
+                  {FIRM_COLS.map((col) => {
+                    const isActive = activeCell?.col === col.key;
+                    return (
+                      <th key={col.letter} style={{ fontSize: 10, color: isActive ? '#2a2a2a' : '#999', fontWeight: isActive ? 500 : 400, background: isActive ? '#f0f0ee' : '#ffffff', borderRight: '1px solid #e5e5e3', textAlign: 'center', padding: '3px 0', width: col.width }}>
+                        {col.letter}
+                      </th>
+                    );
+                  })}
+                  <th style={{ background: '#ffffff', padding: 0, width: 100 }} />
+                </tr>
+
+                {/* Column Label Row */}
+                <tr style={{ borderBottom: '2px solid #e5e5e3' }}>
+                  <th style={{ width: GUTTER_W, background: '#ffffff', borderRight: '1px solid #e5e5e3', fontSize: 10, color: '#999', textAlign: 'center', padding: '11px 0', position: 'sticky', top: 0, zIndex: 10 }}>#</th>
+                  <th style={{ width: CHECKBOX_W, background: '#ffffff', borderRight: '1px solid #e5e5e3', textAlign: 'center', padding: '11px 4px', position: 'sticky', top: 0, zIndex: 10 }}>
+                    <input type="checkbox" checked={filteredFirms.length > 0 && selectedIds.size === filteredFirms.length} onChange={toggleSelectAll} style={{ width: 13, height: 13, accentColor: '#444', cursor: 'pointer' }} />
+                  </th>
+                  {FIRM_COLS.map((col) => {
+                    const isActive = activeCell?.col === col.key;
+                    const sortable = sortableFields[col.key];
+                    return (
+                      <th
+                        key={col.key}
+                        onClick={sortable ? () => handleSort(sortable) : undefined}
+                        style={{ padding: '11px 12px', textAlign: 'left', fontSize: 10, fontWeight: 400, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#999', background: isActive ? '#f0f0ee' : '#ffffff', whiteSpace: 'nowrap', width: col.width, cursor: sortable ? 'pointer' : 'default', position: 'sticky', top: 0, zIndex: 10 }}
+                      >
+                        {col.label}
+                        {sortable && sortField === sortable && (sortDirection === 'asc' ? ' ↑' : ' ↓')}
+                      </th>
+                    );
+                  })}
+                  <th style={{ background: '#ffffff', padding: '11px 12px', textAlign: 'right', fontSize: 10, fontWeight: 400, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#999', width: 100, position: 'sticky', top: 0, zIndex: 10 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {sortedFirms.map((firm, index) => {
+                  const key = getFirmKey(firm);
+                  const isSelected = selectedIds.has(key);
+                  const cellStyle = (col: string) => ({
+                    padding: '0 12px' as const, whiteSpace: 'nowrap' as const, position: 'relative' as const,
+                    ...(activeCell?.firmKey === key && activeCell?.col === col ? { outline: '2px solid #2a2a2a', outlineOffset: -2, background: '#fff', zIndex: 1 } : {}),
+                  });
+
+                  return (
+                    <tr
+                      key={key}
+                      style={{ height: 28, borderBottom: '1px solid #f0f0ee', background: isSelected ? '#f0f0ee' : 'white', transition: 'background 0.08s' }}
+                      onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = '#f5f5f3'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = isSelected ? '#f0f0ee' : 'white'; }}
+                    >
+                      {/* Row Number */}
+                      <td style={{ width: GUTTER_W, textAlign: 'center', fontSize: 10, color: isSelected ? '#fff' : '#999', background: isSelected ? '#555' : '#ffffff', borderRight: '1px solid #e5e5e3', padding: '0 4px' }}
+                        onMouseEnter={(e) => { if (!isSelected) { e.currentTarget.style.background = '#f0f0ee'; e.currentTarget.style.color = '#555'; } }}
+                        onMouseLeave={(e) => { if (!isSelected) { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.color = '#999'; } }}
+                      >{index + 1}</td>
+
+                      {/* Checkbox */}
+                      <td style={{ width: CHECKBOX_W, textAlign: 'center', borderRight: '1px solid #e5e5e3', padding: '0 4px' }}>
+                        <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(key)} style={{ width: 13, height: 13, accentColor: '#444', cursor: 'pointer' }} />
+                      </td>
+
+                      {/* Company */}
+                      <td onClick={() => setActiveCell({ firmKey: key, col: 'name' })} style={cellStyle('name')}>
+                        <span style={{ fontSize: 12, fontWeight: 500, color: '#2a2a2a' }}>{firm.name || '—'}</span>
+                      </td>
+
+                      {/* Website */}
+                      <td onClick={() => setActiveCell({ firmKey: key, col: 'website' })} style={cellStyle('website')}>
+                        {firm.website ? (
+                          <a href={firm.website} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                            style={{ fontSize: 11, color: '#555', textDecoration: 'none', borderBottom: '1px solid #e5e5e3', paddingBottom: 1 }}
+                            onMouseEnter={(e) => { e.currentTarget.style.color = '#2a2a2a'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#555'; }}
+                          >↗ site</a>
+                        ) : <span style={{ color: '#bbb' }}>—</span>}
+                      </td>
+
+                      {/* LinkedIn */}
+                      <td onClick={() => setActiveCell({ firmKey: key, col: 'linkedin' })} style={cellStyle('linkedin')}>
+                        {firm.linkedinUrl ? (
+                          <a href={firm.linkedinUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                            style={{ fontSize: 11, color: '#555', textDecoration: 'none', borderBottom: '1px solid #e5e5e3', paddingBottom: 1 }}
+                            onMouseEnter={(e) => { e.currentTarget.style.color = '#2a2a2a'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#555'; }}
+                          >↗ view</a>
+                        ) : <span style={{ color: '#bbb' }}>—</span>}
+                      </td>
+
+                      {/* Location */}
+                      <td onClick={() => setActiveCell({ firmKey: key, col: 'location' })} style={cellStyle('location')}>
+                        <span style={{ fontSize: 12, color: '#555' }}>{firm.location?.display || '—'}</span>
+                      </td>
+
+                      {/* Industry */}
+                      <td onClick={() => setActiveCell({ firmKey: key, col: 'industry' })} style={cellStyle('industry')}>
+                        <span style={{ fontSize: 12, color: '#555' }}>{firm.industry || '—'}</span>
+                      </td>
+
+                      {/* Actions */}
+                      <td style={{ padding: '0 8px', whiteSpace: 'nowrap', textAlign: 'right', width: 100 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                          <button
+                            onClick={() => onViewContacts(firm)}
+                            style={{ fontFamily: mono, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em', border: '1px solid #e5e5e3', background: '#fff', color: '#555', padding: '3px 8px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                            onMouseEnter={(e) => { e.currentTarget.style.color = '#2a2a2a'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#555'; }}
+                          >
+                            <UserSearch className="h-3 w-3" /> View
+                          </button>
+                          {onDelete && (
+                            <button
+                              onClick={() => onDelete(firm)} disabled={deletingId === key}
+                              style={{ background: 'none', border: 'none', color: '#bbb', cursor: deletingId === key ? 'wait' : 'pointer', padding: 3 }}
+                              onMouseEnter={(e) => { e.currentTarget.style.color = '#c00'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#bbb'; }}
+                            >
+                              {deletingId === key ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Bottom Bar */}
+      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'stretch', height: 30, background: '#ffffff', borderTop: '1px solid #e5e5e3', fontFamily: mono }}>
+        <div style={{ flex: 1 }} />
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: 10, color: '#bbb', whiteSpace: 'nowrap' }}>
+          {sortedFirms.length} rows · offerloop.ai
+        </div>
+      </div>
+
+      {/* Mobile CSS */}
       <style>{`
         @media (max-width: 768px) {
-          /* 4. HELPER TEXT in header */
-          .firm-results-header {
-            width: 100%;
-            max-width: 100%;
-            padding: 12px 16px !important;
-            box-sizing: border-box;
-          }
-
-          .firm-results-header-row {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 8px;
-          }
-
-          .firm-results-header-content {
-            width: 100%;
-            flex: 1;
-            min-width: 0;
-          }
-
-          .firm-results-count {
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-            font-size: 0.875rem !important;
-          }
-
-          .firm-results-helper-text {
-            width: 100%;
-            padding: 0;
-            box-sizing: border-box;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-            font-size: 0.75rem !important;
-            text-align: left;
-            margin: 0;
-          }
-
-          /* 5. TABLE WRAPPER - CSS only, no HTML changes */
-          .firm-table-wrapper {
-            overflow-x: auto;
-            width: 100%;
-            box-sizing: border-box;
-            -webkit-overflow-scrolling: touch;
-          }
-
-          /* Table itself - no modifications, just ensure it doesn't affect header */
-          .firm-table {
-            min-width: 800px;
-          }
-
-          /* 11. HELPER TEXT in footer */
-          .firm-helper-text {
-            width: 100%;
-            max-width: 100%;
-            padding: 12px 16px !important;
-            box-sizing: border-box;
-          }
-
-          .firm-helper-text-content {
-            width: 100%;
-            padding: 0 16px;
-            box-sizing: border-box;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-            font-size: 0.75rem !important;
-            text-align: left;
-          }
-
-          /* General - ensure wrapper doesn't overflow */
-          .firm-search-results-wrapper {
-            width: 100%;
-            max-width: 100vw;
-            box-sizing: border-box;
-            overflow: visible;
-          }
+          .firm-search-results-page { width: 100%; max-width: 100vw; box-sizing: border-box; }
+          .firm-search-input-wrap { flex: 1 1 100% !important; }
+          .firm-table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+          .firm-table { min-width: 800px; }
         }
       `}</style>
     </div>
   );
 }
-

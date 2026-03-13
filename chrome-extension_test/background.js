@@ -108,7 +108,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     case 'getStatus':
       handleGetStatus(sendResponse);
       return true;
-      
+
+    case 'autofillAnswers':
+      handleAutofillAnswers(request, sendResponse);
+      return true;
+
+    case 'saveAutofillAnswers':
+      handleSaveAutofillAnswers(request, sendResponse);
+      return true;
+
+    case 'getAutofillHistory':
+      handleGetAutofillHistory(sendResponse);
+      return true;
+
+    case 'clearAutofillHistory':
+      handleClearAutofillHistory(sendResponse);
+      return true;
+
     default:
       console.log('[Offerloop Background] Unknown action:', request.action);
       sendResponse({ error: 'Unknown action' });
@@ -285,6 +301,113 @@ async function handleGetStatus(sendResponse) {
       hasToken: !!authToken,
       credits: credits,
     });
+  } catch (error) {
+    sendResponse({ error: error.message });
+  }
+}
+
+// ============================================
+// AUTOFILL HANDLERS
+// ============================================
+
+function fetchWithTimeout(url, options, timeout = 30000) {
+  return Promise.race([
+    fetch(url, options),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), timeout)),
+  ]);
+}
+
+async function handleAutofillAnswers(request, sendResponse) {
+  const { questions, pageContext } = request;
+
+  try {
+    const { authToken, isLoggedIn } = await chrome.storage.local.get(['authToken', 'isLoggedIn']);
+
+    if (!isLoggedIn || !authToken) {
+      sendResponse({ error: 'Please sign in to Offerloop first.' });
+      return;
+    }
+
+    const { autofillHistory } = await chrome.storage.local.get(['autofillHistory']);
+    const history = autofillHistory || [];
+
+    const historyText = history
+      .slice(0, 60)
+      .map(h => `Q: ${h.question}\nA: ${h.answer}`)
+      .join('\n\n');
+
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/autofill/answer`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ questions, history: historyText, pageContext }),
+    }, 45000);
+
+    if (response.status === 401) {
+      const newToken = await refreshAuthToken();
+      if (newToken) {
+        const retry = await fetchWithTimeout(`${API_BASE_URL}/api/autofill/answer`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${newToken}` },
+          body: JSON.stringify({ questions, history: historyText, pageContext }),
+        }, 45000);
+        const retryData = await retry.json();
+        if (!retry.ok) throw new Error(retryData.error || `Server error ${retry.status}`);
+        sendResponse({ answers: retryData.answers });
+        return;
+      }
+      sendResponse({ error: 'Session expired. Please sign in again.' });
+      return;
+    }
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `Server error ${response.status}`);
+    sendResponse({ answers: data.answers });
+
+  } catch (error) {
+    console.error('[Offerloop Background] Autofill error:', error);
+    sendResponse({ error: error.message || 'Failed to generate answers' });
+  }
+}
+
+async function handleSaveAutofillAnswers(request, sendResponse) {
+  const { answers, domain } = request;
+  try {
+    const { autofillHistory } = await chrome.storage.local.get(['autofillHistory']);
+    const history = autofillHistory || [];
+    const newEntries = answers.map(a => ({
+      question: a.question,
+      answer: a.answer,
+      fieldType: a.fieldType || 'text',
+      source: a.source || 'ai',
+      domain: domain || 'unknown',
+      ts: Date.now(),
+    }));
+    const questionSet = new Set(newEntries.map(e => e.question.toLowerCase().trim()));
+    const filtered = history.filter(h => !questionSet.has(h.question.toLowerCase().trim()));
+    const merged = [...newEntries, ...filtered].slice(0, 500);
+    await chrome.storage.local.set({ autofillHistory: merged });
+    sendResponse({ ok: true, count: merged.length });
+  } catch (error) {
+    sendResponse({ error: error.message });
+  }
+}
+
+async function handleGetAutofillHistory(sendResponse) {
+  try {
+    const { autofillHistory } = await chrome.storage.local.get(['autofillHistory']);
+    sendResponse({ history: autofillHistory || [] });
+  } catch (error) {
+    sendResponse({ history: [] });
+  }
+}
+
+async function handleClearAutofillHistory(sendResponse) {
+  try {
+    await chrome.storage.local.set({ autofillHistory: [] });
+    sendResponse({ ok: true });
   } catch (error) {
     sendResponse({ error: error.message });
   }

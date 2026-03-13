@@ -1100,17 +1100,17 @@ const ContactSearchPage: React.FC<{ embedded?: boolean }> = ({ embedded = false 
   const embeddedContent = (
     <>
       {/* Navigation Tabs */}
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px', marginTop: '-4px' }} className="overflow-x-auto max-w-full scrollbar-hide">
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px', marginTop: '-4px', borderBottom: '1px solid #d4d4d0' }} className="overflow-x-auto max-w-full scrollbar-hide">
               <div
                 style={{
                   display: 'inline-flex',
-                  gap: '6px',
+                  gap: '0px',
                 }}
               >
                 {[
-                  { id: 'contact-search', label: 'Search', icon: Search },
-                  { id: 'import', label: 'Import', icon: Upload },
-                  { id: 'contact-library', label: 'Tracker', icon: User },
+                  { id: 'contact-search', label: 'Search' },
+                  { id: 'import', label: 'Import' },
+                  { id: 'contact-library', label: 'Tracker' },
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -1118,20 +1118,23 @@ const ContactSearchPage: React.FC<{ embedded?: boolean }> = ({ embedded = false 
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '5px',
-                      padding: '5px 12px',
-                      borderRadius: '6px',
-                      border: activeTab === tab.id ? '1px solid #CBD5E1' : '1px solid transparent',
+                      gap: '0',
+                      padding: '6px 16px',
+                      borderRadius: '0',
+                      border: 'none',
+                      borderBottom: activeTab === tab.id ? '2px solid #1a1a1a' : '2px solid transparent',
                       cursor: 'pointer',
-                      fontFamily: "'DM Sans', system-ui, sans-serif",
-                      fontSize: '12px',
-                      fontWeight: 500,
+                      fontFamily: "'IBM Plex Mono', monospace",
+                      fontSize: '11px',
+                      fontWeight: 400,
+                      textTransform: 'uppercase' as const,
+                      letterSpacing: '0.08em',
                       transition: 'all 0.15s ease',
-                      background: activeTab === tab.id ? '#F8FAFC' : 'transparent',
-                      color: activeTab === tab.id ? '#334155' : '#94A3B8',
+                      background: 'transparent',
+                      color: activeTab === tab.id ? '#1a1a1a' : '#888',
+                      marginBottom: '-1px',
                     }}
                   >
-                    <tab.icon className="h-3 w-3" />
                     {tab.label}
                   </button>
                 ))}

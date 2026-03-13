@@ -37,14 +37,25 @@ import { useToast } from '@/hooks/use-toast';
 type Contact = ContactApi;
 
 const STATUS_OPTIONS = [
-  { value: 'Not Contacted', color: '#6B7280', label: 'Not Contacted' },
-  { value: 'Contacted', color: '#3B82F6', label: 'Contacted' },
-  { value: 'Followed Up', color: '#F59E0B', label: 'Followed Up' },
-  { value: 'Responded', color: '#10B981', label: 'Responded' },
-  { value: 'Call Scheduled', color: '#8B5CF6', label: 'Call Scheduled' },
-  { value: 'Rejected', color: '#EF4444', label: 'Rejected' },
-  { value: 'Hired', color: '#F59E0B', label: 'Hired' }
+  { value: 'Not Contacted', color: '#999999', label: 'Not Contacted', bg: '#f0f0ee' },
+  { value: 'Contacted', color: '#555555', label: 'Contacted', bg: '#f0f0ee' },
+  { value: 'Followed Up', color: '#555555', label: 'Followed Up', bg: '#f0f0ee' },
+  { value: 'Responded', color: '#2a2a2a', label: 'Responded', bg: '#f0f0ee' },
+  { value: 'Call Scheduled', color: '#2a2a2a', label: 'Call Scheduled', bg: '#f0f0ee' },
+  { value: 'Rejected', color: '#c00000', label: 'Rejected', bg: '#fce8e6' },
+  { value: 'Hired', color: '#2a2a2a', label: 'Hired', bg: '#f0f0ee' }
 ];
+
+const COL_DEFS = [
+  { key: 'name', letter: 'A', label: 'Name', width: '15%' },
+  { key: 'linkedin', letter: 'B', label: 'LinkedIn', width: '8%' },
+  { key: 'email', letter: 'C', label: 'Email', width: '20%' },
+  { key: 'company', letter: 'D', label: 'Company', width: '18%' },
+  { key: 'jobTitle', letter: 'E', label: 'Role', width: '17%' },
+  { key: 'status', letter: 'F', label: 'Status', width: '12%' },
+] as const;
+
+type SheetTab = 'contacts' | 'replied' | 'pipeline';
 
 const SpreadsheetContactDirectory: React.FC = () => {
   const navigate = useNavigate();
@@ -65,8 +76,27 @@ const SpreadsheetContactDirectory: React.FC = () => {
   const [replyStatuses, setReplyStatuses] = useState<Record<string, any>>({});
   const [isCheckingReplies, setIsCheckingReplies] = useState(false);
   const [draftingContactIds, setDraftingContactIds] = useState<Set<string>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [activeCell, setActiveCell] = useState<{ rowId: string; col: string } | null>(null);
+  const [sheetTab, setSheetTab] = useState<SheetTab>('contacts');
 
   const tableContainerRef = useRef<HTMLDivElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredContacts.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredContacts.map(c => c.id!).filter(Boolean)));
+    }
+  };
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
   const isCheckingRepliesRef = useRef(false);
   const lastCheckTimeRef = useRef<number>(0);
 
@@ -363,8 +393,10 @@ const SpreadsheetContactDirectory: React.FC = () => {
     }
   };
 
-  const handleCellClick = (row: number, col: string) => {
-    if (col === 'status' || col === 'actions') return;
+  const handleCellClick = (row: number, col: string, contactId?: string) => {
+    if (col === 'actions') return;
+    if (contactId) setActiveCell({ rowId: contactId, col });
+    if (col === 'status') return; // status uses dropdown, not inline edit
     setEditingCell({ row, col });
   };
 
@@ -757,6 +789,36 @@ const SpreadsheetContactDirectory: React.FC = () => {
     }
   }, [currentUser, migrationLoading]);
 
+  const getActiveCellValue = (): string => {
+    if (!activeCell) return '';
+    const contact = filteredContacts.find(c => c.id === activeCell.rowId);
+    if (!contact) return '';
+    switch (activeCell.col) {
+      case 'name': return getDisplayName(contact);
+      case 'linkedin': return contact.linkedinUrl || '';
+      case 'email': return contact.email || '';
+      case 'company': return contact.company || '';
+      case 'jobTitle': return contact.jobTitle || '';
+      case 'status': return contact.status || '';
+      default: return '';
+    }
+  };
+
+  const getActiveCellRef = (): string => {
+    if (!activeCell) return 'A1';
+    const colDef = COL_DEFS.find(c => c.key === activeCell.col);
+    const letter = colDef?.letter || 'A';
+    const rowIdx = filteredContacts.findIndex(c => c.id === activeCell.rowId);
+    return `${letter}${rowIdx >= 0 ? rowIdx + 1 : 1}`;
+  };
+
+  // Filter contacts by sheet tab
+  const tabFilteredContacts = filteredContacts.filter(c => {
+    if (sheetTab === 'replied') return c.status === 'Responded';
+    if (sheetTab === 'pipeline') return ['Contacted', 'Followed Up', 'Call Scheduled'].includes(c.status);
+    return true;
+  });
+
   if (migrationLoading || isLoading) {
     return (
       <div className="space-y-4">
@@ -765,272 +827,460 @@ const SpreadsheetContactDirectory: React.FC = () => {
     );
   }
 
+  const mono = "'IBM Plex Mono', monospace";
+  const GUTTER_W = 40;
+  const CHECKBOX_W = 32;
+
   return (
-    <div className="space-y-6 contact-directory-page">
-      {/* Top Controls - Matching Find People layout */}
-      <div className="flex items-center justify-between gap-4 contact-directory-controls-row">
+    <div
+      className="contact-directory-page"
+      style={{
+        fontFamily: mono,
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        overflow: 'hidden',
+        background: '#ffffff',
+      }}
+      onClick={(e) => {
+        // Clear active cell when clicking outside table
+        if (sheetRef.current && !sheetRef.current.contains(e.target as Node)) {
+          setActiveCell(null);
+        }
+      }}
+    >
+      {/* Toolbar */}
+      <div
+        className="contact-directory-toolbar"
+        style={{
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '5px 10px',
+          background: '#ffffff',
+          borderBottom: '1px solid #e5e5e3',
+        }}
+      >
         {/* Search */}
-        <div className="relative flex-1 max-w-sm contact-directory-search">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-          <Input
+        <div className="relative contact-directory-search" style={{ flex: '0 0 220px' }}>
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3" style={{ color: '#bbb' }} />
+          <input
             type="text"
-            placeholder="Search contacts..."
+            placeholder="Search..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:ring-blue-500 hover:border-gray-400 transition-colors"
+            style={{
+              fontFamily: mono, fontSize: 12, color: '#2a2a2a',
+              background: '#ffffff', border: '1px solid #e5e5e3',
+              outline: 'none', padding: '4px 6px 4px 24px', width: '100%',
+            }}
           />
         </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-3 contact-directory-actions">
-          <span className="text-sm text-gray-500 contact-directory-count">
-            {contacts.length} contact{contacts.length !== 1 ? 's' : ''}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleExportCsv}
-            disabled={contacts.length === 0}
-            className="gap-2 border-gray-300 hover:border-gray-400 contact-directory-export-btn"
-          >
-            <Download className="h-4 w-4" />
-            Export CSV
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={loadContacts}
-            disabled={isLoading}
-            className="relative overflow-hidden border-gray-300 hover:border-gray-400 contact-directory-refresh-btn"
-          >
-            <RefreshCw className="h-4 w-4" />
-            <InlineLoadingBar isLoading={isLoading} />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={clearAllContacts}
-            disabled={contacts.length === 0}
-            className="text-red-600 border-gray-300 hover:border-red-300 hover:bg-red-50 contact-directory-delete-btn"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+        <div style={{ flex: 1 }} />
+
+        {/* Toolbar buttons */}
+        <button
+          onClick={handleExportCsv}
+          disabled={contacts.length === 0}
+          className="contact-directory-export-btn disabled:opacity-40"
+          style={{
+            fontFamily: mono, fontSize: 11,
+            border: '1px solid #e5e5e3', background: '#fff', color: '#555',
+            padding: '4px 10px', cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+          }}
+        >
+          <Download className="h-3 w-3" /> Export CSV
+        </button>
+        <button
+          onClick={loadContacts}
+          disabled={isLoading}
+          className="disabled:opacity-40"
+          style={{
+            border: '1px solid #e5e5e3', background: '#fff', color: '#555',
+            padding: '4px 8px', cursor: 'pointer',
+          }}
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={clearAllContacts}
+          disabled={contacts.length === 0}
+          className="disabled:opacity-40"
+          style={{
+            border: '1px solid #e5c5c5', background: '#fff', color: '#c00',
+            padding: '4px 8px', cursor: 'pointer',
+          }}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+
+        <span style={{ fontSize: 11, color: '#999', marginLeft: 6 }}>
+          {contacts.length} contact{contacts.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      {/* Formula Bar */}
+      <div
+        style={{
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'center',
+          height: 26,
+          borderBottom: '1px solid #e5e5e3',
+          background: '#ffffff',
+        }}
+      >
+        <div style={{
+          width: 60, height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: '#ffffff', borderRight: '1px solid #e5e5e3',
+          fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', color: '#2a2a2a',
+          fontFamily: mono,
+        }}>
+          {getActiveCellRef()}
+        </div>
+        <div style={{
+          padding: '0 10px', borderRight: '1px solid #e5e5e3',
+          fontSize: 11, color: '#bbb', fontStyle: 'italic', fontFamily: mono,
+          display: 'flex', alignItems: 'center', height: '100%',
+        }}>
+          fx
+        </div>
+        <div style={{
+          flex: 1, padding: '0 10px', fontSize: 12, color: '#2a2a2a',
+          fontFamily: mono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          display: 'flex', alignItems: 'center', height: '100%',
+        }}>
+          {getActiveCellValue()}
         </div>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+        <div style={{ flexShrink: 0, background: '#fce8e6', border: '1px solid #e5c5c5', color: '#c00', padding: '6px 12px', fontSize: 11, fontFamily: mono }}>
           {error}
         </div>
       )}
 
-      {/* Empty State */}
-      {contacts.length === 0 ? (
-        <div className="border border-gray-200 rounded-lg p-12 text-center bg-white">
-          <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Mail className="h-6 w-6 text-gray-400" />
+      {/* Sheet area */}
+      <div ref={sheetRef} style={{ flex: 1, overflow: 'auto' }}>
+        {contacts.length === 0 ? (
+          <div style={{ padding: '60px 24px', textAlign: 'center', fontFamily: mono }}>
+            <p style={{ color: '#2a2a2a', fontWeight: 500, fontSize: 13, marginBottom: 6 }}>No contacts saved yet</p>
+            <p style={{ color: '#999', fontSize: 12, marginBottom: 20 }}>
+              Use the Find People search to discover and save contacts
+            </p>
+            <button
+              onClick={() => navigate('/find')}
+              style={{
+                fontFamily: mono, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em',
+                border: '1px solid #e5e5e3', background: '#fff', color: '#555',
+                padding: '6px 14px', cursor: 'pointer',
+              }}
+            >
+              Find People
+            </button>
           </div>
-          <p className="text-gray-900 font-medium mb-2">No contacts saved yet</p>
-          <p className="text-sm text-gray-500 mb-6">
-            Use the Find People search to discover and save contacts
-          </p>
-          <Button
-            onClick={() => navigate('/find')}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
-          >
-            Find People
-          </Button>
-        </div>
-      ) : (
-        /* Table Container - Flat styling like Find People */
-        <div className="border border-gray-200 rounded-lg bg-white overflow-hidden contact-directory-table-wrapper">
-          {/* Table */}
-          <div ref={tableContainerRef} className="overflow-x-auto overflow-y-visible contact-directory-table-container" style={{ maxWidth: '100%', WebkitOverflowScrolling: 'touch' }}>
-            <table className="min-w-[1400px] w-full contact-directory-table">
+        ) : (
+          <div ref={tableContainerRef} className="contact-directory-table-container" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <table className="contact-directory-table" style={{ width: '100%', minWidth: 1000, borderCollapse: 'collapse', fontFamily: mono }}>
+              {/* Column Letter Row */}
               <thead>
-                <tr className="border-b border-gray-200">
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide contact-directory-name-header">
-                    Contact
+                <tr style={{ borderBottom: '1px solid #e5e5e3' }}>
+                  {/* Gutter */}
+                  <th style={{ width: GUTTER_W, background: '#ffffff', borderRight: '1px solid #e5e5e3', padding: 0 }} />
+                  {/* Checkbox */}
+                  <th style={{ width: CHECKBOX_W, background: '#ffffff', borderRight: '1px solid #e5e5e3', padding: 0 }} />
+                  {COL_DEFS.map((col) => {
+                    const isActiveCol = activeCell?.col === col.key;
+                    return (
+                      <th
+                        key={col.letter}
+                        style={{
+                          fontSize: 10, color: isActiveCol ? '#2a2a2a' : '#999',
+                          fontWeight: isActiveCol ? 500 : 400,
+                          background: isActiveCol ? '#f0f0ee' : '#ffffff',
+                          borderRight: '1px solid #e5e5e3',
+                          textAlign: 'center', padding: '3px 0',
+                          width: col.width,
+                        }}
+                      >
+                        {col.letter}
+                      </th>
+                    );
+                  })}
+                  {/* Actions gutter */}
+                  <th style={{ background: '#ffffff', padding: 0, width: 80 }} />
+                </tr>
+
+                {/* Column Label Row */}
+                <tr style={{ borderBottom: '2px solid #e5e5e3' }}>
+                  {/* Gutter header */}
+                  <th style={{
+                    width: GUTTER_W, background: '#ffffff', borderRight: '1px solid #e5e5e3',
+                    fontSize: 10, color: '#999', textAlign: 'center', padding: '11px 0',
+                    position: 'sticky', top: 0, zIndex: 10,
+                  }}>
+                    #
                   </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    LinkedIn
+                  {/* Checkbox header */}
+                  <th style={{
+                    width: CHECKBOX_W, background: '#ffffff', borderRight: '1px solid #e5e5e3',
+                    textAlign: 'center', padding: '11px 4px',
+                    position: 'sticky', top: 0, zIndex: 10,
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={tabFilteredContacts.length > 0 && selectedIds.size === tabFilteredContacts.length}
+                      onChange={toggleSelectAll}
+                      style={{ width: 13, height: 13, accentColor: '#444', cursor: 'pointer' }}
+                    />
                   </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
-                    Email
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Company
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Role
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Location
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide min-w-[180px]">
-                    Status
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Actions
-                  </th>
+                  {COL_DEFS.map((col) => {
+                    const isActiveCol = activeCell?.col === col.key;
+                    return (
+                      <th
+                        key={col.key}
+                        style={{
+                          padding: '11px 12px',
+                          textAlign: 'left',
+                          fontSize: 10, fontWeight: 400,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.1em',
+                          color: '#999',
+                          background: isActiveCol ? '#f0f0ee' : '#ffffff',
+                          whiteSpace: 'nowrap',
+                          width: col.width,
+                          position: 'sticky', top: 0, zIndex: 10,
+                        }}
+                      >
+                        {col.label}
+                      </th>
+                    );
+                  })}
+                  {/* Actions header */}
+                  <th style={{
+                    background: '#ffffff', padding: '11px 12px', textAlign: 'right',
+                    fontSize: 10, fontWeight: 400, textTransform: 'uppercase',
+                    letterSpacing: '0.1em', color: '#999', width: 80,
+                    position: 'sticky', top: 0, zIndex: 10,
+                  }} />
                 </tr>
               </thead>
-              <tbody className="bg-white">
-                {filteredContacts.map((contact, index) => {
+              <tbody>
+                {tabFilteredContacts.map((contact, index) => {
                   const statusOption = STATUS_OPTIONS.find(opt => opt.value === contact.status);
+                  const isSelected = !!(contact.id && selectedIds.has(contact.id));
+                  const isActiveRow = activeCell?.rowId === contact.id;
 
                   return (
                     <tr
                       key={contact.id}
-                      className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50/50 transition-colors"
+                      style={{
+                        height: 28,
+                        borderBottom: '1px solid #f0f0ee',
+                        background: isSelected ? '#f0f0ee' : 'white',
+                        transition: 'background 0.08s',
+                      }}
+                      onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = '#f5f5f3'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = isSelected ? '#f0f0ee' : 'white'; }}
                     >
-                      {/* Contact Name */}
-                      <td className="px-4 py-3 whitespace-nowrap contact-directory-name-cell">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center flex-shrink-0">
-                            <User className="h-4 w-4 text-blue-500" />
+                      {/* Row Number Gutter */}
+                      <td
+                        style={{
+                          width: GUTTER_W, textAlign: 'center', fontSize: 10,
+                          color: isSelected ? '#fff' : '#999',
+                          background: isSelected ? '#555' : '#ffffff',
+                          borderRight: '1px solid #e5e5e3',
+                          padding: '0 4px',
+                          transition: 'background 0.08s, color 0.08s',
+                        }}
+                        onMouseEnter={(e) => { if (!isSelected) { e.currentTarget.style.background = '#f0f0ee'; e.currentTarget.style.color = '#555'; } }}
+                        onMouseLeave={(e) => { if (!isSelected) { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.color = '#999'; } }}
+                      >
+                        {index + 1}
+                      </td>
+
+                      {/* Checkbox */}
+                      <td style={{ width: CHECKBOX_W, textAlign: 'center', borderRight: '1px solid #e5e5e3', padding: '0 4px' }}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => contact.id && toggleSelect(contact.id)}
+                          style={{ width: 13, height: 13, accentColor: '#444', cursor: 'pointer' }}
+                        />
+                      </td>
+
+                      {/* Name */}
+                      <td
+                        onClick={() => handleCellClick(index, 'name', contact.id)}
+                        style={{
+                          padding: '0 12px', whiteSpace: 'nowrap',
+                          position: 'relative',
+                          ...(activeCell?.rowId === contact.id && activeCell?.col === 'name' ? {
+                            outline: '2px solid #2a2a2a', outlineOffset: -2, background: '#fff', zIndex: 1,
+                          } : {}),
+                        }}
+                      >
+                        {editingCell?.row === index && editingCell?.col === 'name' ? (
+                          <div className="space-y-1" style={{ padding: '2px 0' }}>
+                            <Input
+                              value={contact.firstName}
+                              onChange={(e) => handleCellEdit(contact.id!, 'firstName', e.target.value)}
+                              onBlur={handleCellBlur}
+                              placeholder="First name"
+                              className="text-sm h-6 border-gray-300"
+                              style={{ fontFamily: mono }}
+                              autoFocus
+                            />
+                            <Input
+                              value={contact.lastName}
+                              onChange={(e) => handleCellEdit(contact.id!, 'lastName', e.target.value)}
+                              onBlur={handleCellBlur}
+                              placeholder="Last name"
+                              className="text-sm h-6 border-gray-300"
+                              style={{ fontFamily: mono }}
+                            />
                           </div>
-                          {editingCell?.row === index && editingCell?.col === 'name' ? (
-                            <div className="space-y-1">
-                              <Input
-                                value={contact.firstName}
-                                onChange={(e) => handleCellEdit(contact.id!, 'firstName', e.target.value)}
-                                onBlur={handleCellBlur}
-                                placeholder="First name"
-                                className="text-sm h-7 border-gray-300"
-                                autoFocus
-                              />
-                              <Input
-                                value={contact.lastName}
-                                onChange={(e) => handleCellEdit(contact.id!, 'lastName', e.target.value)}
-                                onBlur={handleCellBlur}
-                                placeholder="Last name"
-                                className="text-sm h-7 border-gray-300"
-                              />
-                            </div>
-                          ) : (
-                            <div
-                              onClick={() => handleCellClick(index, 'name')}
-                              className="cursor-pointer"
-                            >
-                              <span className="text-sm font-medium text-gray-900">
-                                {getDisplayName(contact)}
-                              </span>
-                            </div>
-                          )}
-                        </div>
+                        ) : (
+                          <span style={{ fontSize: 12, fontWeight: 500, color: '#2a2a2a', cursor: 'default' }}>
+                            {getDisplayName(contact)}
+                          </span>
+                        )}
                       </td>
 
                       {/* LinkedIn */}
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td
+                        onClick={() => handleCellClick(index, 'linkedin', contact.id)}
+                        style={{
+                          padding: '0 12px', whiteSpace: 'nowrap',
+                          position: 'relative',
+                          ...(activeCell?.rowId === contact.id && activeCell?.col === 'linkedin' ? {
+                            outline: '2px solid #2a2a2a', outlineOffset: -2, background: '#fff', zIndex: 1,
+                          } : {}),
+                        }}
+                      >
                         {contact.linkedinUrl ? (
                           <a
-                            href={
-                              contact.linkedinUrl.startsWith('http')
-                                ? contact.linkedinUrl
-                                : `https://${contact.linkedinUrl}`
-                            }
+                            href={contact.linkedinUrl.startsWith('http') ? contact.linkedinUrl : `https://${contact.linkedinUrl}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-sm"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              fontSize: 11, color: '#555', textDecoration: 'none',
+                              borderBottom: '1px solid #e5e5e3', paddingBottom: 1,
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.color = '#2a2a2a'; e.currentTarget.style.borderColor = '#2a2a2a'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.color = '#555'; e.currentTarget.style.borderColor = '#e5e5e3'; }}
                           >
-                            <ExternalLink className="h-3 w-3" />
-                            View
+                            ↗ view
                           </a>
                         ) : (
-                          <span className="text-gray-300">—</span>
+                          <span style={{ color: '#bbb' }}>—</span>
                         )}
                       </td>
 
                       {/* Email */}
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {contact.email ? (
-                          <span className="text-sm text-gray-700">{contact.email}</span>
-                        ) : (
-                          <span className="text-gray-300">—</span>
-                        )}
+                      <td
+                        onClick={() => handleCellClick(index, 'email', contact.id)}
+                        style={{
+                          padding: '0 12px', whiteSpace: 'nowrap',
+                          position: 'relative',
+                          ...(activeCell?.rowId === contact.id && activeCell?.col === 'email' ? {
+                            outline: '2px solid #2a2a2a', outlineOffset: -2, background: '#fff', zIndex: 1,
+                          } : {}),
+                        }}
+                      >
+                        <span style={{ fontSize: 12, color: '#555' }}>{contact.email || '—'}</span>
                       </td>
 
                       {/* Company */}
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td
+                        onClick={() => handleCellClick(index, 'company', contact.id)}
+                        style={{
+                          padding: '0 12px', whiteSpace: 'nowrap',
+                          position: 'relative',
+                          ...(activeCell?.rowId === contact.id && activeCell?.col === 'company' ? {
+                            outline: '2px solid #2a2a2a', outlineOffset: -2, background: '#fff', zIndex: 1,
+                          } : {}),
+                        }}
+                      >
                         {editingCell?.row === index && editingCell?.col === 'company' ? (
                           <Input
                             value={contact.company}
                             onChange={(e) => handleCellEdit(contact.id!, 'company', e.target.value)}
                             onBlur={handleCellBlur}
-                            className="text-sm h-7 border-gray-300"
+                            className="text-sm h-6 border-gray-300"
+                            style={{ fontFamily: mono }}
                             autoFocus
                           />
                         ) : (
-                          <div
-                            onClick={() => handleCellClick(index, 'company')}
-                            className="cursor-pointer text-sm text-gray-700"
-                          >
-                            {contact.company || <span className="text-gray-300">—</span>}
-                          </div>
+                          <span style={{ fontSize: 12, color: '#555', cursor: 'default' }}>
+                            {contact.company || <span style={{ color: '#bbb' }}>—</span>}
+                          </span>
                         )}
                       </td>
 
                       {/* Role */}
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td
+                        onClick={() => handleCellClick(index, 'jobTitle', contact.id)}
+                        style={{
+                          padding: '0 12px', whiteSpace: 'nowrap',
+                          position: 'relative',
+                          ...(activeCell?.rowId === contact.id && activeCell?.col === 'jobTitle' ? {
+                            outline: '2px solid #2a2a2a', outlineOffset: -2, background: '#fff', zIndex: 1,
+                          } : {}),
+                        }}
+                      >
                         {editingCell?.row === index && editingCell?.col === 'jobTitle' ? (
                           <Input
                             value={contact.jobTitle}
                             onChange={(e) => handleCellEdit(contact.id!, 'jobTitle', e.target.value)}
                             onBlur={handleCellBlur}
-                            className="text-sm h-7 border-gray-300"
+                            className="text-sm h-6 border-gray-300"
+                            style={{ fontFamily: mono }}
                             autoFocus
                           />
                         ) : (
-                          <div
-                            onClick={() => handleCellClick(index, 'jobTitle')}
-                            className="cursor-pointer text-sm text-gray-700"
-                          >
-                            {contact.jobTitle || <span className="text-gray-300">—</span>}
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Location */}
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {editingCell?.row === index && editingCell?.col === 'location' ? (
-                          <Input
-                            value={contact.location}
-                            onChange={(e) => handleCellEdit(contact.id!, 'location', e.target.value)}
-                            onBlur={handleCellBlur}
-                            className="text-sm h-7 border-gray-300"
-                            autoFocus
-                          />
-                        ) : (
-                          <div
-                            onClick={() => handleCellClick(index, 'location')}
-                            className="cursor-pointer text-sm text-gray-700"
-                          >
-                            {contact.location || <span className="text-gray-300">—</span>}
-                          </div>
+                          <span style={{ fontSize: 12, color: '#555', cursor: 'default' }}>
+                            {contact.jobTitle || <span style={{ color: '#bbb' }}>—</span>}
+                          </span>
                         )}
                       </td>
 
                       {/* Status */}
-                      <td className="px-4 py-3 whitespace-nowrap min-w-[180px]">
-                        <div className="flex items-center gap-2 min-w-[180px]">
-                          <select
-                            value={contact.status}
-                            onChange={(e) => handleCellEdit(contact.id!, 'status', e.target.value)}
-                            className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer hover:border-gray-400 transition-colors flex-shrink-0 min-w-[150px]"
-                            style={{ color: statusOption?.color }}
+                      <td
+                        onClick={() => handleCellClick(index, 'status', contact.id)}
+                        style={{
+                          padding: '0 12px', whiteSpace: 'nowrap',
+                          position: 'relative',
+                          ...(activeCell?.rowId === contact.id && activeCell?.col === 'status' ? {
+                            outline: '2px solid #2a2a2a', outlineOffset: -2, background: '#fff', zIndex: 1,
+                          } : {}),
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              fontSize: 11, fontFamily: mono,
+                              padding: '2px 8px',
+                              background: statusOption?.bg || '#f0f0ee',
+                              color: statusOption?.color || '#999',
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap',
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              // Cycle through statuses
+                              const idx = STATUS_OPTIONS.findIndex(o => o.value === contact.status);
+                              const next = STATUS_OPTIONS[(idx + 1) % STATUS_OPTIONS.length];
+                              handleCellEdit(contact.id!, 'status', next.value);
+                            }}
                           >
-                            {STATUS_OPTIONS.map(option => (
-                              <option
-                                key={option.value}
-                                value={option.value}
-                                style={{ color: option.color }}
-                              >
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-
+                            {contact.status || 'Not Contacted'}
+                          </span>
                           {contact.gmailThreadId && contact.id && (
                             <NotificationBell
                               contactId={contact.id}
@@ -1038,73 +1288,62 @@ const SpreadsheetContactDirectory: React.FC = () => {
                               gmailThreadId={contact.gmailThreadId}
                               hasUnreadReply={replyStatuses[contact.id]?.isUnread || false}
                               notificationsMuted={contact.notificationsMuted || false}
-                              onStateChange={() => {
-                                loadContacts();
-                                checkRepliesForAllContacts();
-                              }}
+                              onStateChange={() => { loadContacts(); checkRepliesForAllContacts(); }}
                             />
                           )}
                         </div>
                       </td>
 
                       {/* Actions */}
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          {contact.email ? (
-                            <Button
-                              size="sm"
-                              variant="ghost"
+                      <td style={{ padding: '0 8px', whiteSpace: 'nowrap', textAlign: 'right', width: 80 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
+                          {contact.email && (
+                            <button
                               onClick={() => handleEmailClick(contact)}
-                              className="text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                              style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', padding: 3 }}
+                              onMouseEnter={(e) => { e.currentTarget.style.color = '#2a2a2a'; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.color = '#999'; }}
                             >
-                              <Mail className="h-4 w-4" />
-                            </Button>
-                          ) : (
-                            <span className="text-gray-300">—</span>
+                              <Mail className="h-3 w-3" />
+                            </button>
                           )}
                           {contact.email && contact.id && (
                             contact.gmailDraftId ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => window.open(
-                                  contact.gmailDraftUrl || `https://mail.google.com/mail/#drafts`,
-                                  '_blank'
-                                )}
-                                className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                              <button
+                                onClick={() => window.open(contact.gmailDraftUrl || `https://mail.google.com/mail/#drafts`, '_blank')}
+                                style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', padding: 3 }}
                                 title="Open Gmail draft"
+                                onMouseEnter={(e) => { e.currentTarget.style.color = '#2a2a2a'; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.color = '#999'; }}
                               >
-                                <ExternalLink className="h-4 w-4" />
-                              </Button>
+                                <ExternalLink className="h-3 w-3" />
+                              </button>
                             ) : (
-                              <Button
-                                size="sm"
-                                variant="ghost"
+                              <button
                                 onClick={() => handleDraftEmail(contact)}
                                 disabled={draftingContactIds.has(contact.id)}
-                                className="text-gray-400 hover:text-purple-600 hover:bg-purple-50"
+                                style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', padding: 3 }}
                                 title="Create Gmail draft"
+                                onMouseEnter={(e) => { e.currentTarget.style.color = '#2a2a2a'; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.color = '#999'; }}
                               >
                                 {draftingContactIds.has(contact.id) ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  <Loader2 className="h-3 w-3 animate-spin" />
                                 ) : (
-                                  <Sparkles className="h-4 w-4" />
+                                  <Sparkles className="h-3 w-3" />
                                 )}
-                              </Button>
+                              </button>
                             )
                           )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation(); // Prevent row selection
-                              handleDeleteContact(contact.id!, getDisplayName(contact));
-                            }}
-                            className="h-8 w-8 p-0 text-gray-400 hover:text-red-500 hover:bg-red-50"
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteContact(contact.id!, getDisplayName(contact)); }}
+                            style={{ background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', padding: 3 }}
                             title="Delete contact"
+                            onMouseEnter={(e) => { e.currentTarget.style.color = '#c00'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.color = '#bbb'; }}
                           >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                            <Trash2 className="h-3 w-3" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1112,65 +1351,134 @@ const SpreadsheetContactDirectory: React.FC = () => {
                 })}
               </tbody>
             </table>
-          </div>
 
-          {/* Empty search results */}
-          {filteredContacts.length === 0 && contacts.length > 0 && searchQuery && (
-            <div className="px-6 py-12 text-center">
-              <p className="text-gray-500 mb-2">No contacts match your search.</p>
-              <button
-                onClick={() => setSearchQuery('')}
-                className="text-sm text-blue-600 hover:text-blue-700"
-              >
-                Clear search
-              </button>
-            </div>
-          )}
+            {/* Empty search results */}
+            {tabFilteredContacts.length === 0 && contacts.length > 0 && (
+              <div style={{ padding: '40px 24px', textAlign: 'center', fontFamily: mono }}>
+                <p style={{ color: '#999', fontSize: 12, marginBottom: 8 }}>
+                  {searchQuery ? 'No contacts match your search.' : `No contacts in this view.`}
+                </p>
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    style={{ fontSize: 11, color: '#555', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', fontFamily: mono }}
+                  >
+                    Clear search
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Bottom Sheet Tab Bar */}
+      <div
+        style={{
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'stretch',
+          height: 30,
+          background: '#ffffff',
+          borderTop: '1px solid #e5e5e3',
+          fontFamily: mono,
+        }}
+      >
+        {/* + button */}
+        <div
+          style={{
+            width: 32, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            borderRight: '1px solid #e5e5e3', fontSize: 16, color: '#bbb', cursor: 'pointer',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = '#555'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = '#bbb'; }}
+        >
+          +
         </div>
-      )}
+
+        {/* Tabs */}
+        {([
+          { id: 'contacts' as SheetTab, label: 'Contacts' },
+          { id: 'replied' as SheetTab, label: 'Replied' },
+          { id: 'pipeline' as SheetTab, label: 'Pipeline' },
+        ]).map((tab) => {
+          const isActive = sheetTab === tab.id;
+          return (
+            <div
+              key={tab.id}
+              onClick={() => setSheetTab(tab.id)}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: '0 16px', cursor: 'pointer',
+                fontSize: 11, fontFamily: mono,
+                color: isActive ? '#2a2a2a' : '#999',
+                fontWeight: isActive ? 500 : 400,
+                background: isActive ? '#fff' : 'transparent',
+                borderTop: isActive ? '2px solid #2a2a2a' : '2px solid transparent',
+                borderRight: '1px solid #e5e5e3',
+                marginTop: -1,
+              }}
+            >
+              {tab.label}
+            </div>
+          );
+        })}
+
+        <div style={{ flex: 1 }} />
+
+        {/* Row count */}
+        <div style={{
+          display: 'flex', alignItems: 'center', padding: '0 12px',
+          fontSize: 10, color: '#bbb', fontFamily: mono, whiteSpace: 'nowrap',
+        }}>
+          {tabFilteredContacts.length} rows · offerloop.ai
+        </div>
+      </div>
 
       {/* Mail App Selection Dialog */}
       {mailAppDialogOpen && selectedContactForEmail && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 border border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Choose Email App</h3>
-            <p className="text-gray-600 mb-6 text-sm">
+          <div style={{ background: '#fff', border: '1px solid #e5e5e3', padding: 24, maxWidth: 400, width: '100%', margin: '0 16px' }}>
+            <h3 style={{ fontSize: 14, fontWeight: 500, color: '#2a2a2a', marginBottom: 12, fontFamily: mono }}>Choose Email App</h3>
+            <p style={{ fontSize: 12, color: '#555', marginBottom: 20, fontFamily: mono }}>
               Send email to {getDisplayName(selectedContactForEmail)}
             </p>
 
-            <div className="flex gap-3">
-              <Button
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
                 onClick={() => handleMailAppSelect('apple')}
-                variant="outline"
-                className="flex-1 py-6"
+                style={{
+                  flex: 1, padding: '16px 0', border: '1px solid #e5e5e3', background: '#fff',
+                  cursor: 'pointer', fontFamily: mono, fontSize: 12, color: '#555',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#ffffff'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; }}
               >
-                <div className="flex flex-col items-center gap-2">
-                  <Mail className="h-5 w-5" />
-                  <span className="text-sm">Apple Mail</span>
-                </div>
-              </Button>
-
-              <Button
+                <Mail className="h-4 w-4" />
+                Apple Mail
+              </button>
+              <button
                 onClick={() => handleMailAppSelect('gmail')}
-                className="flex-1 py-6 bg-blue-600 hover:bg-blue-700"
+                style={{
+                  flex: 1, padding: '16px 0', border: '1px solid #e5e5e3', background: '#fff',
+                  cursor: 'pointer', fontFamily: mono, fontSize: 12, color: '#555',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#ffffff'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; }}
               >
-                <div className="flex flex-col items-center gap-2">
-                  <Mail className="h-5 w-5" />
-                  <span className="text-sm">Gmail</span>
-                </div>
-              </Button>
+                <Mail className="h-4 w-4" />
+                Gmail
+              </button>
             </div>
 
-            <Button
-              onClick={() => {
-                setMailAppDialogOpen(false);
-                setSelectedContactForEmail(null);
-              }}
-              variant="ghost"
-              className="w-full mt-4 text-gray-500"
+            <button
+              onClick={() => { setMailAppDialogOpen(false); setSelectedContactForEmail(null); }}
+              style={{ fontFamily: mono, fontSize: 11, color: '#999', background: 'none', border: 'none', cursor: 'pointer', width: '100%', marginTop: 16, textAlign: 'center' }}
             >
               Cancel
-            </Button>
+            </button>
           </div>
         </div>
       )}
@@ -1186,207 +1494,35 @@ const SpreadsheetContactDirectory: React.FC = () => {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => navigate('/pricing')}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
+            <AlertDialogAction onClick={() => navigate('/pricing')}>
               Upgrade
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Mobile-only CSS overrides */}
+      {/* Mobile CSS */}
       <style>{`
         @media (max-width: 768px) {
-          /* 1. PAGE HEADER SECTION - Width 100%, padding 16px */
           .contact-directory-page {
             width: 100%;
             max-width: 100vw;
-            overflow-x: hidden;
             box-sizing: border-box;
-            padding: 0;
           }
-
-          .contact-directory-header-text {
-            width: 100%;
-            max-width: 100%;
-            padding: 0 16px;
-            box-sizing: border-box;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-            font-size: 0.875rem !important;
-            margin: 0;
-          }
-
-          /* 2. CONTROLS ROW - Separate from table, fixed width */
-          .contact-directory-controls-row {
-            width: 100%;
-            max-width: 100%;
-            padding: 0 16px;
-            box-sizing: border-box;
+          .contact-directory-toolbar {
             flex-wrap: wrap;
-            gap: 8px;
-            position: relative;
-            z-index: 10;
-            background: white;
-            margin: 0;
-            overflow: hidden;
+            gap: 6px;
+            padding: 6px 8px;
           }
-
           .contact-directory-search {
-            width: 100%;
-            max-width: 100%;
-            min-width: 0;
-            flex: 1 1 100%;
+            flex: 1 1 100% !important;
           }
-
-          .contact-directory-search input {
-            width: 100%;
-            max-width: 100%;
-            box-sizing: border-box;
-          }
-
-          .contact-directory-actions {
-            width: 100%;
-            max-width: 100%;
-            flex-wrap: wrap;
-            gap: 8px;
-            justify-content: flex-start;
-            box-sizing: border-box;
-            display: flex;
-            margin: 0;
-          }
-
-          .contact-directory-count {
-            width: 100%;
-            flex-basis: 100%;
-            flex-shrink: 0;
-            white-space: nowrap;
-            margin-bottom: 4px;
-            box-sizing: border-box;
-          }
-
-          /* Buttons - reduce padding or use icon-only on mobile */
-          .contact-directory-export-btn {
-            flex: 1 1 auto;
-            min-width: fit-content;
-            padding: 8px 10px !important;
-            font-size: 0.75rem;
-            box-sizing: border-box;
-            max-width: 100%;
-            white-space: nowrap;
-          }
-
-          /* Make "Export CSV" button smaller - reduce text if needed */
-          .contact-directory-export-btn svg {
-            width: 14px;
-            height: 14px;
-          }
-
-          .contact-directory-refresh-btn,
-          .contact-directory-delete-btn {
-            min-width: 44px;
-            min-height: 44px;
-            padding: 8px !important;
-            box-sizing: border-box;
-            flex-shrink: 0;
-          }
-
-          /* Hide text in icon buttons, keep icons */
-          .contact-directory-refresh-btn > span:not(.lucide),
-          .contact-directory-delete-btn > span:not(.lucide) {
-            display: none;
-          }
-
-          /* 3. TABLE CONTAINER - Separate scroll container */
-          .contact-directory-table-wrapper {
-            width: 100%;
-            max-width: 100vw;
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-          }
-
           .contact-directory-table-container {
-            width: 100%;
             overflow-x: auto;
-            overflow-y: visible;
             -webkit-overflow-scrolling: touch;
-            box-sizing: border-box;
           }
-
-          /* 4. TABLE STRUCTURE - Horizontal scroll, sticky first column */
           .contact-directory-table {
-            min-width: 800px;
-            width: 100%;
-            box-sizing: border-box;
-          }
-
-          .contact-directory-name-header {
-            position: sticky;
-            left: 0;
-            background: white;
-            z-index: 5;
-            box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
-          }
-
-          .contact-directory-name-cell {
-            position: sticky;
-            left: 0;
-            background: white;
-            z-index: 4;
-            box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
-          }
-
-          /* Ensure sticky cells have proper background on hover */
-          .contact-directory-table tbody tr:hover .contact-directory-name-cell {
-            background: #f9fafb;
-          }
-
-          /* 5. SEARCH INPUT - Full width */
-          .contact-directory-search {
-            width: 100%;
-            max-width: 100%;
-            box-sizing: border-box;
-            margin: 0;
-          }
-
-          .contact-directory-search input {
-            width: 100%;
-            max-width: 100%;
-            box-sizing: border-box;
-            margin: 0;
-          }
-
-          /* 6. GENERAL - Prevent page-level horizontal scroll */
-          .contact-directory-page {
-            overflow-x: hidden;
-            max-width: 100vw;
-            width: 100%;
-          }
-
-          .contact-directory-page > * {
-            max-width: 100%;
-            box-sizing: border-box;
-          }
-
-          /* Ensure all header elements use box-sizing */
-          .contact-directory-page * {
-            box-sizing: border-box;
-          }
-
-          /* Remove any negative margins or transforms that cause overflow */
-          .contact-directory-page * {
-            margin-left: 0;
-            margin-right: 0;
-          }
-
-          .contact-directory-controls-row *,
-          .contact-directory-actions *,
-          .contact-directory-search * {
-            transform: none;
-            position: static;
+            min-width: 900px;
           }
         }
       `}</style>

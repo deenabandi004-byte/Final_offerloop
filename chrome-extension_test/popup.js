@@ -52,6 +52,9 @@ function switchTab(tabName) {
   if (tabName === 'job') {
     initJobTab();
   }
+  if (tabName === 'autofill') {
+    initAutofillTab();
+  }
 }
 
 function initTabSwitcher() {
@@ -1786,6 +1789,160 @@ async function loadAuthState() {
 
 // Auth state is managed via Chrome storage, no Firebase listener needed
 
+// ============================================
+// AUTOFILL TAB
+// ============================================
+
+async function initAutofillTab() {
+  showAutofillSection('loading');
+
+  const authData = await chrome.storage.local.get(['authToken', 'isLoggedIn']);
+  if (!authData.isLoggedIn || !authData.authToken) {
+    showAutofillSection('login');
+    return;
+  }
+
+  loadAutofillHistoryCount();
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) { showAutofillSection('no-form'); return; }
+
+    let response;
+    try {
+      response = await chrome.tabs.sendMessage(tab.id, { action: 'scrapeFormFields' });
+    } catch (_) {
+      showAutofillSection('no-form');
+      return;
+    }
+
+    if (!response || !response.found || response.fields.length === 0) {
+      showAutofillSection('main');
+      setAutofillStatus('No application form detected.', 'inactive');
+      document.getElementById('autofill-fill-btn').disabled = true;
+      document.getElementById('autofill-fields-preview')?.classList.add('hidden');
+      return;
+    }
+
+    showAutofillSection('main');
+    setAutofillStatus(`${response.ats} form detected — ${response.fields.length} field${response.fields.length !== 1 ? 's' : ''} found`, 'active');
+    renderFieldsPreview(response.fields, response.ats);
+    document.getElementById('autofill-fill-btn').disabled = false;
+
+  } catch (err) {
+    console.error('[Offerloop Popup] Autofill tab init error:', err);
+    showAutofillSection('no-form');
+  }
+}
+
+function showAutofillSection(mode) {
+  ['autofill-login-section', 'autofill-main-section', 'autofill-no-form-section'].forEach(id => {
+    document.getElementById(id)?.classList.add('hidden');
+  });
+  if (mode === 'loading') return;
+  const map = { login: 'autofill-login-section', main: 'autofill-main-section', 'no-form': 'autofill-no-form-section' };
+  if (map[mode]) document.getElementById(map[mode])?.classList.remove('hidden');
+}
+
+function setAutofillStatus(text, state) {
+  const textEl = document.getElementById('autofill-status-text');
+  const dotEl = document.getElementById('autofill-status-dot');
+  if (textEl) textEl.textContent = text;
+  if (dotEl) {
+    dotEl.className = 'autofill-status-dot';
+    if (state === 'active') dotEl.classList.add('autofill-dot-active');
+    else if (state === 'inactive') dotEl.classList.add('autofill-dot-inactive');
+  }
+}
+
+function renderFieldsPreview(fields, atsName) {
+  const preview = document.getElementById('autofill-fields-preview');
+  const countEl = document.getElementById('autofill-fields-count');
+  const badgeEl = document.getElementById('autofill-ats-badge');
+  const listEl = document.getElementById('autofill-fields-list');
+  if (!preview || !listEl) return;
+
+  if (countEl) countEl.textContent = `${fields.length} field${fields.length !== 1 ? 's' : ''} detected`;
+  if (badgeEl) badgeEl.textContent = atsName || '';
+
+  listEl.innerHTML = '';
+  fields.slice(0, 8).forEach(f => {
+    const li = document.createElement('li');
+    li.className = 'autofill-field-item';
+    li.textContent = f.question.length > 48 ? f.question.slice(0, 46) + '…' : f.question;
+    listEl.appendChild(li);
+  });
+  if (fields.length > 8) {
+    const li = document.createElement('li');
+    li.className = 'autofill-field-item autofill-field-more';
+    li.textContent = `+${fields.length - 8} more fields`;
+    listEl.appendChild(li);
+  }
+  preview.classList.remove('hidden');
+}
+
+async function loadAutofillHistoryCount() {
+  const countEl = document.getElementById('autofill-history-count');
+  if (!countEl) return;
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'getAutofillHistory' });
+    const count = response?.history?.length || 0;
+    countEl.textContent = count === 0
+      ? 'No saved answers yet — answers are saved automatically after each autofill.'
+      : `${count} saved answer${count !== 1 ? 's' : ''} from previous applications`;
+  } catch (_) {
+    countEl.textContent = 'Unable to load history.';
+  }
+}
+
+async function handleAutofillFill() {
+  const btn = document.getElementById('autofill-fill-btn');
+  const authData = await chrome.storage.local.get(['authToken']);
+  if (!authData.authToken) {
+    document.getElementById('autofill-error-text').textContent = 'Please sign in first.';
+    document.getElementById('autofill-error')?.classList.remove('hidden');
+    return;
+  }
+
+  document.getElementById('autofill-result')?.classList.add('hidden');
+  document.getElementById('autofill-error')?.classList.add('hidden');
+  btn.disabled = true;
+  document.getElementById('autofill-loading')?.classList.remove('hidden');
+  document.getElementById('autofill-loading-text').textContent = 'Generating answers with AI...';
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) throw new Error('No active tab found.');
+
+    const response = await chrome.tabs.sendMessage(tab.id, { action: 'triggerAutofill' });
+    document.getElementById('autofill-loading')?.classList.add('hidden');
+
+    if (response?.triggered) {
+      document.getElementById('autofill-result-label').textContent = '✓ Autofill in progress';
+      document.getElementById('autofill-result')?.classList.remove('hidden');
+      loadAutofillHistoryCount();
+    } else {
+      throw new Error('Autofill could not be triggered on this page.');
+    }
+  } catch (err) {
+    document.getElementById('autofill-loading')?.classList.add('hidden');
+    document.getElementById('autofill-error-text').textContent = err.message || 'Autofill failed. Please try again.';
+    document.getElementById('autofill-error')?.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function handleClearAutofillHistory() {
+  const response = await chrome.runtime.sendMessage({ action: 'clearAutofillHistory' });
+  if (response?.ok) loadAutofillHistoryCount();
+}
+
+function initAutofillTabListeners() {
+  document.getElementById('autofill-fill-btn')?.addEventListener('click', handleAutofillFill);
+  document.getElementById('autofill-clear-history-btn')?.addEventListener('click', handleClearAutofillHistory);
+}
+
 // Initialize popup
 async function init() {
   console.log('[Offerloop Popup] Initializing...');
@@ -1794,7 +1951,8 @@ async function init() {
   initEventListeners();
   initTabSwitcher();
   initJobTabListeners();
-  
+  initAutofillTabListeners();
+
   // Get current tab URL and detect mode
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });

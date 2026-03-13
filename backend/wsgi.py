@@ -39,6 +39,7 @@ from .app.routes.auth_extension import auth_extension_bp
 from .app.routes.email_template import email_template_bp
 from .app.routes.admin import admin_bp
 from .app.routes.gmail_webhook import gmail_webhook_bp
+from .app.routes.jobs import jobs_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -130,6 +131,7 @@ def create_app() -> Flask:
     app.register_blueprint(email_template_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(gmail_webhook_bp)
+    app.register_blueprint(jobs_bp)
 
     # --- Debug route to check frontend build (dev only) ---
     @app.route('/api/debug/frontend')

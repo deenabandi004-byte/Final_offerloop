@@ -105,3 +105,64 @@
     transform: translateY(0);
   }
 }
+
+/* ============================================
+   OFFERLOOP AUTOFILL — Floating Action Button
+   ============================================ */
+
+.ol-autofill-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483647;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px 10px 14px;
+  background: linear-gradient(135deg, #1E40AF 0%, #2563EB 60%, #3B82F6 100%);
+  color: white;
+  border: none;
+  border-radius: 28px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.45), 0 1px 3px rgba(0,0,0,0.15);
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  white-space: nowrap;
+  user-select: none;
+  animation: ol-fab-enter 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.ol-autofill-fab:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.5), 0 2px 6px rgba(0,0,0,0.15);
+}
+
+.ol-autofill-fab:active { transform: translateY(0) scale(0.98); }
+
+.ol-autofill-fab.ol-autofill-loading {
+  opacity: 0.85;
+  cursor: wait;
+  pointer-events: none;
+}
+
+.ol-autofill-fab.ol-autofill-loading::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 32px;
+  border: 2px solid rgba(59, 130, 246, 0.6);
+  animation: ol-pulse-ring 1.4s ease-in-out infinite;
+}
+
+@keyframes ol-pulse-ring {
+  0%   { opacity: 1; transform: scale(1); }
+  70%  { opacity: 0; transform: scale(1.08); }
+  100% { opacity: 0; transform: scale(1.08); }
+}
+
+@keyframes ol-fab-enter {
+  from { opacity: 0; transform: translateY(12px) scale(0.9); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
