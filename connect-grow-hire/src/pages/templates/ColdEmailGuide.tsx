@@ -309,6 +309,25 @@ const ColdEmailGuide = ({ industry }: Props) => {
         ))}
       </section>
 
+      {/* Related Resources */}
+      <section className="px-6 py-16" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
+        <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '24px', color: '#0F172A' }}>Related Resources</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Link to={`/networking/${industry.top_companies[0]?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'mckinsey'}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+            <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>{industry.top_companies[0]} Networking Guide</p>
+            <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Full networking playbook for {industry.top_companies[0]}.</p>
+          </Link>
+          <Link to="/blog" style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+            <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>Offerloop Blog</p>
+            <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Networking strategies, recruiting tips, and career advice.</p>
+          </Link>
+          <Link to="/glossary" style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+            <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>Networking Glossary</p>
+            <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Definitions for cold email, coffee chat, and recruiting terms.</p>
+          </Link>
+        </div>
+      </section>
+
       {/* CTA */}
       <section className="px-6 py-20" style={{ background: '#F8FAFF' }}>
         <div className="text-center" style={{ maxWidth: '560px', margin: '0 auto' }}>

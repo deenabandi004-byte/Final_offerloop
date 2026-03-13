@@ -213,6 +213,29 @@ const AlumniGuide = ({ university: uni }: Props) => {
         ))}
       </section>
 
+      {/* Related Resources */}
+      <section className="px-6 py-16" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
+        <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '24px', color: '#0F172A' }}>Related Resources</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Link to="/cold-email/management-consulting" style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+            <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>Consulting Cold Emails</p>
+            <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Templates for reaching out to MBB and Big 4 consultants.</p>
+          </Link>
+          <Link to="/cold-email/investment-banking" style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+            <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>IB Cold Emails</p>
+            <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Cold email templates for investment banking networking.</p>
+          </Link>
+          <Link to="/coffee-chat/mckinsey" style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+            <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>Coffee Chat Guides</p>
+            <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Prep questions and follow-up strategies for coffee chats.</p>
+          </Link>
+          <Link to="/blog" style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+            <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>Offerloop Blog</p>
+            <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Networking strategies, recruiting tips, and career advice.</p>
+          </Link>
+        </div>
+      </section>
+
       {/* CTA */}
       <section className="px-6 py-20" style={{ background: '#F8FAFF' }}>
         <div className="text-center" style={{ maxWidth: '560px', margin: '0 auto' }}>
