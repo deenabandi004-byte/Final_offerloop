@@ -54,7 +54,6 @@ type NavItemDef = {
 // Group 1 — main nav
 const mainNavItems: NavItemDef[] = [
   { title: "Find", url: "/find", iconSrc: MagnifyingGlassIcon },
-  { title: "Job Board", url: "/job-board", LucideIcon: Briefcase },
   { title: "Coffee Chat Prep", url: "/coffee-chat-prep", iconSrc: CupIcon, dataTour: "tour-coffee-chat-prep" },
   { title: "Tracker", url: "/tracker", iconSrc: MailIcon, dataTour: "tour-track-email" },
 ];
