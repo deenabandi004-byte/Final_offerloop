@@ -12,6 +12,7 @@ import {
   Tag,
   FileText,
   Briefcase,
+  BookOpen,
 } from "lucide-react";
 import CupIcon from "@/assets/sidebaricons/icons8-cup-48.png";
 import MailIcon from "@/assets/sidebaricons/icons8-important-mail-48.png";
@@ -58,7 +59,17 @@ const mainNavItems: NavItemDef[] = [
   { title: "Tracker", url: "/tracker", iconSrc: MailIcon, dataTour: "tour-track-email" },
 ];
 
-// Group 2 — utility nav
+// Group 2 — guides
+const guidesNavItems: NavItemDef[] = [
+  { title: "Networking Guides", url: "/networking/mckinsey", LucideIcon: BookOpen },
+  { title: "Coffee Chat Guides", url: "/coffee-chat/mckinsey", LucideIcon: BookOpen },
+  { title: "Cold Email Templates", url: "/cold-email/management-consulting", LucideIcon: BookOpen },
+  { title: "Compare Tools", url: "/compare/handshake", LucideIcon: BookOpen },
+  { title: "Blog", url: "/blog", LucideIcon: BookOpen },
+  { title: "Glossary", url: "/glossary", LucideIcon: BookOpen },
+];
+
+// Group 3 — utility nav
 const utilityNavItems: NavItemDef[] = [
   { title: "Pricing", url: "/pricing", LucideIcon: Tag },
   { title: "Documentation", url: "/documentation", LucideIcon: FileText },
@@ -364,7 +375,31 @@ export function AppSidebar() {
             {/* Divider */}
             <div className="my-3" style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }} />
 
-            {/* Group 2 — utility */}
+            {/* Group 2 — guides */}
+            {!isCollapsed && (
+              <p
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  letterSpacing: "0.06em",
+                  color: "#A0AABB",
+                  fontFamily: "var(--font-body)",
+                  textTransform: "uppercase" as const,
+                  paddingLeft: "10px",
+                  marginBottom: "4px",
+                }}
+              >
+                Guides
+              </p>
+            )}
+            <div className="space-y-0.5">
+              {guidesNavItems.map(renderNavItem)}
+            </div>
+
+            {/* Divider */}
+            <div className="my-3" style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }} />
+
+            {/* Group 3 — utility */}
             <div className="space-y-0.5">
               {utilityNavItems.map(renderNavItem)}
             </div>

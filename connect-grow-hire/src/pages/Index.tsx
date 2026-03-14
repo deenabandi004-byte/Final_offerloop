@@ -347,6 +347,34 @@ const Index = () => {
                       Glossary
                     </Link>
                     <Link
+                      to="/networking/mckinsey"
+                      className="px-4 py-2.5 text-sm font-medium hover:bg-gray-50 transition-colors"
+                      style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-body)' }}
+                    >
+                      Networking Guides <span className="text-xs opacity-50">By Company</span>
+                    </Link>
+                    <Link
+                      to="/coffee-chat/mckinsey"
+                      className="px-4 py-2.5 text-sm font-medium hover:bg-gray-50 transition-colors"
+                      style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-body)' }}
+                    >
+                      Coffee Chat Guides <span className="text-xs opacity-50">By Company</span>
+                    </Link>
+                    <Link
+                      to="/cold-email/management-consulting"
+                      className="px-4 py-2.5 text-sm font-medium hover:bg-gray-50 transition-colors"
+                      style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-body)' }}
+                    >
+                      Cold Email Templates <span className="text-xs opacity-50">By Industry</span>
+                    </Link>
+                    <Link
+                      to="/compare/handshake"
+                      className="px-4 py-2.5 text-sm font-medium hover:bg-gray-50 transition-colors"
+                      style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-body)' }}
+                    >
+                      Compare Tools <span className="text-xs opacity-50">vs Competitors</span>
+                    </Link>
+                    <Link
                       to="/data"
                       className="px-4 py-2.5 text-sm font-medium hover:bg-gray-50 transition-colors"
                       style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-body)' }}
@@ -509,6 +537,38 @@ const Index = () => {
                 style={{ color: 'var(--text-secondary)' }}
               >
                 Glossary
+              </Link>
+              <Link
+                to="/networking/mckinsey"
+                onClick={() => setMobileMenuOpen(false)}
+                className="block text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Networking Guides <span className="text-xs opacity-50">By Company</span>
+              </Link>
+              <Link
+                to="/coffee-chat/mckinsey"
+                onClick={() => setMobileMenuOpen(false)}
+                className="block text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Coffee Chat Guides <span className="text-xs opacity-50">By Company</span>
+              </Link>
+              <Link
+                to="/cold-email/management-consulting"
+                onClick={() => setMobileMenuOpen(false)}
+                className="block text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Cold Email Templates <span className="text-xs opacity-50">By Industry</span>
+              </Link>
+              <Link
+                to="/compare/handshake"
+                onClick={() => setMobileMenuOpen(false)}
+                className="block text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Compare Tools <span className="text-xs opacity-50">vs Competitors</span>
               </Link>
               <Link
                 to="/data"
