@@ -506,4 +506,5 @@ export const companies: Company[] = [
   { name: "Hinge Health", slug: "hinge-health", industry: "healthcare", divisions: ["Digital MSK", "Technology", "Clinical"], culture: "digital health, mission-driven, fast-growing", recruits_from: ["target", "semi-target"] },
   { name: "Cerebral", slug: "cerebral", industry: "healthcare", divisions: ["Mental Health", "Technology", "Clinical"], culture: "mental health focused, mission-driven, growing", recruits_from: ["target", "semi-target"] },
   { name: "Oscar Health", slug: "oscar", industry: "healthcare", divisions: ["Insurance", "Technology", "Clinical"], culture: "tech-driven health insurance, mission-driven, growing", recruits_from: ["target", "semi-target"] },
+  { name: "Booz Allen Strategy", slug: "booz-allen-strategy-2", industry: "consulting", divisions: ["Strategy", "Analytics", "Digital"], culture: "government-adjacent, mission-driven, analytical", recruits_from: ["target", "semi-target"] },
 ];

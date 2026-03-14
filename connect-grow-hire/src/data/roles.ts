@@ -86,4 +86,5 @@ export const roles: Role[] = [
   { name: "Transfer Pricing Analyst", slug: "transfer-pricing", industry: "consulting", top_employers: ["Deloitte", "PwC", "EY", "KPMG", "Duff and Phelps"], timeline: "Applications open August-November", interview_type: "Tax knowledge, economics, analytical" },
   { name: "Forensic Accounting Analyst", slug: "forensic-accounting", industry: "consulting", top_employers: ["FTI Consulting", "Kroll", "Ankura", "AlixPartners", "Deloitte"], timeline: "Applications open August-November", interview_type: "Accounting knowledge, analytical, behavioral" },
   { name: "Sports Analytics Analyst", slug: "sports-analytics", industry: "consumer", top_employers: ["NBA", "NFL", "MLB", "Nike", "Stats Perform"], timeline: "Applications open October-February", interview_type: "Statistics, SQL, sports knowledge, Python" },
+  { name: "Chief of Staff Intern", slug: "chief-of-staff", industry: "tech", top_employers: ["Google", "Amazon", "Meta", "Stripe", "Airbnb"], timeline: "Applications open September-December", interview_type: "Operations, analytical, behavioral" },
 ];

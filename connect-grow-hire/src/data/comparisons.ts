@@ -147,4 +147,6 @@ export const comparisons = [
   { slugA: "hubspot", slugB: "salesforce", label: "HubSpot vs Salesforce" },
   { slugA: "servicenow", slugB: "salesforce", label: "ServiceNow vs Salesforce" },
   { slugA: "oracle", slugB: "microsoft", label: "Oracle vs Microsoft" },
+  { slugA: "nike", slugB: "lululemon", label: "Nike vs Lululemon" },
+  { slugA: "google", slugB: "salesforce", label: "Google vs Salesforce" },
 ];
