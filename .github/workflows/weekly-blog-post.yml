@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   generate-blog-post:
@@ -29,15 +28,10 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: node scripts/generate-blog-post.cjs
 
-      - name: Create pull request
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: 'Add weekly blog post'
-          branch: blog/weekly-post-${{ github.run_number }}
-          title: 'New blog post from content calendar'
-          body: |
-            Automated weekly blog post generated from the content calendar.
-
-            Please review the content before merging.
-          labels: blog, automated
+      - name: Commit and push
+        run: |
+          git config user.name "Offerloop Bot"
+          git config user.email "bot@offerloop.ai"
+          git add .
+          git commit -m "Auto: weekly blog post"
+          git push origin main
