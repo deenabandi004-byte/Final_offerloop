@@ -72,6 +72,7 @@ const AlumniGuidePage = React.lazy(() => import("./pages/AlumniGuidePage"));
 const ColdEmailGuidePage = React.lazy(() => import("./pages/ColdEmailGuidePage"));
 const CoffeeChatGuidePage = React.lazy(() => import("./pages/CoffeeChatGuidePage"));
 const RoleNetworkingGuidePage = React.lazy(() => import("./pages/RoleNetworkingGuidePage"));
+const CompanyComparisonPage = React.lazy(() => import("./pages/CompanyComparisonPage"));
 
 // Optimized QueryClient with caching
 const queryClient = new QueryClient({
@@ -290,6 +291,7 @@ const AppRoutes: React.FC = () => {
       <Route path="/cold-email/:slug" element={<Suspense fallback={<PageLoader />}><ColdEmailGuidePage /></Suspense>} />
       <Route path="/coffee-chat/:slug" element={<Suspense fallback={<PageLoader />}><CoffeeChatGuidePage /></Suspense>} />
       <Route path="/networking-for/:slug" element={<Suspense fallback={<PageLoader />}><RoleNetworkingGuidePage /></Suspense>} />
+      <Route path="/compare/:comparison" element={<Suspense fallback={<PageLoader />}><CompanyComparisonPage /></Suspense>} />
 
       {/* Public informational pages */}
       <Route path="/about" element={<Suspense fallback={<PageLoader />}><AboutUs /></Suspense>} />
