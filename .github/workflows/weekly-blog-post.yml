@@ -1,0 +1,43 @@
+name: Weekly Blog Post
+
+on:
+  schedule:
+    - cron: '0 9 * * 5'  # Every Friday at 9am UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate-blog-post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install openai
+
+      - name: Generate blog post
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: node scripts/generate-blog-post.cjs
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'Add weekly blog post'
+          branch: blog/weekly-post-${{ github.run_number }}
+          title: 'New blog post from content calendar'
+          body: |
+            Automated weekly blog post generated from the content calendar.
+
+            Please review the content before merging.
+          labels: blog, automated
