@@ -13,9 +13,45 @@ from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as
 from functools import lru_cache
 from threading import Lock
 from app.config import SERPAPI_KEY
-from app.services.openai_client import get_openai_client
+from app.services.openai_client import get_openai_client, get_anthropic_client
 
 logger = logging.getLogger(__name__)
+
+
+def _call_ai(system_prompt: str, user_prompt: str, max_tokens: int = 1000, label: str = "AI") -> Optional[str]:
+    """Try Claude first, fall back to GPT. Returns the response text or None."""
+    # Try Claude first
+    anthropic_client = get_anthropic_client()
+    if anthropic_client:
+        try:
+            response = anthropic_client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            logger.info("[%s] ✅ Claude succeeded", label)
+            return response.content[0].text.strip()
+        except Exception as e:
+            logger.warning("[%s] ⚠️ Claude failed: %s — falling back to GPT", label, e)
+
+    # Fall back to GPT
+    client = get_openai_client()
+    if not client:
+        logger.warning("[%s] ⚠️ No AI client available", label)
+        return None
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        temperature=0.1,
+        max_tokens=max_tokens
+    )
+    logger.info("[%s] ✅ GPT succeeded", label)
+    return response.choices[0].message.content.strip()
+
 
 SERPAPI_BASE_URL = "https://serpapi.com/search"
 
@@ -339,10 +375,6 @@ def _extract_firms_batch_with_chatgpt(
     if not serp_data_list:
         return []
     
-    client = get_openai_client()
-    if not client:
-        return []
-    
     # Prepare batch context
     location_str = ""
     if location:
@@ -422,18 +454,10 @@ Return ONLY a JSON array (no markdown, no explanations):
 ]"""
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.1,
-            max_tokens=2000  # More tokens for batch extraction
-        )
-        
-        result_text = response.choices[0].message.content.strip()
-        
+        result_text = _call_ai(system_prompt, user_prompt, max_tokens=2000, label="FIRM-BATCH")
+        if not result_text:
+            return []
+
         # Clean up response
         if result_text.startswith("```"):
             result_text = result_text.split("```")[1]
@@ -681,10 +705,7 @@ def search_firm_details_with_serp(
         if not linkedin_url:
             linkedin_url = _search_linkedin_url(firm_name, location, timeout=5)
         
-        # Use ChatGPT to extract structured data from SERP results
-        client = get_openai_client()
-        if not client:
-            return None
+        # Use AI to extract structured data from SERP results
         
         # Prepare enhanced context for ChatGPT
         context_parts = []
@@ -801,18 +822,10 @@ Return ONLY a JSON object (no markdown, no explanations):
   "founded": 2010
 }}"""
 
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.1,
-            max_tokens=800  # Increased for more detailed extraction
-        )
-        
-        result_text = response.choices[0].message.content.strip()
-        
+        result_text = _call_ai(system_prompt, user_prompt, max_tokens=800, label="FIRM-DETAIL")
+        if not result_text:
+            return None
+
         # Clean up response
         if result_text.startswith("```"):
             result_text = result_text.split("```")[1]

@@ -1264,7 +1264,7 @@ class ApiService {
     const { getAuth } = await import('firebase/auth');
     const token = await getAuth().currentUser?.getIdToken(true);
     // EventSource doesn't support custom headers, so pass token as query param
-    const url = `${API_BASE_URL}/api/firm-search/stream/${searchId}?token=${encodeURIComponent(token || '')}`;
+    const url = `${API_BASE_URL}/firm-search/stream/${searchId}?token=${encodeURIComponent(token || '')}`;
     return new EventSource(url);
   }
 

@@ -1,10 +1,13 @@
 """
-Company Data Extraction Service - Uses ChatGPT to generate firm names, then SERP to get details
+Company Data Extraction Service - Uses Claude/ChatGPT to generate firm names, then SERP to get details
 """
 import json
+import logging
 import re
 from typing import List, Dict, Any, Optional
-from app.services.openai_client import get_openai_client
+from app.services.openai_client import get_openai_client, get_anthropic_client
+
+logger = logging.getLogger(__name__)
 
 
 def generate_firm_names_with_chatgpt(
@@ -24,11 +27,6 @@ def generate_firm_names_with_chatgpt(
     Returns:
         List of firm names (strings)
     """
-    client = get_openai_client()
-    if not client:
-        print("⚠️ OpenAI client not available")
-        return []
-    
     industry = filters.get("industry", "")
     location_info = filters.get("location", {})
     location_str = ", ".join([v for v in [
@@ -108,17 +106,41 @@ Return JSON array:
 ["Company 1", "Company 2", ...]"""
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.3,  # Slightly higher for more variety
-            max_tokens=1000
-        )
-        
-        result_text = response.choices[0].message.content.strip()
+        result_text = None
+
+        # Try Claude first
+        anthropic_client = get_anthropic_client()
+        if anthropic_client:
+            try:
+                logger.info("[FIRM-GEN] Attempting Claude for firm name generation")
+                claude_response = anthropic_client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=1000,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_prompt}],
+                )
+                result_text = claude_response.content[0].text.strip()
+                logger.info("[FIRM-GEN] ✅ Claude succeeded")
+            except Exception as claude_err:
+                logger.warning("[FIRM-GEN] ⚠️ Claude failed: %s — falling back to GPT", claude_err)
+
+        # Fall back to GPT
+        if result_text is None:
+            client = get_openai_client()
+            if not client:
+                print("⚠️ No AI client available")
+                return []
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=1000
+            )
+            result_text = response.choices[0].message.content.strip()
+            logger.info("[FIRM-GEN] ✅ GPT succeeded")
         
         # Clean up response - remove markdown code blocks if present
         if result_text.startswith("```"):
@@ -211,11 +233,6 @@ def extract_company_data_from_serp(
     if not serp_results:
         return []
     
-    client = get_openai_client()
-    if not client:
-        print("⚠️ OpenAI client not available")
-        return []
-    
     # Prepare SERP results for ChatGPT
     results_text = []
     for i, result in enumerate(serp_results[:limit * 2], 1):  # Get more to account for filtering
@@ -305,17 +322,41 @@ Return ONLY a JSON array in this exact format (no markdown, no code blocks, no e
 ]"""
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.1,
-            max_tokens=2000
-        )
-        
-        result_text = response.choices[0].message.content.strip()
+        result_text = None
+
+        # Try Claude first
+        anthropic_client = get_anthropic_client()
+        if anthropic_client:
+            try:
+                logger.info("[FIRM-EXTRACT] Attempting Claude for company extraction")
+                claude_response = anthropic_client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=2000,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_prompt}],
+                )
+                result_text = claude_response.content[0].text.strip()
+                logger.info("[FIRM-EXTRACT] ✅ Claude succeeded")
+            except Exception as claude_err:
+                logger.warning("[FIRM-EXTRACT] ⚠️ Claude failed: %s — falling back to GPT", claude_err)
+
+        # Fall back to GPT
+        if result_text is None:
+            client = get_openai_client()
+            if not client:
+                print("⚠️ No AI client available")
+                return []
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.1,
+                max_tokens=2000
+            )
+            result_text = response.choices[0].message.content.strip()
+            logger.info("[FIRM-EXTRACT] ✅ GPT succeeded")
         
         # Clean up response - remove markdown code blocks if present
         if result_text.startswith("```"):
