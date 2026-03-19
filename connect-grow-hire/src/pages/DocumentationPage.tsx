@@ -19,11 +19,11 @@ function VideoCard({ video }: { video: VideoTutorial }) {
       href={video.youtubeUrl}
       target="_blank"
       rel="noopener noreferrer"
-      className="carousel-card flex-shrink-0 rounded-xl overflow-hidden transition-all duration-300 cursor-pointer"
+      className="carousel-card flex-shrink-0 rounded-[3px] overflow-hidden transition-all duration-300 cursor-pointer"
       style={{
         scrollSnapAlign: "start",
         background: "#fff",
-        boxShadow: hovered ? "0 8px 30px rgba(37, 99, 235, 0.18)" : "0 1px 4px rgba(0,0,0,0.06)",
+        boxShadow: hovered ? "0 8px 30px rgba(59, 130, 246, 0.18)" : "0 1px 4px rgba(0,0,0,0.06)",
         transform: hovered ? "scale(1.04)" : "scale(1)",
         zIndex: hovered ? 10 : 1,
         position: "relative",
@@ -37,7 +37,7 @@ function VideoCard({ video }: { video: VideoTutorial }) {
         style={{
           aspectRatio: "16/9",
           minHeight: 100,
-          background: "#f1f5f9",
+          background: "#FAFBFF",
         }}
       >
         <img
@@ -60,7 +60,7 @@ function VideoCard({ video }: { video: VideoTutorial }) {
             style={{
               width: "56px",
               height: "56px",
-              background: "rgba(37, 99, 235, 0.9)",
+              background: "rgba(28, 22, 10, 0.9)",
               transform: hovered ? "scale(1.15)" : "scale(1)",
             }}
           >
@@ -72,7 +72,7 @@ function VideoCard({ video }: { video: VideoTutorial }) {
         <h3
           className="text-sm font-medium leading-snug mb-1"
           style={{
-            color: "#1E293B",
+            color: "#0F172A",
             fontFamily: "var(--font-body)",
             display: "-webkit-box",
             WebkitLineClamp: 2,
@@ -85,7 +85,7 @@ function VideoCard({ video }: { video: VideoTutorial }) {
         <p
           className="text-xs leading-relaxed transition-all duration-300"
           style={{
-            color: "#64748B",
+            color: "#6B7280",
             fontFamily: "var(--font-body)",
             display: "-webkit-box",
             WebkitLineClamp: hovered ? 6 : 2,
@@ -137,7 +137,7 @@ function VideoCarousel({ title, videos }: { title: string; videos: VideoTutorial
       <div className="flex items-center justify-between mb-5">
         <h2
           className="text-xl font-semibold"
-          style={{ color: "#1E293B", fontFamily: "var(--font-body)" }}
+          style={{ color: "#0F172A", fontFamily: "var(--font-body)" }}
         >
           {title}
         </h2>
@@ -148,8 +148,8 @@ function VideoCarousel({ title, videos }: { title: string; videos: VideoTutorial
             onClick={() => scroll("left")}
             className="flex items-center justify-center w-8 h-8 rounded-full transition-all"
             style={{
-              background: canScrollLeft ? "rgba(37, 99, 235, 0.10)" : "rgba(0,0,0,0.04)",
-              color: canScrollLeft ? "#2563EB" : "#CBD5E1",
+              background: canScrollLeft ? "rgba(59, 130, 246, 0.10)" : "rgba(0,0,0,0.04)",
+              color: canScrollLeft ? "#3B82F6" : "#CBD5E1",
               cursor: canScrollLeft ? "pointer" : "default",
             }}
             aria-label="Scroll left"
@@ -162,8 +162,8 @@ function VideoCarousel({ title, videos }: { title: string; videos: VideoTutorial
             onClick={() => scroll("right")}
             className="flex items-center justify-center w-8 h-8 rounded-full transition-all"
             style={{
-              background: canScrollRight ? "rgba(37, 99, 235, 0.10)" : "rgba(0,0,0,0.04)",
-              color: canScrollRight ? "#2563EB" : "#CBD5E1",
+              background: canScrollRight ? "rgba(59, 130, 246, 0.10)" : "rgba(0,0,0,0.04)",
+              color: canScrollRight ? "#3B82F6" : "#CBD5E1",
               cursor: canScrollRight ? "pointer" : "default",
             }}
             aria-label="Scroll right"
@@ -197,13 +197,13 @@ export default function DocumentationPage() {
         <AppSidebar />
         <MainContentWrapper>
           <AppHeader title="" />
-          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }}>
+          <main style={{ background: '#FAFBFF', flex: 1, overflowY: 'auto' }}>
             <div className="max-w-4xl mx-auto px-3 py-6 sm:px-6 sm:py-12">
               <div style={{ maxWidth: '900px', margin: '0 auto' }}>
                 <h1
                   className="text-[28px] sm:text-[42px]"
                   style={{
-                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontFamily: "'Lora', Georgia, serif",
                     fontWeight: 400,
                     letterSpacing: "-0.025em",
                     color: "#0F172A",
@@ -218,7 +218,7 @@ export default function DocumentationPage() {
                   style={{
                     fontFamily: "'DM Sans', system-ui, sans-serif",
                     fontSize: "16px",
-                    color: "#64748B",
+                    color: "#6B7280",
                     textAlign: "center",
                     marginBottom: "28px",
                     lineHeight: 1.5,

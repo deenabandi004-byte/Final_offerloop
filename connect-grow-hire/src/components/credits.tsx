@@ -15,7 +15,7 @@ export function CreditPill({
       ? "bg-red-500/15 text-red-700 ring-red-400/30"
       : low === "amber"
       ? "bg-amber-500/15 text-amber-700 ring-amber-400/30"
-      : "bg-blue-500/15 text-blue-700 ring-blue-400/30";
+      : "bg-[#3B82F6]/15 text-[#0F172A] ring-[#3B82F6]/30";
 
   return (
     <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full ring-1 ${tone}`}>
@@ -35,7 +35,7 @@ export function CreditMeter({
 }) {
   const pct = Math.max(0, Math.min(100, (credits / Math.max(1, max)) * 100));
   const bar =
-    credits === 0 ? "bg-red-500" : credits < 30 ? "bg-amber-500" : "bg-blue-500";
+    credits === 0 ? "bg-red-500" : credits < 30 ? "bg-amber-500" : "bg-[#3B82F6]";
 
   return (
     <div className="space-y-1">

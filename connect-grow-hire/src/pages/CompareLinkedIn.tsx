@@ -61,16 +61,16 @@ const CompareLinkedIn = () => {
       {/* Nav */}
       <nav className="w-full px-6 py-5 flex items-center justify-between" style={{ maxWidth: '1100px', margin: '0 auto' }}>
         <Link to="/" className="text-xl font-bold" style={{ color: '#0F172A', letterSpacing: '-0.02em' }}>Offerloop</Link>
-        <Link to="/signin?mode=signup" className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: '#2563EB' }}>
+        <Link to="/signin?mode=signup" className="px-5 py-2.5 rounded-[3px] text-sm font-semibold text-white" style={{ background: '#3B82F6' }}>
           Get Started Free
         </Link>
       </nav>
 
       {/* Hero */}
       <section className="px-6 pt-16 pb-12" style={{ maxWidth: '800px', margin: '0 auto' }}>
-        <p className="text-sm font-medium mb-4" style={{ color: '#2563EB', letterSpacing: '0.02em' }}>COMPARISON</p>
-        <h1 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 'clamp(36px, 5vw, 56px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '20px' }}>
-          Offerloop vs <span style={{ color: '#2563EB' }}>LinkedIn</span>
+        <p className="text-sm font-medium mb-4" style={{ color: '#3B82F6', letterSpacing: '0.02em' }}>COMPARISON</p>
+        <h1 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(36px, 5vw, 56px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '20px' }}>
+          Offerloop vs <span style={{ color: '#3B82F6' }}>LinkedIn</span>
         </h1>
         <p style={{ fontSize: '17px', lineHeight: 1.7, color: '#64748B', maxWidth: '620px' }}>
           LinkedIn has the largest professional network in the world. But it wasn't built for proactive outreach — Offerloop was. Use LinkedIn to research. Use Offerloop to reach out.
@@ -79,12 +79,12 @@ const CompareLinkedIn = () => {
 
       {/* Comparison Table */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto' }}>
-        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid #E2E8F0' }}>
+        <div className="rounded-[3px] overflow-hidden" style={{ border: '1px solid #E2E8F0' }}>
           <table className="w-full">
             <thead>
               <tr style={{ background: '#F8FAFC' }}>
                 <th className="text-left py-4 px-5 text-sm font-semibold" style={{ color: '#0F172A' }}>Feature</th>
-                <th className="text-center py-4 px-5 text-sm font-semibold" style={{ color: '#2563EB' }}>Offerloop</th>
+                <th className="text-center py-4 px-5 text-sm font-semibold" style={{ color: '#3B82F6' }}>Offerloop</th>
                 <th className="text-center py-4 px-5 text-sm font-semibold" style={{ color: '#64748B' }}>LinkedIn</th>
               </tr>
             </thead>
@@ -107,7 +107,7 @@ const CompareLinkedIn = () => {
 
       {/* Content Section 1 */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           Is LinkedIn effective for cold outreach as a student?
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
@@ -123,7 +123,7 @@ const CompareLinkedIn = () => {
 
       {/* Content Section 2 */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           What can LinkedIn do that Offerloop can't?
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
@@ -136,7 +136,7 @@ const CompareLinkedIn = () => {
 
       {/* Content Section 3 */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           Why does email outreach get better response rates than LinkedIn messages?
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
@@ -159,9 +159,9 @@ const CompareLinkedIn = () => {
       </section>
 
       {/* CTA */}
-      <section className="px-6 py-20" style={{ background: '#F8FAFF' }}>
+      <section className="px-6 py-20" style={{ background: '#FAFBFF' }}>
         <div className="text-center" style={{ maxWidth: '520px', margin: '0 auto' }}>
-          <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 'clamp(28px, 4vw, 40px)', fontWeight: 400, lineHeight: 1.15, color: '#0F172A', marginBottom: '16px' }}>
+          <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(28px, 4vw, 40px)', fontWeight: 400, lineHeight: 1.15, color: '#0F172A', marginBottom: '16px' }}>
             Try Offerloop free — built for student networking
           </h2>
           <p style={{ fontSize: '15px', color: '#64748B', marginBottom: '28px' }}>
@@ -169,8 +169,8 @@ const CompareLinkedIn = () => {
           </p>
           <Link
             to="/signin?mode=signup"
-            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl text-white font-semibold text-base hover:shadow-lg transition-all"
-            style={{ background: '#2563EB' }}
+            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-[3px] text-white font-semibold text-base hover:shadow-lg transition-all"
+            style={{ background: '#3B82F6' }}
           >
             Create free account <ArrowRight className="w-4 h-4" />
           </Link>

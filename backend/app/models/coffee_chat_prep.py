@@ -83,16 +83,19 @@ def update_coffee_chat_prep_status(
 
 
 def validate_prep_status(status: str) -> bool:
-    """Validate that status is a valid value"""
+    """Validate that status is a valid value.
+    NOTE: These must match the stages used in routes/coffee_chat_prep.py _update_stage().
+    """
     valid_statuses = [
         'pending',
         'processing',
-        'enriching_profile',
-        'fetching_news',
-        'generating_content',
-        'generating_pdf',
+        'enriching',
+        'researching',
+        'analyzing',
+        'generating',
+        'building',
         'completed',
-        'failed'
+        'failed',
     ]
     return status in valid_statuses
 

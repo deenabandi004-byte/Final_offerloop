@@ -117,7 +117,7 @@ export const SearchConfirmation: React.FC<SearchConfirmationProps> = ({
 
   const getFilterColor = (type: FilterType): string => {
     const colors: Record<FilterType, string> = {
-      company: 'bg-blue-100 text-blue-800 border-blue-200',
+      company: 'bg-[rgba(59,130,246,0.10)] text-[#0F172A] border-[#E2E8F0]',
       roles: 'bg-green-100 text-green-800 border-green-200',
       location: 'bg-purple-100 text-purple-800 border-purple-200',
       schools: 'bg-orange-100 text-orange-800 border-orange-200',

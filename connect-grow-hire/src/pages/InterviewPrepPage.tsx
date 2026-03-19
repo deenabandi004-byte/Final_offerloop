@@ -570,7 +570,7 @@ const InterviewPrepPage: React.FC = () => {
           <AppHeader title="" />
 
           <ProGate title="Interview Prep" description="Get company-specific behavioral questions, prep guides, and insider context tailored to your target role." videoId="q5ZPtmnZciE">
-          <main data-tour="tour-interview-prep" style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
+          <main data-tour="tour-interview-prep" style={{ background: '#FAFBFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
             <div className="max-w-4xl mx-auto px-3 py-6 sm:px-6 sm:py-12">
               
               {/* Header Section */}
@@ -578,7 +578,7 @@ const InterviewPrepPage: React.FC = () => {
                 <h1
                   className="text-[28px] sm:text-[42px]"
                   style={{
-                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontFamily: "'Lora', Georgia, serif",
                     fontWeight: 400,
                     letterSpacing: '-0.025em',
                     color: '#0F172A',
@@ -632,7 +632,7 @@ const InterviewPrepPage: React.FC = () => {
                       fontSize: '14px',
                       fontWeight: 500,
                       transition: 'all 0.15s ease',
-                      background: activeTab === 'interview-prep' ? '#2563EB' : 'transparent',
+                      background: activeTab === 'interview-prep' ? '#0F172A' : 'transparent',
                       color: activeTab === 'interview-prep' ? 'white' : '#64748B',
                       boxShadow: activeTab === 'interview-prep' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
                     }}
@@ -655,7 +655,7 @@ const InterviewPrepPage: React.FC = () => {
                       fontSize: '14px',
                       fontWeight: 500,
                       transition: 'all 0.15s ease',
-                      background: activeTab === 'interview-library' ? '#2563EB' : 'transparent',
+                      background: activeTab === 'interview-library' ? '#0F172A' : 'transparent',
                       color: activeTab === 'interview-library' ? 'white' : '#64748B',
                       boxShadow: activeTab === 'interview-library' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
                     }}
@@ -669,7 +669,7 @@ const InterviewPrepPage: React.FC = () => {
                           padding: '2px 8px',
                           borderRadius: '6px',
                           background: activeTab === 'interview-library' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(37, 99, 235, 0.08)',
-                          color: activeTab === 'interview-library' ? 'white' : '#2563EB',
+                          color: activeTab === 'interview-library' ? 'white' : '#0F172A',
                           fontFamily: "'DM Sans', system-ui, sans-serif",
                           fontSize: '11px',
                           fontWeight: 600,
@@ -705,7 +705,7 @@ const InterviewPrepPage: React.FC = () => {
                   )}
 
                   {/* Main Card */}
-                  <div className="bg-white rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
+                  <div className="bg-white rounded-[3px] shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
                     {/* Simple gray divider */}
                     <div className="h-1 bg-gray-100"></div>
                     
@@ -727,7 +727,7 @@ const InterviewPrepPage: React.FC = () => {
                           
                           <div className="relative group">
                             <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                              <Link className="h-5 w-5 text-gray-400 group-focus-within:text-blue-600 transition-colors" />
+                              <Link className="h-5 w-5 text-gray-400 group-focus-within:text-[#3B82F6] transition-colors" />
                             </div>
                             
                             <input
@@ -743,10 +743,10 @@ const InterviewPrepPage: React.FC = () => {
                               }}
                               placeholder="Paste the job posting URL here..."
                               disabled={interviewPrepLoading || !hasAccess}
-                              className="block w-full pl-12 pr-12 py-4 text-base border-2 border-gray-300 rounded-2xl
+                              className="block w-full pl-12 pr-12 py-4 text-base border-2 border-gray-300 rounded-[3px]
                                          text-gray-900 placeholder-gray-400 bg-white
                                          hover:border-gray-400
-                                         focus:border-blue-400 focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20
+                                         focus:border-[#3B82F6] focus:bg-[#FAFBFF]/20 focus:ring-2 focus:ring-[#3B82F6]/20
                                          transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
                             />
                             
@@ -801,10 +801,10 @@ const InterviewPrepPage: React.FC = () => {
                                   onChange={(e) => setManualCompanyName(e.target.value)}
                                   placeholder="e.g., Google, Amazon, Meta"
                                   disabled={interviewPrepLoading || !hasAccess}
-                                  className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl
+                                  className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-[3px]
                                              text-gray-900 placeholder-gray-400
                                              hover:border-gray-300
-                                             focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400
+                                             focus:bg-[#FAFBFF]/20 focus:ring-2 focus:ring-[#3B82F6]/20 focus:border-[#3B82F6]
                                              transition-all duration-150 disabled:opacity-50"
                                 />
                               </div>
@@ -824,10 +824,10 @@ const InterviewPrepPage: React.FC = () => {
                                   onChange={(e) => setManualJobTitle(e.target.value)}
                                   placeholder="e.g., Software Engineer, Data Scientist"
                                   disabled={interviewPrepLoading || !hasAccess}
-                                  className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl
+                                  className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-[3px]
                                              text-gray-900 placeholder-gray-400
                                              hover:border-gray-300
-                                             focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400
+                                             focus:bg-[#FAFBFF]/20 focus:ring-2 focus:ring-[#3B82F6]/20 focus:border-[#3B82F6]
                                              transition-all duration-150 disabled:opacity-50"
                                 />
                               </div>
@@ -837,7 +837,7 @@ const InterviewPrepPage: React.FC = () => {
 
                         {/* Manual Input Required (fallback) */}
                         {showManualInput && (
-                          <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 space-y-4">
+                          <div className="rounded-[3px] border border-amber-200 bg-amber-50 p-5 space-y-4">
                             <div className="flex items-start gap-2">
                               <XCircle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
                               <div className="flex-1">
@@ -865,9 +865,9 @@ const InterviewPrepPage: React.FC = () => {
                                     onChange={(e) => setManualCompanyName(e.target.value)}
                                     placeholder="e.g., Google, Amazon, Meta"
                                     disabled={interviewPrepLoading || !hasAccess}
-                                    className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl bg-white
+                                    className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-[3px] bg-white
                                                text-gray-900 placeholder-gray-400
-                                               focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400
+                                               focus:bg-[#FAFBFF]/20 focus:ring-2 focus:ring-[#3B82F6]/20 focus:border-[#3B82F6]
                                                transition-all duration-150"
                                   />
                                 </div>
@@ -887,9 +887,9 @@ const InterviewPrepPage: React.FC = () => {
                                     onChange={(e) => setManualJobTitle(e.target.value)}
                                     placeholder="e.g., Software Engineer, Product Manager"
                                     disabled={interviewPrepLoading || !hasAccess}
-                                    className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl bg-white
+                                    className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-[3px] bg-white
                                                text-gray-900 placeholder-gray-400
-                                               focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400
+                                               focus:bg-[#FAFBFF]/20 focus:ring-2 focus:ring-[#3B82F6]/20 focus:border-[#3B82F6]
                                                transition-all duration-150"
                                   />
                                 </div>
@@ -900,7 +900,7 @@ const InterviewPrepPage: React.FC = () => {
 
                         {/* Parsed Job Details Preview */}
                         {parsedJobDetails && (
-                          <div className="rounded-xl border border-gray-200 bg-gray-50 p-5">
+                          <div className="rounded-[3px] border border-gray-200 bg-gray-50 p-5">
                             <p className="text-sm font-semibold text-gray-700 mb-3">Job Details Preview:</p>
                             <div className="space-y-2 text-sm text-gray-700">
                               <div><span className="text-gray-500">Company:</span> {parsedJobDetails.company_name}</div>
@@ -928,7 +928,7 @@ const InterviewPrepPage: React.FC = () => {
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-w-2xl mx-auto">
                           <div className="flex items-start gap-2">
-                            <div className="w-6 h-6 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                            <div className="w-6 h-6 rounded-[3px] bg-gray-100 flex items-center justify-center flex-shrink-0">
                               <ClipboardList className="w-3 h-3 text-gray-500" />
                             </div>
                             <div>
@@ -938,7 +938,7 @@ const InterviewPrepPage: React.FC = () => {
                           </div>
                           
                           <div className="flex items-start gap-2">
-                            <div className="w-6 h-6 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                            <div className="w-6 h-6 rounded-[3px] bg-gray-100 flex items-center justify-center flex-shrink-0">
                               <MessageSquare className="w-3 h-3 text-gray-500" />
                             </div>
                             <div>
@@ -948,7 +948,7 @@ const InterviewPrepPage: React.FC = () => {
                           </div>
                           
                           <div className="flex items-start gap-2">
-                            <div className="w-6 h-6 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                            <div className="w-6 h-6 rounded-[3px] bg-gray-100 flex items-center justify-center flex-shrink-0">
                               <Lightbulb className="w-3 h-3 text-gray-500" />
                             </div>
                             <div>
@@ -958,7 +958,7 @@ const InterviewPrepPage: React.FC = () => {
                           </div>
                           
                           <div className="flex items-start gap-2">
-                            <div className="w-6 h-6 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                            <div className="w-6 h-6 rounded-[3px] bg-gray-100 flex items-center justify-center flex-shrink-0">
                               <AlertTriangle className="w-3 h-3 text-gray-500" />
                             </div>
                             <div>
@@ -968,7 +968,7 @@ const InterviewPrepPage: React.FC = () => {
                           </div>
                           
                           <div className="flex items-start gap-2">
-                            <div className="w-6 h-6 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                            <div className="w-6 h-6 rounded-[3px] bg-gray-100 flex items-center justify-center flex-shrink-0">
                               <Building2 className="w-3 h-3 text-gray-500" />
                             </div>
                             <div>
@@ -978,7 +978,7 @@ const InterviewPrepPage: React.FC = () => {
                           </div>
                           
                           <div className="flex items-start gap-2">
-                            <div className="w-6 h-6 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                            <div className="w-6 h-6 rounded-[3px] bg-gray-100 flex items-center justify-center flex-shrink-0">
                               <FileText className="w-3 h-3 text-gray-500" />
                             </div>
                             <div>
@@ -1011,7 +1011,7 @@ const InterviewPrepPage: React.FC = () => {
                             transition-all duration-200 transform
                             ${(!canGenerate || interviewPrepLoading || !hasAccess)
                               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                              : 'bg-blue-600 text-white shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-100'
+                              : 'bg-[#0F172A] text-white shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-100'
                             }
                           `}
                         >
@@ -1043,26 +1043,26 @@ const InterviewPrepPage: React.FC = () => {
                       {interviewPrepStatus !== 'idle' && (
                         <div className="mt-6">
                           {interviewPrepStatus === 'completed' ? (
-                            <div className="flex flex-col items-center gap-4 p-6 bg-gray-50 border border-gray-200 rounded-xl">
+                            <div className="flex flex-col items-center gap-4 p-6 bg-gray-50 border border-gray-200 rounded-[3px]">
                               <div className="flex items-center gap-2 text-gray-700">
                                 <CheckCircle className="h-5 w-5 text-green-500" />
                                 <span className="font-medium">{interviewPrepProgress}</span>
                               </div>
                               <button
                                 onClick={() => downloadInterviewPrepPDF()}
-                                className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-full hover:bg-blue-700 transition-colors flex items-center gap-2"
+                                className="px-6 py-3 bg-[#0F172A] text-white font-semibold rounded-full hover:bg-[#1E293B] transition-colors flex items-center gap-2"
                               >
                                 <Download className="h-5 w-5" />
                                 Download Full PDF
                               </button>
                             </div>
                           ) : interviewPrepStatus === 'failed' ? (
-                            <div className="flex items-center justify-center gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700">
+                            <div className="flex items-center justify-center gap-2 p-4 bg-red-50 border border-red-200 rounded-[3px] text-red-700">
                               <XCircle className="h-5 w-5" />
                               <span>{interviewPrepProgress || 'Generation failed'}</span>
                             </div>
                           ) : (
-                            <div className="p-6 bg-gray-50 border border-gray-200 rounded-xl">
+                            <div className="p-6 bg-gray-50 border border-gray-200 rounded-[3px]">
                               <div className="flex items-center justify-center gap-3 mb-4">
                                 <Loader2 className="h-5 w-5 animate-spin text-gray-600" />
                                 <span className="font-medium text-gray-700">{interviewPrepProgress}</span>
@@ -1098,11 +1098,11 @@ const InterviewPrepPage: React.FC = () => {
                           {/* Toggle Row */}
                           <button
                             onClick={() => setShowRecentPreps(!showRecentPreps)}
-                            className="w-full flex items-center justify-between py-2 text-sm text-gray-600 hover:text-blue-700 transition-colors cursor-pointer"
+                            className="w-full flex items-center justify-between py-2 text-sm text-gray-600 hover:text-[#3B82F6] transition-colors cursor-pointer"
                           >
                             <span>Recent Prep Guides ({recentPreps.length})</span>
                             <ChevronDown 
-                              className={`w-4 h-4 text-gray-400 group-hover:text-blue-600 transition-all duration-150 ${showRecentPreps ? 'rotate-180' : ''}`}
+                              className={`w-4 h-4 text-gray-400 group-hover:text-[#3B82F6] transition-all duration-150 ${showRecentPreps ? 'rotate-180' : ''}`}
                             />
                           </button>
                           
@@ -1115,7 +1115,7 @@ const InterviewPrepPage: React.FC = () => {
                                 <h3 className="text-sm font-semibold text-gray-700">Recent Prep Guides</h3>
                                 <button 
                                   onClick={() => setActiveTab('interview-library')}
-                                  className="text-sm text-blue-600 hover:underline"
+                                  className="text-sm text-[#3B82F6] hover:underline"
                                 >
                                   View all ({preps.length})
                                 </button>
@@ -1126,10 +1126,10 @@ const InterviewPrepPage: React.FC = () => {
                                   <div 
                                     key={prep.id}
                                     onClick={() => handleDownload(prep)}
-                                    className="p-4 bg-gray-50 rounded-xl hover:bg-gray-100 cursor-pointer transition-colors group border border-transparent hover:border-gray-200"
+                                    className="p-4 bg-gray-50 rounded-[3px] hover:bg-gray-100 cursor-pointer transition-colors group border border-transparent hover:border-gray-200"
                                   >
                                     <div className="flex items-center gap-3 mb-2">
-                                      <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-gray-200 group-hover:border-gray-300 transition-colors">
+                                      <div className="w-10 h-10 bg-white rounded-[3px] flex items-center justify-center border border-gray-200 group-hover:border-gray-300 transition-colors">
                                         <Briefcase className="w-5 h-5 text-gray-600" />
                                       </div>
                                       <div className="flex-1 min-w-0">
@@ -1153,7 +1153,7 @@ const InterviewPrepPage: React.FC = () => {
 
                 {/* INTERVIEW LIBRARY TAB */}
                 <TabsContent value="interview-library" className="mt-0">
-                  <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
+                  <div className="bg-white rounded-[3px] shadow-lg border border-gray-100 overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
                     <div className="h-1 bg-gray-100"></div>
                     
                     <div className="p-8">
@@ -1170,7 +1170,7 @@ const InterviewPrepPage: React.FC = () => {
                           </p>
                           <button
                             onClick={() => setActiveTab('interview-prep')}
-                            className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
+                            className="px-6 py-3 bg-[#0F172A] text-white font-semibold rounded-full hover:shadow-lg transition-all"
                           >
                             Create Your First Prep
                           </button>
@@ -1186,7 +1186,7 @@ const InterviewPrepPage: React.FC = () => {
                                 {groupedPreps.inProgress.map((prep) => (
                                   <div
                                     key={prep.id}
-                                    className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between"
+                                    className="p-4 bg-amber-50 border border-amber-200 rounded-[3px] flex items-center justify-between"
                                   >
                                     <div>
                                       <p className="font-medium text-gray-900">{prep.companyName}</p>
@@ -1216,7 +1216,7 @@ const InterviewPrepPage: React.FC = () => {
                                 {groupedPreps.completed.map((prep) => (
                                   <div
                                     key={prep.id}
-                                    className="p-5 bg-white border border-gray-200 rounded-xl hover:shadow-md transition-shadow flex flex-col md:flex-row md:items-center md:justify-between gap-4"
+                                    className="p-5 bg-white border border-gray-200 rounded-[3px] hover:shadow-md transition-shadow flex flex-col md:flex-row md:items-center md:justify-between gap-4"
                                   >
                                     <div className="space-y-2">
                                       <div className="flex items-center gap-2">
@@ -1234,7 +1234,7 @@ const InterviewPrepPage: React.FC = () => {
 
                                     <button
                                       onClick={() => handleDownload(prep)}
-                                      className="px-4 py-2 bg-blue-100 text-blue-700 rounded-full text-sm font-medium hover:bg-blue-200 transition-colors flex items-center gap-2"
+                                      className="px-4 py-2 bg-[#FAFBFF] text-[#3B82F6] rounded-full text-sm font-medium hover:bg-[#EEF2F8] transition-colors flex items-center gap-2"
                                     >
                                       <Download className="h-4 w-4" />
                                       PDF

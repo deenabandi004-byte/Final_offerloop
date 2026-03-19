@@ -40,15 +40,15 @@ const Blog = () => {
       {/* Nav */}
       <nav className="w-full px-6 py-5 flex items-center justify-between" style={{ maxWidth: '1100px', margin: '0 auto' }}>
         <Link to="/" className="text-xl font-bold" style={{ color: '#0F172A', letterSpacing: '-0.02em' }}>Offerloop</Link>
-        <Link to="/signin?mode=signup" className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: '#2563EB' }}>
+        <Link to="/signin?mode=signup" className="px-5 py-2.5 rounded-[3px] text-sm font-semibold text-white" style={{ background: '#3B82F6' }}>
           Get Started Free
         </Link>
       </nav>
 
       {/* Hero */}
       <section className="px-6 pt-16 pb-8" style={{ maxWidth: '800px', margin: '0 auto' }}>
-        <p className="text-sm font-medium mb-4" style={{ color: '#2563EB', letterSpacing: '0.02em' }}>BLOG</p>
-        <h1 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 'clamp(36px, 5vw, 52px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '20px' }}>
+        <p className="text-sm font-medium mb-4" style={{ color: '#3B82F6', letterSpacing: '0.02em' }}>BLOG</p>
+        <h1 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(36px, 5vw, 52px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '20px' }}>
           Networking & Recruiting Guides
         </h1>
         <p style={{ fontSize: '15px', lineHeight: 1.7, color: '#64748B', maxWidth: '680px' }}>
@@ -63,19 +63,19 @@ const Blog = () => {
             <Link
               key={post.slug}
               to={`/blog/${post.slug}`}
-              className="block rounded-xl p-6 transition-all hover:shadow-md"
-              style={{ border: '1px solid #E2E8F0', background: '#FAFBFE' }}
+              className="block rounded-[3px] p-6 transition-all hover:shadow-md"
+              style={{ border: '1px solid #E2E8F0', background: '#FAFBFF' }}
             >
               <p className="text-xs font-medium mb-2" style={{ color: '#94A3B8' }}>
                 {new Date(post.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
               </p>
-              <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '24px', fontWeight: 400, color: '#0F172A', marginBottom: '8px', lineHeight: 1.3 }}>
+              <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '24px', fontWeight: 400, color: '#0F172A', marginBottom: '8px', lineHeight: 1.3 }}>
                 {post.title}
               </h2>
               <p style={{ fontSize: '14px', lineHeight: 1.6, color: '#64748B' }}>
                 {post.description}
               </p>
-              <span className="inline-block mt-3 text-sm font-semibold" style={{ color: '#2563EB' }}>
+              <span className="inline-block mt-3 text-sm font-semibold" style={{ color: '#3B82F6' }}>
                 Read more →
               </span>
             </Link>

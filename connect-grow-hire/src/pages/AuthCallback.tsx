@@ -24,7 +24,7 @@ const AuthCallback = () => {
   }, []);
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+    <div className="flex items-center justify-center min-h-screen bg-[#FAFBFF]">
       <LoadingContainer 
         label="Completing authentication..." 
         sublabel="Please wait" 

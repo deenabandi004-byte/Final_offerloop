@@ -1,5 +1,6 @@
 // src/pages/RecruiterSpreadsheetPage.tsx
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import RecruiterSpreadsheet from '@/components/RecruiterSpreadsheet';
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -24,6 +25,7 @@ import {
 
 const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { user } = useFirebaseAuth();
+  const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState('find-hiring-managers');
 
   // Resume state
@@ -32,8 +34,8 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded =
   const [isUploadingResume, setIsUploadingResume] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Form state
-  const [jobPostingUrl, setJobPostingUrl] = useState('');
+  // Form state — pre-fill from URL param if present
+  const [jobPostingUrl, setJobPostingUrl] = useState(searchParams.get('jobUrl') || '');
   const [company, setCompany] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [location, setLocation] = useState('');
@@ -411,7 +413,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded =
   const embeddedContent = (
     <>
           <ProGate title="Find Hiring Manager" description="Find the recruiters and hiring managers behind any job posting. Paste a URL and get direct contact info in seconds." videoId="TIERqtjc1tk">
-          <main className="px-3 py-6 sm:px-6 sm:py-12" style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
+          <main className="px-3 py-6 sm:px-6 sm:py-12" style={{ background: '#FFFFFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
             <div>
 
               {/* Header Section — only when standalone */}
@@ -420,7 +422,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded =
                 <h1
                   className="text-[28px] sm:text-[42px]"
                   style={{
-                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontFamily: "'Lora', Georgia, serif",
                     fontWeight: 400,
                     letterSpacing: '-0.025em',
                     color: '#0F172A',
@@ -435,7 +437,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded =
                   style={{
                     fontFamily: "'DM Sans', system-ui, sans-serif",
                     fontSize: '16px',
-                    color: '#64748B',
+                    color: '#6B7280',
                     textAlign: 'center',
                     marginBottom: '28px',
                     lineHeight: 1.5,
@@ -449,343 +451,271 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded =
               </div>
               )}
 
-              {/* Sub-navigation */}
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px', marginTop: '-4px' }}>
-                <div
-                  style={{
-                    display: 'inline-flex',
-                    gap: '6px',
-                  }}
-                >
-                  <button
-                    onClick={() => setActiveTab('find-hiring-managers')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      padding: '5px 12px',
-                      borderRadius: '6px',
-                      border: activeTab === 'find-hiring-managers' ? '1px solid #CBD5E1' : '1px solid transparent',
-                      cursor: 'pointer',
-                      fontFamily: "'DM Sans', system-ui, sans-serif",
-                      fontSize: '12px',
-                      fontWeight: 500,
-                      transition: 'all 0.15s ease',
-                      background: activeTab === 'find-hiring-managers' ? '#F8FAFC' : 'transparent',
-                      color: activeTab === 'find-hiring-managers' ? '#334155' : '#94A3B8',
-                    }}
-                  >
-                    <Users className="h-3 w-3" />
-                    Search
-                  </button>
-
-                  <button
-                    onClick={() => setActiveTab('hiring-manager-tracker')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      padding: '5px 12px',
-                      borderRadius: '6px',
-                      border: activeTab === 'hiring-manager-tracker' ? '1px solid #CBD5E1' : '1px solid transparent',
-                      cursor: 'pointer',
-                      fontFamily: "'DM Sans', system-ui, sans-serif",
-                      fontSize: '12px',
-                      fontWeight: 500,
-                      transition: 'all 0.15s ease',
-                      background: activeTab === 'hiring-manager-tracker' ? '#F8FAFC' : 'transparent',
-                      color: activeTab === 'hiring-manager-tracker' ? '#334155' : '#94A3B8',
-                    }}
-                  >
-                    <ClipboardList className="h-3 w-3" />
-                    Tracker
-                    {trackerCount > 0 && (
-                      <span
-                        style={{
-                          marginLeft: '2px',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          background: 'rgba(100, 116, 139, 0.08)',
-                          color: '#64748B',
-                          fontFamily: "'DM Sans', system-ui, sans-serif",
-                          fontSize: '10px',
-                          fontWeight: 600,
-                          letterSpacing: '0.03em',
-                        }}
-                      >
-                        {trackerCount}
-                      </span>
-                    )}
-                  </button>
-                </div>
-              </div>
-
               {/* Main Content Area */}
               <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 delay-100">
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
 
                   {/* TAB 1: Find Hiring Managers */}
                   <TabsContent value="find-hiring-managers" className="mt-0">
-                    {/* Main Card */}
-                    <div className="animate-fadeInUp recruiter-search-form-card" style={{ animationDelay: '200ms', maxWidth: '680px', margin: '0 auto' }}>
-                      <div className="py-2 recruiter-search-form-content">
-                        {/* Card Header */}
-                        <div className="mb-8">
-                          <h2 className="text-xl font-semibold text-gray-900 mb-2">Find Hiring Managers</h2>
-                          <p className="text-gray-600">Paste a job posting URL and we'll find the recruiters and hiring managers for that role.</p>
+                    <div style={{ padding: '24px 32px 32px', maxWidth: '860px' }}>
+                      <input
+                        type="file"
+                        accept={ACCEPTED_RESUME_TYPES.accept}
+                        onChange={handleFileUpload}
+                        className="hidden"
+                        ref={fileInputRef}
+                        disabled={isSearching || isUploadingResume}
+                      />
+
+                      {/* Search input */}
+                      <div style={{ marginBottom: 14 }}>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            padding: '11px 14px',
+                            border: '1.5px solid #E2E8F0',
+                            borderRadius: 3,
+                            background: '#FAFBFF',
+                            transition: 'all .15s',
+                          }}
+                          className="focus-within:border-[#3B82F6] focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(59,130,246,0.10)]"
+                        >
+                          <Link style={{ width: 15, height: 15, flexShrink: 0, color: '#94A3B8' }} />
+                          <input
+                            type="url"
+                            value={jobPostingUrl}
+                            onChange={(e) => {
+                              setJobPostingUrl(e.target.value);
+                              if (e.target.value.trim()) {
+                                setShowManualEntry(false);
+                              }
+                            }}
+                            placeholder="Paste a job posting URL (LinkedIn, Greenhouse, Lever, etc.)"
+                            disabled={isSearching}
+                            style={{
+                              flex: 1,
+                              border: 'none',
+                              background: 'none',
+                              fontSize: 14,
+                              color: '#0F172A',
+                              outline: 'none',
+                              fontFamily: 'inherit',
+                            }}
+                          />
+                          {jobPostingUrl && isValidUrl(jobPostingUrl) && (
+                            <CheckCircle style={{ width: 15, height: 15, flexShrink: 0, color: '#22C55E' }} />
+                          )}
                         </div>
+                      </div>
 
-                        {/* Primary Input - Job Posting URL */}
-                        <div className="mb-6">
-                          <div className="relative group">
-                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                              <Link className="h-5 w-5 text-gray-400 group-focus-within:text-blue-600 transition-colors" />
-                            </div>
-                            <input
-                              type="url"
-                              value={jobPostingUrl}
-                              onChange={(e) => {
-                                setJobPostingUrl(e.target.value);
-                                if (e.target.value.trim()) {
-                                  setShowManualEntry(false);
-                                }
-                              }}
-                              placeholder="Paste the job posting URL (LinkedIn, Greenhouse, Lever, etc.)"
-                              disabled={isSearching}
-                              className="w-full pl-12 pr-12 py-4 text-base border border-black/[0.09] rounded-2xl
-                                       text-gray-900 placeholder-gray-400 bg-white/60 backdrop-blur-sm
-                                       hover:border-black/[0.15] hover:bg-white/80
-                                       focus:border-blue-400/60 focus:bg-white/95 focus:ring-0 focus:outline-none
-                                       transition-all duration-150 disabled:opacity-50"
-                            />
-                            {jobPostingUrl && isValidUrl(jobPostingUrl) && (
-                              <div className="absolute inset-y-0 right-0 pr-4 flex items-center">
-                                <CheckCircle className="h-5 w-5 text-green-500" />
-                              </div>
-                            )}
-                          </div>
-                          <p className="mt-2 text-xs text-gray-400">
-                            We'll extract all details automatically from the job posting.
-                          </p>
+                      {/* Credit cost pill */}
+                      <div style={{ marginBottom: 14 }}>
+                        <div className="flex items-center gap-2 text-xs text-[#6B7280]">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[3px] bg-[#FAFBFF] border border-[#E2E8F0] font-medium text-[#0F172A]">
+                            {15 * estimatedManagers} credits
+                          </span>
+                          <span>· finds ~{estimatedManagers} hiring managers</span>
                         </div>
+                      </div>
 
-                        {/* Manual Entry Toggle */}
-                        <div className="mb-6">
-                          <button
-                            type="button"
-                            onClick={() => setShowManualEntry(!showManualEntry)}
-                            className="text-sm text-gray-600 hover:text-blue-700 transition-all duration-150 flex items-center gap-1.5 group underline decoration-gray-300 hover:decoration-blue-400"
-                          >
-                            {showManualEntry ? (
-                              <>
-                                <span>Hide manual entry</span>
-                              </>
-                            ) : (
-                              <>
-                                <span>Or enter details manually</span>
-                                <span className="text-blue-500 opacity-60 group-hover:opacity-100 transition-opacity">→</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
+                      {/* Manual entry toggle — subtle text link */}
+                      <div style={{ marginBottom: 14 }}>
+                        <button
+                          type="button"
+                          onClick={() => setShowManualEntry(!showManualEntry)}
+                          style={{
+                            fontSize: 11,
+                            color: '#94A3B8',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontFamily: 'inherit',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          <FileText style={{ width: 11, height: 11 }} />
+                          {showManualEntry ? 'Hide manual entry' : 'Or enter details manually'}
+                        </button>
+                      </div>
 
-                        {/* Manual Entry Section - Collapsible */}
-                        {showManualEntry && !jobPostingUrl && (
-                          <div className="mb-8 pt-6 border-t border-gray-100">
-                            <p className="text-sm text-gray-600 mb-5">
-                              Use this if a job posting URL isn't available.
-                            </p>
-
-                            {/* Three-column grid for Company, Job Title, Location */}
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  Company
-                                </label>
-                                <div className="relative">
-                                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                    <Building2 className="h-4 w-4 text-gray-400" />
-                                  </div>
-                                  <input
-                                    type="text"
-                                    value={company}
-                                    onChange={(e) => setCompany(e.target.value)}
-                                    placeholder="e.g. Google, Stripe"
-                                    disabled={isSearching}
-                                    className="block w-full pl-9 pr-3 py-3 border border-gray-200 rounded-xl
-                                             text-gray-900 placeholder-gray-400 text-sm
-                                             hover:border-gray-300
-                                             focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400
-                                             transition-all duration-150 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                                  />
-                                </div>
-                              </div>
-
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  Job Title
-                                </label>
-                                <div className="relative">
-                                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                    <Briefcase className="h-4 w-4 text-gray-400" />
-                                  </div>
-                                  <input
-                                    type="text"
-                                    value={jobTitle}
-                                    onChange={(e) => setJobTitle(e.target.value)}
-                                    placeholder="e.g. Product Manager"
-                                    disabled={isSearching}
-                                    className="block w-full pl-9 pr-3 py-3 border border-gray-200 rounded-xl
-                                             text-gray-900 placeholder-gray-400 text-sm
-                                             hover:border-gray-300
-                                             focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400
-                                             transition-all duration-150 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                                  />
-                                </div>
-                              </div>
-
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  Location
-                                </label>
-                                <div className="relative">
-                                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                    <MapPin className="h-4 w-4 text-gray-400" />
-                                  </div>
-                                  <input
-                                    type="text"
-                                    value={location}
-                                    onChange={(e) => setLocation(e.target.value)}
-                                    placeholder="e.g. New York, NY"
-                                    disabled={isSearching}
-                                    className="block w-full pl-9 pr-3 py-3 border border-gray-200 rounded-xl
-                                             text-gray-900 placeholder-gray-400 text-sm
-                                             hover:border-gray-300
-                                             focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400
-                                             transition-all duration-150 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                                  />
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Job Description textarea */}
+                      {/* Manual Entry Section - Collapsible */}
+                      {showManualEntry && !jobPostingUrl && (
+                        <div style={{ marginBottom: 16, paddingTop: 16, borderTop: '0.5px solid #E2E8F0' }}>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Job Description <span className="text-red-400">*</span>
-                              </label>
-                              <textarea
-                                value={jobDescription}
-                                onChange={(e) => setJobDescription(e.target.value)}
-                                placeholder="Paste the job description or role summary here."
-                                rows={4}
+                              <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#6B7280', marginBottom: 4 }}>Company</label>
+                              <input
+                                type="text"
+                                value={company}
+                                onChange={(e) => setCompany(e.target.value)}
+                                placeholder="e.g. Google"
                                 disabled={isSearching}
-                                className="block w-full px-4 py-3 border border-gray-200 rounded-xl
-                                         text-gray-900 placeholder-gray-400 text-sm resize-none
-                                         hover:border-gray-300
-                                         focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400
-                                         transition-all duration-150 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                style={{
+                                  width: '100%',
+                                  padding: '8px 12px',
+                                  border: '1.5px solid #E2E8F0',
+                                  borderRadius: 3,
+                                  fontSize: 13,
+                                  color: '#0F172A',
+                                  background: '#FAFBFF',
+                                  outline: 'none',
+                                  fontFamily: 'inherit',
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#6B7280', marginBottom: 4 }}>Job Title</label>
+                              <input
+                                type="text"
+                                value={jobTitle}
+                                onChange={(e) => setJobTitle(e.target.value)}
+                                placeholder="e.g. Product Manager"
+                                disabled={isSearching}
+                                style={{
+                                  width: '100%',
+                                  padding: '8px 12px',
+                                  border: '1.5px solid #E2E8F0',
+                                  borderRadius: 3,
+                                  fontSize: 13,
+                                  color: '#0F172A',
+                                  background: '#FAFBFF',
+                                  outline: 'none',
+                                  fontFamily: 'inherit',
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#6B7280', marginBottom: 4 }}>Location</label>
+                              <input
+                                type="text"
+                                value={location}
+                                onChange={(e) => setLocation(e.target.value)}
+                                placeholder="e.g. New York, NY"
+                                disabled={isSearching}
+                                style={{
+                                  width: '100%',
+                                  padding: '8px 12px',
+                                  border: '1.5px solid #E2E8F0',
+                                  borderRadius: 3,
+                                  fontSize: 13,
+                                  color: '#0F172A',
+                                  background: '#FAFBFF',
+                                  outline: 'none',
+                                  fontFamily: 'inherit',
+                                }}
                               />
                             </div>
                           </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#6B7280', marginBottom: 4 }}>
+                              Job Description <span style={{ color: '#EF4444' }}>*</span>
+                            </label>
+                            <textarea
+                              value={jobDescription}
+                              onChange={(e) => setJobDescription(e.target.value)}
+                              placeholder="Paste the job description or role summary here."
+                              rows={4}
+                              disabled={isSearching}
+                              style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                border: '1.5px solid #E2E8F0',
+                                borderRadius: 3,
+                                fontSize: 13,
+                                color: '#0F172A',
+                                background: '#FAFBFF',
+                                outline: 'none',
+                                resize: 'none',
+                                fontFamily: 'inherit',
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* CTA button */}
+                      <button
+                        ref={originalButtonRef}
+                        onClick={handleFindHiringManagers}
+                        disabled={!canSearch}
+                        style={{
+                          width: '100%',
+                          height: 44,
+                          borderRadius: 3,
+                          background: !canSearch ? '#E2E8F0' : '#3B82F6',
+                          color: !canSearch ? '#94A3B8' : '#fff',
+                          border: 'none',
+                          fontSize: 14,
+                          fontWeight: 600,
+                          cursor: !canSearch ? 'not-allowed' : 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 8,
+                          transition: 'all .15s',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        {isSearching ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Finding hiring managers...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Users className="w-4 h-4" />
+                            <span>Find hiring managers</span>
+                          </>
                         )}
+                      </button>
 
-                        {/* Reassurance line */}
-                        <div className="mb-8 pt-6 border-t border-black/[0.05]">
-                          <p className="text-xs text-gray-400 text-center">
-                            Draft emails saved automatically to Gmail • Verified emails • Auto-saved to Hiring Manager Tracker
-                          </p>
-                        </div>
-
-                        {/* Cost & CTA Section */}
-                        <div className="mt-8 pt-8 border-t border-black/[0.05]">
-                          {/* Cost info - neutral and calm */}
-                          <div className="mb-6 text-center">
-                            <p className="text-sm text-gray-500">
-                              Will find {estimatedManagers} hiring managers • {15 * estimatedManagers} credits
-                            </p>
-                          </div>
-
-                          {/* CTA Button - Clear and dominant */}
-                          <div className="flex justify-center">
-                            <button
-                              ref={originalButtonRef}
-                              onClick={handleFindHiringManagers}
-                              disabled={!canSearch}
-                              className={`
-                            w-full md:w-auto px-8 py-4 rounded-full font-semibold text-lg
-                            flex items-center justify-center gap-3
-                            transition-all duration-150
-                            ${!canSearch
-                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                : 'bg-blue-600 text-white shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-100'
-                              }
-                          `}
-                            >
-                              {isSearching ? (
-                                <>
-                                  <Loader2 className="w-5 h-5 animate-spin" />
-                                  Finding...
-                                </>
-                              ) : (
-                                <>
-                                  Find Hiring Managers
-                                  <ArrowRight className="w-5 h-5" />
-                                </>
-                              )}
-                            </button>
-                          </div>
-
-                          {/* Resume required message */}
-                          {!savedResumeUrl && (
-                            <p className="text-center text-sm text-gray-500 mt-4">
-                              Please upload your resume to continue
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Resume Section - Simple status row */}
-                        <div className="mt-8 pt-8 border-t border-black/[0.05]">
-                          <input
-                            type="file"
-                            accept={ACCEPTED_RESUME_TYPES.accept}
-                            onChange={handleFileUpload}
-                            className="hidden"
-                            ref={fileInputRef}
+                      {/* Resume status — subtle text line below CTA */}
+                      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10 }}>
+                        {savedResumeUrl && savedResumeFileName ? (
+                          <button
+                            onClick={() => fileInputRef.current?.click()}
                             disabled={isSearching || isUploadingResume}
-                          />
-
-                          {savedResumeUrl && savedResumeFileName ? (
-                            <div className="flex items-center justify-between p-3 bg-white/50 backdrop-blur-sm rounded-xl border border-black/[0.06]">
-                              <div className="flex items-center gap-3">
-                                <CheckCircle className="w-5 h-5 text-green-500" />
-                                <div>
-                                  <p className="text-sm font-medium text-gray-900">Resume on file</p>
-                                  <p className="text-xs text-gray-500">{savedResumeFileName}</p>
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => fileInputRef.current?.click()}
-                                disabled={isSearching || isUploadingResume}
-                                className="text-sm text-gray-500 hover:text-blue-600 transition-colors disabled:opacity-50"
-                              >
-                                {isUploadingResume ? "Uploading..." : "Change"}
-                              </button>
-                            </div>
-                          ) : (
-                            <div
-                              onClick={() => fileInputRef.current?.click()}
-                              className="flex items-center gap-3 p-3 bg-white/50 backdrop-blur-sm rounded-xl border border-dashed border-black/[0.09] hover:bg-white/80 hover:border-blue-300/50 transition-all cursor-pointer"
-                            >
-                              <Upload className="w-5 h-5 text-gray-400" />
-                              <div className="flex-1">
-                                <p className="text-sm font-medium text-gray-900">
-                                  {isUploadingResume ? "Uploading..." : "Upload your resume"}
-                                </p>
-                                <p className="text-xs text-gray-500">Required • Improves match quality</p>
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                            style={{
+                              fontSize: 11,
+                              color: '#94A3B8',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              cursor: 'pointer',
+                              background: 'none',
+                              border: 'none',
+                              fontFamily: 'inherit',
+                            }}
+                          >
+                            <CheckCircle style={{ width: 11, height: 11, color: '#22C55E' }} />
+                            Resume: <span style={{ fontWeight: 500 }}>{savedResumeFileName}</span>
+                            <span style={{ color: '#3B82F6', marginLeft: 2 }}>
+                              {isUploadingResume ? 'Uploading...' : '· Change'}
+                            </span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => fileInputRef.current?.click()}
+                            style={{
+                              fontSize: 11,
+                              color: '#94A3B8',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              cursor: 'pointer',
+                              background: 'none',
+                              border: 'none',
+                              fontFamily: 'inherit',
+                            }}
+                          >
+                            <Upload style={{ width: 11, height: 11 }} />
+                            {isUploadingResume ? 'Uploading...' : 'Upload resume (required for personalized emails)'}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </TabsContent>
@@ -807,24 +737,24 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded =
         {/* Loading Modal */}
         {isSearching && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-2xl">
-              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Users className="w-8 h-8 text-gray-900 animate-pulse" />
+            <div className="bg-white rounded-[3px] p-8 max-w-md text-center">
+              <div className="w-16 h-16 bg-[#FAFBFF] rounded-[3px] flex items-center justify-center mx-auto mb-4">
+                <Users className="w-8 h-8 text-[#0F172A] animate-pulse" />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Finding hiring managers...</h3>
-              <p className="text-gray-600 mb-4">
+              <h3 className="text-xl font-semibold text-[#0F172A] mb-2" style={{ fontFamily: "'Lora', Georgia, serif" }}>Finding hiring managers...</h3>
+              <p className="text-[#6B7280] mb-4">
                 {jobPostingUrl
                   ? "Analyzing the job posting and identifying decision makers"
                   : `Searching for hiring managers at ${company}`
                 }
               </p>
-              <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="w-full bg-[#E2E8F0] rounded-[3px] h-2">
                 <div
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  className="bg-[#3B82F6] h-2 rounded-[3px] transition-all duration-300"
                   style={{ width: `${progress}%` }}
                 ></div>
               </div>
-              <p className="text-sm text-gray-500 mt-3">This usually takes 15-30 seconds</p>
+              <p className="text-sm text-[#6B7280] mt-3">This usually takes 15-30 seconds</p>
             </div>
           </div>
         )}
@@ -832,24 +762,24 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded =
         {/* Success Modal */}
         {searchComplete && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-2xl animate-scaleIn">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <div className="bg-white rounded-[3px] p-8 max-w-md text-center animate-scaleIn">
+              <div className="w-16 h-16 bg-green-100 rounded-[3px] flex items-center justify-center mx-auto mb-4">
                 <CheckCircle className="w-10 h-10 text-green-600" />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-1">Found {managersFound} hiring manager{managersFound !== 1 ? 's' : ''}!</h3>
-              <p className="text-gray-600 mb-2">{jobTitle || 'Role'} at {company || 'Company'}</p>
-              <p className="text-sm text-gray-600 font-medium mb-6">Draft emails saved to your Gmail</p>
+              <h3 className="text-xl font-semibold text-[#0F172A] mb-1" style={{ fontFamily: "'Lora', Georgia, serif" }}>Found {managersFound} hiring manager{managersFound !== 1 ? 's' : ''}!</h3>
+              <p className="text-[#6B7280] mb-2">{jobTitle || 'Role'} at {company || 'Company'}</p>
+              <p className="text-sm text-[#6B7280] font-medium mb-6">Draft emails saved to your Gmail</p>
 
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <button
                   onClick={handleViewResults}
-                  className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
+                  className="px-6 py-3 bg-[#3B82F6] text-white font-semibold rounded-[3px] hover:bg-[#2563EB] transition-all"
                 >
                   View Hiring Managers →
                 </button>
                 <button
                   onClick={resetForm}
-                  className="px-6 py-3 bg-gray-100 text-gray-700 font-semibold rounded-full hover:bg-gray-200 transition-colors"
+                  className="px-6 py-3 bg-[#FAFBFF] text-[#6B7280] font-semibold rounded-[3px] hover:bg-[#EEF2F8] transition-colors"
                 >
                   Search again
                 </button>
@@ -973,7 +903,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded =
           onClick={handleFindHiringManagers}
           isLoading={isSearching}
           disabled={!canSearch}
-          buttonClassName="rounded-full"
+          buttonClassName="rounded-[3px]"
         >
           <span>Find Hiring Managers</span>
         </StickyCTA>

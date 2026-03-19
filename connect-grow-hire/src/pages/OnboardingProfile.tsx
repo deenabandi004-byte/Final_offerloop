@@ -108,7 +108,7 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
             />
             <p className="text-xs text-muted-foreground">
               Accepted formats: PDF, DOCX, DOC (Max 10MB)
-              <span className="text-blue-600 ml-1">(DOCX recommended for best optimization)</span>
+              <span className="text-[#3B82F6] ml-1">(DOCX recommended for best optimization)</span>
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               Your resume allows us to create more personalized and effective outreach emails.

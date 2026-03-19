@@ -314,7 +314,7 @@ export default function ApplicationLabPage() {
             <div className="max-w-5xl mx-auto">
               {/* Error Display */}
               {error && (
-                <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+                <div className="mb-6 bg-red-50 border border-red-200 rounded-[3px] p-4 flex items-start gap-3">
                   <AlertCircle className="text-red-600 flex-shrink-0 mt-0.5" size={20} />
                   <div className="flex-1">
                     <p className="text-sm font-medium text-red-900">Error</p>
@@ -331,7 +331,7 @@ export default function ApplicationLabPage() {
 
               {/* Paste Fallback UI - Show when JOB_DESCRIPTION_EMPTY error occurs */}
               {showPasteFallback && !analysis && (
-                <Card className="bg-white border-border rounded-2xl">
+                <Card className="bg-white border-border rounded-[3px]">
                   <CardHeader className="border-b border-border">
                     <CardTitle className="text-xl text-foreground flex items-center gap-2">
                       We couldn't read this job page
@@ -368,7 +368,7 @@ export default function ApplicationLabPage() {
                       <Button
                         onClick={handlePasteFallbackSubmit}
                         disabled={isLoading || pastedDescription.trim().length < 300 || !userResume}
-                        className="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white"
+                        className="bg-[#0F172A] hover:bg-[#1E293B] text-white"
                       >
                         {isLoading ? (
                           <>
@@ -393,7 +393,7 @@ export default function ApplicationLabPage() {
                     </div>
 
                     {!userResume && (
-                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-[3px] p-4">
                         <p className="text-sm text-yellow-800">
                           Please upload your resume in{' '}
                           <button
@@ -407,13 +407,13 @@ export default function ApplicationLabPage() {
                       </div>
                     )}
                     {userResume && !userResume.resumeText && userResume.resumeUrl && (
-                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <div className="bg-[#FAFBFF] border border-[#E2E8F0] rounded-[3px] p-4">
                         <div className="flex items-start justify-between gap-4">
                           <div>
-                            <p className="text-sm font-medium text-blue-900 mb-1">
+                            <p className="text-sm font-medium text-[#0F172A] mb-1">
                               Resume text missing
                             </p>
-                            <p className="text-sm text-blue-800">
+                            <p className="text-sm text-[#6B7280]">
                               Your resume file exists but the text content is missing. Click "Repair Resume" to extract text from your uploaded PDF.
                             </p>
                           </div>
@@ -421,7 +421,7 @@ export default function ApplicationLabPage() {
                             onClick={handleRepairResume}
                             disabled={isRepairing}
                             size="sm"
-                            className="bg-blue-600 hover:bg-blue-700 text-white"
+                            className="bg-[#0F172A] hover:bg-[#1E293B] text-white"
                           >
                             {isRepairing ? 'Repairing...' : 'Repair Resume'}
                           </Button>
@@ -434,7 +434,7 @@ export default function ApplicationLabPage() {
 
               {/* Job Input Section - Show when no analysis and not showing paste fallback */}
               {!analysis && !showPasteFallback && (
-                <Card className="bg-white border-border rounded-2xl">
+                <Card className="bg-white border-border rounded-[3px]">
                   <CardHeader className="border-b border-border">
                     <CardTitle className="text-xl text-foreground flex items-center gap-2">
                       Application Lab
@@ -466,7 +466,7 @@ export default function ApplicationLabPage() {
                       <Button
                         onClick={handleAnalyze}
                         disabled={isLoading || !jobInput.trim() || !userResume}
-                        className="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white"
+                        className="bg-[#0F172A] hover:bg-[#1E293B] text-white"
                       >
                         {isLoading ? (
                           <>
@@ -483,7 +483,7 @@ export default function ApplicationLabPage() {
                     </div>
 
                     {!userResume && (
-                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-[3px] p-4">
                         <p className="text-sm text-yellow-800">
                           Please upload your resume in{' '}
                           <button
@@ -502,9 +502,9 @@ export default function ApplicationLabPage() {
 
               {/* Loading State */}
               {isLoading && !analysis && (
-                <Card className="bg-white border-border rounded-2xl">
+                <Card className="bg-white border-border rounded-[3px]">
                   <CardContent className="p-12 text-center">
-                    <Loader2 className="animate-spin text-blue-600 mx-auto mb-4" size={48} />
+                    <Loader2 className="animate-spin text-[#3B82F6] mx-auto mb-4" size={48} />
                     <p className="text-gray-600">Analyzing job fit...</p>
                   </CardContent>
                 </Card>
@@ -543,7 +543,7 @@ export default function ApplicationLabPage() {
 
               {/* Empty State - Only show if not loading and no analysis */}
               {!analysis && !isLoading && !error && (
-                <Card className="bg-white border-border rounded-2xl">
+                <Card className="bg-white border-border rounded-[3px]">
                   <CardContent className="p-12 text-center">
                     <Sparkles className="text-gray-300 mx-auto mb-4" size={48} />
                     <h3 className="text-lg font-medium text-foreground mb-2">

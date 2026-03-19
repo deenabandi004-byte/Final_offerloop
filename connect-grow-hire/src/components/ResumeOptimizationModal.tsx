@@ -207,7 +207,7 @@ export function ResumeOptimizationModal({
         </DialogHeader>
 
         {/* Current Resume Info */}
-        <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+        <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-[3px]">
           <FileText className="w-5 h-5 text-gray-500" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-gray-900 truncate">
@@ -239,11 +239,11 @@ export function ResumeOptimizationModal({
               key={mode.id}
               onClick={() => !optimizing && setSelectedMode(mode.id)}
               className={`
-                relative p-4 rounded-lg border-2 cursor-pointer transition-all
+                relative p-4 rounded-[3px] border-2 cursor-pointer transition-all
                 ${optimizing ? 'opacity-50 cursor-not-allowed' : ''}
                 ${
                   selectedMode === mode.id
-                    ? 'border-blue-500 bg-blue-50'
+                    ? 'border-[#3B82F6] bg-[#FAFBFF]'
                     : 'border-gray-200 hover:border-gray-300'
                 }
               `}
@@ -251,10 +251,10 @@ export function ResumeOptimizationModal({
               <div className="flex items-start gap-3">
                 <div
                   className={`
-                    p-2 rounded-lg
+                    p-2 rounded-[3px]
                     ${
                       selectedMode === mode.id
-                        ? 'bg-blue-100 text-blue-600'
+                        ? 'bg-[rgba(59,130,246,0.10)] text-[#3B82F6]'
                         : 'bg-gray-100 text-gray-500'
                     }
                   `}
@@ -266,7 +266,7 @@ export function ResumeOptimizationModal({
                   <div className="flex items-center gap-2 flex-wrap">
                     <h4 className="font-medium text-gray-900">{mode.name}</h4>
                     {mode.recommended && (
-                      <Badge className="bg-blue-100 text-blue-700 text-xs">
+                      <Badge className="bg-[rgba(59,130,246,0.10)] text-[#2563EB] text-xs">
                         Recommended
                       </Badge>
                     )}
@@ -283,11 +283,11 @@ export function ResumeOptimizationModal({
                 <div
                   className={`
                     w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0
-                    ${selectedMode === mode.id ? 'border-blue-500' : 'border-gray-300'}
+                    ${selectedMode === mode.id ? 'border-[#3B82F6]' : 'border-gray-300'}
                   `}
                 >
                   {selectedMode === mode.id && (
-                    <div className="w-3 h-3 rounded-full bg-blue-500" />
+                    <div className="w-3 h-3 rounded-full bg-[#3B82F6]" />
                   )}
                 </div>
               </div>
@@ -297,7 +297,7 @@ export function ResumeOptimizationModal({
 
         {/* DOCX Upload Suggestion (for PDF users) */}
         {resumeInfo.resumeFileType === 'pdf' && (
-          <div className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg mt-4">
+          <div className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-[3px] mt-4">
             <Upload className="w-5 h-5 text-amber-600 flex-shrink-0" />
             <div className="flex-1">
               <p className="text-sm text-amber-800">

@@ -13,13 +13,13 @@ export default function HiringManagerTrackerPage() {
         <MainContentWrapper>
           <AppHeader title="" />
           
-          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }} className="hiring-manager-tracker-page">
+          <main style={{ background: '#FAFBFF', flex: 1, overflowY: 'auto' }} className="hiring-manager-tracker-page">
             {/* Page Header Container */}
             <div className="w-full px-3 py-6 sm:px-6 sm:py-12 hiring-manager-tracker-container" style={{ maxWidth: '900px', margin: '0 auto' }}>
               <h1
                 className="text-[28px] sm:text-[42px] hiring-manager-tracker-title"
                 style={{
-                  fontFamily: "'Instrument Serif', Georgia, serif",
+                  fontFamily: "'Lora', Georgia, serif",
                   fontWeight: 400,
                   letterSpacing: '-0.025em',
                   color: '#0F172A',
@@ -36,7 +36,7 @@ export default function HiringManagerTrackerPage() {
                 style={{
                   fontFamily: "'DM Sans', system-ui, sans-serif",
                   fontSize: '16px',
-                  color: '#64748B',
+                  color: '#6B7280',
                   textAlign: 'center',
                   marginBottom: '28px',
                   lineHeight: 1.5,

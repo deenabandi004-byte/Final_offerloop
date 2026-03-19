@@ -275,13 +275,13 @@ const SignIn: React.FC = () => {
       <div
         className="absolute top-[-200px] right-[-150px] w-[600px] h-[600px] rounded-full pointer-events-none"
         style={{
-          background: 'radial-gradient(circle, rgba(37, 99, 235, 0.06) 0%, transparent 70%)',
+          background: 'radial-gradient(circle, rgba(59, 130, 246, 0.06) 0%, transparent 70%)',
         }}
       />
       <div
         className="absolute bottom-[-150px] left-[-100px] w-[400px] h-[400px] rounded-full pointer-events-none"
         style={{
-          background: 'radial-gradient(circle, rgba(37, 99, 235, 0.04) 0%, transparent 70%)',
+          background: 'radial-gradient(circle, rgba(59, 130, 246, 0.04) 0%, transparent 70%)',
         }}
       />
 
@@ -314,7 +314,7 @@ const SignIn: React.FC = () => {
         style={{ position: 'relative', zIndex: 1 }}
       >
         <div
-          className="rounded-[16px] transition-all"
+          className="rounded-[3px] transition-all"
           style={{
             background: 'var(--bg-white)',
             border: '1px solid var(--border-light)',
@@ -406,7 +406,7 @@ const SignIn: React.FC = () => {
             disabled={submitting || isLoading}
             className="w-full flex items-center justify-center gap-3 py-3.5 rounded-[10px] text-sm font-medium transition-all"
             style={{
-              background: '#2563EB',
+              background: '#0F172A',
               color: 'white',
               fontFamily: 'var(--font-body)',
               fontSize: '15px',
@@ -414,17 +414,17 @@ const SignIn: React.FC = () => {
               border: 'none',
               cursor: submitting || isLoading ? 'not-allowed' : 'pointer',
               opacity: submitting || isLoading ? 0.6 : 1,
-              boxShadow: '0 1px 3px rgba(37, 99, 235, 0.2), 0 4px 12px rgba(37, 99, 235, 0.15)',
+              boxShadow: '0 1px 3px rgba(59, 130, 246, 0.2), 0 4px 12px rgba(59, 130, 246, 0.15)',
             }}
             onMouseEnter={(e) => {
               if (!submitting && !isLoading) {
-                e.currentTarget.style.background = '#1d4ed8';
-                e.currentTarget.style.boxShadow = '0 2px 6px rgba(37, 99, 235, 0.3), 0 8px 20px rgba(37, 99, 235, 0.2)';
+                e.currentTarget.style.background = '#1E293B';
+                e.currentTarget.style.boxShadow = '0 2px 6px rgba(59, 130, 246, 0.3), 0 8px 20px rgba(59, 130, 246, 0.2)';
               }
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = '#2563EB';
-              e.currentTarget.style.boxShadow = '0 1px 3px rgba(37, 99, 235, 0.2), 0 4px 12px rgba(37, 99, 235, 0.15)';
+              e.currentTarget.style.boxShadow = '0 1px 3px rgba(59, 130, 246, 0.2), 0 4px 12px rgba(59, 130, 246, 0.15)';
             }}
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="h-5 w-5" aria-hidden="true">
@@ -489,7 +489,7 @@ const SignIn: React.FC = () => {
                       width: 14,
                       height: 14,
                       borderRadius: '50%',
-                      background: 'rgba(37, 99, 235, 0.08)',
+                      background: 'rgba(59, 130, 246, 0.08)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -497,7 +497,7 @@ const SignIn: React.FC = () => {
                     }}
                   >
                     <svg width="8" height="8" viewBox="0 0 12 12" fill="none">
-                      <path d="M2 6L5 9L10 3" stroke="#2563EB" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M2 6L5 9L10 3" stroke="#3B82F6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </div>
                   {item}

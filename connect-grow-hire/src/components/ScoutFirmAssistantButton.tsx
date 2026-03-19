@@ -234,7 +234,7 @@ const ScoutFirmAssistantButton: React.FC<ScoutFirmAssistantButtonProps> = ({
       {isScoutChatOpen && (
         <div
           ref={chatWindowRef}
-          className="fixed z-40 flex flex-col rounded-2xl border border-[#E3E8F0] bg-white shadow-lg overflow-hidden"
+          className="fixed z-40 flex flex-col rounded-[3px] border border-[#E2E8F0] bg-white shadow-lg overflow-hidden"
           style={{
             left: `${position.x}px`,
             top: `${position.y}px`,
@@ -246,7 +246,7 @@ const ScoutFirmAssistantButton: React.FC<ScoutFirmAssistantButtonProps> = ({
         >
           {/* Minimal Header - Draggable */}
           <div
-            className="flex items-center justify-between px-4 py-3 border-b border-[#E3E8F0] bg-white cursor-grab active:cursor-grabbing select-none"
+            className="flex items-center justify-between px-4 py-3 border-b border-[#E2E8F0] bg-white cursor-grab active:cursor-grabbing select-none"
             onMouseDown={handleMouseDown}
           >
             <div className="flex items-center space-x-3">
@@ -281,7 +281,7 @@ const ScoutFirmAssistantButton: React.FC<ScoutFirmAssistantButtonProps> = ({
             className="absolute top-0 left-0 w-6 h-6 cursor-nwse-resize z-10"
             onMouseDown={handleResizeMouseDown}
             style={{
-              background: 'linear-gradient(to bottom right, transparent 0%, transparent 40%, #E3E8F0 40%, #E3E8F0 45%, transparent 45%, transparent 100%)',
+              background: 'linear-gradient(to bottom right, transparent 0%, transparent 40%, #E2E8F0 40%, #E2E8F0 45%, transparent 45%, transparent 100%)',
             }}
           >
             <div className="absolute top-1 left-1 w-3 h-3 border-l-2 border-t-2 border-slate-400"></div>
@@ -292,7 +292,7 @@ const ScoutFirmAssistantButton: React.FC<ScoutFirmAssistantButtonProps> = ({
       {/* Header Button */}
       <button
         onClick={() => setIsScoutChatOpen(true)}
-        className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 bg-[#ECF4FF] border-[#C7D8FF] text-sm font-medium text-[#111827] shadow-sm hover:shadow-md hover:scale-105 hover:bg-gradient-to-r hover:from-[#ECF4FF] hover:to-white cursor-pointer transition-all duration-150"
+        className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 bg-[#FAFBFF] border-[#E2E8F0] text-sm font-medium text-[#0F172A] shadow-sm hover:shadow-md hover:scale-105 hover:bg-gradient-to-r hover:from-[#FAFBFF] hover:to-white cursor-pointer transition-all duration-150"
       >
         <div className="relative flex items-center justify-center h-6 w-6 rounded-full bg-[#FFF7EA] flex-shrink-0">
           <img

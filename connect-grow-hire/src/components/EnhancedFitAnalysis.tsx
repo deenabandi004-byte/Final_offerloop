@@ -84,9 +84,9 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
   };
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+    <div className="bg-white rounded-[3px] border border-gray-200 overflow-hidden">
       {/* Header with Score */}
-      <div className="bg-gradient-to-r from-blue-50 to-blue-50 p-4 border-b border-gray-200">
+      <div className="bg-gradient-to-r from-[#FAFBFF] to-[#FAFBFF] p-4 border-b border-gray-200">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="font-semibold text-gray-900">
@@ -97,7 +97,7 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
           <div className="text-right">
             <div className={`text-3xl font-bold ${
               analysis.score >= 80 ? 'text-green-600' :
-              analysis.score >= 60 ? 'text-blue-600' :
+              analysis.score >= 60 ? 'text-[#3B82F6]' :
               analysis.score >= 40 ? 'text-yellow-600' :
               'text-red-600'
             }`}>
@@ -139,7 +139,7 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
             onClick={() => setActiveTab(tab.id as any)}
             className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
               activeTab === tab.id
-                ? 'border-b-2 border-blue-600 text-blue-600 bg-blue-50'
+                ? 'border-b-2 border-[#3B82F6] text-[#3B82F6] bg-[#FAFBFF]'
                 : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
@@ -155,9 +155,9 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
         {activeTab === 'overview' && (
           <div className="space-y-4">
             {/* Pitch */}
-            <div className="bg-blue-50 rounded-lg p-3">
-              <h4 className="font-medium text-blue-900 mb-1">Your Pitch</h4>
-              <p className="text-blue-800 text-sm">{analysis.pitch}</p>
+            <div className="bg-[#FAFBFF] rounded-[3px] p-3">
+              <h4 className="font-medium text-[#0F172A] mb-1">Your Pitch</h4>
+              <p className="text-[#0F172A] text-sm">{analysis.pitch}</p>
             </div>
 
             {/* Strengths */}
@@ -221,7 +221,7 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
               <ul className="space-y-1">
                 {analysis.talking_points.map((point, i) => (
                   <li key={i} className="text-sm text-gray-600 flex items-start gap-2">
-                    <ArrowRight size={14} className="mt-0.5 text-blue-500 flex-shrink-0" />
+                    <ArrowRight size={14} className="mt-0.5 text-[#3B82F6] flex-shrink-0" />
                     {point}
                   </li>
                 ))}
@@ -237,7 +237,7 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
               analysis.job_requirements.map((req, index) => (
                 <div
                   key={index}
-                className="border border-gray-200 rounded-lg overflow-hidden"
+                className="border border-gray-200 rounded-[3px] overflow-hidden"
               >
                 {/* Requirement Header */}
                 <button
@@ -254,7 +254,7 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
                         req.requirement_type === 'required'
                           ? 'bg-red-100 text-red-700'
                           : req.requirement_type === 'preferred'
-                          ? 'bg-blue-100 text-blue-700'
+                          ? 'bg-[rgba(59,130,246,0.10)] text-[#0F172A]'
                           : 'bg-gray-100 text-gray-600'
                       }`}>
                         {req.requirement_type}
@@ -337,7 +337,7 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
         {activeTab === 'edits' && (
           <div className="space-y-3">
             {/* Potential Score Improvement */}
-            <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-3 mb-4">
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-[3px] p-3 mb-4">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-green-800">
                   Potential score after edits:
@@ -353,13 +353,13 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
 
             {/* Generate Complete Resume Button */}
             {analysis.resume_edits.length > 0 && (
-              <div className="bg-blue-50 rounded-lg p-4 mb-4 border border-blue-200">
+              <div className="bg-[#FAFBFF] rounded-[3px] p-4 mb-4 border border-[#E2E8F0]">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h4 className="font-medium text-blue-900 mb-1">
+                    <h4 className="font-medium text-[#0F172A] mb-1">
                       Generate Complete Edited Resume
                     </h4>
-                    <p className="text-sm text-blue-700">
+                    <p className="text-sm text-[#0F172A]">
                       Apply all {analysis.resume_edits.length} edits and get a formatted resume ready to use
                     </p>
                   </div>
@@ -444,8 +444,8 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
                         }
                       }}
                       disabled={isGeneratingResume || !userResume}
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white 
-                                 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                      className="flex items-center gap-2 px-4 py-2 bg-[#0F172A] text-white 
+                                 rounded-[3px] hover:bg-[#1E293B] disabled:opacity-50 transition-colors"
                     >
                       {isGeneratingResume ? (
                         <>
@@ -542,7 +542,7 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
                       }}
                       disabled={isGeneratingResume || !userResume}
                       className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white 
-                                 rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors"
+                                 rounded-[3px] hover:bg-gray-700 disabled:opacity-50 transition-colors"
                     >
                       {isGeneratingResume ? (
                         <>
@@ -563,7 +563,7 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
 
             {/* Edited Resume Preview */}
             {showResumePreview && editedResume && (
-              <div className="bg-white rounded-lg border-2 border-blue-200 p-4 mb-4">
+              <div className="bg-white rounded-[3px] border-2 border-[#E2E8F0] p-4 mb-4">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="font-semibold text-gray-900">Complete Edited Resume</h4>
                   <div className="flex gap-2">
@@ -687,8 +687,8 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
                           alert('Failed to download PDF. Please try again.');
                         }
                       }}
-                      className="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-600 text-white 
-                                 rounded hover:bg-blue-700 transition-colors"
+                      className="flex items-center gap-1 px-3 py-1.5 text-sm bg-[#0F172A] text-white 
+                                 rounded hover:bg-[#1E293B] transition-colors"
                     >
                       <Download size={14} />
                       Download PDF
@@ -707,13 +707,13 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
             {analysis.resume_edits.map((edit, index) => (
               <div
                 key={edit.id}
-                className="border border-gray-200 rounded-lg overflow-hidden"
+                className="border border-gray-200 rounded-[3px] overflow-hidden"
               >
                 <div className="p-3">
                   {/* Header */}
                   <div className="flex items-start justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <Edit3 size={16} className="text-blue-500" />
+                      <Edit3 size={16} className="text-[#3B82F6]" />
                       <span className="font-medium text-gray-900">
                         {edit.section}
                         {edit.subsection && (
@@ -727,7 +727,7 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
                   </div>
 
                   {/* Impact */}
-                  <p className="text-sm text-blue-600 mb-2">{edit.impact}</p>
+                  <p className="text-sm text-[#3B82F6] mb-2">{edit.impact}</p>
 
                   {/* Before/After */}
                   {edit.before_after_preview && (
@@ -753,9 +753,9 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
 
                   {/* Just Suggested Content if no preview */}
                   {!edit.before_after_preview && (
-                    <div className="bg-blue-50 rounded p-2 border border-blue-100 mb-2">
-                      <p className="text-xs text-blue-600 font-medium mb-1">Suggestion:</p>
-                      <p className="text-sm text-blue-800">{edit.suggested_content}</p>
+                    <div className="bg-[#FAFBFF] rounded p-2 border border-[#EEF2F8] mb-2">
+                      <p className="text-xs text-[#3B82F6] font-medium mb-1">Suggestion:</p>
+                      <p className="text-sm text-[#0F172A]">{edit.suggested_content}</p>
                     </div>
                   )}
 
@@ -824,8 +824,8 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
                 <button
                   onClick={onGenerateCoverLetter}
                   disabled={isGeneratingCoverLetter}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white 
-                             rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-[#0F172A] text-white 
+                             rounded-[3px] hover:bg-[#1E293B] disabled:opacity-50 transition-colors"
                 >
                   {isGeneratingCoverLetter ? (
                     <>
@@ -872,7 +872,7 @@ const CoverLetterPanel: React.FC<CoverLetterPanelProps> = ({
               ? 'bg-gray-100 text-gray-700'
               : coverLetter.tone === 'enthusiastic'
               ? 'bg-orange-100 text-orange-700'
-              : 'bg-blue-100 text-blue-700'
+              : 'bg-[rgba(59,130,246,0.10)] text-[#0F172A]'
           }`}>
             {coverLetter.tone} tone
           </span>
@@ -882,8 +882,8 @@ const CoverLetterPanel: React.FC<CoverLetterPanelProps> = ({
         </div>
         <button
           onClick={() => onCopy(coverLetter.full_text, 'full_letter')}
-          className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white 
-                     rounded hover:bg-blue-700 text-sm"
+          className="flex items-center gap-1 px-3 py-1.5 bg-[#0F172A] text-white 
+                     rounded hover:bg-[#1E293B] text-sm"
         >
           {copiedText === 'full_letter' ? (
             <>
@@ -900,13 +900,13 @@ const CoverLetterPanel: React.FC<CoverLetterPanelProps> = ({
       </div>
 
       {/* Customization Summary */}
-      <div className="bg-purple-50 rounded-lg p-3 text-sm">
+      <div className="bg-purple-50 rounded-[3px] p-3 text-sm">
         <span className="font-medium text-purple-800">Customization: </span>
         <span className="text-purple-700">{coverLetter.customization_summary}</span>
       </div>
 
       {/* Full Letter */}
-      <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+      <div className="bg-gray-50 rounded-[3px] p-4 border border-gray-200">
         <div className="prose prose-sm max-w-none">
           {coverLetter.full_text.split('\n\n').map((paragraph, i) => (
             <p key={i} className="text-gray-800 mb-3 last:mb-0">
@@ -934,7 +934,7 @@ const CoverLetterPanel: React.FC<CoverLetterPanelProps> = ({
           <ul className="space-y-1">
             {coverLetter.key_resume_points_used.map((point, i) => (
               <li key={i} className="flex items-center gap-1 text-gray-600">
-                <ArrowRight size={12} className="text-blue-500" />
+                <ArrowRight size={12} className="text-[#3B82F6]" />
                 {point}
               </li>
             ))}
@@ -946,7 +946,7 @@ const CoverLetterPanel: React.FC<CoverLetterPanelProps> = ({
       <div>
         <button
           onClick={() => setShowAlternates(!showAlternates)}
-          className="text-sm text-blue-600 hover:underline flex items-center gap-1"
+          className="text-sm text-[#3B82F6] hover:underline flex items-center gap-1"
         >
           {showAlternates ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           {showAlternates ? 'Hide' : 'Show'} alternate openings & closings

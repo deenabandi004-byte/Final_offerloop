@@ -127,16 +127,16 @@ const ColdEmailGuide = ({ industry }: Props) => {
       {/* Nav */}
       <nav className="w-full px-6 py-5 flex items-center justify-between" style={{ maxWidth: '1100px', margin: '0 auto' }}>
         <Link to="/" className="text-xl font-bold" style={{ color: '#0F172A', letterSpacing: '-0.02em' }}>Offerloop</Link>
-        <Link to="/signin?mode=signup" className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: '#2563EB' }}>
+        <Link to="/signin?mode=signup" className="px-5 py-2.5 rounded-[3px] text-sm font-semibold text-white" style={{ background: '#3B82F6' }}>
           Get Started Free
         </Link>
       </nav>
 
       {/* Hero */}
       <section className="px-6 pt-16 pb-12" style={{ maxWidth: '800px', margin: '0 auto' }}>
-        <p className="text-sm font-medium mb-4" style={{ color: '#2563EB', letterSpacing: '0.02em' }}>COLD EMAIL GUIDE</p>
-        <h1 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 'clamp(36px, 5vw, 56px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '20px' }}>
-          Cold Email Templates for <span style={{ color: '#2563EB' }}>{industry.name}</span> Recruiting
+        <p className="text-sm font-medium mb-4" style={{ color: '#3B82F6', letterSpacing: '0.02em' }}>COLD EMAIL GUIDE</p>
+        <h1 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(36px, 5vw, 56px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '20px' }}>
+          Cold Email Templates for <span style={{ color: '#3B82F6' }}>{industry.name}</span> Recruiting
         </h1>
         <p style={{ fontSize: '17px', lineHeight: 1.7, color: '#64748B', maxWidth: '620px' }}>
           Cold emailing is one of the most effective ways to break into {industry.name.toLowerCase()}. These templates have been refined through thousands of successful outreach campaigns by students targeting {companiesText}.
@@ -146,15 +146,15 @@ const ColdEmailGuide = ({ industry }: Props) => {
       {/* Quick Info */}
       <section className="px-6 pb-8" style={{ maxWidth: '800px', margin: '0 auto' }}>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="rounded-xl p-4" style={{ border: '1px solid #E2E8F0', background: '#FAFBFE' }}>
+          <div className="rounded-[3px] p-4" style={{ border: '1px solid #E2E8F0', background: '#FAFBFF' }}>
             <p className="text-xs font-medium mb-1" style={{ color: '#94A3B8' }}>Top Companies</p>
             <p className="text-sm font-semibold" style={{ color: '#0F172A' }}>{industry.top_companies.slice(0, 3).join(', ')}</p>
           </div>
-          <div className="rounded-xl p-4" style={{ border: '1px solid #E2E8F0', background: '#FAFBFE' }}>
+          <div className="rounded-[3px] p-4" style={{ border: '1px solid #E2E8F0', background: '#FAFBFF' }}>
             <p className="text-xs font-medium mb-1" style={{ color: '#94A3B8' }}>Entry Roles</p>
             <p className="text-sm font-semibold" style={{ color: '#0F172A' }}>{industry.typical_roles.slice(0, 2).join(', ')}</p>
           </div>
-          <div className="rounded-xl p-4" style={{ border: '1px solid #E2E8F0', background: '#FAFBFE' }}>
+          <div className="rounded-[3px] p-4" style={{ border: '1px solid #E2E8F0', background: '#FAFBFF' }}>
             <p className="text-xs font-medium mb-1" style={{ color: '#94A3B8' }}>Culture</p>
             <p className="text-sm font-semibold" style={{ color: '#0F172A' }}>{industry.culture_notes.split(', ').slice(0, 2).join(', ')}</p>
           </div>
@@ -163,7 +163,7 @@ const ColdEmailGuide = ({ industry }: Props) => {
 
       {/* Section 1: What They Want to See */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           What {industry.name} Professionals Want to See in a Cold Email
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
@@ -176,13 +176,13 @@ const ColdEmailGuide = ({ industry }: Props) => {
 
       {/* Section 2: 5 Templates */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
           5 Cold Email Templates for {industry.name}
         </h2>
 
         {/* Template 1: Coffee Chat */}
-        <div className="rounded-xl p-6 mb-5" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
-          <p className="text-sm font-semibold mb-3" style={{ color: '#2563EB' }}>Template 1: Coffee Chat Request</p>
+        <div className="rounded-[3px] p-6 mb-5" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+          <p className="text-sm font-semibold mb-3" style={{ color: '#3B82F6' }}>Template 1: Coffee Chat Request</p>
           <div style={{ fontSize: '14px', lineHeight: 1.8, color: '#334155' }}>
             <p style={{ marginBottom: '4px' }}><strong>Subject:</strong> [University] student, question about your experience at [Company]</p>
             <p style={{ marginBottom: '12px', color: '#94A3B8', fontSize: '13px' }}>___</p>
@@ -194,8 +194,8 @@ const ColdEmailGuide = ({ industry }: Props) => {
         </div>
 
         {/* Template 2: Alumni */}
-        <div className="rounded-xl p-6 mb-5" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
-          <p className="text-sm font-semibold mb-3" style={{ color: '#2563EB' }}>Template 2: Alumni Connection</p>
+        <div className="rounded-[3px] p-6 mb-5" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+          <p className="text-sm font-semibold mb-3" style={{ color: '#3B82F6' }}>Template 2: Alumni Connection</p>
           <div style={{ fontSize: '14px', lineHeight: 1.8, color: '#334155' }}>
             <p style={{ marginBottom: '4px' }}><strong>Subject:</strong> Fellow [University] alum, 15 min on your [Company] experience</p>
             <p style={{ marginBottom: '12px', color: '#94A3B8', fontSize: '13px' }}>___</p>
@@ -207,8 +207,8 @@ const ColdEmailGuide = ({ industry }: Props) => {
         </div>
 
         {/* Template 3: Post-Event */}
-        <div className="rounded-xl p-6 mb-5" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
-          <p className="text-sm font-semibold mb-3" style={{ color: '#2563EB' }}>Template 3: Post-Event Follow-Up</p>
+        <div className="rounded-[3px] p-6 mb-5" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+          <p className="text-sm font-semibold mb-3" style={{ color: '#3B82F6' }}>Template 3: Post-Event Follow-Up</p>
           <div style={{ fontSize: '14px', lineHeight: 1.8, color: '#334155' }}>
             <p style={{ marginBottom: '4px' }}><strong>Subject:</strong> Great meeting you at [Event Name]</p>
             <p style={{ marginBottom: '12px', color: '#94A3B8', fontSize: '13px' }}>___</p>
@@ -220,8 +220,8 @@ const ColdEmailGuide = ({ industry }: Props) => {
         </div>
 
         {/* Template 4: Informational Interview */}
-        <div className="rounded-xl p-6 mb-5" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
-          <p className="text-sm font-semibold mb-3" style={{ color: '#2563EB' }}>Template 4: Informational Interview Request</p>
+        <div className="rounded-[3px] p-6 mb-5" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+          <p className="text-sm font-semibold mb-3" style={{ color: '#3B82F6' }}>Template 4: Informational Interview Request</p>
           <div style={{ fontSize: '14px', lineHeight: 1.8, color: '#334155' }}>
             <p style={{ marginBottom: '4px' }}><strong>Subject:</strong> [University] [year], question about [Company]'s [Team/Division]</p>
             <p style={{ marginBottom: '12px', color: '#94A3B8', fontSize: '13px' }}>___</p>
@@ -233,8 +233,8 @@ const ColdEmailGuide = ({ industry }: Props) => {
         </div>
 
         {/* Template 5: Referral Ask */}
-        <div className="rounded-xl p-6" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
-          <p className="text-sm font-semibold mb-3" style={{ color: '#2563EB' }}>Template 5: Referral Ask (After a Coffee Chat)</p>
+        <div className="rounded-[3px] p-6" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+          <p className="text-sm font-semibold mb-3" style={{ color: '#3B82F6' }}>Template 5: Referral Ask (After a Coffee Chat)</p>
           <div style={{ fontSize: '14px', lineHeight: 1.8, color: '#334155' }}>
             <p style={{ marginBottom: '4px' }}><strong>Subject:</strong> Thank you, [First Name], and a quick question</p>
             <p style={{ marginBottom: '12px', color: '#94A3B8', fontSize: '13px' }}>___</p>
@@ -248,7 +248,7 @@ const ColdEmailGuide = ({ industry }: Props) => {
 
       {/* Section 3: Subject Lines */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           Subject Lines That Get Opened in {industry.name}
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
@@ -256,8 +256,8 @@ const ColdEmailGuide = ({ industry }: Props) => {
         </p>
         <div className="space-y-3">
           {subjectLines.map((line, i) => (
-            <div key={i} className="flex items-start gap-3 rounded-lg p-3" style={{ background: '#FAFBFE', border: '1px solid #F1F5F9' }}>
-              <span className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: '#EFF6FF', color: '#2563EB' }}>{i + 1}</span>
+            <div key={i} className="flex items-start gap-3 rounded-[3px] p-3" style={{ background: '#FAFBFF', border: '1px solid #F1F5F9' }}>
+              <span className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: '#FAFBFF', color: '#3B82F6' }}>{i + 1}</span>
               <p className="text-sm font-medium" style={{ color: '#334155' }}>{line}</p>
             </div>
           ))}
@@ -266,7 +266,7 @@ const ColdEmailGuide = ({ industry }: Props) => {
 
       {/* Section 4: Timing and Follow-Up */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           When to Send and How to Follow Up
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
@@ -282,14 +282,14 @@ const ColdEmailGuide = ({ industry }: Props) => {
 
       {/* How It Works */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
           4 Steps to Cold Email {industry.name} Professionals with Offerloop
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {howToSteps.map((step, i) => (
-            <div key={i} className="rounded-xl p-5" style={{ border: '1px solid #E2E8F0' }}>
+            <div key={i} className="rounded-[3px] p-5" style={{ border: '1px solid #E2E8F0' }}>
               <div className="flex items-center gap-3 mb-3">
-                <span className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: '#2563EB', color: '#fff' }}>{i + 1}</span>
+                <span className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: '#3B82F6', color: '#fff' }}>{i + 1}</span>
                 <p className="text-sm font-semibold" style={{ color: '#0F172A' }}>{step.name}</p>
               </div>
               <p style={{ fontSize: '13px', lineHeight: 1.6, color: '#64748B' }}>{step.text}</p>
@@ -313,15 +313,15 @@ const ColdEmailGuide = ({ industry }: Props) => {
       <section className="px-6 py-16" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
         <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '24px', color: '#0F172A' }}>Related Resources</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Link to={`/networking/${industry.top_companies[0]?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'mckinsey'}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+          <Link to={`/networking/${industry.top_companies[0]?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'mckinsey'}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#3B82F6')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
             <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>{industry.top_companies[0]} Networking Guide</p>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Full networking playbook for {industry.top_companies[0]}.</p>
           </Link>
-          <Link to="/blog" style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+          <Link to="/blog" style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#3B82F6')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
             <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>Offerloop Blog</p>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Networking strategies, recruiting tips, and career advice.</p>
           </Link>
-          <Link to="/glossary" style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+          <Link to="/glossary" style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#3B82F6')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
             <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>Networking Glossary</p>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Definitions for cold email, coffee chat, and recruiting terms.</p>
           </Link>
@@ -329,9 +329,9 @@ const ColdEmailGuide = ({ industry }: Props) => {
       </section>
 
       {/* CTA */}
-      <section className="px-6 py-20" style={{ background: '#F8FAFF' }}>
+      <section className="px-6 py-20" style={{ background: '#FAFBFF' }}>
         <div className="text-center" style={{ maxWidth: '560px', margin: '0 auto' }}>
-          <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 'clamp(28px, 4vw, 40px)', fontWeight: 400, lineHeight: 1.15, color: '#0F172A', marginBottom: '16px' }}>
+          <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(28px, 4vw, 40px)', fontWeight: 400, lineHeight: 1.15, color: '#0F172A', marginBottom: '16px' }}>
             Generate a personalized {industry.name.toLowerCase()} cold email with Offerloop AI
           </h2>
           <p style={{ fontSize: '15px', color: '#64748B', marginBottom: '28px' }}>
@@ -339,8 +339,8 @@ const ColdEmailGuide = ({ industry }: Props) => {
           </p>
           <Link
             to="/signin?mode=signup"
-            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl text-white font-semibold text-base hover:shadow-lg transition-all"
-            style={{ background: '#2563EB' }}
+            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-[3px] text-white font-semibold text-base hover:shadow-lg transition-all"
+            style={{ background: '#3B82F6' }}
           >
             Get started free <ArrowRight className="w-4 h-4" />
           </Link>

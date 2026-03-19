@@ -113,62 +113,55 @@ def _is_news_eligible(
     text_blob = f"{title} {snippet}"
     company_lower = (company or "").lower()
     
-    # Check if same company
+    # Reject categories
+    # Use word-boundary-aware matching for short terms to avoid false positives
+    # (e.g. "ai" matching "maintain", "railway")
+    import re as _re
+    reject_phrases = [
+        "artificial intelligence", "machine learning",
+        "saas", "software as a service", "fintech", "financial technology",
+        "consumer tech", "consumer technology", "social media",
+        "venture capital", "startup funding",
+    ]
+    # Short terms that need word-boundary matching
+    reject_words = ["ai", "ml", "ipo"]
+    reject_broad = ["earnings", "stock", "share", "market", "acquisition", "funding"]
+
+    matches_reject = (
+        any(phrase in text_blob for phrase in reject_phrases)
+        or any(_re.search(rf'\b{word}\b', text_blob) for word in reject_words)
+        or any(term in text_blob for term in reject_broad)
+    )
+
+    # Check if same company — allow unless clearly irrelevant
     if company_lower and company_lower in text_blob:
-        return True
-    
-    # For industrial_engineering domain, check for relevant content
+        if domain == "industrial_engineering" and matches_reject:
+            engineering_terms = [
+                "engineering", "manufacturing", "infrastructure", "operations",
+                "process", "plant", "facility", "safety", "regulation"
+            ]
+            if not any(term in text_blob for term in engineering_terms):
+                return False  # Company mentioned but not engineering-relevant
+        return True  # Same company, allow it
+
+    # Reject if matches reject terms and isn't company-specific
+    if matches_reject:
+        return False
+
+    # For industrial_engineering domain, check for relevant peer content
     if domain == "industrial_engineering":
-        # Check for engineering/manufacturing relevance
         relevant_terms = [
-            "engineering project", "infrastructure", "manufacturing", 
+            "engineering project", "infrastructure", "manufacturing",
             "safety", "operations", "regulation", "industrial",
             "epc", "plant", "process", "chemical", "mechanical",
             "construction", "facility", "production", "refinery",
             "pipeline", "power plant", "factory"
         ]
         if any(term in text_blob for term in relevant_terms):
-            # Also check for peer companies (common industrial/manufacturing terms in snippet)
             peer_indicators = ["contractor", "engineering firm", "manufacturer", "industrial"]
             if any(indicator in text_blob for indicator in peer_indicators):
                 return True
-    
-    # Reject categories (unless same company AND directly relevant)
-    reject_terms = [
-        "artificial intelligence", "ai", "machine learning", "ml",
-        "saas", "software as a service", "fintech", "financial technology",
-        "consumer tech", "consumer technology", "social media",
-        "earnings", "stock", "share", "market", "ipo", "acquisition",
-        "funding", "venture capital", "startup funding"
-    ]
-    
-    # Check if matches reject terms
-    matches_reject = any(term in text_blob for term in reject_terms)
-    
-    # If it's the same company, allow unless it's clearly irrelevant
-    if company_lower and company_lower in text_blob:
-        # For industrial domain, still require engineering relevance if reject terms match
-        if domain == "industrial_engineering" and matches_reject:
-            # Check if it has engineering relevance despite reject terms
-            relevant_terms = [
-                "engineering", "manufacturing", "infrastructure", "operations",
-                "process", "plant", "facility", "safety", "regulation"
-            ]
-            if not any(term in text_blob for term in relevant_terms):
-                return False  # Company mentioned but not engineering-relevant
-        return True  # Same company, allow it
-    
-    # Reject if matches reject terms and isn't company-specific
-    if matches_reject:
-        return False
-    
-    # For general domain, allow if same company or relates to division/office mentioned
-    if domain == "general":
-        if company_lower and company_lower in text_blob:
-            return True
-        # Could expand here for other relevant checks for general domains
-        return False
-    
+
     return False
 
 
@@ -500,11 +493,18 @@ def fetch_comprehensive_research(
     job_title: str,
     first_name: str,
     last_name: str,
+    division: str = "",
+    office: str = "",
+    time_window: str = "last 90 days",
+    geo: str = "us",
+    language: str = "en",
 ) -> dict:
     """
-    Run 4 targeted SERP searches. Returns structured research dict with
+    Run 4 targeted SERP searches in parallel. Returns structured research dict with
     company_news, company_overview, person_mentions, industry_trends.
     """
+    import concurrent.futures
+
     results = {
         "company_news":     [],
         "company_overview": [],
@@ -516,9 +516,14 @@ def fetch_comprehensive_research(
         print("[SERP] SERPAPI_KEY missing; skipping research")
         return results
 
+    current_year = datetime.now().year
+    year_range = f"{current_year} {current_year + 1}"
+
     def safe_search(params):
         try:
             params["api_key"] = SERPAPI_KEY
+            params.setdefault("hl", language or "en")
+            params.setdefault("gl", geo or "us")
             search = GoogleSearch(params)
             data = search.get_dict()
             return data.get("organic_results", []) or data.get("news_results", []) or []
@@ -538,37 +543,62 @@ def fetch_comprehensive_research(
             "date":    r.get("date", ""),
         }
 
-    # 1. Company news (recent, from news tab)
-    if company:
-        raw = safe_search({
-            "engine": "google", "q": f'"{company}" news 2025 2026',
-            "tbm": "nws", "num": 5,
-        })
-        results["company_news"] = [to_result(r) for r in raw[:5]]
+    tbs_value = _default_time_window_to_serp(time_window)
 
-    # 2. Company overview (web results)
-    if company:
+    def _search_company_news():
+        if not company:
+            return []
+        # Include division/office in query if provided for more targeted results
+        query_parts = [f'"{company}"']
+        if division:
+            query_parts.append(division)
+        if office:
+            query_parts.append(office)
+        query_parts.append(f"news {year_range}")
+        raw = safe_search({
+            "engine": "google", "q": " ".join(query_parts),
+            "tbm": "nws", "num": 5, "tbs": tbs_value,
+        })
+        return [to_result(r) for r in raw[:5]]
+
+    def _search_company_overview():
+        if not company:
+            return []
         raw = safe_search({
             "engine": "google",
             "q": f'"{company}" company overview {industry}',
             "num": 3,
         })
-        results["company_overview"] = [to_result(r) for r in raw[:3]]
+        return [to_result(r) for r in raw[:3]]
 
-    # 3. Person-specific mentions (articles, talks, interviews)
-    if first_name and last_name:
+    def _search_person_mentions():
+        if not (first_name and last_name):
+            return []
         raw = safe_search({
             "engine": "google",
             "q": f'"{first_name} {last_name}" {company} interview OR article OR talk OR paper',
             "num": 3,
         })
-        results["person_mentions"] = [to_result(r) for r in raw[:3]]
+        return [to_result(r) for r in raw[:3]]
 
-    # 4. Industry trends
-    if industry or job_title:
-        q = f'{industry or job_title} trends 2025 2026'
-        raw = safe_search({"engine": "google", "q": q, "tbm": "nws", "num": 3})
-        results["industry_trends"] = [to_result(r) for r in raw[:3]]
+    def _search_industry_trends():
+        if not (industry or job_title):
+            return []
+        q = f'{industry or job_title} trends {year_range}'
+        raw = safe_search({"engine": "google", "q": q, "tbm": "nws", "num": 3, "tbs": tbs_value})
+        return [to_result(r) for r in raw[:3]]
+
+    # Run all 4 SERP searches in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        f_news = executor.submit(_search_company_news)
+        f_overview = executor.submit(_search_company_overview)
+        f_person = executor.submit(_search_person_mentions)
+        f_trends = executor.submit(_search_industry_trends)
+
+        results["company_news"] = f_news.result()
+        results["company_overview"] = f_overview.result()
+        results["person_mentions"] = f_person.result()
+        results["industry_trends"] = f_trends.result()
 
     return results
 
@@ -628,26 +658,30 @@ def infer_hometown_from_education(education: Sequence[str], contact_data: Option
     if contact_data:
         city = contact_data.get("city") or contact_data.get("City") or ""
         state = contact_data.get("state") or contact_data.get("State") or ""
-        
-        # Only use location if both city and state are present and not generic
+
+        # Only use location if both city and state are present and valid
         if city and state:
-            # Basic validation: city should be capitalized, state should be 2 letters
             city_clean = city.strip()
             state_clean = state.strip().upper()
-            
+
             if (city_clean[0].isupper() if city_clean else False) and len(state_clean) == 2 and state_clean.isalpha():
-                # Additional check: look for "High School" in education to confirm this might be hometown
+                # High school mention = high confidence hometown
                 has_high_school = any(
                     "high school" in str(e).lower() or "secondary school" in str(e).lower()
                     for e in education
                 )
-                
+
                 if has_high_school:
                     hometown = f"{city_clean}, {state_clean}"
-                    print(f"[CoffeeChat] Found hometown from location fields: {hometown}")
+                    print(f"[CoffeeChat] Found hometown from location fields (high school match): {hometown}")
                     return hometown
-    
-    # No explicit hometown found - return empty string (not None) to indicate low confidence
+
+                # No high school but PDL has location — still useful as a conversation hook
+                hometown = f"{city_clean}, {state_clean}"
+                print(f"[CoffeeChat] Using PDL location as hometown: {hometown}")
+                return hometown
+
+    # No explicit hometown found
     print(f"[CoffeeChat] No explicit hometown found in education or location fields")
     return ""
 

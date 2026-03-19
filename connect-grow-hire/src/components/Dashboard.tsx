@@ -76,7 +76,7 @@ const getPriorityBorderColor = (priority: string) => {
   switch(priority) {
     case 'Hot': return 'border-l-red-500';
     case 'Warm': return 'border-l-yellow-500';
-    default: return 'border-l-blue-300';
+    default: return 'border-l-[#3B82F6]';
   }
 };
 
@@ -84,7 +84,7 @@ const getPriorityBadgeStyles = (priority: string) => {
   switch(priority) {
     case 'Hot': return 'bg-red-100 text-red-700';
     case 'Warm': return 'bg-yellow-100 text-yellow-700';
-    default: return 'bg-blue-100 text-blue-600';
+    default: return 'bg-[rgba(59,130,246,0.10)] text-[#3B82F6]';
   }
 };
 
@@ -456,7 +456,7 @@ export function Dashboard() {
             color: 'var(--text-secondary)',
           }}
         >
-          You have <span style={{ color: '#2563EB', fontWeight: 600 }}>{followUps.length} follow-ups</span> pending.
+          You have <span style={{ color: '#3B82F6', fontWeight: 600 }}>{followUps.length} follow-ups</span> pending.
         </p>
       </div>
 
@@ -465,8 +465,8 @@ export function Dashboard() {
       {/* ================================================================== */}
       <div
         style={{
-          background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.06) 0%, rgba(37, 99, 235, 0.10) 100%)',
-          border: '1px solid rgba(37, 99, 235, 0.12)',
+          background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.06) 0%, rgba(59, 130, 246, 0.10) 100%)',
+          border: '1px solid rgba(59, 130, 246, 0.12)',
           borderRadius: '14px',
           padding: '24px 28px',
           marginTop: '28px',
@@ -480,7 +480,7 @@ export function Dashboard() {
             fontWeight: 600,
             letterSpacing: '0.06em',
             textTransform: 'uppercase',
-            color: '#2563EB',
+            color: '#3B82F6',
             marginBottom: '8px',
           }}
         >
@@ -515,7 +515,7 @@ export function Dashboard() {
                 onClick={() => navigate('/tracker')}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-[10px] text-sm font-medium transition-all"
                 style={{
-                  background: '#2563EB',
+                  background: '#0F172A',
                   color: 'white',
                   fontFamily: 'var(--font-body)',
                   fontSize: '14px',
@@ -571,7 +571,7 @@ export function Dashboard() {
                 onClick={() => navigate('/find')}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-[10px] text-sm font-medium transition-all"
                 style={{
-                  background: '#2563EB',
+                  background: '#0F172A',
                   color: 'white',
                   fontFamily: 'var(--font-body)',
                   fontSize: '14px',
@@ -636,9 +636,9 @@ export function Dashboard() {
                 color: 'var(--text-secondary)',
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.2)';
+                e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.2)';
                 e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 4px 16px rgba(37, 99, 235, 0.08)';
+                e.currentTarget.style.boxShadow = '0 4px 16px rgba(59, 130, 246, 0.08)';
                 e.currentTarget.style.color = 'var(--text-primary)';
               }}
               onMouseLeave={(e) => {
@@ -713,8 +713,8 @@ export function Dashboard() {
                   }}
                   onMouseEnter={(e) => {
                     if (!win.disabled) {
-                      e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.15)';
-                      e.currentTarget.style.boxShadow = '0 4px 16px rgba(37, 99, 235, 0.06)';
+                      e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.15)';
+                      e.currentTarget.style.boxShadow = '0 4px 16px rgba(59, 130, 246, 0.06)';
                     }
                   }}
                   onMouseLeave={(e) => {
@@ -729,8 +729,8 @@ export function Dashboard() {
                         fontFamily: 'var(--font-body)',
                         fontSize: '11px',
                         fontWeight: 600,
-                        color: '#2563EB',
-                        background: 'rgba(37, 99, 235, 0.08)',
+                        color: '#3B82F6',
+                        background: 'rgba(59, 130, 246, 0.08)',
                         padding: '2px 8px',
                         borderRadius: '6px',
                       }}
@@ -769,8 +769,8 @@ export function Dashboard() {
                     border: '1px solid var(--border-light)',
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.15)';
-                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(37, 99, 235, 0.06)';
+                    e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.15)';
+                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(59, 130, 246, 0.06)';
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.borderColor = 'var(--border-light)';
@@ -786,8 +786,8 @@ export function Dashboard() {
                         fontFamily: 'var(--font-body)',
                         fontSize: '11px',
                         fontWeight: 600,
-                        color: '#2563EB',
-                        background: 'rgba(37, 99, 235, 0.08)',
+                        color: '#3B82F6',
+                        background: 'rgba(59, 130, 246, 0.08)',
                         padding: '2px 8px',
                         borderRadius: '6px',
                       }}
@@ -888,8 +888,8 @@ export function Dashboard() {
                       border: '1px solid var(--border-light)',
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.15)';
-                      e.currentTarget.style.boxShadow = '0 4px 16px rgba(37, 99, 235, 0.06)';
+                      e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.15)';
+                      e.currentTarget.style.boxShadow = '0 4px 16px rgba(59, 130, 246, 0.06)';
                       e.currentTarget.style.transform = 'translateY(-2px)';
                     }}
                     onMouseLeave={(e) => {
@@ -925,8 +925,8 @@ export function Dashboard() {
                               fontFamily: 'var(--font-body)',
                               fontSize: '11px',
                               fontWeight: 600,
-                              color: '#2563EB',
-                              background: 'rgba(37, 99, 235, 0.08)',
+                              color: '#3B82F6',
+                              background: 'rgba(59, 130, 246, 0.08)',
                               padding: '2px 8px',
                               borderRadius: '6px',
                             }}
@@ -971,7 +971,7 @@ export function Dashboard() {
                     style={{
                       fontFamily: 'var(--font-body)',
                       fontSize: '14px',
-                      color: '#2563EB',
+                      color: '#3B82F6',
                       background: 'none',
                       border: 'none',
                       cursor: 'pointer',

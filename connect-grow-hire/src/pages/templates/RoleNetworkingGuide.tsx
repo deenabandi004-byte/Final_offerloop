@@ -167,16 +167,16 @@ const RoleNetworkingGuide = ({ role }: Props) => {
       {/* Nav */}
       <nav className="w-full px-6 py-5 flex items-center justify-between" style={{ maxWidth: '1100px', margin: '0 auto' }}>
         <Link to="/" className="text-xl font-bold" style={{ color: '#0F172A', letterSpacing: '-0.02em' }}>Offerloop</Link>
-        <Link to="/signin?mode=signup" className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: '#2563EB' }}>
+        <Link to="/signin?mode=signup" className="px-5 py-2.5 rounded-[3px] text-sm font-semibold text-white" style={{ background: '#3B82F6' }}>
           Get Started Free
         </Link>
       </nav>
 
       {/* Hero */}
       <section className="px-6 pt-16 pb-12" style={{ maxWidth: '800px', margin: '0 auto' }}>
-        <p className="text-sm font-medium mb-4" style={{ color: '#2563EB', letterSpacing: '0.02em' }}>ROLE GUIDE</p>
-        <h1 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 'clamp(36px, 5vw, 56px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '20px' }}>
-          Student Networking Guide for <span style={{ color: '#2563EB' }}>{role.name}</span> Positions
+        <p className="text-sm font-medium mb-4" style={{ color: '#3B82F6', letterSpacing: '0.02em' }}>ROLE GUIDE</p>
+        <h1 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(36px, 5vw, 56px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '20px' }}>
+          Student Networking Guide for <span style={{ color: '#3B82F6' }}>{role.name}</span> Positions
         </h1>
         <p style={{ fontSize: '17px', lineHeight: 1.7, color: '#64748B', maxWidth: '620px' }}>
           Networking is the most effective way to land a {role.name.toLowerCase()} position. This guide covers who to reach out to, what to say, and how to turn conversations into referrals at {role.top_employers.slice(0, 3).join(', ')}, and other top firms.
@@ -186,15 +186,15 @@ const RoleNetworkingGuide = ({ role }: Props) => {
       {/* Quick Info */}
       <section className="px-6 pb-8" style={{ maxWidth: '800px', margin: '0 auto' }}>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="rounded-xl p-4" style={{ border: '1px solid #E2E8F0', background: '#FAFBFE' }}>
+          <div className="rounded-[3px] p-4" style={{ border: '1px solid #E2E8F0', background: '#FAFBFF' }}>
             <p className="text-xs font-medium mb-1" style={{ color: '#94A3B8' }}>Industry</p>
             <p className="text-sm font-semibold" style={{ color: '#0F172A' }}>{industry}</p>
           </div>
-          <div className="rounded-xl p-4" style={{ border: '1px solid #E2E8F0', background: '#FAFBFE' }}>
+          <div className="rounded-[3px] p-4" style={{ border: '1px solid #E2E8F0', background: '#FAFBFF' }}>
             <p className="text-xs font-medium mb-1" style={{ color: '#94A3B8' }}>Timeline</p>
             <p className="text-sm font-semibold" style={{ color: '#0F172A' }}>{role.timeline}</p>
           </div>
-          <div className="rounded-xl p-4" style={{ border: '1px solid #E2E8F0', background: '#FAFBFE' }}>
+          <div className="rounded-[3px] p-4" style={{ border: '1px solid #E2E8F0', background: '#FAFBFF' }}>
             <p className="text-xs font-medium mb-1" style={{ color: '#94A3B8' }}>Interview Type</p>
             <p className="text-sm font-semibold" style={{ color: '#0F172A' }}>{role.interview_type}</p>
           </div>
@@ -203,7 +203,7 @@ const RoleNetworkingGuide = ({ role }: Props) => {
 
       {/* Section 1: Why Networking Is Critical */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           Why Networking Is Critical for {role.name} Recruiting
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
@@ -216,12 +216,12 @@ const RoleNetworkingGuide = ({ role }: Props) => {
 
       {/* Section 2: Who to Network With */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
           Who to Network With for {role.name} Positions
         </h2>
         <div className="space-y-4">
           {whoToNetwork.map((item, i) => (
-            <div key={i} className="rounded-xl p-5" style={{ border: '1px solid #E2E8F0' }}>
+            <div key={i} className="rounded-[3px] p-5" style={{ border: '1px solid #E2E8F0' }}>
               <p className="text-sm font-semibold mb-2" style={{ color: '#0F172A' }}>{item.title}</p>
               <p style={{ fontSize: '13px', lineHeight: 1.6, color: '#64748B' }}>{item.desc}</p>
             </div>
@@ -231,15 +231,15 @@ const RoleNetworkingGuide = ({ role }: Props) => {
 
       {/* Section 3: Cold Email Template */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           Cold Email Template for {role.name} Networking
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
           Here is a proven template specifically designed for students networking into {role.name.toLowerCase()} roles. Adapt it to your specific situation and always personalize the bracketed sections.
         </p>
 
-        <div className="rounded-xl p-6" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
-          <p className="text-sm font-semibold mb-3" style={{ color: '#2563EB' }}>Cold Email Template</p>
+        <div className="rounded-[3px] p-6" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+          <p className="text-sm font-semibold mb-3" style={{ color: '#3B82F6' }}>Cold Email Template</p>
           <div style={{ fontSize: '14px', lineHeight: 1.8, color: '#334155' }}>
             <p style={{ marginBottom: '4px' }}><strong>Subject:</strong> [University] student, question about the {role.name.toLowerCase()} role at [Company]</p>
             <p style={{ marginBottom: '12px', color: '#94A3B8', fontSize: '13px' }}>___</p>
@@ -253,7 +253,7 @@ const RoleNetworkingGuide = ({ role }: Props) => {
 
       {/* Section 4: Top Companies */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           Top Companies Hiring for {role.name} Positions
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
@@ -261,8 +261,8 @@ const RoleNetworkingGuide = ({ role }: Props) => {
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {role.top_employers.map((employer, i) => (
-            <div key={i} className="rounded-xl p-4 flex items-center gap-3" style={{ border: '1px solid #E2E8F0', background: '#FAFBFE' }}>
-              <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: '#EFF6FF', color: '#2563EB' }}>{i + 1}</span>
+            <div key={i} className="rounded-[3px] p-4 flex items-center gap-3" style={{ border: '1px solid #E2E8F0', background: '#FAFBFF' }}>
+              <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: '#FAFBFF', color: '#3B82F6' }}>{i + 1}</span>
               <p className="text-sm font-semibold" style={{ color: '#0F172A' }}>{employer}</p>
             </div>
           ))}
@@ -271,14 +271,14 @@ const RoleNetworkingGuide = ({ role }: Props) => {
 
       {/* Section 5: Recruiting Timeline */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
           The {role.name} Recruiting Timeline
         </h2>
         <div className="space-y-4">
           {timeline.map((item, i) => (
             <div key={i} className="flex gap-4">
               <div className="flex flex-col items-center">
-                <span className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0" style={{ background: '#2563EB', color: '#fff' }}>{i + 1}</span>
+                <span className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0" style={{ background: '#3B82F6', color: '#fff' }}>{i + 1}</span>
                 {i < timeline.length - 1 && <div className="w-px flex-1 mt-2" style={{ background: '#E2E8F0' }} />}
               </div>
               <div className="pb-6">
@@ -292,14 +292,14 @@ const RoleNetworkingGuide = ({ role }: Props) => {
 
       {/* How It Works */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
           4 Steps to Network for {role.name} Roles with Offerloop
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {howToSteps.map((step, i) => (
-            <div key={i} className="rounded-xl p-5" style={{ border: '1px solid #E2E8F0' }}>
+            <div key={i} className="rounded-[3px] p-5" style={{ border: '1px solid #E2E8F0' }}>
               <div className="flex items-center gap-3 mb-3">
-                <span className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: '#2563EB', color: '#fff' }}>{i + 1}</span>
+                <span className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: '#3B82F6', color: '#fff' }}>{i + 1}</span>
                 <p className="text-sm font-semibold" style={{ color: '#0F172A' }}>{step.name}</p>
               </div>
               <p style={{ fontSize: '13px', lineHeight: 1.6, color: '#64748B' }}>{step.text}</p>
@@ -323,15 +323,15 @@ const RoleNetworkingGuide = ({ role }: Props) => {
       <section className="px-6 py-16" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
         <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '24px', color: '#0F172A' }}>Related Resources</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Link to={`/cold-email/${role.industry}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+          <Link to={`/cold-email/${role.industry}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#3B82F6')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
             <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>{industryLabels[role.industry] || role.industry} Cold Email Guide</p>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Email templates and tips for {industryLabels[role.industry]?.toLowerCase() || role.industry} outreach.</p>
           </Link>
-          <Link to={`/coffee-chat/${role.top_employers[0]?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'mckinsey'}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+          <Link to={`/coffee-chat/${role.top_employers[0]?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'mckinsey'}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#3B82F6')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
             <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>{role.top_employers[0]} Coffee Chat Guide</p>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Prep questions and follow-up strategies for coffee chats.</p>
           </Link>
-          <Link to="/blog" style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+          <Link to="/blog" style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#3B82F6')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
             <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>Offerloop Blog</p>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Networking strategies, recruiting tips, and career advice.</p>
           </Link>
@@ -339,9 +339,9 @@ const RoleNetworkingGuide = ({ role }: Props) => {
       </section>
 
       {/* CTA */}
-      <section className="px-6 py-20" style={{ background: '#F8FAFF' }}>
+      <section className="px-6 py-20" style={{ background: '#FAFBFF' }}>
         <div className="text-center" style={{ maxWidth: '560px', margin: '0 auto' }}>
-          <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 'clamp(28px, 4vw, 40px)', fontWeight: 400, lineHeight: 1.15, color: '#0F172A', marginBottom: '16px' }}>
+          <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(28px, 4vw, 40px)', fontWeight: 400, lineHeight: 1.15, color: '#0F172A', marginBottom: '16px' }}>
             Start your {role.name.toLowerCase()} networking campaign with Offerloop
           </h2>
           <p style={{ fontSize: '15px', color: '#64748B', marginBottom: '28px' }}>
@@ -349,8 +349,8 @@ const RoleNetworkingGuide = ({ role }: Props) => {
           </p>
           <Link
             to="/signin?mode=signup"
-            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl text-white font-semibold text-base hover:shadow-lg transition-all"
-            style={{ background: '#2563EB' }}
+            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-[3px] text-white font-semibold text-base hover:shadow-lg transition-all"
+            style={{ background: '#3B82F6' }}
           >
             Get started free <ArrowRight className="w-4 h-4" />
           </Link>

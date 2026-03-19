@@ -17,6 +17,7 @@ import {
 import CupIcon from "@/assets/sidebaricons/icons8-cup-48.png";
 import MailIcon from "@/assets/sidebaricons/icons8-important-mail-48.png";
 import MagnifyingGlassIcon from "@/assets/sidebaricons/icons8-magnifying-glass-50.png";
+import BriefcaseIcon from "@/assets/sidebaricons/icons8-briefcase-48.png";
 
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
@@ -40,13 +41,14 @@ import { cn } from "@/lib/utils";
 // ── Icon helpers ────────────────────────────────────────────────────────────
 
 const IMG_FILTER_ACTIVE =
-  "brightness(0) saturate(100%) invert(38%) sepia(96%) saturate(1308%) hue-rotate(213deg) brightness(97%) contrast(97%)";
-const IMG_FILTER_INACTIVE = "brightness(0) saturate(100%)";
+  "brightness(0) saturate(100%) invert(72%) sepia(30%) saturate(1200%) hue-rotate(190deg) brightness(105%) contrast(95%)";
+const IMG_FILTER_INACTIVE = "brightness(0) saturate(100%) invert(100%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(100%) contrast(100%)";
 
 type NavItemDef = {
   title: string;
   url: string;
   dataTour?: string;
+  newTab?: boolean;
 } & (
   | { iconSrc: string; LucideIcon?: never }
   | { LucideIcon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; iconSrc?: never }
@@ -57,16 +59,24 @@ const mainNavItems: NavItemDef[] = [
   { title: "Find", url: "/find", iconSrc: MagnifyingGlassIcon },
   { title: "Coffee Chat Prep", url: "/coffee-chat-prep", iconSrc: CupIcon, dataTour: "tour-coffee-chat-prep" },
   { title: "Tracker", url: "/tracker", iconSrc: MailIcon, dataTour: "tour-track-email" },
+  { title: "Job Board", url: "/job-board", iconSrc: BriefcaseIcon },
 ];
 
 // Group 2 — guides
 const guidesNavItems: NavItemDef[] = [
-  { title: "Networking Guides", url: "/networking/mckinsey", LucideIcon: BookOpen },
-  { title: "Coffee Chat Guides", url: "/coffee-chat/mckinsey", LucideIcon: BookOpen },
-  { title: "Cold Email Templates", url: "/cold-email/management-consulting", LucideIcon: BookOpen },
-  { title: "Compare Tools", url: "/compare/handshake", LucideIcon: BookOpen },
-  { title: "Blog", url: "/blog", LucideIcon: BookOpen },
-  { title: "Glossary", url: "/glossary", LucideIcon: BookOpen },
+  { title: "Networking: Goldman Sachs", url: "/networking/goldman-sachs", LucideIcon: BookOpen, newTab: true },
+  { title: "Networking: McKinsey", url: "/networking/mckinsey", LucideIcon: BookOpen, newTab: true },
+  { title: "Networking: Google", url: "/networking/google", LucideIcon: BookOpen, newTab: true },
+  { title: "Coffee Chat: Bain", url: "/coffee-chat/bain", LucideIcon: BookOpen, newTab: true },
+  { title: "Coffee Chat: Morgan Stanley", url: "/coffee-chat/morgan-stanley", LucideIcon: BookOpen, newTab: true },
+  { title: "Cold Email: IB", url: "/cold-email/investment-banking", LucideIcon: BookOpen, newTab: true },
+  { title: "Cold Email: Tech", url: "/cold-email/tech", LucideIcon: BookOpen, newTab: true },
+];
+
+// Group 2b — compare
+const compareNavItems: NavItemDef[] = [
+  { title: "vs Handshake", url: "/compare/handshake", LucideIcon: BookOpen, newTab: true },
+  { title: "vs LinkedIn", url: "/compare/linkedin", LucideIcon: BookOpen, newTab: true },
 ];
 
 // Group 3 — utility nav
@@ -91,13 +101,13 @@ const NAV_PY = "11px";
 const NAV_GAP = "10px";
 const NAV_RADIUS = "8px";
 
-const ACTIVE_BG = "#FFFFFF";
-const ACTIVE_SHADOW = "0 1px 3px rgba(0,0,0,0.08)";
-const ACTIVE_COLOR = "#4F6EF7";
-const INACTIVE_ICON = "#A0AABB";
-const INACTIVE_LABEL = "#5A6478";
-const HOVER_BG = "rgba(79, 110, 247, 0.05)";
-const HOVER_LABEL = "#3D5494";
+const ACTIVE_BG = "rgba(59,130,246,.18)";
+const ACTIVE_SHADOW = "none";
+const ACTIVE_COLOR = "#93C5FD";
+const INACTIVE_ICON = "rgba(255,255,255,.40)";
+const INACTIVE_LABEL = "rgba(255,255,255,.40)";
+const HOVER_BG = "rgba(255,255,255,.06)";
+const HOVER_LABEL = "rgba(255,255,255,.70)";
 
 // ── Component ───────────────────────────────────────────────────────────────
 
@@ -151,27 +161,87 @@ export function AppSidebar() {
       />
     ) : null;
 
+    const linkProps = item.newTab
+      ? { target: "_blank" as const, rel: "noopener noreferrer" }
+      : {};
+
     if (isCollapsed) {
       return (
         <Tooltip key={item.title}>
           <TooltipTrigger asChild>
-            <NavLink
-              to={item.url}
-              data-tour={item.dataTour}
-              onClick={() => trackNavClick(item.title, "sidebar")}
-              className="flex items-center justify-center rounded-[8px] transition-all"
-              style={{
-                padding: NAV_PY,
-                background: active ? ACTIVE_BG : "transparent",
-                boxShadow: active ? ACTIVE_SHADOW : "none",
-                borderRadius: NAV_RADIUS,
-              }}
-            >
-              {icon}
-            </NavLink>
+            {item.newTab ? (
+              <a
+                href={item.url}
+                {...linkProps}
+                data-tour={item.dataTour}
+                onClick={() => trackNavClick(item.title, "sidebar")}
+                className="flex items-center justify-center rounded-[8px] transition-all"
+                style={{
+                  padding: NAV_PY,
+                  background: "transparent",
+                  borderRadius: NAV_RADIUS,
+                  textDecoration: "none",
+                }}
+              >
+                {icon}
+              </a>
+            ) : (
+              <NavLink
+                to={item.url}
+                data-tour={item.dataTour}
+                onClick={() => trackNavClick(item.title, "sidebar")}
+                className="flex items-center justify-center rounded-[8px] transition-all"
+                style={{
+                  padding: NAV_PY,
+                  background: active ? ACTIVE_BG : "transparent",
+                  boxShadow: active ? ACTIVE_SHADOW : "none",
+                  borderRadius: NAV_RADIUS,
+                }}
+              >
+                {icon}
+              </NavLink>
+            )}
           </TooltipTrigger>
           <TooltipContent side="right">{item.title}</TooltipContent>
         </Tooltip>
+      );
+    }
+
+    if (item.newTab) {
+      return (
+        <a
+          key={item.title}
+          href={item.url}
+          {...linkProps}
+          data-tour={item.dataTour}
+          onClick={() => trackNavClick(item.title, "sidebar")}
+          className="flex items-center transition-all"
+          style={{
+            gap: NAV_GAP,
+            paddingTop: NAV_PY,
+            paddingBottom: NAV_PY,
+            paddingLeft: "10px",
+            paddingRight: "10px",
+            borderRadius: NAV_RADIUS,
+            fontSize: NAV_FONT_SIZE,
+            fontWeight: 400,
+            fontFamily: "var(--font-body)",
+            background: "transparent",
+            color: INACTIVE_LABEL,
+            textDecoration: "none",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = HOVER_BG;
+            e.currentTarget.style.color = HOVER_LABEL;
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "transparent";
+            e.currentTarget.style.color = INACTIVE_LABEL;
+          }}
+        >
+          {icon}
+          <span>{item.title}</span>
+        </a>
       );
     }
 
@@ -223,8 +293,8 @@ export function AppSidebar() {
         <SidebarContent
           className="flex flex-col h-full overflow-hidden"
           style={{
-            background: "#F0F2F7",
-            borderRight: "1px solid rgba(37, 99, 235, 0.08)",
+            background: "#060D1A",
+            borderRight: "0.5px solid rgba(255,255,255,.06)",
           }}
         >
           {/* User profile / toggle */}
@@ -236,18 +306,18 @@ export function AppSidebar() {
                     <button
                       onClick={toggleSidebar}
                       className="p-2 rounded-lg transition-colors"
-                      style={{ color: "#94A3B8" }}
+                      style={{ color: "rgba(255,255,255,.45)" }}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.background = "rgba(37, 99, 235, 0.05)";
-                        e.currentTarget.style.color = "#64748B";
+                        e.currentTarget.style.background = "rgba(255,255,255,.06)";
+                        e.currentTarget.style.color = "rgba(255,255,255,.75)";
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.background = "transparent";
-                        e.currentTarget.style.color = "#94A3B8";
+                        e.currentTarget.style.color = "rgba(255,255,255,.45)";
                       }}
                       aria-label="Expand sidebar"
                     >
-                      <PanelLeft className="h-5 w-5" style={{ color: "#94A3B8" }} />
+                      <PanelLeft className="h-5 w-5" style={{ color: "rgba(255,255,255,.45)" }} />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="right">Expand sidebar</TooltipContent>
@@ -260,10 +330,10 @@ export function AppSidebar() {
                     onClick={() => setUserDropdownOpen(!userDropdownOpen)}
                     className="flex-1 flex items-center gap-3 px-2 py-2 rounded-lg transition-all"
                     style={{
-                      background: userDropdownOpen ? "rgba(37, 99, 235, 0.05)" : "transparent",
+                      background: userDropdownOpen ? "rgba(255,255,255,.06)" : "transparent",
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "rgba(37, 99, 235, 0.05)";
+                      e.currentTarget.style.background = "rgba(255,255,255,.06)";
                     }}
                     onMouseLeave={(e) => {
                       if (!userDropdownOpen) {
@@ -271,11 +341,11 @@ export function AppSidebar() {
                       }
                     }}
                   >
-                    <Avatar className="h-8 w-8 flex-shrink-0 ring-2 ring-blue-100">
+                    <Avatar className="h-8 w-8 flex-shrink-0 ring-2 ring-[#3B82F6]/20">
                       {user?.picture && <AvatarImage src={user.picture} alt={user.name} />}
                       <AvatarFallback
                         className="text-xs font-medium"
-                        style={{ background: "rgba(37, 99, 235, 0.10)", color: "#2563EB" }}
+                        style={{ background: "rgba(59, 130, 246, 0.12)", color: "#3B82F6" }}
                       >
                         {user?.name
                           ?.split(" ")
@@ -290,7 +360,7 @@ export function AppSidebar() {
                     <div className="flex-1 min-w-0 text-left">
                       <p
                         className="text-sm font-medium truncate"
-                        style={{ color: "#1E293B", fontFamily: "var(--font-body)" }}
+                        style={{ color: "#fff", fontFamily: "var(--font-body)" }}
                       >
                         {user?.name || "User"}
                       </p>
@@ -300,7 +370,7 @@ export function AppSidebar() {
                         "h-3.5 w-3.5 transition-transform flex-shrink-0",
                         userDropdownOpen && "rotate-180"
                       )}
-                      style={{ color: "#94A3B8" }}
+                      style={{ color: "rgba(255,255,255,.45)" }}
                     />
                   </button>
 
@@ -309,14 +379,14 @@ export function AppSidebar() {
                       <button
                         onClick={toggleSidebar}
                         className="p-2 rounded-lg transition-colors flex-shrink-0"
-                        style={{ color: "#94A3B8" }}
+                        style={{ color: "rgba(255,255,255,.45)" }}
                         onMouseEnter={(e) => {
-                          e.currentTarget.style.background = "rgba(37, 99, 235, 0.05)";
-                          e.currentTarget.style.color = "#64748B";
+                          e.currentTarget.style.background = "rgba(255,255,255,.06)";
+                          e.currentTarget.style.color = "rgba(255,255,255,.75)";
                         }}
                         onMouseLeave={(e) => {
                           e.currentTarget.style.background = "transparent";
-                          e.currentTarget.style.color = "#94A3B8";
+                          e.currentTarget.style.color = "rgba(255,255,255,.45)";
                         }}
                         aria-label="Collapse sidebar"
                       >
@@ -342,8 +412,8 @@ export function AppSidebar() {
                           cn(
                             "flex items-center gap-3 px-3 py-2 text-sm transition-colors",
                             isActive
-                              ? "text-[#2563EB] bg-blue-50"
-                              : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                              ? "text-[#3B82F6] bg-[#EFF6FF]"
+                              : "text-[#475569] hover:text-[#0F172A] hover:bg-[#EFF6FF]"
                           )
                         }
                       >
@@ -351,10 +421,10 @@ export function AppSidebar() {
                         <span>{item.title}</span>
                       </NavLink>
                     ))}
-                    <div className="my-1 border-t border-gray-100" />
+                    <div className="my-1 border-t border-[#E2E8F0]" />
                     <button
                       onClick={handleSignOut}
-                      className="w-full flex items-center gap-3 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-colors"
+                      className="w-full flex items-center gap-3 px-3 py-2 text-sm text-[#475569] hover:text-[#0F172A] hover:bg-[#EFF6FF] transition-colors"
                     >
                       <LogOut className="h-4 w-4" />
                       <span>Sign out</span>
@@ -373,7 +443,7 @@ export function AppSidebar() {
             </div>
 
             {/* Divider */}
-            <div className="my-3" style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }} />
+            <div className="my-3" style={{ borderTop: "0.5px solid rgba(255,255,255,.07)" }} />
 
             {/* Group 2 — guides */}
             {!isCollapsed && (
@@ -382,7 +452,7 @@ export function AppSidebar() {
                   fontSize: "11px",
                   fontWeight: 600,
                   letterSpacing: "0.06em",
-                  color: "#A0AABB",
+                  color: "rgba(255,255,255,.2)",
                   fontFamily: "var(--font-body)",
                   textTransform: "uppercase" as const,
                   paddingLeft: "10px",
@@ -397,7 +467,31 @@ export function AppSidebar() {
             </div>
 
             {/* Divider */}
-            <div className="my-3" style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }} />
+            <div className="my-3" style={{ borderTop: "0.5px solid rgba(255,255,255,.07)" }} />
+
+            {/* Group 2b — compare */}
+            {!isCollapsed && (
+              <p
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  letterSpacing: "0.06em",
+                  color: "rgba(255,255,255,.2)",
+                  fontFamily: "var(--font-body)",
+                  textTransform: "uppercase" as const,
+                  paddingLeft: "10px",
+                  marginBottom: "4px",
+                }}
+              >
+                Compare
+              </p>
+            )}
+            <div className="space-y-0.5">
+              {compareNavItems.map(renderNavItem)}
+            </div>
+
+            {/* Divider */}
+            <div className="my-3" style={{ borderTop: "0.5px solid rgba(255,255,255,.07)" }} />
 
             {/* Group 3 — utility */}
             <div className="space-y-0.5">
@@ -410,8 +504,8 @@ export function AppSidebar() {
         <SidebarFooter
           className="p-3"
           style={{
-            borderTop: "1px solid rgba(0,0,0,0.06)",
-            background: "#F0F2F7",
+            borderTop: "0.5px solid rgba(255,255,255,.07)",
+            background: "#060D1A",
           }}
         >
           {!isCollapsed ? (
@@ -424,7 +518,7 @@ export function AppSidebar() {
                       fontSize: "11px",
                       fontWeight: 600,
                       letterSpacing: "0.06em",
-                      color: "#A0AABB",
+                      color: "rgba(255,255,255,.2)",
                       fontFamily: "var(--font-body)",
                       textTransform: "uppercase" as const,
                     }}
@@ -435,7 +529,7 @@ export function AppSidebar() {
                     style={{
                       fontSize: "12px",
                       fontWeight: 600,
-                      color: "#5A6478",
+                      color: "rgba(255,255,255,.7)",
                       fontFamily: "var(--font-body)",
                     }}
                   >
@@ -444,13 +538,13 @@ export function AppSidebar() {
                 </div>
                 <div
                   className="h-1 rounded-full overflow-hidden"
-                  style={{ background: "rgba(79, 110, 247, 0.12)" }}
+                  style={{ background: "rgba(59, 130, 246, 0.12)" }}
                 >
                   <div
                     className="h-full rounded-full transition-all duration-300"
                     style={{
                       width: `${creditPercentage}%`,
-                      background: "#4F6EF7",
+                      background: "#3B82F6",
                     }}
                   />
                 </div>
@@ -462,18 +556,18 @@ export function AppSidebar() {
                   trackUpgradeClick("sidebar", { from_location: "sidebar" });
                   navigate("/pricing");
                 }}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-[8px] transition-all"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-[3px] transition-all"
                 style={{
-                  background: "#4F6EF7",
-                  color: "white",
+                  background: "#3B82F6",
+                  color: "#0F172A",
                   fontFamily: "var(--font-body)",
                   border: "none",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "#3D5BD9";
+                  e.currentTarget.style.background = "#2563EB";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "#4F6EF7";
+                  e.currentTarget.style.background = "#3B82F6";
                 }}
               >
                 <Zap className="h-4 w-4" />
@@ -488,17 +582,17 @@ export function AppSidebar() {
                     trackUpgradeClick("sidebar", { from_location: "sidebar" });
                     navigate("/pricing");
                   }}
-                  className="w-full flex items-center justify-center p-2 rounded-[8px] transition-all"
+                  className="w-full flex items-center justify-center p-2 rounded-[3px] transition-all"
                   style={{
-                    background: "#4F6EF7",
-                    color: "white",
+                    background: "#3B82F6",
+                    color: "#0F172A",
                     border: "none",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "#3D5BD9";
+                    e.currentTarget.style.background = "#2563EB";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "#4F6EF7";
+                    e.currentTarget.style.background = "#3B82F6";
                   }}
                 >
                   <Zap className="h-5 w-5" />

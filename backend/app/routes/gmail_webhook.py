@@ -2,6 +2,7 @@
 Gmail push notification webhook — receives Pub/Sub notifications and detects replies.
 """
 import base64
+import hmac
 import json
 import logging
 import re
@@ -133,7 +134,8 @@ def _process_gmail_notification(email_address, history_id):
 
         logger.info(f"[gmail_webhook] uid={uid} fetched {len(all_message_ids)} new message(s) from history (lastHistoryId={last_history_id} -> {history_id})")
 
-        now_iso = datetime.utcnow().isoformat() + "Z"  # TODO: deprecated in Python 3.12
+        from datetime import timezone
+        now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         user_email_lower = (user_email or "").lower()
         contacts_ref = db.collection("users").document(uid).collection("contacts")
         notif_ref = db.collection("users").document(uid).collection("notifications").document("outbox")
@@ -162,11 +164,16 @@ def _process_gmail_notification(email_address, history_id):
 
             label_ids = msg_resp.get('labelIds', [])
             logger.info(f"[gmail_webhook] uid={uid} msg_id={msg_id} labels={label_ids}")
-            if 'SENT' not in label_ids:
-                logger.info(f"[gmail_webhook] uid={uid} msg_id={msg_id} skipping — no SENT label (labels={label_ids})")
+
+            is_sent = 'SENT' in label_ids
+            is_from_user = from_email and user_email_lower and from_email == user_email_lower
+
+            if not is_sent and is_from_user:
+                # User's own message without SENT label — skip (e.g. draft)
+                logger.info(f"[gmail_webhook] uid={uid} msg_id={msg_id} skipping — from user but no SENT label")
                 continue
 
-            if from_email and user_email_lower and from_email == user_email_lower:
+            if is_from_user:
                 # --- User sent a message (draft was sent) ---
                 logger.info(f"[gmail_webhook] uid={uid} msg_id={msg_id} detected as SENT message (from==user)")
                 to_header = next((h.get("value", "") for h in headers if h.get("name", "").lower() == "to"), "")
@@ -441,7 +448,7 @@ def webhook():
     to a background thread, and returns 200 immediately to avoid Pub/Sub redelivery.
     """
     token = (request.args.get("token") or "").strip()
-    if not GMAIL_WEBHOOK_SECRET or token != GMAIL_WEBHOOK_SECRET:
+    if not GMAIL_WEBHOOK_SECRET or not hmac.compare_digest(token, GMAIL_WEBHOOK_SECRET):
         return jsonify({"error": "Forbidden"}), 403
 
     envelope = request.get_json(silent=True) or {}

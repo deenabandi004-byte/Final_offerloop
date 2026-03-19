@@ -103,16 +103,16 @@ const NetworkingGuide = ({ company }: Props) => {
       {/* Nav */}
       <nav className="w-full px-6 py-5 flex items-center justify-between" style={{ maxWidth: '1100px', margin: '0 auto' }}>
         <Link to="/" className="text-xl font-bold" style={{ color: '#0F172A', letterSpacing: '-0.02em' }}>Offerloop</Link>
-        <Link to="/signin?mode=signup" className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: '#2563EB' }}>
+        <Link to="/signin?mode=signup" className="px-5 py-2.5 rounded-[3px] text-sm font-semibold text-white" style={{ background: '#3B82F6' }}>
           Get Started Free
         </Link>
       </nav>
 
       {/* Hero */}
       <section className="px-6 pt-16 pb-12" style={{ maxWidth: '800px', margin: '0 auto' }}>
-        <p className="text-sm font-medium mb-4" style={{ color: '#2563EB', letterSpacing: '0.02em' }}>NETWORKING GUIDE</p>
-        <h1 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 'clamp(36px, 5vw, 56px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '20px' }}>
-          How to Network at <span style={{ color: '#2563EB' }}>{company.name}</span> as a College Student
+        <p className="text-sm font-medium mb-4" style={{ color: '#3B82F6', letterSpacing: '0.02em' }}>NETWORKING GUIDE</p>
+        <h1 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(36px, 5vw, 56px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '20px' }}>
+          How to Network at <span style={{ color: '#3B82F6' }}>{company.name}</span> as a College Student
         </h1>
         <p style={{ fontSize: '17px', lineHeight: 1.7, color: '#64748B', maxWidth: '620px' }}>
           {subtitle}
@@ -122,15 +122,15 @@ const NetworkingGuide = ({ company }: Props) => {
       {/* Quick Info */}
       <section className="px-6 pb-8" style={{ maxWidth: '800px', margin: '0 auto' }}>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="rounded-xl p-4" style={{ border: '1px solid #E2E8F0', background: '#FAFBFE' }}>
+          <div className="rounded-[3px] p-4" style={{ border: '1px solid #E2E8F0', background: '#FAFBFF' }}>
             <p className="text-xs font-medium mb-1" style={{ color: '#94A3B8' }}>Industry</p>
             <p className="text-sm font-semibold" style={{ color: '#0F172A' }}>{industry}</p>
           </div>
-          <div className="rounded-xl p-4" style={{ border: '1px solid #E2E8F0', background: '#FAFBFE' }}>
+          <div className="rounded-[3px] p-4" style={{ border: '1px solid #E2E8F0', background: '#FAFBFF' }}>
             <p className="text-xs font-medium mb-1" style={{ color: '#94A3B8' }}>Culture</p>
             <p className="text-sm font-semibold capitalize" style={{ color: '#0F172A' }}>{cultureWords.slice(0, 2).join(', ')}</p>
           </div>
-          <div className="rounded-xl p-4" style={{ border: '1px solid #E2E8F0', background: '#FAFBFE' }}>
+          <div className="rounded-[3px] p-4" style={{ border: '1px solid #E2E8F0', background: '#FAFBFF' }}>
             <p className="text-xs font-medium mb-1" style={{ color: '#94A3B8' }}>Recruits From</p>
             <p className="text-sm font-semibold capitalize" style={{ color: '#0F172A' }}>{recruitsFromText}</p>
           </div>
@@ -139,7 +139,7 @@ const NetworkingGuide = ({ company }: Props) => {
 
       {/* Section 1: Why Networking Matters */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           Why Networking at {company.name} Matters
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
@@ -152,7 +152,7 @@ const NetworkingGuide = ({ company }: Props) => {
 
       {/* Section 2: Who to Reach Out To */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           Who Should You Reach Out to at {company.name}?
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
@@ -161,11 +161,11 @@ const NetworkingGuide = ({ company }: Props) => {
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
           Prioritize contacts who share something in common with you. Alumni from your university are the strongest targets, followed by people who studied your major, worked in a similar field before joining {company.name}, or are involved in organizations you belong to. These shared connections give you a natural reason to reach out and significantly increase your response rate.
         </p>
-        <div className="rounded-xl p-5 mt-4" style={{ background: '#F8FAFF', border: '1px solid #E2E8F0' }}>
+        <div className="rounded-[3px] p-5 mt-4" style={{ background: '#FAFBFF', border: '1px solid #E2E8F0' }}>
           <p className="text-sm font-semibold mb-2" style={{ color: '#0F172A' }}>Key divisions at {company.name}:</p>
           <div className="flex flex-wrap gap-2">
             {company.divisions.map((div, i) => (
-              <span key={i} className="text-xs font-medium px-3 py-1.5 rounded-full" style={{ background: '#EFF6FF', color: '#2563EB' }}>{div}</span>
+              <span key={i} className="text-xs font-medium px-3 py-1.5 rounded-full" style={{ background: '#FAFBFF', color: '#3B82F6' }}>{div}</span>
             ))}
           </div>
         </div>
@@ -173,7 +173,7 @@ const NetworkingGuide = ({ company }: Props) => {
 
       {/* Section 3: Cold Email */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           How to Write a Cold Email to a {company.name} Employee
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
@@ -182,8 +182,8 @@ const NetworkingGuide = ({ company }: Props) => {
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '20px' }}>
           Here is a proven template you can adapt:
         </p>
-        <div className="rounded-xl p-6" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
-          <p className="text-sm font-semibold mb-3" style={{ color: '#2563EB' }}>Sample Email Template</p>
+        <div className="rounded-[3px] p-6" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+          <p className="text-sm font-semibold mb-3" style={{ color: '#3B82F6' }}>Sample Email Template</p>
           <div style={{ fontSize: '14px', lineHeight: 1.8, color: '#334155' }}>
             <p style={{ marginBottom: '4px' }}><strong>Subject:</strong> [Your University] student, question about {company.name}'s [Division]</p>
             <p style={{ marginBottom: '12px', color: '#94A3B8', fontSize: '13px' }}>___</p>
@@ -204,7 +204,7 @@ const NetworkingGuide = ({ company }: Props) => {
 
       {/* Section 4: Coffee Chat Prep */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           How to Prepare for Your {company.name} Coffee Chat
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
@@ -219,7 +219,7 @@ const NetworkingGuide = ({ company }: Props) => {
             'Plan your follow-up. Before the call even starts, decide when and how you will follow up. Send a thank-you email within 24 hours that references a specific takeaway from the conversation.',
           ].map((item, i) => (
             <li key={i} className="flex gap-3" style={{ fontSize: '15px', lineHeight: 1.7, color: '#475569' }}>
-              <span className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: '#EFF6FF', color: '#2563EB', marginTop: '2px' }}>{i + 1}</span>
+              <span className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: '#FAFBFF', color: '#3B82F6', marginTop: '2px' }}>{i + 1}</span>
               <span>{item}</span>
             </li>
           ))}
@@ -228,14 +228,14 @@ const NetworkingGuide = ({ company }: Props) => {
 
       {/* How It Works */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
           4 Steps to Network at {company.name} with Offerloop
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {howToSteps.map((step, i) => (
-            <div key={i} className="rounded-xl p-5" style={{ border: '1px solid #E2E8F0' }}>
+            <div key={i} className="rounded-[3px] p-5" style={{ border: '1px solid #E2E8F0' }}>
               <div className="flex items-center gap-3 mb-3">
-                <span className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: '#2563EB', color: '#fff' }}>{i + 1}</span>
+                <span className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: '#3B82F6', color: '#fff' }}>{i + 1}</span>
                 <p className="text-sm font-semibold" style={{ color: '#0F172A' }}>{step.name}</p>
               </div>
               <p style={{ fontSize: '13px', lineHeight: 1.6, color: '#64748B' }}>{step.text}</p>
@@ -259,15 +259,15 @@ const NetworkingGuide = ({ company }: Props) => {
       <section className="px-6 py-16" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
         <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '24px', color: '#0F172A' }}>Related Resources</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Link to={`/coffee-chat/${company.slug}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+          <Link to={`/coffee-chat/${company.slug}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#3B82F6')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
             <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>{company.name} Coffee Chat Guide</p>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Questions to ask, how to prepare, and follow-up templates.</p>
           </Link>
-          <Link to={`/cold-email/${company.industry}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+          <Link to={`/cold-email/${company.industry}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#3B82F6')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
             <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>{industryLabels[company.industry] || company.industry} Cold Email Guide</p>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Templates and tips for cold emailing in {industryLabels[company.industry]?.toLowerCase() || company.industry}.</p>
           </Link>
-          <Link to="/blog" style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+          <Link to="/blog" style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#3B82F6')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
             <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>Offerloop Blog</p>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Networking strategies, recruiting tips, and career advice.</p>
           </Link>
@@ -275,9 +275,9 @@ const NetworkingGuide = ({ company }: Props) => {
       </section>
 
       {/* CTA */}
-      <section className="px-6 py-20" style={{ background: '#F8FAFF' }}>
+      <section className="px-6 py-20" style={{ background: '#FAFBFF' }}>
         <div className="text-center" style={{ maxWidth: '560px', margin: '0 auto' }}>
-          <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 'clamp(28px, 4vw, 40px)', fontWeight: 400, lineHeight: 1.15, color: '#0F172A', marginBottom: '16px' }}>
+          <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(28px, 4vw, 40px)', fontWeight: 400, lineHeight: 1.15, color: '#0F172A', marginBottom: '16px' }}>
             Find {company.name} employees on Offerloop
           </h2>
           <p style={{ fontSize: '15px', color: '#64748B', marginBottom: '28px' }}>
@@ -285,8 +285,8 @@ const NetworkingGuide = ({ company }: Props) => {
           </p>
           <Link
             to="/signin?mode=signup"
-            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl text-white font-semibold text-base hover:shadow-lg transition-all"
-            style={{ background: '#2563EB' }}
+            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-[3px] text-white font-semibold text-base hover:shadow-lg transition-all"
+            style={{ background: '#3B82F6' }}
           >
             Get started free <ArrowRight className="w-4 h-4" />
           </Link>

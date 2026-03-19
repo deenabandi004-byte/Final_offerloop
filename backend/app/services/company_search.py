@@ -5,8 +5,9 @@ Handles firm discovery based on natural language prompts
 import json
 import hashlib
 import logging
+import threading
+import time as _time
 from typing import Optional, List, Dict, Any
-from functools import lru_cache
 
 from app.services.openai_client import get_openai_client
 
@@ -105,6 +106,13 @@ COUNTRY_CODE_MAP = {
 # OPENAI PROMPT PARSING - Extract structured fields from natural language
 # =============================================================================
 
+# Manual TTL cache for parsed prompts — never caches errors permanently
+_parse_cache: dict[str, tuple[float, str]] = {}
+_parse_cache_lock = threading.Lock()
+_PARSE_CACHE_TTL_SUCCESS = 3600  # 1 hour for successful parses
+_PARSE_CACHE_MAX = 500
+
+
 def _normalize_query_for_cache(prompt: str) -> str:
     """Normalize query string for consistent caching."""
     return prompt.lower().strip()
@@ -116,7 +124,6 @@ def _hash_query(query: str) -> str:
     return hashlib.md5(normalized.encode()).hexdigest()
 
 
-@lru_cache(maxsize=500)
 def _cached_parse_firm_search_prompt_impl(normalized_query: str) -> str:
     """
     Internal cached implementation of query parsing.
@@ -297,21 +304,33 @@ def parse_firm_search_prompt(prompt: str, use_cache: bool = True) -> Dict[str, A
     """
     # Normalize query for caching
     normalized_query = _normalize_query_for_cache(prompt)
-    
-    # Use cache if enabled
+
+    # Check manual TTL cache
     if use_cache:
-        try:
-            cached_result_json = _cached_parse_firm_search_prompt_impl(normalized_query)
-            cached_result = json.loads(cached_result_json)
-            print(f"✅ Cache hit for query parsing: '{prompt[:50]}...'")
-            return cached_result
-        except Exception as e:
-            print(f"⚠️ Cache lookup failed, falling back to fresh parse: {e}")
-            # Fall through to fresh parse
-    
-    # Fresh parse (will be cached by the implementation)
+        with _parse_cache_lock:
+            entry = _parse_cache.get(normalized_query)
+        if entry is not None:
+            ts, cached_json = entry
+            if _time.time() - ts < _PARSE_CACHE_TTL_SUCCESS:
+                cached_result = json.loads(cached_json)
+                # Don't serve cached errors — let them retry
+                if cached_result.get("success"):
+                    print(f"✅ Cache hit for query parsing: '{prompt[:50]}...'")
+                    return cached_result
+
+    # Fresh parse
     result_json = _cached_parse_firm_search_prompt_impl(normalized_query)
     result = json.loads(result_json)
+
+    # Only cache successful parses
+    if result.get("success"):
+        with _parse_cache_lock:
+            # Evict oldest if at capacity
+            if len(_parse_cache) >= _PARSE_CACHE_MAX:
+                oldest_key = min(_parse_cache, key=lambda k: _parse_cache[k][0])
+                del _parse_cache[oldest_key]
+            _parse_cache[normalized_query] = (_time.time(), result_json)
+
     return result
 
 
@@ -721,14 +740,15 @@ def firm_location_matches(firm_location: Dict[str, Any], requested_location: Dic
     Returns:
         True if firm location matches requested location, False otherwise
     """
-    if not firm_location or not requested_location:
-        # If no location data available, be lenient (don't filter out)
-        if not firm_location:
-            logger.debug("company_search_no_firm_location", extra={
-                "search_id": search_id,
-                "action": "allowing_firm"
-            })
-            return True
+    if not requested_location:
+        # No location filter requested — everything matches
+        return True
+    if not firm_location:
+        # Firm has no location data but user requested a specific location — reject
+        logger.debug("company_search_no_firm_location", extra={
+            "search_id": search_id,
+            "action": "rejecting_firm_no_location_data"
+        })
         return False
     
     firm_city = firm_location.get("city") or ""
@@ -818,21 +838,27 @@ def firm_location_matches(firm_location: Dict[str, Any], requested_location: Dic
             req_region_full = req_region_norm
         
         # Check state match using normalized values
+        state_matched = False
         if firm_state_norm:
             # Direct match after normalization
             if firm_state_norm == req_region_norm or firm_state_norm == req_region_full:
-                return True
+                state_matched = True
             # Partial match (e.g., "new york" matches "new york state")
-            if req_region_full in firm_state_norm or firm_state_norm in req_region_full:
-                return True
+            elif req_region_full in firm_state_norm or firm_state_norm in req_region_full:
+                state_matched = True
             # Also try using locations_match helper for fuzzy matching
-            if locations_match(firm_state, req_region):
+            elif locations_match(firm_state, req_region):
+                state_matched = True
+
+        if state_matched:
+            # If only region requested (no city), state match is sufficient
+            if not requested_location.get("locality"):
                 return True
-        
-        # If we have a region requirement but no match, fail
-        # Exception: if we also have a city requirement, city match might override
-        if not requested_location.get("locality"):
-            return False
+            # If city is also requested, fall through to the city check below
+        else:
+            # Region didn't match — fail unless city can override
+            if not requested_location.get("locality"):
+                return False
     
     # Check locality/city match
     if requested_location.get("locality"):

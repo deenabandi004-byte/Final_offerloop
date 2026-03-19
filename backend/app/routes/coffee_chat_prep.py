@@ -2,7 +2,9 @@
 Coffee chat prep routes
 """
 import concurrent.futures
+import logging
 import threading
+import traceback
 from datetime import datetime
 
 from firebase_admin import firestore, storage
@@ -10,7 +12,7 @@ from flask import Blueprint, jsonify, request
 
 from app.config import COFFEE_CHAT_CREDITS, TIER_CONFIGS
 from ..extensions import get_db, require_firebase_auth
-from app.services.auth import check_and_reset_credits, deduct_credits_atomic, check_and_reset_usage, can_access_feature
+from app.services.auth import check_and_reset_credits, deduct_credits_atomic, refund_credits_atomic, check_and_reset_usage, can_access_feature
 from app.utils.exceptions import ValidationError, OfferloopException, InsufficientCreditsError, AuthorizationError
 from app.utils.validation import CoffeeChatPrepRequest, validate_request
 from app.services.coffee_chat import (
@@ -30,6 +32,8 @@ from app.utils.users import (
     build_coffee_chat_user_context,
     _empty_coffee_chat_user_context,
 )
+
+logger = logging.getLogger(__name__)
 
 coffee_chat_bp = Blueprint(
     "coffee_chat_prep", __name__, url_prefix="/api/coffee-chat-prep"
@@ -71,12 +75,16 @@ def process_coffee_chat_prep_background(
     prep_id,
     linkedin_url,
     user_id,
-    credits_available,
     resume_text,
     extra_context=None,
     user_profile=None,
+    credits_charged=COFFEE_CHAT_CREDITS,
 ):
-    """Background worker to process coffee chat prep."""
+    """Background worker to process coffee chat prep.
+    Credits are deducted BEFORE this thread starts (in the route handler).
+    On failure, credits are refunded to the user.
+    """
+    prep_ref = None
     try:
         db = get_db()
         print(f"\n=== PROCESSING PREP {prep_id} ===")
@@ -88,6 +96,8 @@ def process_coffee_chat_prep_background(
             .document(prep_id)
         )
 
+        extra_context = extra_context or {}
+
         # Step 1: Enrich LinkedIn profile
         print("Step 1: Enriching LinkedIn profile...")
         _update_stage(prep_ref, "enriching", "Looking up LinkedIn profile...", 10)
@@ -95,10 +105,13 @@ def process_coffee_chat_prep_background(
 
         if not contact_data:
             print("Failed to enrich profile")
+            # Refund credits — enrichment failed before any work was done
+            refund_credits_atomic(user_id, credits_charged, "coffee_chat_enrichment_failed")
             prep_ref.update(
                 {
                     "status": "failed",
                     "error": "Could not enrich LinkedIn profile. Please check the URL and try again.",
+                    "creditsRefunded": True,
                 }
             )
             return
@@ -106,15 +119,21 @@ def process_coffee_chat_prep_background(
         prep_ref.update({"contactData": contact_data})
 
         # Step 2: Fetch comprehensive research via SERP
+        # Use extra_context overrides for division/office/industry if user provided them
         print("Step 2: Researching company & industry...")
         _update_stage(prep_ref, "researching", "Researching company & industry...", 30)
 
         research = fetch_comprehensive_research(
             company=contact_data.get("company", ""),
-            industry=contact_data.get("industry", ""),
+            industry=extra_context.get("industry") or contact_data.get("industry", ""),
             job_title=contact_data.get("jobTitle", ""),
             first_name=contact_data.get("firstName", ""),
             last_name=contact_data.get("lastName", ""),
+            division=extra_context.get("division", ""),
+            office=extra_context.get("office", ""),
+            time_window=extra_context.get("time_window", "last 90 days"),
+            geo=extra_context.get("geo", "us"),
+            language=extra_context.get("language", "en"),
         )
 
         print(f"Found {len(research.get('company_news', []))} news, {len(research.get('person_mentions', []))} mentions")
@@ -154,12 +173,20 @@ def process_coffee_chat_prep_background(
         # Step 4: Hometown inference
         print("Step 4: Inferring hometown...")
         education_list = contact_data.get("educationArray", [])
-        education_strings = [
-            f"{e.get('school', '')} {e.get('degree', '')} {e.get('major', '')}"
-            for e in education_list
-        ] if education_list else contact_data.get("education", [])
-        if isinstance(education_strings, str):
-            education_strings = [education_strings]
+        if education_list and isinstance(education_list, list):
+            education_strings = [
+                f"{e.get('school', '')} {e.get('degree', '')} {e.get('major', '')}"
+                for e in education_list
+                if isinstance(e, dict)
+            ]
+        else:
+            fallback = contact_data.get("education", [])
+            if isinstance(fallback, str):
+                education_strings = [fallback]
+            elif isinstance(fallback, list):
+                education_strings = [str(e) for e in fallback]
+            else:
+                education_strings = []
         hometown = infer_hometown_from_education(education_strings, contact_data)
         if hometown:
             contact_data["hometown"] = hometown
@@ -182,6 +209,19 @@ def process_coffee_chat_prep_background(
 
         # Strategy uses similarity output — run after
         strategy = generate_conversation_strategy(contact_data, user_context, similarity)
+
+        # Track which AI sections failed so we can inform the user
+        partial_failures = []
+        if not similarity:
+            partial_failures.append("common_ground")
+        if not questions:
+            partial_failures.append("questions")
+        if not cheatsheet:
+            partial_failures.append("cheat_sheet")
+        if not strategy:
+            partial_failures.append("strategy")
+        if partial_failures:
+            logger.warning(f"Prep {prep_id}: AI generation partially failed for: {partial_failures}")
 
         ai_output = {
             "similarity": similarity,
@@ -221,45 +261,42 @@ def process_coffee_chat_prep_background(
                 "pdfUrl": upload_result["pdf_url"],
                 "pdfStoragePath": upload_result["pdf_storage_path"],
                 "contactName": contact_data.get("fullName", ""),
+                **({"partialFailures": partial_failures} if partial_failures else {}),
             }
         )
 
-        # Step 8: Deduct credits atomically
-        print("Step 8: Deducting credits...")
-        success, new_credits = deduct_credits_atomic(user_id, COFFEE_CHAT_CREDITS, "coffee_chat_prep")
-        if not success:
-            print(f"Credit deduction failed - user may have insufficient credits")
-        else:
-            print(f"Credits deducted: {credits_available} -> {new_credits}")
-
-        # Step 9: Increment usage counter
-        print("Step 9: Incrementing usage counter...")
+        # Step 8: Increment usage counter atomically
+        print("Step 8: Incrementing usage counter...")
         try:
             user_ref = db.collection("users").document(user_id)
-            user_doc = user_ref.get()
-            if user_doc.exists:
-                user_data = user_doc.to_dict()
-                current_usage = user_data.get("coffeeChatPrepsUsed", 0)
-                user_ref.update({
-                    "coffeeChatPrepsUsed": current_usage + 1,
-                    "updatedAt": datetime.now().isoformat()
-                })
-                print(f"Usage counter incremented: {current_usage} -> {current_usage + 1}")
+            user_ref.update({
+                "coffeeChatPrepsUsed": firestore.Increment(1),
+                "updatedAt": datetime.now().isoformat()
+            })
         except Exception as usage_error:
-            print(f"Failed to increment usage counter: {usage_error}")
+            logger.error(f"Failed to increment usage counter: {usage_error}")
 
         print(f"=== PREP {prep_id} COMPLETED SUCCESSFULLY ===\n")
 
     except Exception as e:
-        print(f"Coffee chat prep failed: {e}")
-        import traceback
-
+        logger.error(f"Coffee chat prep failed for {prep_id}: {e}")
         traceback.print_exc()
 
+        # Refund credits on failure
         try:
-            prep_ref.update({"status": "failed", "error": str(e)})
-        except Exception:
-            pass
+            success, _ = refund_credits_atomic(user_id, credits_charged, "coffee_chat_prep_failure")
+            if success:
+                logger.info(f"Refunded {credits_charged} credits to {user_id} after prep failure")
+            else:
+                logger.error(f"Failed to refund {credits_charged} credits to {user_id}")
+        except Exception as refund_err:
+            logger.error(f"Credit refund error: {refund_err}")
+
+        try:
+            if prep_ref:
+                prep_ref.update({"status": "failed", "error": str(e), "creditsRefunded": True})
+        except Exception as update_err:
+            logger.error(f"Failed to update prep status to failed: {update_err}")
 
 
 @coffee_chat_bp.route("", methods=["POST"])
@@ -278,7 +315,9 @@ def create_coffee_chat_prep():
         except ValidationError as e:
             return jsonify({"error": str(e)}), 400
 
-        linkedin_url = validated_data.get("linkedinUrl", "").strip()
+        linkedin_url = validated_data.get("linkedinUrl", "").strip().rstrip("/")
+        # Remove query params and fragments for consistent dedup
+        linkedin_url = linkedin_url.split("?")[0].split("#")[0]
 
         if not linkedin_url:
             return jsonify({"error": "LinkedIn URL is required"}), 400
@@ -286,19 +325,18 @@ def create_coffee_chat_prep():
         user_id = request.firebase_user.get("uid")
         user_email = request.firebase_user.get("email")
 
-        # Check credits and feature access
-        credits_available = 120
+        # Single Firestore read for credits, tier, usage, resume — avoid redundant fetches
+        user_data = {}
         if db and user_id:
             user_ref = db.collection("users").document(user_id)
             user_doc = user_ref.get()
             if user_doc.exists:
-                user_data = user_doc.to_dict()
+                user_data = user_doc.to_dict() or {}
                 credits_available = check_and_reset_credits(user_ref, user_data)
 
                 # Check and reset usage counters (for Pro/Elite monthly reset)
+                # check_and_reset_usage modifies user_data in-place if reset needed
                 check_and_reset_usage(user_ref, user_data)
-                user_doc = user_ref.get()  # Refresh after potential reset
-                user_data = user_doc.to_dict()
 
                 # Check credits
                 if credits_available < COFFEE_CHAT_CREDITS:
@@ -320,9 +358,7 @@ def create_coffee_chat_prep():
 
                 if not allowed:
                     coffee_chat_limit = tier_config.get("coffee_chat_preps", 0)
-                    if coffee_chat_limit == "unlimited":
-                        pass
-                    else:
+                    if coffee_chat_limit != "unlimited":
                         current_usage = user_data.get("coffeeChatPrepsUsed", 0)
                         raise AuthorizationError(
                             f"Coffee Chat Prep limit reached. You've used {current_usage} of {coffee_chat_limit} allowed.",
@@ -334,21 +370,15 @@ def create_coffee_chat_prep():
                             }
                         )
 
-        # Get resume
-        resume_text = None
-        user_profile_data: dict = {}
-        if db and user_id:
-            user_doc = db.collection("users").document(user_id).get()
-            if user_doc.exists:
-                user_profile_data = user_doc.to_dict() or {}
-                resume_text = user_profile_data.get("resumeText")
+        # Resume check — reuse already-fetched user_data (no extra Firestore read)
+        resume_text = user_data.get("resumeText")
 
         has_profile_fallback = any(
             [
                 resume_text,
-                (user_profile_data.get("resumeParsed") if user_profile_data else None),
-                (user_profile_data.get("firstName") if user_profile_data else None),
-                (user_profile_data.get("name") if user_profile_data else None),
+                user_data.get("resumeParsed"),
+                user_data.get("firstName"),
+                user_data.get("name"),
             ]
         )
 
@@ -358,6 +388,19 @@ def create_coffee_chat_prep():
                     {
                         "error": "Please upload your resume in Account Settings first.",
                         "needsResume": True,
+                    }
+                ),
+                400,
+            )
+
+        # Deduct credits BEFORE spawning background thread (prevents TOCTOU)
+        success, new_balance = deduct_credits_atomic(user_id, COFFEE_CHAT_CREDITS, "coffee_chat_prep")
+        if not success:
+            return (
+                jsonify(
+                    {
+                        "error": "Insufficient credits",
+                        "credits_needed": COFFEE_CHAT_CREDITS,
                     }
                 ),
                 400,
@@ -404,34 +447,26 @@ def create_coffee_chat_prep():
                     prep_id,
                     linkedin_url,
                     user_id,
-                    credits_available,
                     resume_text,
                     extra_context,
-                    user_profile_data,
+                    user_data,
                 ),
                 daemon=True
             )
             thread.start()
 
             # Return immediately with prep_id so frontend can start polling
-            prep_doc = prep_ref.get()
-            if prep_doc.exists:
-                prep_data = prep_doc.to_dict()
-                prep_data['id'] = prep_id
-                prep_data['prepId'] = prep_id
-
-                return jsonify(prep_data), 200
-            else:
-                return jsonify({"error": "Prep creation failed"}), 500
+            prep_data['id'] = prep_id
+            prep_data['prepId'] = prep_id
+            return jsonify(prep_data), 200
 
         except Exception as processing_error:
-            print(f"Processing error: {processing_error}")
-            import traceback
+            logger.error(f"Processing error: {processing_error}")
             traceback.print_exc()
             return jsonify({"error": str(processing_error)}), 500
 
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"Coffee chat prep error: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -510,11 +545,9 @@ def get_all_coffee_chat_preps():
         return jsonify({"preps": all_preps})
 
     except Exception as e:
-        print(f"Error getting all coffee chat preps: {e}")
-        import traceback
+        logger.error(f"Error getting all coffee chat preps: {e}")
         traceback.print_exc()
-        from app.utils.exceptions import OfferloopException
-        raise OfferloopException(f"Failed to load coffee chat preps: {str(e)}", error_code="COFFEE_CHAT_PREPS_ERROR")
+        return jsonify({"preps": [], "error": "Failed to load coffee chat preps"}), 200
 
 
 @coffee_chat_bp.route("/<prep_id>/download", methods=["GET"])
@@ -539,15 +572,21 @@ def download_coffee_chat_pdf(prep_id):
         pdf_url = prep_data.get("pdfUrl")
         pdf_path = prep_data.get("pdfStoragePath")
 
-        if pdf_url:
+        # If stored URL is a public URL (not signed), return it directly
+        if pdf_url and "X-Goog-Signature" not in pdf_url and "Signature=" not in pdf_url:
             return jsonify({"pdfUrl": pdf_url}), 200
 
+        # Otherwise regenerate a fresh signed URL from storage path
         if pdf_path:
             bucket = storage.bucket()
             blob = bucket.blob(pdf_path)
             if blob.exists():
                 signed_url = blob.generate_signed_url(expiration=3600)
                 return jsonify({"pdfUrl": signed_url}), 200
+
+        # Last resort: try stored URL even if it might be expired
+        if pdf_url:
+            return jsonify({"pdfUrl": pdf_url}), 200
 
         return jsonify({"error": "PDF not found"}), 404
 
@@ -612,10 +651,7 @@ def delete_coffee_chat_prep(prep_id):
         print(f"[CoffeeChatPrep] Prep exists: {prep_doc.exists}")
 
         if not prep_doc.exists:
-            all_preps = db.collection("users").document(user_id).collection("coffee-chat-preps").stream()
-            prep_ids = [p.id for p in all_preps]
-            print(f"Available prep IDs for user: {prep_ids}")
-            return jsonify({"error": f"Prep not found. Available IDs: {prep_ids}"}), 404
+            return jsonify({"error": "Prep not found"}), 404
 
         prep_data = prep_doc.to_dict()
         pdf_path = prep_data.get("pdfStoragePath")

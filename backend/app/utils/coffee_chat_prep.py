@@ -19,14 +19,30 @@ logger = logging.getLogger(__name__)
 def detect_commonality(user_info, contact, resume_text):
     """
     Detect strongest commonality between user and contact.
+    Handles both legacy field names (College, Company, City) and
+    PDL-enriched field names (educationArray, company, city, location).
     Returns: (commonality_type, details_dict)
     """
     user_university = (user_info.get('university', '') or '').lower()
-    contact_education = (
-        (contact.get('College', '') or '') + ' ' +
-        (contact.get('EducationTop', '') or '')
+
+    # Build contact education string from all possible field sources
+    edu_parts = []
+    # PDL enriched format
+    for edu in contact.get('educationArray', []):
+        if isinstance(edu, dict):
+            edu_parts.append(edu.get('school', ''))
+            edu_parts.append(edu.get('degree', ''))
+            edu_parts.append(edu.get('major', ''))
+    # Legacy / flat fields
+    edu_parts.append(contact.get('College', '') or '')
+    edu_parts.append(contact.get('EducationTop', '') or '')
+    edu_parts.append(contact.get('education', '') if isinstance(contact.get('education'), str) else '')
+    contact_education = ' '.join(filter(None, edu_parts)).lower()
+
+    # Company: handle both PDL (lowercase) and legacy (Title case) field names
+    contact_company = (
+        contact.get('company', '') or contact.get('Company', '') or ''
     ).lower()
-    contact_company = (contact.get('Company', '') or '').lower()
 
     # 1. Check same university (STRONGEST commonality)
     if user_university and user_university in contact_education:
@@ -39,7 +55,11 @@ def detect_commonality(user_info, contact, resume_text):
 
     # 2. Check same hometown
     user_hometown = extract_hometown_from_resume(resume_text or '')
-    contact_city = (contact.get('City', '') or '').lower()
+    # PDL uses lowercase 'city'/'location', legacy uses 'City'
+    contact_city = (
+        contact.get('city', '') or contact.get('City', '')
+        or contact.get('location', '') or ''
+    ).lower()
     if user_hometown and user_hometown.lower() in contact_city:
         return ('hometown', {
             'hometown': user_hometown
@@ -51,7 +71,7 @@ def detect_commonality(user_info, contact, resume_text):
         connection_type = 'interned' if 'intern' in (resume_text or '').lower() else 'worked'
         role_type = 'Intern' if 'intern' in (resume_text or '').lower() else 'Team Member'
         return ('company', {
-            'company': contact.get('Company', ''),
+            'company': contact.get('company', '') or contact.get('Company', ''),
             'connection_type': connection_type,
             'role_type': role_type
         })
@@ -74,7 +94,7 @@ def generate_coffee_chat_similarity(contact_data: dict, user_context: dict, rese
         exp_lines = []
         for e in contact_data.get("experienceArray", [])[:5]:
             dates = f"{e.get('start_date','')} - {'Present' if e.get('is_current') else e.get('end_date','')}"
-            exp_lines.append(f"  - {e['title']} @ {e['company']} ({dates})")
+            exp_lines.append(f"  - {e.get('title', '')} @ {e.get('company', '')} ({dates})")
         contact_timeline = "\n".join(exp_lines) or contact_data.get("workExperience", [""])[0]
 
         # Build education string for contact
@@ -197,7 +217,7 @@ def generate_coffee_chat_questions(contact_data: dict, user_context: dict, resea
         exp_lines = []
         for e in contact_data.get("experienceArray", [])[:5]:
             dates = f"{e.get('start_date','')}-{'now' if e.get('is_current') else e.get('end_date','')}"
-            exp_lines.append(f"  - {e['title']} @ {e['company']} ({dates})")
+            exp_lines.append(f"  - {e.get('title', '')} @ {e.get('company', '')} ({dates})")
         contact_timeline = "\n".join(exp_lines) or "Not available"
 
         edu_lines = [
@@ -363,7 +383,7 @@ IMPORTANT: Do NOT wrap your response in markdown code fences (no ```markdown or 
 """
 
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4o-mini",
             max_tokens=400,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -426,7 +446,7 @@ CRITICAL FORMAT RULES — follow exactly:
 """
 
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4o-mini",
             max_tokens=500,
             messages=[{"role": "user", "content": prompt}],
         )

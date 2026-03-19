@@ -112,7 +112,7 @@ function ResumeTabBar({
 }) {
   return (
     <div className="shrink-0 px-6 pt-4 pb-4 flex justify-center overflow-x-auto max-w-full scrollbar-hide">
-      <div className="inline-flex gap-0 rounded-xl p-1 bg-[#F0F4FD]">
+      <div className="inline-flex gap-0 rounded-[3px] p-1 bg-[#EEF2F8]">
         {RESUME_TABS.map((tab) => {
           const isActive = activeTab === tab.id;
           return (
@@ -121,7 +121,7 @@ function ResumeTabBar({
               type="button"
               onClick={() => onTabChange(tab.id)}
               className={`
-                flex items-center gap-2 px-5 py-2.5 rounded-lg border-none cursor-pointer
+                flex items-center gap-2 px-5 py-2.5 rounded-[3px] border-none cursor-pointer
                 text-sm font-medium transition-all duration-200 ease-out
                 focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B82F6] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F0F4FD]
                 ${isActive
@@ -688,7 +688,7 @@ export default function ResumePage() {
   );
 
   const inputClass =
-    'w-full bg-transparent border-0 border-b border-transparent focus:border-blue-500 focus:ring-0 rounded-none px-0 py-1.5 text-sm placeholder:text-gray-400 focus:outline-none';
+    'w-full bg-transparent border-0 border-b border-transparent focus:border-[#3B82F6] focus:ring-0 rounded-none px-0 py-1.5 text-sm placeholder:text-gray-400 focus:outline-none';
   const sectionClass = 'mb-6';
   const sectionTitleClass = 'text-xs font-semibold uppercase tracking-wider text-gray-500 border-b border-gray-200 pb-1.5 mb-3';
 
@@ -721,7 +721,7 @@ export default function ResumePage() {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-[#FAFAFA]">
+      <div className="flex min-h-screen w-full bg-[#FFFFFF]">
         <AppSidebar />
         <MainContentWrapper>
           <AppHeader
@@ -746,7 +746,7 @@ export default function ResumePage() {
               </div>
             }
           />
-          <main className="flex-1 flex flex-col overflow-hidden" style={{ background: '#F8FAFF' }}>
+          <main className="flex-1 flex flex-col overflow-hidden" style={{ background: '#FAFBFF' }}>
             {/* Tab bar - StripeTabs pattern */}
             <ResumeTabBar
               activeTab={activeTab}
@@ -756,7 +756,7 @@ export default function ResumePage() {
 
             <div className="flex-1 flex min-h-0 gap-4 p-4 overflow-hidden">
               {/* Left: Tab content ~55% - white card */}
-              <div className="w-[55%] min-w-0 flex flex-col overflow-hidden rounded-2xl shadow-sm border border-gray-100 bg-white">
+              <div className="w-[55%] min-w-0 flex flex-col overflow-hidden rounded-[3px] shadow-sm border border-gray-100 bg-white">
                 <div className="flex-1 overflow-y-auto">
                   <div className="max-w-2xl mx-auto px-6 py-8">
                   {activeTab === 'editor' && (
@@ -1170,7 +1170,7 @@ export default function ResumePage() {
               </div>
 
               {/* Right: PDF preview ~45% - white card */}
-              <div className="w-[45%] shrink-0 flex flex-col min-h-0 rounded-2xl shadow-sm border border-gray-100 bg-white overflow-hidden">
+              <div className="w-[45%] shrink-0 flex flex-col min-h-0 rounded-[3px] shadow-sm border border-gray-100 bg-white overflow-hidden">
                 {activeTab === 'tailor' && tailorPreviewState?.isShowingPreview ? (
                   <>
                     <div className={`px-3 py-2 text-xs flex flex-col gap-1 border-b ${isTailorPreviewLoading ? 'bg-gray-50 text-gray-400 border-gray-100' : 'bg-green-50 text-green-700 border-green-100'}`}>

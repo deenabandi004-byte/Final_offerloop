@@ -136,16 +136,16 @@ const CoffeeChatGuide = ({ company }: Props) => {
       {/* Nav */}
       <nav className="w-full px-6 py-5 flex items-center justify-between" style={{ maxWidth: '1100px', margin: '0 auto' }}>
         <Link to="/" className="text-xl font-bold" style={{ color: '#0F172A', letterSpacing: '-0.02em' }}>Offerloop</Link>
-        <Link to="/signin?mode=signup" className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: '#2563EB' }}>
+        <Link to="/signin?mode=signup" className="px-5 py-2.5 rounded-[3px] text-sm font-semibold text-white" style={{ background: '#3B82F6' }}>
           Get Started Free
         </Link>
       </nav>
 
       {/* Hero */}
       <section className="px-6 pt-16 pb-12" style={{ maxWidth: '800px', margin: '0 auto' }}>
-        <p className="text-sm font-medium mb-4" style={{ color: '#2563EB', letterSpacing: '0.02em' }}>COFFEE CHAT GUIDE</p>
-        <h1 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 'clamp(36px, 5vw, 56px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '20px' }}>
-          Coffee Chat Guide for <span style={{ color: '#2563EB' }}>{company.name}</span>
+        <p className="text-sm font-medium mb-4" style={{ color: '#3B82F6', letterSpacing: '0.02em' }}>COFFEE CHAT GUIDE</p>
+        <h1 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(36px, 5vw, 56px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '20px' }}>
+          Coffee Chat Guide for <span style={{ color: '#3B82F6' }}>{company.name}</span>
         </h1>
         <p style={{ fontSize: '17px', lineHeight: 1.7, color: '#64748B', maxWidth: '620px' }}>
           Everything you need to request, prepare for, and follow up on a coffee chat with a {company.name} employee. From the initial email to the thank-you note, this guide covers every step.
@@ -154,15 +154,15 @@ const CoffeeChatGuide = ({ company }: Props) => {
 
       {/* Section 1: How to Request */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           How to Request a Coffee Chat at {company.name}
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
           The key to getting a "yes" is making your request specific, concise, and easy to accept. Ask for exactly 15 minutes (not "some time" or "whenever works"). Mention a specific reason you want to talk to this person, not just their company. And always provide your availability to reduce friction.
         </p>
 
-        <div className="rounded-xl p-6" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
-          <p className="text-sm font-semibold mb-3" style={{ color: '#2563EB' }}>Sample Coffee Chat Request Email</p>
+        <div className="rounded-[3px] p-6" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+          <p className="text-sm font-semibold mb-3" style={{ color: '#3B82F6' }}>Sample Coffee Chat Request Email</p>
           <div style={{ fontSize: '14px', lineHeight: 1.8, color: '#334155' }}>
             <p style={{ marginBottom: '4px' }}><strong>Subject:</strong> [University] student, 15 min on your {company.name} experience</p>
             <p style={{ marginBottom: '12px', color: '#94A3B8', fontSize: '13px' }}>___</p>
@@ -176,7 +176,7 @@ const CoffeeChatGuide = ({ company }: Props) => {
 
       {/* Section 2: How to Prepare */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           How to Prepare for Your {company.name} Coffee Chat
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
@@ -191,8 +191,8 @@ const CoffeeChatGuide = ({ company }: Props) => {
             { title: 'Set up your environment', desc: 'If the call is virtual, test your camera and microphone. Find a quiet, well-lit space. Have your questions and notes ready but avoid reading from a script.' },
             { title: 'Plan your follow-up in advance', desc: 'Before the call, draft a skeleton thank-you email so you can fill in specifics immediately after the conversation and send it within 24 hours.' },
           ].map((item, i) => (
-            <div key={i} className="flex gap-3 rounded-lg p-4" style={{ background: '#FAFBFE', border: '1px solid #F1F5F9' }}>
-              <span className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: '#EFF6FF', color: '#2563EB', marginTop: '2px' }}>&#10003;</span>
+            <div key={i} className="flex gap-3 rounded-[3px] p-4" style={{ background: '#FAFBFF', border: '1px solid #F1F5F9' }}>
+              <span className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: '#FAFBFF', color: '#3B82F6', marginTop: '2px' }}>&#10003;</span>
               <div>
                 <p className="text-sm font-semibold mb-1" style={{ color: '#0F172A' }}>{item.title}</p>
                 <p style={{ fontSize: '13px', lineHeight: 1.6, color: '#64748B' }}>{item.desc}</p>
@@ -204,7 +204,7 @@ const CoffeeChatGuide = ({ company }: Props) => {
 
       {/* Section 3: 15 Questions */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
           15 Questions to Ask During a {company.name} Coffee Chat
         </h2>
 
@@ -214,7 +214,7 @@ const CoffeeChatGuide = ({ company }: Props) => {
           <div className="space-y-2">
             {roleQuestions.map((q, i) => (
               <div key={i} className="flex items-start gap-3 py-2">
-                <span className="flex-shrink-0 text-sm font-bold" style={{ color: '#2563EB', minWidth: '20px' }}>{i + 1}.</span>
+                <span className="flex-shrink-0 text-sm font-bold" style={{ color: '#3B82F6', minWidth: '20px' }}>{i + 1}.</span>
                 <p className="text-sm" style={{ color: '#334155', lineHeight: 1.6 }}>{q}</p>
               </div>
             ))}
@@ -227,7 +227,7 @@ const CoffeeChatGuide = ({ company }: Props) => {
           <div className="space-y-2">
             {cultureQuestions.map((q, i) => (
               <div key={i} className="flex items-start gap-3 py-2">
-                <span className="flex-shrink-0 text-sm font-bold" style={{ color: '#2563EB', minWidth: '20px' }}>{i + 6}.</span>
+                <span className="flex-shrink-0 text-sm font-bold" style={{ color: '#3B82F6', minWidth: '20px' }}>{i + 6}.</span>
                 <p className="text-sm" style={{ color: '#334155', lineHeight: 1.6 }}>{q}</p>
               </div>
             ))}
@@ -240,7 +240,7 @@ const CoffeeChatGuide = ({ company }: Props) => {
           <div className="space-y-2">
             {recruitingQuestions.map((q, i) => (
               <div key={i} className="flex items-start gap-3 py-2">
-                <span className="flex-shrink-0 text-sm font-bold" style={{ color: '#2563EB', minWidth: '20px' }}>{i + 11}.</span>
+                <span className="flex-shrink-0 text-sm font-bold" style={{ color: '#3B82F6', minWidth: '20px' }}>{i + 11}.</span>
                 <p className="text-sm" style={{ color: '#334155', lineHeight: 1.6 }}>{q}</p>
               </div>
             ))}
@@ -250,7 +250,7 @@ const CoffeeChatGuide = ({ company }: Props) => {
 
       {/* Section 4: What NOT to Do */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           What NOT to Do in a {company.name} Coffee Chat
         </h2>
         <div className="space-y-3">
@@ -261,7 +261,7 @@ const CoffeeChatGuide = ({ company }: Props) => {
             { mistake: 'Going over time without asking', why: 'When you hit 15 minutes, say "I know I asked for 15 minutes and I want to be respectful of your time. Is it okay to keep going?" Let them decide.' },
             { mistake: 'Asking about compensation or work-life balance directly', why: 'These are important topics, but asking about them in a first conversation comes across as transactional. You can learn about these from online resources and Glassdoor.' },
           ].map((item, i) => (
-            <div key={i} className="rounded-lg p-4" style={{ background: '#FFF7ED', border: '1px solid #FED7AA' }}>
+            <div key={i} className="rounded-[3px] p-4" style={{ background: '#FFF7ED', border: '1px solid #FED7AA' }}>
               <p className="text-sm font-semibold mb-1" style={{ color: '#9A3412' }}>{item.mistake}</p>
               <p style={{ fontSize: '13px', lineHeight: 1.6, color: '#78350F' }}>{item.why}</p>
             </div>
@@ -271,15 +271,15 @@ const CoffeeChatGuide = ({ company }: Props) => {
 
       {/* Section 5: Follow Up */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           How to Follow Up After Your {company.name} Coffee Chat
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
           The follow-up is where most students drop the ball. A thoughtful thank-you email within 24 hours keeps you top of mind and turns a single conversation into an ongoing relationship. Reference something specific from your chat to show you were genuinely engaged.
         </p>
 
-        <div className="rounded-xl p-6" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
-          <p className="text-sm font-semibold mb-3" style={{ color: '#2563EB' }}>Follow-Up Email Template</p>
+        <div className="rounded-[3px] p-6" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+          <p className="text-sm font-semibold mb-3" style={{ color: '#3B82F6' }}>Follow-Up Email Template</p>
           <div style={{ fontSize: '14px', lineHeight: 1.8, color: '#334155' }}>
             <p style={{ marginBottom: '4px' }}><strong>Subject:</strong> Thank you for your time, [First Name]</p>
             <p style={{ marginBottom: '12px', color: '#94A3B8', fontSize: '13px' }}>___</p>
@@ -307,15 +307,15 @@ const CoffeeChatGuide = ({ company }: Props) => {
       <section className="px-6 py-16" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
         <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '24px', color: '#0F172A' }}>Related Resources</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Link to={`/networking/${company.slug}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+          <Link to={`/networking/${company.slug}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#3B82F6')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
             <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>{company.name} Networking Guide</p>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Who to reach out to, email templates, and full networking strategy.</p>
           </Link>
-          <Link to={`/cold-email/${company.industry}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+          <Link to={`/cold-email/${company.industry}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#3B82F6')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
             <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>{industryLabels[company.industry] || company.industry} Cold Email Guide</p>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Cold email templates and tips for {industryLabels[company.industry] || company.industry}.</p>
           </Link>
-          <Link to="/blog" style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+          <Link to="/blog" style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#3B82F6')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
             <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>Offerloop Blog</p>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Networking strategies, recruiting tips, and career advice.</p>
           </Link>
@@ -323,9 +323,9 @@ const CoffeeChatGuide = ({ company }: Props) => {
       </section>
 
       {/* CTA */}
-      <section className="px-6 py-20" style={{ background: '#F8FAFF' }}>
+      <section className="px-6 py-20" style={{ background: '#FAFBFF' }}>
         <div className="text-center" style={{ maxWidth: '560px', margin: '0 auto' }}>
-          <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 'clamp(28px, 4vw, 40px)', fontWeight: 400, lineHeight: 1.15, color: '#0F172A', marginBottom: '16px' }}>
+          <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(28px, 4vw, 40px)', fontWeight: 400, lineHeight: 1.15, color: '#0F172A', marginBottom: '16px' }}>
             Prep for your {company.name} coffee chat with Offerloop
           </h2>
           <p style={{ fontSize: '15px', color: '#64748B', marginBottom: '28px' }}>
@@ -333,8 +333,8 @@ const CoffeeChatGuide = ({ company }: Props) => {
           </p>
           <Link
             to="/signin?mode=signup"
-            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl text-white font-semibold text-base hover:shadow-lg transition-all"
-            style={{ background: '#2563EB' }}
+            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-[3px] text-white font-semibold text-base hover:shadow-lg transition-all"
+            style={{ background: '#3B82F6' }}
           >
             Get started free <ArrowRight className="w-4 h-4" />
           </Link>

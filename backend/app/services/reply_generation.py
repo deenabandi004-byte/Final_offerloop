@@ -2,7 +2,9 @@
 Email generation service - batch email generation with AI
 """
 import json
-from app.services.openai_client import get_openai_client
+import logging
+from app.services.openai_client import get_openai_client, get_anthropic_client
+from app.services.recruiter_email_generator import _normalize_name
 from app.utils.contact import clean_email_text
 from app.utils.users import (
     extract_user_info_from_resume_priority,
@@ -16,6 +18,8 @@ from app.utils.users import (
 from app.utils.coffee_chat_prep import detect_commonality
 from datetime import datetime
 import re
+
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # ANCHOR PRIORITY SYSTEM
@@ -379,7 +383,28 @@ def _build_signature_block_for_prompt(signoff_config, user_info):
         block = (signoff_config.get("signatureBlock") or "").strip()
     if block:
         return f"{phrase}\n{block}"
-    return f"{phrase}\n[Full Name]\n[University] | Class of [Year]"
+    # Build signature from user_info, omitting empty fields
+    name = ""
+    university = ""
+    grad_year = ""
+    if user_info and isinstance(user_info, dict):
+        name = (user_info.get("name") or "").strip()
+        university = (user_info.get("university") or "").strip()
+        grad_year = (user_info.get("graduation_year") or user_info.get("gradYear") or "").strip()
+    sig_lines = [phrase]
+    if name:
+        sig_lines.append(name)
+    else:
+        sig_lines.append("[Full Name]")
+    # Only add university/year line if we have at least one value
+    if university and grad_year:
+        sig_lines.append(f"{university} | Class of {grad_year}")
+    elif university:
+        sig_lines.append(university)
+    elif grad_year:
+        sig_lines.append(f"Class of {grad_year}")
+    # If neither university nor grad_year, omit the line entirely
+    return "\n".join(sig_lines)
 
 
 def _deduplicate_signoff(body, signoff_config):
@@ -462,13 +487,13 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
         auth_display_name: Optional display name from Firebase Auth; used as last resort before "Student".
     """
     try:
-        print(f"DEBUG: batch_generate_emails received auth_display_name={auth_display_name!r}", flush=True)
+        logger.info("[EMAIL-GEN] batch_generate_emails called for %d contacts (auth_display_name=%r)", len(contacts), auth_display_name)
         if not contacts:
             return {}
-        
+
         client = get_openai_client()
-        if not client:
-            raise Exception("OpenAI client not available")
+        if not client and not get_anthropic_client():
+            raise Exception("No AI client available (neither Claude nor OpenAI configured)")
         
         # Ensure career_interests are in user_profile
         if career_interests and user_profile:
@@ -539,7 +564,7 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
             commonality_type, commonality_details = detect_commonality(user_info, contact, resume_text)
             
             # Get contact info
-            firstname = contact.get('FirstName', '').capitalize()
+            firstname = _normalize_name(contact.get('FirstName', ''))
             lastname = contact.get('LastName', '')
             company = contact.get('Company', '')
             title = contact.get('Title', '')
@@ -840,29 +865,65 @@ Return ONLY valid JSON:
             prompt = build_template_prompt(context_block, template_instructions or "", requirements_block)
             system_content = "You write warm, professional networking emails for college students. Your emails are 4-5 sentences (not counting greeting/signature), show genuine interest in the recipient's company and role, and always ask TWO specific questions. You ALWAYS mention the sender's university and major. You use the exact phrase 'I came across your background at [Company]' to open. The resume mention always comes BEFORE the signature. You ALWAYS end every email with a sign-off line (e.g. Best, or Best regards,) followed by the sender's full name. Use proper apostrophes (I'm, I'd, you're). Never use placeholders like [your major] - always fill in actual values or omit gracefully."
 
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=4000,  # ✅ ISSUE 4 FIX: Increased for larger batches (15+ contacts)
-            temperature=0.75,  # Balanced for naturalness and consistency
-        )
-        
-        response_text = response.choices[0].message.content.strip()
-        
-        # Clean the response text of any unicode issues
+        # Try Claude first, then GPT, then static fallback
         import unicodedata
+        response_text = None
+        ai_provider = None
+
+        # --- Attempt 1: Claude (Anthropic) ---
+        anthropic_client = get_anthropic_client()
+        if anthropic_client:
+            try:
+                logger.info("[EMAIL-GEN] Attempting Claude (claude-sonnet-4-20250514) for %d contacts", len(contacts))
+                claude_response = anthropic_client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=4000,
+                    system=system_content,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.7,
+                )
+                response_text = claude_response.content[0].text.strip()
+                ai_provider = "claude"
+                logger.info("[EMAIL-GEN] ✅ Claude succeeded (%d chars)", len(response_text))
+            except Exception as claude_err:
+                logger.warning("[EMAIL-GEN] ⚠️ Claude failed: %s — falling back to GPT", claude_err)
+                response_text = None
+
+        # --- Attempt 2: GPT (OpenAI) ---
+        if response_text is None and client:
+            try:
+                logger.info("[EMAIL-GEN] Attempting GPT (gpt-4o-mini) for %d contacts", len(contacts))
+                response = client.with_options(max_retries=0).chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": system_content},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=4000,
+                    temperature=0.75,
+                )
+                response_text = response.choices[0].message.content.strip()
+                ai_provider = "gpt"
+                logger.info("[EMAIL-GEN] ✅ GPT succeeded (%d chars)", len(response_text))
+            except Exception as gpt_err:
+                logger.error("[EMAIL-GEN] ❌ GPT also failed: %s — will use static fallback", gpt_err)
+                raise  # Let the outer except handle static fallback
+
+        if response_text is None:
+            raise Exception("Both Claude and GPT failed or unavailable — no AI response generated")
+
+        logger.info("[EMAIL-GEN] Using %s-generated emails", ai_provider)
+
+        # Clean the response text of any unicode issues
         response_text = unicodedata.normalize('NFKC', response_text)
-        
+
         # Remove markdown if present
         if '```' in response_text:
             response_text = response_text.split('```')[1]
             if response_text.startswith('json'):
                 response_text = response_text[4:]
             response_text = response_text.strip()
-        
+
         results = json.loads(response_text)
         
         # Process and clean results
@@ -880,14 +941,14 @@ Return ONLY valid JSON:
             if idx < len(contacts):
                 contact = contacts[idx]
                 # Only replace obvious placeholders, keep the natural flow
-                body = body.replace('[FirstName]', contact.get('FirstName', ''))
+                body = body.replace('[FirstName]', _normalize_name(contact.get('FirstName', '')))
                 body = body.replace('[Name]', user_info.get('name', ''))
                 body = body.replace('[Company]', contact.get('Company', ''))
                 
             # Post-processing: Fix banned filler openers
             if idx < len(contacts):
                 contact = contacts[idx]
-                firstname = contact.get('FirstName', '')
+                firstname = _normalize_name(contact.get('FirstName', ''))
                 greeting = f"Hi {firstname},"
                 # Find greeting line (case-insensitive, handle variations)
                 lines = body.split('\n')
@@ -1045,10 +1106,10 @@ Return ONLY valid JSON:
             
             is_malformed = any(pattern in body for pattern in malformed_patterns)
             if is_malformed:
-                print(f"⚠️ Detected malformed email body for contact {idx}, using fallback")
+                logger.warning("[EMAIL-GEN] ⚠️ Malformed email for contact %d from %s — using per-contact fallback", idx, ai_provider)
                 # Use fallback for this specific contact
                 contact = contacts[idx] if idx < len(contacts) else {}
-                name = user_info.get('name', 'a student')
+                name = (user_info.get('name') or '').strip() or 'a student'
                 major = user_info.get('major', '').strip()
                 university = user_info.get('university', '').strip()
                 company = contact.get('Company', 'your company')
@@ -1071,7 +1132,7 @@ Return ONLY valid JSON:
                     phrase = "Thank you,"
                     signature = user_info.get('name', '') or "Best regards"
                 
-                body = f"""Hi {contact.get('FirstName', '')},
+                body = f"""Hi {_normalize_name(contact.get('FirstName', ''))},
 
 {intro} Your work at {company} caught my attention.
 
@@ -1093,16 +1154,26 @@ Would you be open to a brief 15-minute chat about your experience?
         return cleaned_results
         
     except Exception as e:
-        print(f"Batch email generation failed: {e}")
+        logger.error("[EMAIL-GEN] ❌ Both Claude and GPT failed — using STATIC FALLBACK templates: %s", e)
         import traceback
         traceback.print_exc()
-        
+
         # Fallback emails
         fallback_results = {}
         user_info = extract_user_info_from_resume_priority(resume_text, user_profile) if resume_text else {'name': ''}
+        # Apply same name fallback chain as main path
+        if not (user_info.get('name') or '').strip():
+            if user_profile:
+                user_info['name'] = (user_profile.get('name') or '').strip()
+                if not user_info['name']:
+                    first = (user_profile.get('firstName') or user_profile.get('first_name') or '').strip()
+                    last = (user_profile.get('lastName') or user_profile.get('last_name') or '').strip()
+                    user_info['name'] = f"{first} {last}".strip()
+            if not (user_info.get('name') or '').strip() and (auth_display_name or '').strip():
+                user_info['name'] = auth_display_name.strip()
         for i, contact in enumerate(contacts):
             # Build introduction sentence that handles missing values gracefully
-            name = user_info.get('name', 'a student')
+            name = (user_info.get('name') or '').strip() or 'a student'
             major = user_info.get('major', '').strip()
             university = user_info.get('university', '').strip()
             company = contact.get('Company', 'your company')
@@ -1129,7 +1200,7 @@ Would you be open to a brief 15-minute chat about your experience?
             
             fallback_results[i] = {
                 'subject': f"Question about {company}",
-                'body': f"""Hi {contact.get('FirstName', '')},
+                'body': f"""Hi {_normalize_name(contact.get('FirstName', ''))},
 
 {intro} Your work at {company} caught my attention.
 
@@ -1166,7 +1237,7 @@ def generate_reply_to_message(message_content, contact_data, resume_text=None, u
         user_info = extract_user_info_from_resume_priority(resume_text, user_profile) if resume_text or user_profile else {}
         
         # Get contact info
-        contact_firstname = contact_data.get('firstName') or contact_data.get('first_name') or contact_data.get('FirstName', '')
+        contact_firstname = _normalize_name(contact_data.get('firstName') or contact_data.get('first_name') or contact_data.get('FirstName', ''))
         contact_company = contact_data.get('company') or contact_data.get('Company', '')
         contact_title = contact_data.get('jobTitle') or contact_data.get('job_title') or contact_data.get('Title', '')
         
@@ -1294,7 +1365,7 @@ Return ONLY a JSON object:
         traceback.print_exc()
         
         # Fallback reply
-        contact_firstname = contact_data.get('firstName') or contact_data.get('first_name') or contact_data.get('FirstName', 'there')
+        contact_firstname = _normalize_name(contact_data.get('firstName') or contact_data.get('first_name') or contact_data.get('FirstName', 'there'))
         sender_name = user_info.get('name', '') if 'user_info' in locals() else ''
         
         fallback_body = f"Hi {contact_firstname},\n\nThank you for your reply! I appreciate you taking the time to respond.\n\nBest regards"

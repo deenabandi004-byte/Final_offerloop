@@ -10,7 +10,7 @@ export function LoadingSkeleton({ variant = "card", count = 3 }: LoadingSkeleton
     return (
       <div className="space-y-4">
         {Array.from({ length: count }).map((_, i) => (
-          <div key={i} className="flex items-center space-x-4 p-4 border rounded-lg">
+          <div key={i} className="flex items-center space-x-4 p-4 border rounded-[3px]">
             <Skeleton className="h-12 w-12 rounded-full" />
             <div className="space-y-2 flex-1">
               <Skeleton className="h-4 w-[250px]" />
@@ -27,7 +27,7 @@ export function LoadingSkeleton({ variant = "card", count = 3 }: LoadingSkeleton
     return (
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {Array.from({ length: count }).map((_, i) => (
-          <div key={i} className="p-6 border rounded-lg space-y-3">
+          <div key={i} className="p-6 border rounded-[3px] space-y-3">
             <Skeleton className="h-4 w-3/4" />
             <Skeleton className="h-4 w-1/2" />
             <Skeleton className="h-20 w-full" />

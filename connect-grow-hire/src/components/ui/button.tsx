@@ -5,20 +5,20 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[3px] text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        default: "bg-[#0F172A] text-[#DBEAFE] hover:bg-[#1E293B]",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         outline:
-          "border border-border bg-background text-foreground hover:bg-secondary hover:text-secondary-foreground",
+          "border border-[#E2E8F0] bg-white text-[#0F172A] hover:bg-[#DBEAFE] hover:border-[#3B82F6]",
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost: "hover:bg-secondary hover:text-secondary-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
-        gradient: "text-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all hover:opacity-90",
+          "bg-[#DBEAFE] text-[#0F172A] hover:bg-[#DBEAFE]",
+        ghost: "hover:bg-[#DBEAFE] hover:text-[#0F172A]",
+        link: "text-[#3B82F6] underline-offset-4 hover:underline",
+        gradient: "text-[#DBEAFE] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all hover:opacity-90",
       },
       size: {
         default: "h-10 px-4 py-2",
@@ -43,8 +43,8 @@ export interface ButtonProps
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, style, ...props }, ref) => {
     const Comp = asChild ? Slot : "button"
-    const gradientStyle = variant === "gradient" 
-      ? { ...style, background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }
+    const gradientStyle = variant === "gradient"
+      ? { ...style, background: '#0F172A' }
       : style
     return (
       <Comp

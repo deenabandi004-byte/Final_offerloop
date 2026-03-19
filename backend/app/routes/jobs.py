@@ -10,6 +10,7 @@ from backend.app.utils.job_ranking import (
 )
 from datetime import datetime, timezone, timedelta
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,9 @@ jobs_bp = Blueprint("jobs", __name__)
 
 _filters_cache = {"data": None, "cached_at": None}
 FILTERS_CACHE_TTL = 3600
+
+_ranking_lock = threading.Lock()
+_ranking_in_progress = set()  # UIDs currently being re-ranked
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +77,9 @@ def get_feed():
         else:
             cache_age = float("inf")
         cache_valid = cache_age < 1800
+        cache_stale_ok = not cache_valid and cache_age < 7200  # 2 hours
+    else:
+        cache_stale_ok = False
 
     # Always fetch new_matches fresh (last 24h)
     twenty_four_hours_ago = now - timedelta(hours=24)
@@ -126,6 +133,61 @@ def get_feed():
             "cached": True,
         })
 
+    if not cache_valid and cache_stale_ok:
+        # Serve stale cache immediately, refresh in background
+        cached_ids = cache.get("job_ids", [])
+        cached_scores = cache.get("scores", {})
+        cached_reasons = cache.get("reasons", {})
+
+        top_jobs = []
+        if cached_ids:
+            for i in range(0, len(cached_ids), 100):
+                chunk = cached_ids[i:i + 100]
+                refs = [db.collection("jobs").document(jid) for jid in chunk]
+                docs = db.get_all(refs)
+                for doc in docs:
+                    if doc.exists:
+                        j = doc.to_dict()
+                        jid = j.get("job_id", doc.id)
+                        j["match_score"] = cached_scores.get(jid)
+                        j["match_reason"] = cached_reasons.get(jid)
+                        j["ranked"] = j["match_score"] is not None
+                        top_jobs.append(j)
+            top_jobs.sort(key=lambda j: j.get("match_score") or 0, reverse=True)
+
+        new_query = (
+            db.collection("jobs")
+            .where("posted_at", ">=", twenty_four_hours_ago)
+            .order_by("posted_at", direction="DESCENDING")
+            .limit(20)
+        )
+        new_matches = []
+        for doc in new_query.stream():
+            j = doc.to_dict()
+            jid = j.get("job_id", doc.id)
+            j["match_score"] = cached_scores.get(jid)
+            j["match_reason"] = cached_reasons.get(jid)
+            j["ranked"] = j["match_score"] is not None
+            new_matches.append(j)
+
+        # Trigger background re-rank if not already in progress
+        if uid not in _ranking_in_progress:
+            _ranking_in_progress.add(uid)
+            t = threading.Thread(target=_background_rerank, args=(uid,), daemon=True)
+            t.start()
+            logger.info(f"Triggered background re-rank for {uid}")
+
+        return jsonify({
+            "new_matches": _serialize_jobs(new_matches),
+            "top_jobs": _serialize_jobs(top_jobs),
+            "new_matches_count": len(new_matches),
+            "top_jobs_count": len(top_jobs),
+            "ranked": True,
+            "no_resume": False,
+            "cached": True,
+            "stale": True,
+        })
+
     # No resume path
     has_resume = bool(profile.get("resumeParsed") or profile.get("resumeText"))
     if not has_resume:
@@ -166,7 +228,7 @@ def get_feed():
     all_query = (
         db.collection("jobs")
         .order_by("posted_at", direction="DESCENDING")
-        .limit(300)
+        .limit(200)
     )
     all_jobs = [doc.to_dict() for doc in all_query.stream()]
 
@@ -187,7 +249,7 @@ def get_feed():
     preferences = [doc.to_dict() for doc in prefs_query.stream()]
 
     # Rank
-    candidates = prefilter_candidates(all_jobs, profile, top_n=60)
+    candidates = prefilter_candidates(all_jobs, profile, top_n=20)
     ranked = rank_with_gpt(candidates, profile)
     adjusted = apply_feedback_adjustments(ranked, preferences)
 
@@ -248,6 +310,52 @@ def _get_posted_at_ts(job: dict) -> datetime:
     return val
 
 
+def _background_rerank(uid: str):
+    """Re-rank jobs in background thread and update cache."""
+    try:
+        from backend.app.extensions import get_db
+        db = get_db()
+        now = datetime.now(timezone.utc)
+
+        user_ref = db.collection("users").document(uid)
+        user_doc = user_ref.get()
+        if not user_doc.exists:
+            return
+        profile = user_doc.to_dict()
+
+        has_resume = bool(profile.get("resumeParsed") or profile.get("resumeText"))
+        if not has_resume:
+            return
+
+        all_query = (
+            db.collection("jobs")
+            .order_by("posted_at", direction="DESCENDING")
+            .limit(200)
+        )
+        all_jobs = [doc.to_dict() for doc in all_query.stream()]
+
+        prefs_query = user_ref.collection("jobPreferences").limit(100)
+        preferences = [doc.to_dict() for doc in prefs_query.stream()]
+
+        candidates = prefilter_candidates(all_jobs, profile, top_n=20)
+        ranked = rank_with_gpt(candidates, profile)
+        adjusted = apply_feedback_adjustments(ranked, preferences)
+
+        top_jobs = adjusted[:50]
+        cache_data = {
+            "job_ids": [j["job_id"] for j in top_jobs],
+            "scores": {j["job_id"]: j.get("match_score") for j in top_jobs},
+            "reasons": {j["job_id"]: j.get("match_reason") for j in top_jobs},
+            "ranked_at": datetime.now(timezone.utc),
+        }
+        user_ref.update({"jobFeedCache": cache_data})
+        logger.info(f"Background re-rank complete for {uid}")
+    except Exception as e:
+        logger.warning(f"Background re-rank failed for {uid}: {e}")
+    finally:
+        _ranking_in_progress.discard(uid)
+
+
 # ---------------------------------------------------------------------------
 # POST /api/jobs/feedback
 # ---------------------------------------------------------------------------
@@ -287,6 +395,7 @@ def post_feedback():
 # ---------------------------------------------------------------------------
 
 @jobs_bp.route("/api/jobs/filters", methods=["GET"])
+@require_firebase_auth
 def get_filters():
     now = datetime.now(timezone.utc)
 

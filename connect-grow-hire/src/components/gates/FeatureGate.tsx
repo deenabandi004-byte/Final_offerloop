@@ -38,9 +38,9 @@ export function FeatureGate({
           onClick={() => setShowUpgradeModal(true)}
         >
           {showLockIcon && (
-            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm rounded-lg flex items-center justify-center z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm rounded-[3px] flex items-center justify-center z-10 opacity-0 group-hover:opacity-100 transition-opacity">
               <div className="text-center">
-                <Lock className="h-8 w-8 text-blue-400 mx-auto mb-2" />
+                <Lock className="h-8 w-8 text-[#3B82F6] mx-auto mb-2" />
                 <p className="text-sm text-white font-medium">Upgrade Required</p>
               </div>
             </div>

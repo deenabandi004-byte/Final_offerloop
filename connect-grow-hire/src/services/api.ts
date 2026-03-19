@@ -59,6 +59,20 @@ export function hasEmailTemplateValues(t: EmailTemplate | null | undefined): boo
     (t.name != null && t.name.trim() !== "");
 }
 
+/** Get a display label for an email template */
+export function getEmailTemplateLabel(t: EmailTemplate | null | undefined): string {
+  if (!t || !hasEmailTemplateValues(t)) return "Networking";
+  if (t.name?.trim()) return t.name.trim();
+  const p = t.purpose;
+  if (p === "networking") return "Networking";
+  if (p === "referral") return "Referral Request";
+  if (p === "follow_up") return "Follow-Up";
+  if (p === "sales") return "Sales";
+  if (p === "custom") return "Custom Template";
+  if (p) return p.charAt(0).toUpperCase() + p.slice(1).replace(/_/g, " ");
+  return "Networking";
+}
+
 export interface ContactSearchRequest {
   jobTitle: string;
   company?: string; // Optional - company is not required for contact search
@@ -209,6 +223,12 @@ export interface SearchResponse {
   user_email: string;
   credits_used?: number;
   credits_remaining?: number;
+  parsed_query?: {
+    companies?: Array<{ name: string; matched_titles?: string[] }>;
+    title_variations?: string[];
+    locations?: string[];
+    company_context?: string;
+  };
 }
 
 // Error response type
@@ -1095,7 +1115,7 @@ class ApiService {
     return this.makeRequest<PromptSearchResponse | ApiError>('/prompt-search', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ prompt, max_contacts: maxContacts }),
+      body: JSON.stringify({ prompt, batchSize: maxContacts }),
     });
   }
 
@@ -1103,12 +1123,16 @@ class ApiService {
    * Prompt-based contact search (new endpoint). Same response shape as free-run plus parsed_query.
    * Works for all tiers; batchSize is capped by tier on backend.
    */
-  async runPromptSearch(data: { prompt: string; batchSize: number }): Promise<SearchResult> {
+  async runPromptSearch(data: { prompt: string; batchSize: number; emailTemplate?: EmailTemplate | null }): Promise<SearchResult> {
     const headers = await this.getAuthHeaders();
+    const payload: Record<string, unknown> = { prompt: data.prompt.trim(), batchSize: data.batchSize };
+    if (data.emailTemplate && hasEmailTemplateValues(data.emailTemplate)) {
+      payload.emailTemplate = data.emailTemplate;
+    }
     return this.makeRequest<SearchResult>('/prompt-search', {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: data.prompt.trim(), batchSize: data.batchSize }),
+      body: JSON.stringify(payload),
     });
   }
 

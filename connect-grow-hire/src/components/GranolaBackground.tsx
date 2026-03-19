@@ -20,7 +20,7 @@ export const GranolaBackground = ({ children }: { children: React.ReactNode }) =
           right: '-15%',
           width: '70%',
           height: '70%',
-          background: 'radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, rgba(96, 165, 250, 0.1) 30%, rgba(147, 197, 253, 0.05) 50%, transparent 70%)',
+          background: 'radial-gradient(circle, rgba(201, 169, 110, 0.15) 0%, rgba(184, 149, 79, 0.1) 30%, rgba(228, 218, 196, 0.05) 50%, transparent 70%)',
           filter: 'blur(40px)',
           zIndex: -20,
         }}
@@ -34,7 +34,7 @@ export const GranolaBackground = ({ children }: { children: React.ReactNode }) =
           left: '-20%',
           width: '80%',
           height: '80%',
-          background: 'radial-gradient(circle, rgba(59, 130, 246, 0.12) 0%, rgba(96, 165, 250, 0.08) 35%, rgba(147, 197, 253, 0.04) 55%, transparent 75%)',
+          background: 'radial-gradient(circle, rgba(201, 169, 110, 0.12) 0%, rgba(184, 149, 79, 0.08) 35%, rgba(228, 218, 196, 0.04) 55%, transparent 75%)',
           filter: 'blur(50px)',
           zIndex: -20,
         }}
@@ -48,7 +48,7 @@ export const GranolaBackground = ({ children }: { children: React.ReactNode }) =
           left: '-10%',
           width: '50%',
           height: '50%',
-          background: 'radial-gradient(circle, rgba(96, 165, 250, 0.1) 0%, rgba(147, 197, 253, 0.05) 40%, transparent 65%)',
+          background: 'radial-gradient(circle, rgba(184, 149, 79, 0.1) 0%, rgba(228, 218, 196, 0.05) 40%, transparent 65%)',
           filter: 'blur(35px)',
           zIndex: -20,
         }}
@@ -62,7 +62,7 @@ export const GranolaBackground = ({ children }: { children: React.ReactNode }) =
           right: '5%',
           width: '40%',
           height: '40%',
-          background: 'radial-gradient(circle, rgba(59, 130, 246, 0.08) 0%, rgba(96, 165, 250, 0.05) 40%, transparent 60%)',
+          background: 'radial-gradient(circle, rgba(201, 169, 110, 0.08) 0%, rgba(184, 149, 79, 0.05) 40%, transparent 60%)',
           filter: 'blur(30px)',
           zIndex: -20,
         }}
@@ -76,7 +76,7 @@ export const GranolaBackground = ({ children }: { children: React.ReactNode }) =
           left: '30%',
           width: '35%',
           height: '35%',
-          background: 'radial-gradient(circle, rgba(147, 197, 253, 0.1) 0%, rgba(191, 219, 254, 0.05) 40%, transparent 60%)',
+          background: 'radial-gradient(circle, rgba(228, 218, 196, 0.1) 0%, rgba(191, 219, 254, 0.05) 40%, transparent 60%)',
           filter: 'blur(25px)',
           zIndex: -20,
         }}

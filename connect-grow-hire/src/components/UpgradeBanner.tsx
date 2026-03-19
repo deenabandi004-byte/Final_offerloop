@@ -56,12 +56,12 @@ export const UpgradeBanner: React.FC<UpgradeBannerProps> = ({
   const isLimitIssue = hasExhaustedLimit && hasEnoughCredits;
 
   return (
-    <div className="mb-6 rounded-md border-l-4 border-blue-400 bg-blue-50/70">
+    <div className="mb-6 rounded-md border-l-4 border-[#3B82F6] bg-[#FAFBFF]">
       <div className="p-4">
         <div className="flex items-start gap-3">
           {/* Simple info icon */}
-          <Info className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
-          
+          <Info className="h-4 w-4 text-[#3B82F6] mt-0.5 flex-shrink-0" />
+
           <div className="flex-1 min-w-0">
             {/* Description - factual and simple */}
             <p className="text-sm text-slate-600 leading-relaxed">
@@ -86,7 +86,7 @@ export const UpgradeBanner: React.FC<UpgradeBannerProps> = ({
                   });
                   navigate('/pricing');
                 }}
-                className="mt-2 text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors"
+                className="mt-2 text-sm font-medium text-[#3B82F6] hover:text-[#2563EB] transition-colors"
               >
                 Upgrade to {nextTier} →
               </button>

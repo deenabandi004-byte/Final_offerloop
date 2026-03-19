@@ -28,7 +28,7 @@ const MatchScoreBadge: React.FC<{ score?: number }> = ({ score }) => {
     color = "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
     label = "Great Match";
   } else if (score >= 60) {
-    color = "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
+    color = "bg-[rgba(59,130,246,0.10)] text-[#2563EB] dark:bg-[rgba(59,130,246,0.10)] dark:text-[#3B82F6]";
     label = "Good Match";
   } else if (score >= 40) {
     color = "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
@@ -56,10 +56,10 @@ const JobCard: React.FC<{
           <img
             src={job.logo}
             alt={job.company}
-            className="w-12 h-12 rounded-lg object-cover bg-muted"
+            className="w-12 h-12 rounded-[3px] object-cover bg-muted"
           />
         ) : (
-          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-[3px] bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
             <Building2 className="w-6 h-6 text-primary" />
           </div>
         )}
@@ -373,7 +373,7 @@ export const RecommendedJobs: React.FC = () => {
           <div className="flex-shrink-0 flex items-center pr-4">
             <button
               onClick={() => navigate("/job-board")}
-              className="flex items-center gap-1 text-sm text-primary hover:text-primary/80 transition-colors whitespace-nowrap px-4 py-2 rounded-lg border border-primary/20 hover:border-primary/40 hover:bg-primary/5"
+              className="flex items-center gap-1 text-sm text-primary hover:text-primary/80 transition-colors whitespace-nowrap px-4 py-2 rounded-[3px] border border-primary/20 hover:border-primary/40 hover:bg-primary/5"
             >
               View All
               <ArrowRight className="w-4 h-4" />

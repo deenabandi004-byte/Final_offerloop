@@ -242,7 +242,7 @@ ${userName || ''}`;
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-[#FAFBFF] to-[#FAFBFF]">
         <LoadingContainer 
           label="Loading contacts..." 
           sublabel="Please wait" 

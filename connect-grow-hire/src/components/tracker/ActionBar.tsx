@@ -68,7 +68,7 @@ export function ActionBar({
           href={gmailUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[3px] bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
         >
           <ExternalLink className="w-3.5 h-3.5" />
           Open in Gmail
@@ -79,7 +79,7 @@ export function ActionBar({
       <button
         onClick={onRefresh}
         disabled={isSyncing}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[3px] bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
       >
         <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin" : ""}`} />
         Refresh
@@ -89,7 +89,7 @@ export function ActionBar({
       {contact.hasUnreadReply && (
         <button
           onClick={onMarkRead}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100 transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[3px] bg-[#FAFBFF] border border-[#E2E8F0] text-[#2563EB] hover:bg-[rgba(59,130,246,0.10)] transition-colors"
         >
           <Eye className="w-3.5 h-3.5" />
           Mark as Read
@@ -101,7 +101,7 @@ export function ActionBar({
         <>
           <button
             onClick={onMarkWon}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-green-50 border border-green-200 text-green-700 hover:bg-green-100 transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[3px] bg-green-50 border border-green-200 text-green-700 hover:bg-green-100 transition-colors"
           >
             <Trophy className="w-3.5 h-3.5" />
             Mark as Won
@@ -109,7 +109,7 @@ export function ActionBar({
 
           <button
             onClick={onArchive}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-white border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[3px] bg-white border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors"
           >
             <Archive className="w-3.5 h-3.5" />
             Archive
@@ -119,13 +119,13 @@ export function ActionBar({
           <div className="relative" ref={snoozeRef}>
             <button
               onClick={() => setSnoozeOpen(!snoozeOpen)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-white border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[3px] bg-white border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors"
             >
               <Clock className="w-3.5 h-3.5" />
               Snooze
             </button>
             {snoozeOpen && (
-              <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[140px]">
+              <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-[3px] shadow-lg py-1 min-w-[140px]">
                 {[
                   { label: "3 days", days: 3 },
                   { label: "1 week", days: 7 },
@@ -152,7 +152,7 @@ export function ActionBar({
       {contact.archivedAt && (
         <button
           onClick={onUnarchive}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[3px] bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
         >
           <ArchiveRestore className="w-3.5 h-3.5" />
           Unarchive

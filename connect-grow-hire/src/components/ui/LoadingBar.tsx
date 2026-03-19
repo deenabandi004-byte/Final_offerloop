@@ -38,12 +38,12 @@ export function LoadingBar({
       {(label || (showPercentage && variant === 'determinate')) && (
         <div className="flex items-center justify-between mb-1.5">
           {label && (
-            <span className="text-sm font-medium text-gray-600">
+            <span className="text-sm font-medium text-[#6B7280]">
               {label}
             </span>
           )}
           {showPercentage && variant === 'determinate' && (
-            <span className="text-sm font-medium text-blue-600">
+            <span className="text-sm font-medium text-[#3B82F6]">
               {Math.round(clampedProgress)}%
             </span>
           )}
@@ -54,7 +54,7 @@ export function LoadingBar({
       <div
         className={`
           relative w-full overflow-hidden rounded-full
-          bg-blue-100/50 backdrop-blur-sm
+          bg-[rgba(59,130,246,0.10)] backdrop-blur-sm
           ${heightClass}
         `}
         role="progressbar"
@@ -68,7 +68,7 @@ export function LoadingBar({
           <div
             className={`
               absolute inset-0 rounded-full
-              bg-gradient-to-r from-blue-600 via-blue-400 to-blue-600
+              bg-gradient-to-r from-[#3B82F6] via-[#2563EB] to-[#3B82F6]
               bg-[length:200%_100%]
               animate-loading-shimmer
             `}
@@ -77,7 +77,7 @@ export function LoadingBar({
           <div
             className={`
               ${heightClass} rounded-full
-              bg-gradient-to-r from-blue-600 to-blue-400
+              bg-gradient-to-r from-[#3B82F6] to-[#2563EB]
               transition-all duration-300 ease-out
               shadow-[0_0_8px_rgba(59,130,246,0.4)]
             `}
@@ -104,14 +104,14 @@ export function InlineLoadingBar({ isLoading, className = '' }: InlineLoadingBar
     <div
       className={`
         absolute bottom-0 left-0 right-0 h-0.5 overflow-hidden
-        rounded-b-lg
+        rounded-b-[3px]
         ${className}
       `}
     >
       <div
         className="
           h-full w-full rounded-full
-          bg-gradient-to-r from-blue-600 via-blue-400 to-blue-600
+          bg-gradient-to-r from-[#3B82F6] via-[#2563EB] to-[#3B82F6]
           bg-[length:200%_100%]
           animate-loading-shimmer
         "
@@ -135,7 +135,7 @@ export function PageLoadingBar({ isLoading }: PageLoadingBarProps) {
       <div
         className="
           h-full w-full
-          bg-gradient-to-r from-blue-600 via-blue-400 to-blue-600
+          bg-gradient-to-r from-[#3B82F6] via-[#2563EB] to-[#3B82F6]
           bg-[length:200%_100%]
           animate-loading-shimmer
         "
@@ -169,21 +169,21 @@ export function SteppedLoadingBar({ steps, currentStepId, className = '' }: Step
     <div className={`w-full ${className}`}>
       {/* Step indicator */}
       <div className="flex items-center justify-between mb-2">
-        <span className="text-sm font-medium text-gray-700">
+        <span className="text-sm font-medium text-[#0F172A]">
           {currentStep?.label || 'Processing...'}
         </span>
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-[#6B7280]">
           Step {validIndex + 1} of {steps.length}
         </span>
       </div>
 
       {/* Progress track */}
-      <div className="relative w-full h-1.5 overflow-hidden rounded-full bg-blue-100/50 backdrop-blur-sm">
+      <div className="relative w-full h-1.5 overflow-hidden rounded-full bg-[rgba(59,130,246,0.10)] backdrop-blur-sm">
         {/* Completed portion */}
         <div
           className="
             h-full rounded-full
-            bg-gradient-to-r from-blue-600 to-blue-400
+            bg-gradient-to-r from-[#3B82F6] to-[#2563EB]
             transition-all duration-500 ease-out
             shadow-[0_0_8px_rgba(59,130,246,0.4)]
           "
@@ -209,8 +209,8 @@ export function SteppedLoadingBar({ steps, currentStepId, className = '' }: Step
             className={`
               w-2 h-2 rounded-full transition-all duration-300
               ${index <= validIndex
-                ? 'bg-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.5)]'
-                : 'bg-blue-200'
+                ? 'bg-[#3B82F6] shadow-[0_0_6px_rgba(59,130,246,0.5)]'
+                : 'bg-[#E2E8F0]'
               }
             `}
             title={step.label}
@@ -247,9 +247,9 @@ export function LoadingContainer({
         className="
           flex flex-col items-center gap-4 px-8 py-6
           bg-white/80 backdrop-blur-xl
-          border border-blue-200/30
-          rounded-2xl
-          shadow-[0_4px_24px_rgba(59,130,246,0.12),0_2px_8px_rgba(96,165,250,0.08)]
+          border border-[#E2E8F0]/30
+          rounded-[3px]
+          shadow-[0_4px_24px_rgba(59,130,246,0.12),0_2px_8px_rgba(184,149,79,0.08)]
         "
       >
         {/* Loading bar */}
@@ -259,9 +259,9 @@ export function LoadingContainer({
 
         {/* Labels */}
         <div className="text-center">
-          <p className="text-sm font-medium text-gray-700">{label}</p>
+          <p className="text-sm font-medium text-[#0F172A]">{label}</p>
           {sublabel && (
-            <p className="text-xs text-gray-500 mt-1">{sublabel}</p>
+            <p className="text-xs text-[#6B7280] mt-1">{sublabel}</p>
           )}
         </div>
       </div>

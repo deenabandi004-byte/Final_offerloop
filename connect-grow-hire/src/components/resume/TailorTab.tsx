@@ -138,7 +138,7 @@ export interface Recommendation {
 }
 
 const roleTypeBadgeStyles: Record<string, string> = {
-  TECH: 'bg-blue-50 text-blue-700 border-blue-200',
+  TECH: 'bg-[#FAFBFF] text-[#0F172A] border-[#E2E8F0]',
   CONSULTING: 'bg-violet-50 text-violet-700 border-violet-200',
   FINANCE: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   DATA_SCIENCE: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -415,7 +415,7 @@ const SuggestionCard: React.FC<{
             {priority}
           </span>
           {rec.is_learnable_gap && (
-            <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600 border border-blue-200">
+            <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#FAFBFF] text-[#3B82F6] border border-[#E2E8F0]">
               <BookOpen className="w-3 h-3" />
               Learning gap
             </span>
@@ -431,7 +431,7 @@ const SuggestionCard: React.FC<{
             variant="outline"
             size="sm"
             onClick={onAccept}
-            className={state === 'accepted' ? 'bg-green-600 border-green-600 text-white hover:bg-green-700 hover:text-white' : 'text-[#3B82F6] border-[#3B82F6]/20 hover:bg-blue-50'}
+            className={state === 'accepted' ? 'bg-green-600 border-green-600 text-white hover:bg-green-700 hover:text-white' : 'text-[#3B82F6] border-[#3B82F6]/20 hover:bg-[#FAFBFF]'}
           >
             <Check className="w-3.5 h-3.5 mr-1" />
             {state === 'accepted' ? 'Accepted' : 'Accept'}
@@ -460,7 +460,7 @@ const SuggestionCard: React.FC<{
               <div className="flex items-center gap-1.5 mb-1">
                 <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Current</span>
               </div>
-              <div className="bg-[#F8FAFF] rounded-xl p-4 text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">
+              <div className="bg-[#FAFBFF] rounded-[3px] p-4 text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">
                 {rec.current}
               </div>
             </div>
@@ -470,7 +470,7 @@ const SuggestionCard: React.FC<{
               <div className="flex items-center gap-1.5 mb-1">
                 <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Suggested</span>
               </div>
-              <div className="bg-white border border-[#3B82F6]/10 rounded-xl p-4 text-sm text-gray-900 leading-relaxed whitespace-pre-wrap">
+              <div className="bg-white border border-[#3B82F6]/10 rounded-[3px] p-4 text-sm text-gray-900 leading-relaxed whitespace-pre-wrap">
                 {rec.suggested}
               </div>
               {rec.why && <p className="text-xs text-gray-400 italic mt-2">{rec.why}</p>}
@@ -516,7 +516,7 @@ const CategorySection: React.FC<{
         <div className="flex items-center gap-2.5 flex-wrap">
           <Icon className="w-4 h-4 text-gray-400 shrink-0" />
           <span className="text-base font-semibold text-gray-900">{category}</span>
-          <span className="bg-[#DBEAFE] text-[#3B82F6] text-xs font-medium px-2 py-0.5 rounded-full">
+          <span className="bg-[rgba(59,130,246,0.15)] text-[#3B82F6] text-xs font-medium px-2 py-0.5 rounded-full">
             {recommendations.length}
           </span>
           {highCount > 0 && (
@@ -1286,7 +1286,7 @@ export function TailorTab({
       <div className="flex flex-col h-full pb-6">
         {/* Sticky hero: Apply All Suggestions */}
         <div className="sticky top-0 z-10 shrink-0 mx-4 mt-4 mb-2">
-          <div className="flex items-center justify-between gap-4 rounded-xl shadow-md bg-gradient-to-r from-[#3B82F6] to-[#60A5FA] py-3 px-6">
+          <div className="flex items-center justify-between gap-4 rounded-[3px] shadow-md bg-gradient-to-r from-[#0F172A] to-[#1E293B] py-3 px-6">
             <button
               type="button"
               onClick={() => {
@@ -1455,7 +1455,7 @@ export function TailorTab({
               value={jobUrl}
               onChange={(e) => { setJobUrl(e.target.value); setJobUrlError(null); }}
               placeholder="https://linkedin.com/jobs/..."
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:border-[#3B82F6] focus:ring-1 focus:ring-[#3B82F6]"
             />
             <p className="text-xs text-gray-500 mt-1">Paste any job URL — LinkedIn, Greenhouse, Lever, Indeed, etc.</p>
             {jobUrlError && <p className="text-sm text-red-600 mt-1">{jobUrlError}</p>}

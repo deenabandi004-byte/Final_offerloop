@@ -32,7 +32,7 @@ export interface DropdownProps {
  * Reusable Dropdown component with consistent blue styling.
  * 
  * All dropdowns in the app should use this component to maintain
- * consistent styling with the primary blue color (#3B82F6 / blue-600).
+ * consistent styling with the primary gold color (#3B82F6).
  * 
  * @example
  * ```tsx
@@ -77,7 +77,7 @@ export const Dropdown = React.forwardRef<
     >
       <SelectTrigger 
         ref={ref}
-        className={cn("focus:ring-blue-500 focus:ring-2", triggerClassName, className)}
+        className={cn("focus:ring-[#3B82F6] focus:ring-2", triggerClassName, className)}
       >
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
@@ -87,7 +87,7 @@ export const Dropdown = React.forwardRef<
             key={String(option.value)}
             value={String(option.value)}
             disabled={option.disabled}
-            className="focus:bg-blue-600 focus:text-white data-[highlighted]:bg-blue-600 data-[highlighted]:text-white hover:bg-blue-100 hover:text-blue-900"
+            className="focus:bg-[#0F172A] focus:text-white data-[highlighted]:bg-[#0F172A] data-[highlighted]:text-white hover:bg-[rgba(59,130,246,0.10)] hover:text-[#0F172A]"
           >
             {option.label}
           </SelectItem>

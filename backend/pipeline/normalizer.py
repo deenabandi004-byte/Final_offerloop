@@ -2,17 +2,10 @@
 Normalize raw JSearch results into a consistent Firestore document schema.
 Uses OpenAI gpt-4o-mini for salary extraction when structured data is missing.
 """
-import json
 import logging
-import threading
-import time
 from datetime import datetime, timedelta, timezone
 
-from backend.app.services.openai_client import get_openai_client
-
 logger = logging.getLogger(__name__)
-
-_openai_semaphore = threading.Semaphore(3)
 
 # ---------------------------------------------------------------------------
 # Job type normalization
@@ -68,7 +61,14 @@ _SALARY_KEYWORDS = ("salary", "$", "compensation", "pay range", "per hour", "per
 
 
 def extract_salary_from_description(description: str) -> dict:
-    """Use OpenAI gpt-4o-mini to estimate salary from description text. Returns {} on failure."""
+    """
+    Salary extraction from description text.
+
+    OpenAI extraction is disabled for now to keep pipeline runtime under
+    2 minutes. Re-enable once a proper rate-limited queue is in place.
+    Keyword detection is kept so we know which jobs *could* have salary
+    data extracted later.
+    """
     if not description or len(description.strip()) < 50:
         return {}
 
@@ -76,48 +76,8 @@ def extract_salary_from_description(description: str) -> dict:
     if not any(kw in desc_lower for kw in _SALARY_KEYWORDS):
         return {}
 
-    snippet = description[:1500]
-    _openai_semaphore.acquire()
-    try:
-        time.sleep(0.5)
-        client = get_openai_client()
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a salary extraction tool. Return only valid JSON, no explanation.",
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Extract salary info from this job description. "
-                        f"Return JSON: {{\"salary_min\": number|null, \"salary_max\": number|null, "
-                        f"\"salary_period\": \"HOUR\" or \"YEAR\", \"found\": true/false}}\n\n{snippet}"
-                    ),
-                },
-            ],
-            max_tokens=150,
-            temperature=0,
-        )
-        text = resp.choices[0].message.content.strip()
-        # Strip markdown fences if present
-        if text.startswith("```"):
-            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-        data = json.loads(text)
-        if not data.get("found"):
-            return {}
-        return {
-            "salary_min": float(data["salary_min"]) if data.get("salary_min") is not None else None,
-            "salary_max": float(data["salary_max"]) if data.get("salary_max") is not None else None,
-            "salary_period": data.get("salary_period", "YEAR").upper(),
-            "salary_extracted": True,
-        }
-    except Exception as exc:
-        logger.debug("Salary extraction via OpenAI failed: %s", exc)
-        return {}
-    finally:
-        _openai_semaphore.release()
+    # TODO: Re-enable OpenAI salary extraction with rate-limited queue
+    return {}
 
 
 _ANNUAL_MULTIPLIER = {
@@ -313,7 +273,7 @@ def _normalize_jsearch_job(raw: dict) -> dict | None:
 
 def normalize_job(raw: dict) -> dict | None:
     """Normalize a raw job dict from any source. Auto-detects format."""
-    if raw.get("source") in ("greenhouse", "lever", "workday", "ashby"):
+    if raw.get("source") in ("greenhouse", "lever", "workday", "ashby", "fantasticjobs"):
         return _normalize_board_job(raw)
     return _normalize_jsearch_job(raw)
 

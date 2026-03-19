@@ -547,7 +547,7 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userR
                     ? 'text-white'
                     : 'bg-[#F5F7FF] text-slate-800'
                 }`}
-                style={message.role === 'user' ? { background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' } : undefined}
+                style={message.role === 'user' ? { background: 'linear-gradient(135deg, #0F172A, #1E293B)' } : undefined}
               >
                 {/* Message content */}
                 <div
@@ -557,17 +557,17 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userR
 
                 {/* Fields badge */}
                 {message.fields && Object.keys(message.fields).length > 0 && (
-                  <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="mt-3 p-2 bg-[#FAFBFF] border border-[#E2E8F0] rounded-lg">
                     <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-1 text-blue-700 text-xs font-medium">
+                      <div className="flex items-center gap-1 text-[#0F172A] text-xs font-medium">
                         <Sparkles className="h-3 w-3" />
                         Search fields updated!
                       </div>
-                      <div className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded" title="Fields optimized for better search results">
+                      <div className="text-xs text-[#3B82F6] bg-[rgba(59,130,246,0.10)] px-2 py-0.5 rounded" title="Fields optimized for better search results">
                         ✨ Optimized
                       </div>
                     </div>
-                    <div className="text-xs text-blue-600 space-y-0.5">
+                    <div className="text-xs text-[#3B82F6] space-y-0.5">
                       {message.fields.job_title && (
                         <div className="flex items-center gap-1">
                           <span className="font-medium">Title:</span>
@@ -673,8 +673,8 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userR
                                   >
                                     {isAnalyzing ? (
                                       <div className="inline-flex items-center gap-1.5">
-                                        <div className="w-8 h-0.5 bg-blue-100 rounded-full overflow-hidden">
-                                          <div className="h-full w-full bg-gradient-to-r from-blue-600 via-blue-400 to-blue-600 bg-[length:200%_100%] animate-loading-shimmer" />
+                                        <div className="w-8 h-0.5 bg-[rgba(59,130,246,0.10)] rounded-full overflow-hidden">
+                                          <div className="h-full w-full bg-gradient-to-r from-[#3B82F6] via-[#2563EB] to-[#3B82F6] bg-[length:200%_100%] animate-loading-shimmer" />
                                         </div>
                                         <span className="text-xs">Analyzing...</span>
                                       </div>
@@ -695,7 +695,7 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userR
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="flex-shrink-0 px-3 py-1.5 text-xs font-medium text-white rounded transition-all shadow-sm hover:shadow-md hover:opacity-90 flex items-center gap-1.5 whitespace-nowrap"
-                                    style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
+                                    style={{ background: 'linear-gradient(135deg, #0F172A, #1E293B)' }}
                                     title="View job posting"
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -787,11 +787,11 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userR
                               
                               {/* Pitch */}
                               {analysis.pitch && (
-                                <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
-                                  <div className="text-xs font-medium text-blue-800 mb-1">
+                                <div className="mb-4 p-3 bg-[#FAFBFF] rounded-lg border border-[#E2E8F0]">
+                                  <div className="text-xs font-medium text-[#0F172A] mb-1">
                                     💬 How to pitch yourself:
                                   </div>
-                                  <div className="text-sm text-blue-900 italic">
+                                  <div className="text-sm text-[#0F172A] italic">
                                     "{analysis.pitch}"
                                   </div>
                                 </div>
@@ -851,7 +851,7 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userR
                                     handleJobClick(job);
                                   }}
                                   className="flex-1 py-2 text-sm font-medium text-white rounded"
-                                  style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
+                                  style={{ background: 'linear-gradient(135deg, #0F172A, #1E293B)' }}
                                 >
                                   Find Contacts in This Role
                                 </button>
@@ -893,7 +893,7 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userR
       </div>
 
       {/* Input Area */}
-      <div className="px-4 py-3 border-t border-[#E3E8F0] bg-white">
+      <div className="px-4 py-3 border-t border-[#E2E8F0] bg-white">
         <div className="flex gap-2">
           <Input
             ref={inputRef}
@@ -901,14 +901,14 @@ const ScoutChatbot: React.FC<ScoutChatbotProps> = ({ onJobTitleSuggestion, userR
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder="Paste a job URL or describe what you're looking for..."
-            className="flex-1 bg-white border-[#E3E8F0] text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500/20 rounded-md"
+            className="flex-1 bg-white border-[#E2E8F0] text-slate-900 placeholder:text-slate-400 focus:border-[#3B82F6] focus-visible:ring-2 focus-visible:ring-[#3B82F6]/20 rounded-md"
             disabled={isLoading}
           />
           <Button
             onClick={sendMessage}
             disabled={!input.trim() || isLoading}
             className="relative overflow-hidden hover:opacity-90 rounded-md"
-            style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
+            style={{ background: 'linear-gradient(135deg, #0F172A, #1E293B)' }}
           >
             <Send className="h-4 w-4" />
             <InlineLoadingBar isLoading={isLoading} />

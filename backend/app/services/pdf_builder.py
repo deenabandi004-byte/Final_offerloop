@@ -50,9 +50,9 @@ def _parse_strategy_sections(strategy_md: str) -> dict:
     if not strategy_md:
         return sections
 
-    # Extract DO THIS items
+    # Extract DO THIS items — stop at AVOID THIS or end of string
     do_match = re.search(
-        r'\*\*DO THIS\*\*.*?\n((?:[-•]\s*.+\n?)+)',
+        r'\*\*DO THIS\*\*.*?\n(.*?)(?=\*\*AVOID THIS\*\*|\Z)',
         strategy_md, re.IGNORECASE | re.DOTALL
     )
     if do_match:
@@ -63,9 +63,9 @@ def _parse_strategy_sections(strategy_md: str) -> dict:
             if line.strip() and re.match(r'^[-•]', line.strip())
         ]
 
-    # Extract AVOID THIS items
+    # Extract AVOID THIS items — stop at next header or end of string
     avoid_match = re.search(
-        r'\*\*AVOID THIS\*\*.*?\n((?:[-•]\s*.+\n?)+)',
+        r'\*\*AVOID THIS\*\*.*?\n(.*?)(?=\*\*[A-Z]|\Z)',
         strategy_md, re.IGNORECASE | re.DOTALL
     )
     if avoid_match:

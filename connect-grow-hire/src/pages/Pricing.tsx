@@ -34,11 +34,11 @@ const FeatureItem: React.FC<FeatureItemProps> = ({ children, highlight, muted })
   <div className="flex items-start gap-3">
     <div className={`
       w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5
-      ${highlight ? 'bg-cyan-100' : muted ? 'bg-gray-100' : 'bg-blue-50'}
+      ${highlight ? 'bg-cyan-100' : muted ? 'bg-gray-100' : 'bg-[#FAFBFF]'}
     `}>
       <Check className={`
         w-3 h-3
-        ${highlight ? 'text-cyan-600' : muted ? 'text-gray-400' : 'text-blue-500'}
+        ${highlight ? 'text-cyan-600' : muted ? 'text-gray-400' : 'text-[#3B82F6]'}
       `} />
     </div>
     <span className={`
@@ -106,7 +106,7 @@ const ComparisonRow: React.FC<ComparisonRowProps> = ({ feature, free, pro, elite
         <span className="text-gray-600">{free}</span>
       )}
     </td>
-    <td className="text-center py-4 px-6 bg-blue-50/30">
+    <td className="text-center py-4 px-6 bg-[#FAFBFF]/30">
       {typeof pro === 'boolean' ? (
         pro ? <Check className="w-5 h-5 text-cyan-500 mx-auto" /> : <X className="w-5 h-5 text-gray-300 mx-auto" />
       ) : (
@@ -415,7 +415,7 @@ const Pricing = () => {
     : null;
 
   return (
-    <div style={{ background: '#F8FAFF', minHeight: '100vh' }}>
+    <div style={{ background: '#FAFBFF', minHeight: '100vh' }}>
       <Helmet>
         <title>Offerloop Pricing — Free, Pro & Elite Plans for Student Networking</title>
         <meta name="description" content="Start free or upgrade to Pro ($14.99/mo) or Elite ($34.99/mo). Offerloop helps college students network into consulting, investment banking, and tech." />
@@ -436,8 +436,8 @@ const Pricing = () => {
 
         {/* Subscription Status Banner */}
         {hasActiveSubscription && (
-          <div className="mb-10 bg-gradient-to-r from-blue-600 to-cyan-500 rounded-2xl p-[2px] animate-fadeInUp" style={{ animationDelay: '50ms' }}>
-            <div className="bg-white rounded-xl px-6 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="mb-10 bg-gradient-to-r from-[#0F172A] to-[#1E293B] rounded-[3px] p-[2px] animate-fadeInUp" style={{ animationDelay: '50ms' }}>
+            <div className="bg-white rounded-[3px] px-6 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 <div>
                   <div className="flex items-center gap-2">
@@ -461,7 +461,7 @@ const Pricing = () => {
               <button 
                 onClick={handleManageSubscription}
                 disabled={isLoading}
-                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-medium rounded-xl hover:shadow-lg hover:shadow-blue-500/30 transition-all disabled:opacity-50"
+                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#0F172A] to-[#1E293B] text-white font-medium rounded-[3px] hover:shadow-lg hover:shadow-[#3B82F6]/30 transition-all disabled:opacity-50"
               >
                 <Settings className="w-4 h-4" />
                 Manage Subscription
@@ -475,7 +475,7 @@ const Pricing = () => {
           <h1
             className="text-[28px] sm:text-[42px]"
             style={{
-              fontFamily: "'Instrument Serif', Georgia, serif",
+              fontFamily: "'Lora', Georgia, serif",
               fontWeight: 400,
               letterSpacing: '-0.025em',
               color: '#0F172A',
@@ -504,7 +504,7 @@ const Pricing = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8 max-w-5xl mx-auto mb-16 animate-fadeInUp" style={{ animationDelay: '200ms' }}>
           
           {/* Free Plan Card */}
-          <div className="bg-white rounded-2xl border border-gray-200 p-8 flex flex-col h-full hover:border-gray-300 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
+          <div className="bg-white rounded-[3px] border border-gray-200 p-8 flex flex-col h-full hover:border-gray-300 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
             {/* Plan Header */}
             <div className="text-center mb-6">
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Free</h2>
@@ -543,7 +543,7 @@ const Pricing = () => {
             <div className="mt-8">
               <button 
                 onClick={() => currentTier === 'free' ? handleResetCredits('free') : handleUpgrade('free', 'pricing_page')}
-                className="w-full py-3.5 px-6 rounded-xl font-semibold border-2 border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all"
+                className="w-full py-3.5 px-6 rounded-[3px] font-semibold border-2 border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all"
               >
                 {currentTier === 'free' ? 'Current Plan' : 'Start for Free'}
               </button>
@@ -551,7 +551,7 @@ const Pricing = () => {
           </div>
 
           {/* Pro Plan Card (Featured) */}
-          <div className="relative bg-gradient-to-b from-cyan-500 to-blue-600 rounded-2xl p-[2px] flex flex-col hover:shadow-xl hover:shadow-blue-500/20 transition-all duration-300 md:scale-105 z-10 hover:-translate-y-1">
+          <div className="relative bg-gradient-to-b from-[#3B82F6] to-[#2563EB] rounded-[3px] p-[2px] flex flex-col hover:shadow-xl hover:shadow-[#3B82F6]/20 transition-all duration-300 md:scale-105 z-10 hover:-translate-y-1">
             {/* Most Popular Badge */}
             <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20">
               <span
@@ -573,10 +573,10 @@ const Pricing = () => {
             </div>
             
             {/* Card Content */}
-            <div className="bg-white rounded-2xl p-8 flex flex-col h-full">
+            <div className="bg-white rounded-[3px] p-8 flex flex-col h-full">
               {/* Plan Header */}
               <div className="text-center mb-6 pt-2">
-                <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-500 to-blue-600 mb-2">Pro</h2>
+                <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#3B82F6] to-[#2563EB] mb-2">Pro</h2>
                 <p className="text-gray-500">Best for Students</p>
               </div>
               
@@ -630,12 +630,12 @@ const Pricing = () => {
                   disabled={isLoading || currentTier === 'elite'}
                   title={currentTier === 'pro' ? 'Click to manage subscription. Hold Shift+Click to reset credits.' : currentTier === 'elite' ? 'You are on Elite plan' : undefined}
                   className={`
-                    w-full py-3.5 px-6 rounded-xl font-semibold transition-all
+                    w-full py-3.5 px-6 rounded-[3px] font-semibold transition-all
                     ${currentTier === 'elite' 
                       ? 'bg-gray-100 text-gray-500 cursor-not-allowed' 
                       : currentTier === 'pro'
-                        ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white'
-                        : 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg hover:shadow-blue-500/30 hover:scale-[1.02] active:scale-100'
+                        ? 'bg-gradient-to-r from-[#3B82F6] to-[#2563EB] text-white'
+                        : 'bg-gradient-to-r from-[#3B82F6] to-[#2563EB] text-white hover:shadow-lg hover:shadow-[#3B82F6]/30 hover:scale-[1.02] active:scale-100'
                     }
                     disabled:opacity-50
                   `}
@@ -647,7 +647,7 @@ const Pricing = () => {
           </div>
 
           {/* Elite Plan Card */}
-          <div className={`relative bg-white rounded-2xl border p-8 flex flex-col h-full hover:shadow-lg transition-all duration-300 hover:-translate-y-1 ${currentTier === 'elite' ? 'border-purple-300' : 'border-gray-200 hover:border-gray-300'}`}>
+          <div className={`relative bg-white rounded-[3px] border p-8 flex flex-col h-full hover:shadow-lg transition-all duration-300 hover:-translate-y-1 ${currentTier === 'elite' ? 'border-purple-300' : 'border-gray-200 hover:border-gray-300'}`}>
             {/* Active Badge if current plan */}
             {currentTier === 'elite' && (
               <div className="absolute -top-3 right-6">
@@ -711,9 +711,9 @@ const Pricing = () => {
                 disabled={isLoading}
                 title={currentTier === 'elite' ? 'Click to manage subscription. Hold Shift+Click to reset credits.' : undefined}
                 className={`
-                  w-full py-3.5 px-6 rounded-xl font-semibold transition-all
+                  w-full py-3.5 px-6 rounded-[3px] font-semibold transition-all
                   ${currentTier === 'elite' 
-                    ? 'border-2 border-blue-200 text-blue-600 hover:bg-blue-50' 
+                    ? 'border-2 border-[#E2E8F0] text-[#3B82F6] hover:bg-[#FAFBFF]' 
                     : 'bg-gray-900 text-white hover:bg-gray-800 hover:shadow-lg'
                   }
                 `}
@@ -726,7 +726,7 @@ const Pricing = () => {
 
         {/* Money-Back Guarantee Banner */}
         <div className="max-w-2xl mx-auto mb-16 animate-fadeInUp" style={{ animationDelay: '300ms' }}>
-          <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl p-6 border border-green-200 text-center">
+          <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-[3px] p-6 border border-green-200 text-center">
             <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
               <Shield className="w-6 h-6 text-green-600" />
             </div>
@@ -741,13 +741,13 @@ const Pricing = () => {
         <div className="mb-16 animate-fadeInUp" style={{ animationDelay: '400ms' }}>
           <h2 className="text-2xl font-bold text-gray-900 text-center mb-8">Compare all features</h2>
           
-          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden overflow-x-auto">
+          <div className="bg-white rounded-[3px] border border-gray-200 overflow-hidden overflow-x-auto">
             <table className="w-full min-w-[600px]">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <th className="text-left py-4 px-6 font-semibold text-gray-900">Feature</th>
                   <th className="text-center py-4 px-6 font-semibold text-gray-900">Free</th>
-                  <th className="text-center py-4 px-6 font-semibold text-transparent bg-clip-text bg-gradient-to-r from-cyan-500 to-blue-600">Pro</th>
+                  <th className="text-center py-4 px-6 font-semibold text-transparent bg-clip-text bg-gradient-to-r from-[#3B82F6] to-[#2563EB]">Pro</th>
                   <th className="text-center py-4 px-6 font-semibold text-gray-900">Elite</th>
                 </tr>
               </thead>
@@ -809,7 +809,7 @@ const Pricing = () => {
 
         {/* Footer Note */}
         <div className="max-w-3xl text-sm text-gray-500 pb-8 animate-fadeInUp" style={{ animationDelay: '600ms' }}>
-          <p>Still unsure? <button onClick={() => window.open('mailto:support@offerloop.ai', '_blank')} className="text-blue-600 hover:underline font-medium">Talk to us</button></p>
+          <p>Still unsure? <button onClick={() => window.open('mailto:support@offerloop.ai', '_blank')} className="text-[#3B82F6] hover:underline font-medium">Talk to us</button></p>
         </div>
         
       </div>

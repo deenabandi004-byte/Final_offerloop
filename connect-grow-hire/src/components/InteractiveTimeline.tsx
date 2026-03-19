@@ -260,7 +260,7 @@ export function InteractiveTimeline({ phases, startDate, targetDeadline, onUpdat
     : 0;
 
   return (
-    <div className="w-full max-w-full bg-card border border-border rounded-xl overflow-hidden">
+    <div className="w-full max-w-full bg-card border border-border rounded-[3px] overflow-hidden">
       <div className="px-4 sm:px-6 lg:px-8 py-8">
         <div 
           ref={timelineRef}
@@ -354,10 +354,10 @@ export function InteractiveTimeline({ phases, startDate, targetDeadline, onUpdat
                           return (
                             <motion.div
                               key={`${phasePos.phase.name}-${index}-${phaseIdx}`}
-                              className={`px-4 py-3 rounded-xl border-2 text-center text-sm transition-all relative group ${
+                              className={`px-4 py-3 rounded-[3px] border-2 text-center text-sm transition-all relative group ${
                                 isActive
-                                  ? 'bg-gradient-to-br from-blue-500/20 via-blue-400/20 to-blue-600/20 border-blue-400 shadow-lg shadow-blue-500/20'
-                                  : 'bg-gradient-to-br from-slate-50 to-slate-100 border-slate-300 hover:border-blue-300 hover:shadow-md'
+                                  ? 'bg-gradient-to-br from-[#3B82F6]/20 via-[#2563EB]/20 to-[#3B82F6]/20 border-[#3B82F6] shadow-lg shadow-[#3B82F6]/20'
+                                  : 'bg-gradient-to-br from-slate-50 to-slate-100 border-slate-300 hover:border-[#3B82F6] hover:shadow-md'
                               }`}
                               initial={{ opacity: 0, y: 20 }}
                               animate={{ opacity: 1, y: 0 }}
@@ -389,14 +389,14 @@ export function InteractiveTimeline({ phases, startDate, targetDeadline, onUpdat
                                 <>
                                   <div className={`font-semibold mb-1 ${
                                     isActive 
-                                      ? 'text-blue-700' 
+                                      ? 'text-[#0F172A]' 
                                       : 'text-slate-700'
                                   }`}>
                                     {phasePos.phase.name}
                                   </div>
                                   <div className={`text-xs leading-relaxed ${
                                     isActive 
-                                      ? 'text-blue-600' 
+                                      ? 'text-[#3B82F6]' 
                                       : 'text-slate-600'
                                   }`}>
                                     {phasePos.phase.description}
@@ -406,9 +406,9 @@ export function InteractiveTimeline({ phases, startDate, targetDeadline, onUpdat
                                       <div className="text-xs space-y-1 text-left">
                                         {phasePos.phase.goals.slice(0, 2).map((goal, idx) => (
                                           <div key={idx} className="flex items-start gap-1.5">
-                                            <span className="text-blue-500 mt-0.5">•</span>
+                                            <span className="text-[#3B82F6] mt-0.5">•</span>
                                             <span className={isActive 
-                                              ? 'text-blue-600' 
+                                              ? 'text-[#3B82F6]' 
                                               : 'text-slate-500'
                                             }>
                                               {goal}

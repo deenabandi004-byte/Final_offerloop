@@ -376,7 +376,7 @@ def init_app_extensions(app: Flask):
     limiter = Limiter(
         app=app,
         key_func=get_rate_limit_key,
-        default_limits=["500 per day", "200 per hour"],
+        default_limits=["2000 per day", "500 per hour"],
         storage_uri="memory://",
         strategy="fixed-window",
         headers_enabled=True
@@ -408,6 +408,10 @@ def init_app_extensions(app: Flask):
         dev_origins = [
             "http://localhost:5173",
             "http://127.0.0.1:5173",
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+            "http://localhost:8081",
+            "http://127.0.0.1:8081",
         ]
         all_origins = list(set(dev_origins + allowed_origins))
         print(f"🔧 Development mode: CORS configured with origins: {all_origins}")

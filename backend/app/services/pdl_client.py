@@ -162,128 +162,140 @@ def _school_aliases(raw: str) -> list[str]:
     return sorted(cleaned)
 
 
-def _contact_has_school_as_primary_education(contact: dict, aliases: list[str]) -> bool:
+def _school_name_matches(school_name: str, aliases: list[str]) -> bool:
     """
-    ENHANCED VERSION: Check if contact has the school as their PRIMARY education (degree-granting)
-    Returns True only if the school appears to be where they got their main degree
+    P3 FIX: Word-boundary-aware school name matching.
+    Prevents false positives like "columbia" matching "british columbia" or
+    "washington" matching "george washington university".
+
+    Rules:
+    - If either side is a single word (e.g. "columbia"), require it to appear
+      as a word boundary match (not embedded in another word like "british columbia").
+    - Multi-word aliases (e.g. "columbia university") use substring matching
+      since they're already specific enough.
+    - Exact match always passes.
     """
-    # Check if we have detailed education data
-    edu = contact.get("education") or []
-    
-    if isinstance(edu, list) and edu:
-        # Sort education by importance (degrees, end dates, etc.)
-        primary_schools = []
-        
-        for e in edu:
-            if isinstance(e, dict):
-                school = e.get("school") or {}
-                school_name = ""
-                
-                if isinstance(school, dict):
-                    school_name = (school.get("name") or "").lower()
-                elif isinstance(e.get("school"), str):
-                    school_name = e.get("school", "").lower()
-                
-                # Check if this education entry has degree indicators
-                has_degree = False
-                degree_fields = e.get("degrees") or []
-                
-                # Check for degree indicators
-                if degree_fields:  # Has explicit degree field
-                    has_degree = True
-                elif e.get("degree"):  # Alternative degree field
-                    has_degree = True
-                elif e.get("end_date"):  # Has completion date (suggests full program)
-                    has_degree = True
-                elif any(deg in school_name for deg in ["university", "college", "institute"]):
-                    # If it looks like a degree-granting institution and has other indicators
-                    if e.get("start_date") or e.get("field_of_study") or e.get("major"):
-                        has_degree = True
-                
-                # If this looks like a degree-granting education, add to primary schools
-                if has_degree and school_name:
-                    primary_schools.append(school_name)
-        
-        # Check if any primary schools match our aliases
-        for school_name in primary_schools:
-            for alias in aliases:
-                if alias in school_name or school_name in alias:
-                    return True
-    
-    # Fallback: Check top-level education fields
-    # But weight them lower since they might be less reliable
-    edu_top = (contact.get("EducationTop") or "").lower()
-    college = (contact.get("College") or contact.get("college") or "").lower()
-    
-    # Only use these if they look like primary education
-    primary_indicators = ["bachelor", "master", "phd", "mba", "degree", "graduated", "alumni"]
-    
-    for field in [edu_top, college]:
-        if field:
-            # Check if this field contains both the school AND degree indicators
-            has_degree_indicator = any(indicator in field for indicator in primary_indicators)
-            
-            for alias in aliases:
-                if alias in field:
-                    # If we have degree indicators OR the field is specifically the "College" field
-                    if has_degree_indicator or field == college:
-                        return True
-    
+    if not school_name:
+        return False
+    for alias in aliases:
+        if not alias:
+            continue
+        # Exact match
+        if alias == school_name:
+            return True
+        # For short/single-word aliases, use word-boundary regex to prevent false positives
+        alias_words = alias.split()
+        if len(alias_words) == 1 and len(alias) < 15:
+            # Single word like "columbia" — require word boundary match
+            pattern = r'\b' + re.escape(alias) + r'\b'
+            if re.search(pattern, school_name):
+                # Extra guard: if school_name has a geographic prefix that changes meaning, reject
+                # e.g. "british columbia" contains "columbia" but is NOT Columbia University
+                if school_name != alias and alias in school_name:
+                    # Check if what's before/after the alias is a common geographic qualifier
+                    before = school_name[:school_name.index(alias)].strip()
+                    if before and before.split()[-1] in _GEOGRAPHIC_QUALIFIERS:
+                        continue
+                return True
+        else:
+            # Multi-word alias: substring is fine (already specific)
+            if alias in school_name or school_name in alias:
+                return True
     return False
-def _contact_has_school_as_primary_education_lenient(contact: dict, aliases: list[str]) -> bool:
+
+
+# Common geographic words that change a school's identity when prepended
+_GEOGRAPHIC_QUALIFIERS = {
+    "british", "western", "eastern", "northern", "southern", "central",
+    "george", "north", "south", "west", "east", "new", "old",
+    "saint", "st", "fort", "mount", "mt", "san", "santa",
+}
+
+
+def contact_matches_school(contact: dict, aliases: list[str], strictness: str = "normal") -> bool:
     """
-    MORE LENIENT VERSION - Accept if school appears in education
-    Fixed bidirectional substring matching
+    Consolidated alumni filter. Checks if a contact attended one of the target schools.
+
+    strictness levels:
+      - "strict": Requires degree indicators (degrees, field_of_study, start+end dates).
+                  Falls back to College field only with degree keywords.
+      - "normal": Accepts if school appears in education with any metadata (dates, field, etc.)
+                  or if school name is substantial (>5 chars). Trusts College/EducationTop fields.
+      - "loose":  Any word-boundary match in any education field. Most permissive.
+
+    Args:
+        contact: Contact dict (PDL raw format or extracted contact format)
+        aliases: Pre-computed school aliases from _school_aliases()
+        strictness: "strict", "normal", or "loose"
     """
-    # Check if we have detailed education data
+    if not aliases:
+        return False
+
+    # --- Check structured education array ---
     edu = contact.get("education") or []
-    
-    if isinstance(edu, list) and edu:
+    if isinstance(edu, list):
         for e in edu:
-            if isinstance(e, dict):
-                school = e.get("school") or {}
-                school_name = ""
-                
-                if isinstance(school, dict):
-                    school_name = (school.get("name") or "").lower()
-                elif isinstance(e.get("school"), str):
-                    school_name = e.get("school", "").lower()
-                
-                # ✅ VERY LENIENT: Accept if school name is substantial
-                if school_name and len(school_name) > 2:
-                    for alias in aliases:
-                        # ✅ FIX: Bidirectional substring check
-                        if alias in school_name or school_name in alias:
-                            # Accept if ANY of these exist (even empty values)
-                            has_any_indicator = (
-                                "degrees" in e or
-                                "degree" in e or
-                                "end_date" in e or
-                                "start_date" in e or
-                                "field_of_study" in e or
-                                "major" in e or
-                                len(school_name) > 5  # Substantial school name = likely real
-                            )
-                            if has_any_indicator:
-                                return True
-    
-    # Also check College field (often reliable for primary degree)
+            if not isinstance(e, dict):
+                continue
+            school = e.get("school") or {}
+            school_name = ""
+            if isinstance(school, dict):
+                school_name = (school.get("name") or "").lower()
+            elif isinstance(school, str):
+                school_name = school.lower()
+            if not school_name or len(school_name) < 3:
+                continue
+
+            if not _school_name_matches(school_name, aliases):
+                continue
+
+            if strictness == "loose":
+                return True
+
+            # Check for education metadata that indicates a real enrollment
+            has_degree_indicator = bool(
+                e.get("degrees") or e.get("degree")
+                or e.get("field_of_study") or e.get("major")
+            )
+            has_dates = bool(e.get("start_date") or e.get("end_date"))
+
+            if strictness == "strict":
+                if has_degree_indicator or (has_dates and e.get("start_date")):
+                    return True
+                if any(w in school_name for w in ["university", "college", "institute"]):
+                    if e.get("start_date") or e.get("field_of_study") or e.get("major"):
+                        return True
+            else:  # "normal"
+                if has_degree_indicator or has_dates or e.get("start_date") or len(school_name) > 5:
+                    return True
+
+    # --- Fallback: top-level College field ---
     college = (contact.get("College") or contact.get("college") or "").lower()
     if college and len(college) > 2:
-        for alias in aliases:
-            # ✅ FIX: Bidirectional check
-            if alias in college or college in alias:
-                return True  # Trust the College field
-    
-    # Check EducationTop
-    edu_top = (contact.get("EducationTop") or "").lower()
-    if edu_top and len(edu_top) > 2:
-        for alias in aliases:
-            # ✅ FIX: Bidirectional check
-            if alias in edu_top or edu_top in alias:
+        if _school_name_matches(college, aliases):
+            if strictness == "strict":
+                degree_keywords = ["bachelor", "master", "phd", "mba", "degree", "graduated", "alumni"]
+                if any(kw in college for kw in degree_keywords):
+                    return True
+            else:
                 return True
-    
+
+    # --- Fallback: EducationTop field ---
+    if strictness != "strict":
+        edu_top = (contact.get("EducationTop") or "").lower()
+        if edu_top and len(edu_top) > 2:
+            if _school_name_matches(edu_top, aliases):
+                return True
+
     return False
+
+
+# Backward-compatible aliases that delegate to the consolidated function
+def _contact_has_school_as_primary_education(contact: dict, aliases: list[str]) -> bool:
+    return contact_matches_school(contact, aliases, strictness="strict")
+
+def _contact_has_school_as_primary_education_lenient(contact: dict, aliases: list[str]) -> bool:
+    return contact_matches_school(contact, aliases, strictness="normal")
 def _contact_hash(contact: dict) -> tuple:
     """Generate a tuple of key fields to identify a contact uniquely"""
     first = (contact.get("FirstName") or "").lower().strip()
@@ -576,117 +588,22 @@ def _fetch_contacts_standard_parallel(
     return contacts[:max_contacts]
 
 def _contact_has_school_alias(c: dict, aliases: list[str]) -> bool:
-    """
-    ORIGINAL VERSION - kept for backward compatibility
-    Check if contact has any of the school aliases in their education (loose matching)
-    """
-    fields = []
-    fields.append((c.get("College") or c.get("college") or "").lower())
-    edu = c.get("education") or []
-    if isinstance(edu, list):
-        for e in edu:
-            if isinstance(e, dict):
-                school = e.get("school") or {}
-                if isinstance(school, dict):
-                    fields.append((school.get("name") or "").lower())
-            elif isinstance(e, str):
-                fields.append(e.lower())
-    elif isinstance(edu, str):
-        fields.append(edu.lower())
-    
-    edu_top = (c.get("EducationTop") or "").lower()
-    if edu_top:
-        fields.append(edu_top)
-    
-    for field in fields:
-        for alias in aliases:
-            if alias in field or field in alias:
-                return True
-    return False
+    """Backward-compatible loose alias check. Delegates to consolidated contact_matches_school."""
+    return contact_matches_school(c, aliases, strictness="loose")
 
-def _contact_has_school_as_primary_education(contact: dict, aliases: list[str]) -> bool:
-    """
-    Enhanced version: Check if contact has the school as their PRIMARY education (degree-granting)
-    Returns True only if the school appears to be where they got their main degree
-    """
-    # Check if we have detailed education data
-    edu = contact.get("education") or []
-    
-    if isinstance(edu, list) and edu:
-        # Look for degree-granting education entries
-        for e in edu:
-            if isinstance(e, dict):
-                school = e.get("school") or {}
-                school_name = ""
-                
-                if isinstance(school, dict):
-                    school_name = (school.get("name") or "").lower()
-                elif isinstance(e.get("school"), str):
-                    school_name = e.get("school", "").lower()
-                
-                # Check if this education entry has degree indicators
-                has_degree = False
-                
-                # Check for explicit degree fields
-                if e.get("degrees") or e.get("degree"):
-                    has_degree = True
-                # Check for graduation/completion indicators  
-                elif e.get("end_date") and e.get("start_date"):
-                    has_degree = True
-                # Check for field of study (usually indicates degree program)
-                elif e.get("field_of_study") or e.get("major"):
-                    has_degree = True
-                
-                # If this looks like a degree-granting education, check against aliases
-                if has_degree and school_name:
-                    for alias in aliases:
-                        if alias in school_name or school_name in alias:
-                            print(f"✓ Verified {contact.get('FirstName', '')} {contact.get('LastName', '')} has degree from {school_name}")
-                            return True
-    
-    # Fallback: Check College field (usually indicates primary degree)
-    college = (contact.get("College") or contact.get("college") or "").lower()
-    if college:
-        for alias in aliases:
-            if alias in college:
-                return True
-    
-    # Don't use EducationTop alone as it might include certificates/courses
-    return False
+
 def apply_strict_alumni_filter(contacts: list, college_alumni: str, use_strict: bool = True) -> list:
-    """
-    Apply alumni filtering with option for strict or loose matching
-    
-    Args:
-        contacts: List of contact dictionaries
-        college_alumni: School name to filter by
-        use_strict: If True, use strict degree-based filtering. If False, use original loose matching.
-    
-    Returns:
-        Filtered list of contacts who are actual alumni
-    """
+    """Apply alumni filtering using the consolidated contact_matches_school function."""
     if not college_alumni:
         return contacts
-    
     aliases = _school_aliases(college_alumni)
     if not aliases:
         return contacts
-    
-    if use_strict:
-        # Use enhanced filtering that checks for actual degrees
-        filtered = [c for c in contacts if _contact_has_school_as_primary_education(c, aliases)]
-        
-        # Log the filtering results
-        original_count = len(contacts)
-        filtered_count = len(filtered)
-        if original_count > filtered_count:
-            print(f"🎓 Strict alumni filter: {original_count} → {filtered_count} contacts")
-            print(f"   Removed {original_count - filtered_count} contacts without confirmed {college_alumni} degrees")
-        
-        return filtered
-    else:
-        # Use original loose filtering
-        return [c for c in contacts if _contact_has_school_alias(c, aliases)]
+    strictness = "strict" if use_strict else "loose"
+    filtered = [c for c in contacts if contact_matches_school(c, aliases, strictness=strictness)]
+    if len(filtered) < len(contacts):
+        print(f"🎓 Alumni filter ({strictness}): {len(contacts)} → {len(filtered)} contacts")
+    return filtered
 
 
 # Enhanced PDL query builder for alumni search
@@ -762,77 +679,6 @@ def search_contacts_with_smart_location_strategy_enhanced(
     return contacts[:max_contacts]
 
 
-# Example usage and testing
-def test_alumni_filtering():
-    """
-    Test function to demonstrate the difference between loose and strict filtering
-    """
-    # Example contact that went to Rutgers but has Stanford certificate
-    test_contact = {
-        "FirstName": "Ismael",
-        "LastName": "Menjivar",
-        "education": [
-            {
-                "school": {"name": "Rutgers University"},
-                "degrees": ["Bachelor of Science"],
-                "field_of_study": "Computer Science",
-                "end_date": "2018"
-            },
-            {
-                "school": {"name": "Stanford University"},
-                "summary": "Online Certificate in Machine Learning",
-                "end_date": "2020"
-            }
-        ],
-        "EducationTop": "Rutgers University",
-        "College": "Rutgers"
-    }
-    
-    stanford_aliases = _school_aliases("Stanford University")
-    
-    # Test original loose matching
-    has_stanford_loose = _contact_has_school_alias(test_contact, stanford_aliases)
-    print(f"Loose matching: {has_stanford_loose}")  # Would return True (incorrect)
-    
-    # Test new strict matching
-    has_stanford_strict = _contact_has_school_as_primary_education(test_contact, stanford_aliases)
-    print(f"Strict matching: {has_stanford_strict}")  # Would return False (correct)
-    
-    return test_contact
-
-
-if __name__ == "__main__":
-    # Test the filtering
-    test_alumni_filtering()
-
-
-def _contact_has_school_alias(c: dict, aliases: list[str]) -> bool:
-    """Check if contact has any of the school aliases in their education"""
-    fields = []
-    fields.append((c.get("College") or c.get("college") or "").lower())
-    edu = c.get("education") or []
-    if isinstance(edu, list):
-        for e in edu:
-            if isinstance(e, dict):
-                school = e.get("school") or {}
-                if isinstance(school, dict):
-                    fields.append((school.get("name") or "").lower())
-            elif isinstance(e, str):
-                fields.append(e.lower())
-    elif isinstance(edu, str):
-        fields.append(edu.lower())
-    
-    edu_top = (c.get("EducationTop") or "").lower()
-    if edu_top:
-        fields.append(edu_top)
-    
-    for field in fields:
-        for alias in aliases:
-            if alias in field or field in alias:
-                return True
-    return False
-
-
 @lru_cache(maxsize=1000)
 def cached_enrich_job_title(job_title):
     """Cache job title enrichments to avoid repeated API calls"""
@@ -851,34 +697,39 @@ def cached_clean_location(location):
     return clean_location_name(location) if location else ''
 
 
+_clean_company_cache: dict[str, str] = {}
+_clean_company_cache_lock = Lock()
+
 def clean_company_name(company):
-    """Clean company name using PDL Cleaner API for better matching
-    OPTIMIZED: Uses connection pooling for better performance
+    """Clean company name using PDL Cleaner API for better matching.
+    Results are cached in-process to avoid redundant API calls.
     """
+    if not company or not company.strip():
+        return company
+    key = company.strip().lower()
+    with _clean_company_cache_lock:
+        if key in _clean_company_cache:
+            return _clean_company_cache[key]
     try:
-        print(f"Cleaning company name: {company}")
-        
-        # Use session for connection pooling
-        with _session_lock:
-            response = _session.get(
-                f"{PDL_BASE_URL}/company/clean",
-                params={
-                    'api_key': PEOPLE_DATA_LABS_API_KEY,
-                    'name': company
-                },
-                timeout=10
-            )
-        
+        response = _session.get(
+            f"{PDL_BASE_URL}/company/clean",
+            params={
+                'api_key': PEOPLE_DATA_LABS_API_KEY,
+                'name': company
+            },
+            timeout=10
+        )
         if response.status_code == 200:
             clean_data = response.json()
             if clean_data.get('status') == 200 and clean_data.get('name'):
                 cleaned_name = clean_data['name']
-                print(f"Cleaned company: '{company}' -> '{cleaned_name}'")
+                with _clean_company_cache_lock:
+                    _clean_company_cache[key] = cleaned_name
                 return cleaned_name
-    
     except Exception as e:
         print(f"Company cleaning failed: {e}")
-    
+    with _clean_company_cache_lock:
+        _clean_company_cache[key] = company
     return company
 
 
@@ -1892,10 +1743,31 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
         # ✅ TASK 2: Batch verify emails BEFORE individual extraction to reduce Hunter API calls
         batch_email_results = {}
         person_to_batch_index = {}  # Map unique_persons index -> contacts_for_batch index
-        if len(unique_persons) > 1:
+
+        # ⚡ Short-circuit: skip batch verification if all contacts already have valid PDL work emails
+        _PERSONAL_DOMAINS = {'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com', 'protonmail.com', 'me.com', 'live.com', 'msn.com', 'aol.com'}
+        _all_have_pdl_email = True
+        _pdl_emails_by_idx = {}
+        for _sc_idx, _sc_person in enumerate(unique_persons):
+            _sc_emails = _sc_person.get('emails') or []
+            _sc_recommended = _sc_person.get('recommended_personal_email') or ''
+            _sc_email = _choose_best_email(_sc_emails, _sc_recommended) if _sc_emails or _sc_recommended else None
+            if (not _sc_email or _sc_email == "Not available" or '@' not in _sc_email
+                    or _sc_email.split('@')[1].lower().strip() in _PERSONAL_DOMAINS):
+                _all_have_pdl_email = False
+                break
+            _pdl_emails_by_idx[_sc_idx] = _sc_email
+
+        if _all_have_pdl_email and _pdl_emails_by_idx:
+            print(f"[BatchEmailVerification] ⚡ Skipped — all {len(_pdl_emails_by_idx)} contacts have valid PDL emails")
+            for _sc_idx, _sc_email in _pdl_emails_by_idx.items():
+                batch_email_results[_sc_idx] = {'email': _sc_email, 'verified': False, 'source': 'pdl'}
+
+        elif len(unique_persons) > 1:
+            print(f"[BatchEmailVerification] ⚡ Running — {len(unique_persons)} contacts need verification")
             try:
                 from app.services.hunter import batch_verify_emails_for_contacts
-                
+
                 # Prepare contacts for batch verification (simpler format)
                 contacts_for_batch = []
                 batch_index = 0
@@ -2322,7 +2194,8 @@ def try_metro_search_optimized(clean_title, similar_titles, company, location_st
                 ]
             }
         })
-    
+        # NOTE: job_company_name already refers to current position in PDL's ES API
+
     # ✅ ADD EDUCATION FILTER TO QUERY - use both match_phrase and match
     if college_alumni:
         aliases = _school_aliases(college_alumni)
@@ -2338,11 +2211,15 @@ def try_metro_search_optimized(clean_title, similar_titles, company, location_st
                 }
             })
 
+    # P0 FIX: Only return contacts that have email addresses
+    must.append({"exists": {"field": "emails"}})
+
     # ✅ ALL FILTERS IN MUST CLAUSE - PDL only returns people matching ALL criteria:
     #   1. Job title (title_block)
-    #   2. Location (loc_block) 
+    #   2. Location (loc_block)
     #   3. Company (if provided)
     #   4. Education/school (if provided)
+    #   5. Has email (always)
     # This is efficient - PDL filters at query time, not post-processing
     query_obj = {"bool": {"must": must}}
 
@@ -2463,15 +2340,20 @@ def try_locality_search_optimized(clean_title, similar_titles, company, location
                 ]
             }
         })
-    
+        # NOTE: job_company_name already refers to current position in PDL's ES API
+
     # ✅ NO EDUCATION FILTER IN QUERY - alumni filtering happens post-fetch via _contact_has_school_as_primary_education_lenient()
     # This makes the PDL query broader (title + company + location) and more likely to return results
     # Python post-filtering then verifies alumni status
 
+    # P0 FIX: Only return contacts that have email addresses
+    must.append({"exists": {"field": "emails"}})
+
     # ✅ ALL FILTERS IN MUST CLAUSE - PDL only returns people matching ALL criteria:
     #   1. Job title (title_block)
-    #   2. Location (loc_block) 
+    #   2. Location (loc_block)
     #   3. Company (if provided)
+    #   4. Has email (always)
     # Education/school filtering happens post-fetch in Python
     query_obj = {"bool": {"must": must}}
 
@@ -2562,6 +2444,7 @@ def try_job_title_levels_search_enhanced(job_title_enrichment, company, city, st
                 ]
             }
         })
+        # NOTE: job_company_name already refers to current position in PDL's ES API
 
     location_must = []
 
@@ -2585,14 +2468,14 @@ def try_job_title_levels_search_enhanced(job_title_enrichment, company, city, st
 
     must.append({"bool": {"must": location_must}})
 
-    # ✅ NO EDUCATION FILTER IN QUERY - alumni filtering happens post-fetch via _contact_has_school_as_primary_education_lenient()
-    # This makes the PDL query broader (title + company + location) and more likely to return results
-    # Python post-filtering then verifies alumni status
+    # P0 FIX: Only return contacts that have email addresses
+    must.append({"exists": {"field": "emails"}})
 
     # ✅ ALL FILTERS IN MUST CLAUSE - PDL only returns people matching ALL criteria:
     #   1. Job title (title_block)
-    #   2. Location (loc_block) 
+    #   2. Location (loc_block)
     #   3. Company (if provided)
+    #   4. Has email (always)
     # Education/school filtering happens post-fetch in Python
     query_obj = {"bool": {"must": must}}
 
@@ -2836,53 +2719,54 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
     if retry_level < 3:
         locations = parsed_prompt.get("locations") or []
         location_str = (locations[0] if locations else "").strip() if locations else ""
-        if not location_str:
-            location_str = "united states"
-        cleaned_location = clean_location_name(location_str, use_pdl_api=False)
-        location_strategy = determine_location_strategy(cleaned_location)
-        strategy = location_strategy.get("strategy", "locality_primary")
-        metro_location = (location_strategy.get("metro_location") or "").lower()
-        city = (location_strategy.get("city") or "").lower()
-        state = (location_strategy.get("state") or "").lower()
+        if location_str:
+            cleaned_location = clean_location_name(location_str, use_pdl_api=False)
+            location_strategy = determine_location_strategy(cleaned_location)
+            strategy = location_strategy.get("strategy", "locality_primary")
+            metro_location = (location_strategy.get("metro_location") or "").lower()
+            city = (location_strategy.get("city") or "").lower()
+            state = (location_strategy.get("state") or "").lower()
 
-        if strategy == "country_only":
-            location_must = [{"term": {"location_country": "united states"}}]
-        else:
-            location_must = []
-            if metro_location and city:
-                location_must.append({
-                    "bool": {
-                        "should": [
-                            {"match": {"location_metro": metro_location}},
-                            {"match": {"location_locality": city}},
-                        ]
-                    }
-                })
-            elif metro_location:
-                location_must.append({"match": {"location_metro": metro_location}})
-            elif city:
-                location_must.append({"match": {"location_locality": city}})
-            if state:
-                location_must.append({
-                    "bool": {
-                        "should": [
-                            {"match": {"location_region": state}},
-                            {"match": {"location_locality": state}},
-                        ]
-                    }
-                })
-            location_must.append({"term": {"location_country": "united states"}})
-        loc_block = {"bool": {"must": location_must}}
-        must.append(loc_block)
+            if strategy == "country_only":
+                location_must = [{"term": {"location_country": "united states"}}]
+            else:
+                location_must = []
+                if metro_location and city:
+                    location_must.append({
+                        "bool": {
+                            "should": [
+                                {"match": {"location_metro": metro_location}},
+                                {"match": {"location_locality": city}},
+                            ]
+                        }
+                    })
+                elif metro_location:
+                    location_must.append({"match": {"location_metro": metro_location}})
+                elif city:
+                    location_must.append({"match": {"location_locality": city}})
+                if state:
+                    location_must.append({
+                        "bool": {
+                            "should": [
+                                {"match": {"location_region": state}},
+                                {"match": {"location_locality": state}},
+                            ]
+                        }
+                    })
+                location_must.append({"term": {"location_country": "united states"}})
+            loc_block = {"bool": {"must": location_must}}
+            must.append(loc_block)
 
     # ---- Company block: never dropped ----
-    # Use both match_phrase (exact) and match (tokens) so e.g. "bain" matches "Bain & Company", "Bain Capital". Post-validation filters false positives.
+    # P1 FIX: Clean company names via PDL cleaner API before querying (e.g. "JP Morgan" → "JPMorgan Chase & Co.")
     companies = parsed_prompt.get("companies") or []
     company_names = [c.get("name", "").strip() for c in companies if isinstance(c, dict) and c.get("name")]
     if company_names:
         company_clauses = []
         for name in company_names:
-            n = name.lower().strip()
+            # Clean company name for better PDL matching
+            cleaned = clean_company_name(name)
+            n = cleaned.lower().strip()
             if n:
                 # Per company: match_phrase OR match for flexibility
                 company_clauses.append({
@@ -2898,6 +2782,7 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
                 must.append(company_clauses[0])
             else:
                 must.append({"bool": {"should": company_clauses}})
+            # Note: job_company_name already refers to the current/primary position in PDL
 
     # Schools: match_phrase only with _school_aliases (OR alternatives); no minimum_should_match (PDL doesn't support it).
     schools = parsed_prompt.get("schools") or []
@@ -2909,6 +2794,19 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
                 education_clauses.append({"match_phrase": {"education.school.name": a}})
         if education_clauses:
             must.append({"bool": {"should": education_clauses}})
+
+    # P3 FIX: Add industry filter when specified (e.g. "consulting", "financial services")
+    industries = parsed_prompt.get("industries") or []
+    if industries:
+        industry_clauses = [{"match": {"industry": ind.lower().strip()}} for ind in industries if ind and ind.strip()]
+        if industry_clauses:
+            if len(industry_clauses) == 1:
+                must.append(industry_clauses[0])
+            else:
+                must.append({"bool": {"should": industry_clauses}})
+
+    # P0 FIX: Only return contacts that have email addresses
+    must.append({"exists": {"field": "emails"}})
 
     query_obj = {"bool": {"must": must}}
     if retry_level > 0:
@@ -2932,8 +2830,8 @@ def _contact_matches_prompt_criteria(contact, parsed_prompt, target_company):
     is_current = contact.get("IsCurrentlyAtTarget", False)
     college = (contact.get("College") or "").strip()
     education_top = (contact.get("EducationTop") or "").strip()
-    first_job = (contact.get("experience") or [{}])[0] if (contact.get("experience")) else None
-    first_job_company = (first_job.get("company", {}) or {}).get("name") or first_job.get("company_name") or ""
+    first_job = (contact.get("experience") or [None])[0] if contact.get("experience") else None
+    first_job_company = ((first_job.get("company", {}) or {}).get("name") or first_job.get("company_name") or "") if first_job else ""
     print(f"[PostFilter] Checking contact: {name}")
     print(f"[PostFilter] Target companies: {companies!r}, Contact company: {contact_company!r}, IsCurrentlyAtTarget: {is_current}, first_job_company: {first_job_company!r}")
     print(f"[PostFilter] Target schools: {schools!r}, Contact College: {college!r}, EducationTop: {(education_top[:80] + ('...' if len(education_top) > 80 else ''))!r}")
@@ -2969,7 +2867,18 @@ def _contact_matches_prompt_criteria(contact, parsed_prompt, target_company):
         if not combined.strip():
             print(f"[PostFilter] Result for {name}: FAIL — school mismatch (expected one of {schools}, got=no education)")
             return False, "school_mismatch"
-        if not any(alias in combined or alias in college_lower or college_lower in alias for alias in alias_set):
+        _SCHOOL_WORDS = {"university", "college", "school", "institute", "academy"}
+        def _alias_matches(alias, combined, college_lower):
+            """Match alias against education fields. Generic core-name aliases (no school keyword, >5 chars)
+            require the college field itself to contain a school keyword to avoid matching city names."""
+            if alias in combined:
+                has_school_word = any(sw in alias for sw in _SCHOOL_WORDS) or len(alias) <= 5
+                if has_school_word:
+                    return True
+                # Generic alias like "new york" — only match if college field has a school word
+                return any(sw in college_lower for sw in _SCHOOL_WORDS)
+            return False
+        if not any(_alias_matches(alias, combined, college_lower) for alias in alias_set):
             print(f"[PostFilter] Result for {name}: FAIL — school mismatch (expected one of {schools}, got College={contact.get('College')})")
             return False, "school_mismatch"
 
@@ -3022,9 +2931,9 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
             verbose=False,
             target_company=target_company,
         )
-        if status_code != 404:
+        if raw_contacts:
             break
-        # 404: no results for this query; try next relaxation
+        # No results for this query; try next relaxation
 
     if not raw_contacts:
         return []

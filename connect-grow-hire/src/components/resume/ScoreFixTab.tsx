@@ -130,13 +130,13 @@ export function ScoreFixTab(props: ScoreFixTabProps) {
   return (
     <div className="space-y-4">
       {error && (
-        <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex justify-between items-center">
+        <div className="p-3 rounded-[3px] bg-red-50 border border-red-200 text-red-700 text-sm flex justify-between items-center">
           <span>{error}</span>
           <button type="button" onClick={() => setError(null)} className="text-red-600 hover:text-red-800">×</button>
         </div>
       )}
       {!hasStoredResume && (
-        <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+        <div className="p-4 rounded-[3px] bg-amber-50 border border-amber-200 text-amber-800 text-sm">
           <p className="font-medium">Save your resume first</p>
           <p className="mt-1">Use the Editor tab to add content and click &quot;Save Changes&quot;. Score and Fix use your saved resume.</p>
         </div>
@@ -153,7 +153,7 @@ export function ScoreFixTab(props: ScoreFixTabProps) {
       </div>
       {credits < 5 && <p className="text-xs text-amber-600">You need at least 5 credits for Score or Fix.</p>}
       {scoreData && (
-        <div className={`rounded-xl border p-4 ${scoreData.score >= 80 ? 'bg-green-50 border-green-200' : scoreData.score >= 60 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'}`}>
+        <div className={`rounded-[3px] border p-4 ${scoreData.score >= 80 ? 'bg-green-50 border-green-200' : scoreData.score >= 60 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'}`}>
           <div className="flex items-baseline gap-2">
             <span className={`text-2xl font-bold ${getScoreColor(scoreData.score)}`}>{scoreData.score}</span>
             <span className="text-gray-500">/ 100</span>
@@ -172,25 +172,25 @@ export function ScoreFixTab(props: ScoreFixTabProps) {
         </div>
       )}
       {fixedPdfBase64 && fixedResumeText && (
-        <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+        <div className="border border-gray-200 rounded-[3px] overflow-hidden bg-white">
           <div className="px-4 py-2 border-b bg-gray-50"><span className="text-sm font-medium text-gray-700">Improved resume</span></div>
           <div className="p-4">
             <iframe src={`data:application/pdf;base64,${fixedPdfBase64}`} className="w-full h-[400px] rounded border" title="Fixed resume preview" />
-            <Button onClick={() => setShowReplaceModal(true)} className="mt-4 bg-blue-600 hover:bg-blue-700">Replace my resume with this version</Button>
+            <Button onClick={() => setShowReplaceModal(true)} className="mt-4 bg-[#0F172A] hover:bg-[#1E293B]">Replace my resume with this version</Button>
           </div>
         </div>
       )}
       {showReplaceModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/50" onClick={() => !isReplacing && setShowReplaceModal(false)} />
-          <div className="relative bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6">
+          <div className="relative bg-white rounded-[3px] shadow-xl max-w-md w-full mx-4 p-6">
             <button onClick={() => !isReplacing && setShowReplaceModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><X className="h-5 w-5" /></button>
-            <div className="w-14 h-14 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4"><FileText className="w-7 h-7 text-gray-600" /></div>
+            <div className="w-14 h-14 bg-gray-100 rounded-[3px] flex items-center justify-center mx-auto mb-4"><FileText className="w-7 h-7 text-gray-600" /></div>
             <h2 className="text-xl font-semibold text-gray-900 mb-3 text-center">Replace resume in account settings?</h2>
             <p className="text-gray-600 mb-6 text-center">This will replace your current resume across Offerloop.</p>
             <div className="flex gap-3 justify-center">
               <Button variant="outline" onClick={() => !isReplacing && setShowReplaceModal(false)} disabled={isReplacing} className="rounded-full px-6">Cancel</Button>
-              <Button onClick={handleReplaceConfirm} disabled={isReplacing} className="bg-blue-600 hover:bg-blue-700 rounded-full px-6">
+              <Button onClick={handleReplaceConfirm} disabled={isReplacing} className="bg-[#0F172A] hover:bg-[#1E293B] rounded-full px-6">
                 {isReplacing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}Replace Resume
               </Button>
             </div>

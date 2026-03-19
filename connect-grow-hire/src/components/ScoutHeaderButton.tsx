@@ -18,16 +18,16 @@ const ScoutHeaderButton: React.FC<ScoutHeaderButtonProps> = () => {
         onClick={openPanel}
         aria-label={isPanelOpen ? "Close Scout" : "Ask Scout questions to navigate Offerloop"}
         className={`
-          inline-flex items-center gap-2 
-          rounded-lg 
-          px-3 py-1.5 
-          text-sm font-medium 
+          inline-flex items-center gap-2
+          rounded-[3px]
+          px-3 py-1.5
+          text-sm font-medium
           transition-all duration-150
           cursor-pointer
-          focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:ring-offset-1
-          ${isPanelOpen 
-            ? 'bg-blue-500/10 border border-blue-400/30 text-gray-900' 
-            : 'bg-transparent border border-gray-300 text-gray-700 hover:bg-blue-50/50 hover:border-gray-400'
+          focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/20 focus:ring-offset-1
+          ${isPanelOpen
+            ? 'bg-[rgba(59,130,246,0.10)] border border-[#3B82F6]/30 text-[#0F172A]'
+            : 'bg-transparent border border-[#E2E8F0] text-[#0F172A] hover:bg-[rgba(59,130,246,0.05)] hover:border-[#94A3B8]'
           }
         `}
       >
@@ -38,18 +38,18 @@ const ScoutHeaderButton: React.FC<ScoutHeaderButtonProps> = () => {
             alt=""
             className="w-4 h-4 object-contain opacity-90"
             style={{
-              filter: 'brightness(0) saturate(100%) invert(37%) sepia(97%) saturate(1415%) hue-rotate(201deg) brightness(98%) contrast(96%)',
+              filter: 'brightness(0) saturate(100%) invert(70%) sepia(30%) saturate(600%) hue-rotate(10deg) brightness(90%) contrast(90%)',
             }}
           />
           {/* Subtle conversational cue - small dot */}
-          <span 
+          <span
             className={`
-              absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full 
-              ${isPanelOpen ? 'bg-blue-500' : 'bg-blue-400'}
+              absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full
+              ${isPanelOpen ? 'bg-[#3B82F6]' : 'bg-[#2563EB]'}
             `}
           />
         </div>
-        
+
         {/* Button label */}
         <span className="whitespace-nowrap hidden sm:inline">
           Ask Scout for Help

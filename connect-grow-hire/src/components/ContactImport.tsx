@@ -94,8 +94,10 @@ interface ImportResult {
   };
   drafts?: {
     created: number;
+    failed: number;
     total_eligible: number;
   };
+  warnings?: string[];
 }
 
 interface ContactImportProps {
@@ -334,8 +336,8 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
           }}
           className="w-full px-4 py-2 sm:px-6"
         >
-          <div className="w-12 h-12 bg-white/70 backdrop-blur-sm rounded-2xl flex items-center justify-center mx-auto mb-5 border border-black/[0.07] shadow-sm">
-            <Upload className="w-5 h-5 text-blue-600" />
+          <div className="w-12 h-12 bg-white/70 backdrop-blur-sm rounded-[3px] flex items-center justify-center mx-auto mb-5 border border-black/[0.07] shadow-sm">
+            <Upload className="w-5 h-5 text-[#3B82F6]" />
           </div>
 
           <h2 className="text-[32px] font-normal text-gray-900 mb-2" style={{ fontFamily: "'Instrument Serif', Georgia, serif", letterSpacing: '-0.025em', lineHeight: 1.1 }}>Import Contacts</h2>
@@ -351,13 +353,13 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
               className={`
-                relative rounded-2xl p-10 text-center cursor-pointer
+                relative rounded-[3px] p-10 text-center cursor-pointer
                 transition-all duration-200 border border-dashed
                 ${isDragging 
-                  ? 'bg-blue-50/80 border-blue-400 shadow-[0_0_0_4px_rgba(59,91,255,0.08)]' 
+                  ? 'bg-[#FAFBFF] border-[#3B82F6] shadow-[0_0_0_4px_rgba(59,130,246,0.08)]' 
                   : file 
                     ? 'bg-white/60 border-black/10' 
-                    : 'bg-white/50 border-black/10 hover:bg-white/70 hover:border-blue-300/50'
+                    : 'bg-white/50 border-black/10 hover:bg-white/70 hover:border-[#3B82F6]/50'
                 }
                 backdrop-blur-sm
               `}
@@ -372,13 +374,13 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
               
               {!file ? (
                 <>
-                  <Table2 className={`w-8 h-8 mx-auto mb-3 ${isDragging ? 'text-blue-600' : 'text-gray-400'}`} />
+                  <Table2 className={`w-8 h-8 mx-auto mb-3 ${isDragging ? 'text-[#3B82F6]' : 'text-gray-400'}`} />
                   <p className="text-sm font-medium text-gray-900 mb-1">
                     {isDragging ? 'Drop it here!' : 'Drop your spreadsheet here'}
                   </p>
                   <p className="text-xs text-gray-500 mb-4">or click to browse your files</p>
                   <Button
-                    className="h-10 px-6 rounded-full bg-white/80 backdrop-blur-sm border border-blue-200 text-blue-600 font-semibold text-sm hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all shadow-none pointer-events-none"
+                    className="h-10 px-6 rounded-full bg-white/80 backdrop-blur-sm border border-[#E2E8F0] text-[#3B82F6] font-semibold text-sm hover:bg-[#0F172A] hover:text-white hover:border-[#0F172A] transition-all shadow-none pointer-events-none"
                   >
                     Choose File
                   </Button>
@@ -386,14 +388,14 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
                 </>
               ) : (
                 <>
-                  <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-green-100 flex items-center justify-center">
+                  <div className="w-12 h-12 mx-auto mb-3 rounded-[3px] bg-green-100 flex items-center justify-center">
                     <CheckCircle className="w-6 h-6 text-green-600" />
                   </div>
                   <p className="text-sm font-medium text-gray-900 mb-0.5">{file.name}</p>
                   <p className="text-xs text-gray-500 mb-3">{(file.size / 1024).toFixed(1)} KB</p>
                   <button 
                     onClick={(e) => { e.stopPropagation(); clearFile(); }}
-                    className="text-sm text-blue-600 hover:underline"
+                    className="text-sm text-[#3B82F6] hover:underline"
                   >
                     Choose a different file
                   </button>
@@ -405,7 +407,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
             <div className="flex items-center justify-center gap-4 mt-4 text-sm">
               <button
                 onClick={handleDownloadTemplate}
-                className="text-blue-600 hover:underline inline-flex items-center gap-1"
+                className="text-[#3B82F6] hover:underline inline-flex items-center gap-1"
               >
                 <Download className="w-3.5 h-3.5" />
                 Download template
@@ -422,7 +424,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
 
             {/* Expandable guidelines */}
             {showGuidelines && (
-              <div className="mt-4 text-left bg-gray-50 rounded-lg p-4 text-xs text-gray-600 space-y-1.5">
+              <div className="mt-4 text-left bg-[#FAFBFF] rounded-[3px] p-4 text-xs text-gray-600 space-y-1.5">
                 <p><span className="font-medium text-gray-700">15 credits per contact</span> — includes email lookup & AI draft</p>
                 <p><span className="font-medium text-gray-700">Duplicates auto-skipped</span> — matching email or LinkedIn URL</p>
                 <p><span className="font-medium text-gray-700">Minimum requirements</span> — name, email, or LinkedIn URL</p>
@@ -432,7 +434,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
 
             {/* Error */}
             {error && (
-              <div className="mt-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg flex items-center gap-2 justify-center">
+              <div className="mt-4 p-3 bg-red-50 text-red-600 text-sm rounded-[3px] flex items-center gap-2 justify-center">
                 <AlertCircle className="w-4 h-4" />
                 {error}
               </div>
@@ -444,7 +446,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
                 <Button
                   onClick={handlePreview}
                   disabled={isLoading}
-                  className="h-12 px-8 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-md hover:shadow-lg transition-all"
+                  className="h-12 px-8 rounded-[3px] bg-[#0F172A] hover:bg-[#1E293B] text-white font-medium shadow-md hover:shadow-lg transition-all"
                 >
                   {isLoading ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
@@ -457,19 +459,19 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
           </div>
 
           {/* Alternative actions — subtle text links */}
-          <div className="mt-10 pt-6 border-t border-gray-100">
+          <div className="mt-10 pt-6 border-t border-[#EEF2F8]">
             <p className="text-xs text-gray-400 mb-2">Or try another way</p>
             <div className="flex items-center justify-center gap-4 text-sm">
               <button 
                 onClick={() => onSwitchTab?.('contact-search')}
-                className="text-gray-500 hover:text-blue-600 hover:underline transition-colors"
+                className="text-gray-500 hover:text-[#3B82F6] hover:underline transition-colors"
               >
                 Search for people
               </button>
               <span className="text-gray-300">·</span>
               <button 
                 onClick={() => onSwitchTab?.('contact-search')}
-                className="text-gray-500 hover:text-blue-600 hover:underline transition-colors"
+                className="text-gray-500 hover:text-[#3B82F6] hover:underline transition-colors"
               >
                 Search or paste a LinkedIn URL
               </button>
@@ -479,7 +481,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
 
         {/* Upgrade Dialog */}
         <AlertDialog open={showUpgradeDialog} onOpenChange={setShowUpgradeDialog}>
-          <AlertDialogContent className="rounded-2xl">
+          <AlertDialogContent className="rounded-[3px]">
             <AlertDialogHeader>
               <AlertDialogTitle>Upgrade to Import Contacts</AlertDialogTitle>
               <AlertDialogDescription>
@@ -490,7 +492,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
               <AlertDialogCancel className="rounded-full">Cancel</AlertDialogCancel>
               <AlertDialogAction
                 onClick={() => navigate('/pricing')}
-                className="text-white rounded-full bg-gradient-to-r from-blue-600 to-blue-500"
+                className="text-white rounded-full bg-gradient-to-r from-[#0F172A] to-[#1E293B]"
               >
                 Upgrade to Pro/Elite
               </AlertDialogAction>
@@ -508,7 +510,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
         {/* Main Preview Card */}
         <div className="bg-transparent rounded-none shadow-none border-none overflow-hidden animate-fadeInUp">
           {/* Subtle top accent line */}
-          <div className="h-px bg-gradient-to-r from-transparent via-blue-300/40 to-transparent mb-8"></div>
+          <div className="h-px bg-gradient-to-r from-transparent via-[#3B82F6]/40 to-transparent mb-8"></div>
           
           <div className="p-8">
             {/* Header */}
@@ -519,7 +521,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
               </div>
               <button 
                 onClick={resetImport}
-                className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100 transition-all"
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#FAFBFF] border border-gray-200 rounded-[3px] text-sm font-medium text-gray-700 hover:bg-gray-100 transition-all"
               >
                 <X className="w-4 h-4" />
                 Cancel
@@ -528,25 +530,25 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
 
             {/* Stats Cards */}
             <div className="grid grid-cols-3 gap-4 mb-6">
-              <div className="bg-gradient-to-br from-slate-50 to-gray-100 rounded-xl p-4 text-center">
+              <div className="bg-gradient-to-br from-[#FAFBFF] to-[#EEF2F8] rounded-[3px] p-4 text-center">
                 <p className="text-2xl font-bold text-gray-900">{previewData.total_rows}</p>
                 <p className="text-sm text-gray-500">Total rows</p>
               </div>
-              <div className="bg-gradient-to-br from-green-50 to-emerald-100 rounded-xl p-4 text-center">
+              <div className="bg-gradient-to-br from-green-50 to-emerald-100 rounded-[3px] p-4 text-center">
                 <p className="text-2xl font-bold text-green-600">{previewData.valid_rows}</p>
                 <p className="text-sm text-gray-500">Valid contacts</p>
               </div>
-              <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 text-center">
-                <p className="text-2xl font-bold text-blue-600">{previewData.credits.available}</p>
+              <div className="bg-gradient-to-br from-[#FAFBFF] to-[rgba(59,130,246,0.10)] rounded-[3px] p-4 text-center">
+                <p className="text-2xl font-bold text-[#3B82F6]">{previewData.credits.available}</p>
                 <p className="text-sm text-gray-500">Credits available</p>
               </div>
             </div>
 
             {/* Credit Cost */}
-            <div className={`rounded-xl p-4 mb-6 ${previewData.credits.can_afford ? 'bg-blue-50 border border-blue-200' : 'bg-yellow-50 border border-yellow-200'}`}>
+            <div className={`rounded-[3px] p-4 mb-6 ${previewData.credits.can_afford ? 'bg-[#FAFBFF] border border-[#E2E8F0]' : 'bg-yellow-50 border border-yellow-200'}`}>
               <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${previewData.credits.can_afford ? 'bg-blue-100' : 'bg-yellow-100'}`}>
-                  <CreditCard className={`h-5 w-5 ${previewData.credits.can_afford ? 'text-blue-600' : 'text-yellow-600'}`} />
+                <div className={`w-10 h-10 rounded-[3px] flex items-center justify-center ${previewData.credits.can_afford ? 'bg-[rgba(59,130,246,0.10)]' : 'bg-yellow-100'}`}>
+                  <CreditCard className={`h-5 w-5 ${previewData.credits.can_afford ? 'text-[#3B82F6]' : 'text-yellow-600'}`} />
                 </div>
                 <div>
                   <p className="font-medium text-gray-900">
@@ -567,7 +569,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
 
             {/* Enrichment stats (when available) */}
             {previewData.enrichment && (
-              <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 mb-6">
+              <div className="bg-[#FAFBFF] rounded-[3px] border border-gray-200 p-4 mb-6">
                 <h3 className="font-medium text-gray-900 mb-2">What we&apos;ll do</h3>
                 <ul className="text-sm text-gray-600 space-y-1">
                   <li>{previewData.enrichment.contacts_with_email} contacts already have emails</li>
@@ -581,8 +583,8 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
             )}
 
             {/* Column Mapping */}
-            <div className="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden mb-6">
-              <div className="px-4 py-3 border-b border-gray-200 bg-gradient-to-r from-slate-100 to-gray-100">
+            <div className="bg-[#FAFBFF] rounded-[3px] border border-gray-200 overflow-hidden mb-6">
+              <div className="px-4 py-3 border-b border-gray-200 bg-gradient-to-r from-[#EEF2F8] to-[#EEF2F8]">
                 <h3 className="font-medium text-gray-900">Column Mapping</h3>
                 <p className="text-sm text-gray-500">Adjust how your spreadsheet columns map to contact fields</p>
               </div>
@@ -600,7 +602,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
                         value={columnMapping[idx.toString()] || '_skip'}
                         onValueChange={(value) => handleColumnMappingChange(idx.toString(), value)}
                       >
-                        <SelectTrigger className="w-full rounded-lg border-gray-300">
+                        <SelectTrigger className="w-full rounded-[3px] border-gray-300">
                           <SelectValue placeholder="Select field..." />
                         </SelectTrigger>
                         <SelectContent>
@@ -619,14 +621,14 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
 
             {/* Sample Preview Table */}
             {previewData.sample_contacts.length > 0 && (
-              <div className="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden mb-6">
-                <div className="px-4 py-3 border-b border-gray-200 bg-gradient-to-r from-slate-100 to-gray-100">
+              <div className="bg-[#FAFBFF] rounded-[3px] border border-gray-200 overflow-hidden mb-6">
+                <div className="px-4 py-3 border-b border-gray-200 bg-gradient-to-r from-[#EEF2F8] to-[#EEF2F8]">
                   <h3 className="font-medium text-gray-900">Sample Preview</h3>
                   <p className="text-sm text-gray-500">First {previewData.sample_contacts.length} contacts</p>
                 </div>
                 <div className="overflow-x-auto bg-white">
                   <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-[#FAFBFF]">
                       <tr>
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
@@ -636,7 +638,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
                     </thead>
                     <tbody className="divide-y divide-gray-200">
                       {previewData.sample_contacts.map((contact, idx) => (
-                        <tr key={idx} className="hover:bg-gray-50">
+                        <tr key={idx} className="hover:bg-[#FAFBFF]">
                           <td className="px-4 py-3 text-sm text-gray-900">
                             {contact.firstName} {contact.lastName}
                           </td>
@@ -653,7 +655,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
 
             {/* Error */}
             {error && (
-              <div className="mb-6 flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl">
+              <div className="mb-6 flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-[3px]">
                 <AlertCircle className="h-5 w-5 flex-shrink-0" />
                 <p>{error}</p>
               </div>
@@ -670,7 +672,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
             <div className="flex flex-col sm:flex-row justify-center gap-3">
               <button 
                 onClick={resetImport}
-                className="px-6 py-3 bg-white border border-gray-200 rounded-full text-gray-700 font-medium hover:bg-gray-50 transition-all"
+                className="px-6 py-3 bg-white border border-gray-200 rounded-full text-gray-700 font-medium hover:bg-[#FAFBFF] transition-all"
               >
                 Cancel
               </button>
@@ -682,7 +684,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
                   transition-all duration-200 transform
                   ${isLoading || previewData.valid_rows === 0
                     ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 hover:scale-105 active:scale-100'
+                    : 'bg-gradient-to-r from-[#0F172A] to-[#1E293B] text-white shadow-lg shadow-[#3B82F6]/30 hover:shadow-xl hover:shadow-[#3B82F6]/40 hover:scale-105 active:scale-100'
                   }
                 `}
               >
@@ -727,6 +729,9 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
     }
     if ((importResult.enrichment?.capped ?? 0) > 0) {
       detailRows.push({ label: 'Exceeded enrichment limit', value: importResult.enrichment!.capped, accent: false });
+    }
+    if ((importResult.drafts?.failed ?? 0) > 0) {
+      detailRows.push({ label: 'Email drafts failed', value: importResult.drafts!.failed, accent: false });
     }
 
     const handleViewInTracker = () => {
@@ -773,6 +778,20 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
             </div>
           </div>
 
+          {importResult.warnings && importResult.warnings.length > 0 && (
+            <div style={{
+              background: '#FEF3C7',
+              border: '1px solid #F59E0B',
+              borderRadius: 8,
+              padding: '10px 14px',
+              marginBottom: 8,
+            }}>
+              {importResult.warnings.map((w, i) => (
+                <div key={i} style={{ fontSize: 13, color: '#92400E', lineHeight: 1.4 }}>{w}</div>
+              ))}
+            </div>
+          )}
+
           {detailRows.length > 0 && (
             <>
               <div style={{ height: 1, background: 'rgba(0,0,0,0.06)', margin: '0 0' }} />
@@ -793,7 +812,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
                         fontSize: 14,
                         fontWeight: 600,
                         fontVariantNumeric: 'tabular-nums',
-                        color: row.accent ? '#2563EB' : '#9CA3AF',
+                        color: row.accent ? '#3B82F6' : '#9CA3AF',
                       }}
                     >
                       {row.value}
@@ -804,7 +823,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
             </>
           )}
 
-          <div style={{ height: 1, background: 'rgba(37, 99, 235, 0.06)', margin: '0 -40px 0 -40px' }} />
+          <div style={{ height: 1, background: 'rgba(59, 130, 246, 0.06)', margin: '0 -40px 0 -40px' }} />
           <div
             style={{
               display: 'flex',
@@ -848,7 +867,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = '#F9FAFB';
-                e.currentTarget.style.color = '#2563EB';
+                e.currentTarget.style.color = '#3B82F6';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = 'transparent';
@@ -865,22 +884,22 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
                 height: 44,
                 borderRadius: 12,
                 border: 'none',
-                background: '#2563EB',
+                background: '#0F172A',
                 color: '#FFFFFF',
                 fontSize: 14,
                 fontWeight: 500,
-                boxShadow: '0 1px 3px rgba(37, 99, 235, 0.15)',
+                boxShadow: '0 1px 3px rgba(28, 22, 10, 0.15)',
                 transition: 'all 0.2s ease',
                 cursor: 'pointer',
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#1D4ED8';
-                e.currentTarget.style.boxShadow = '0 4px 16px rgba(37, 99, 235, 0.25)';
+                e.currentTarget.style.background = '#1E293B';
+                e.currentTarget.style.boxShadow = '0 4px 16px rgba(28, 22, 10, 0.25)';
                 e.currentTarget.style.transform = 'translateY(-1px)';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = '#2563EB';
-                e.currentTarget.style.boxShadow = '0 1px 3px rgba(37, 99, 235, 0.15)';
+                e.currentTarget.style.background = '#0F172A';
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(28, 22, 10, 0.15)';
                 e.currentTarget.style.transform = 'translateY(0)';
               }}
             >

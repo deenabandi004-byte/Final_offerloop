@@ -23,7 +23,7 @@ export function MainContentWrapper({ children, className }: MainContentWrapperPr
           "flex-1 flex flex-col rounded-2xl shadow-sm overflow-hidden min-h-0",
           className
         )}
-        style={{ background: '#F8FAFF' }}
+        style={{ background: '#FFFFFF' }}
       >
         {children}
       </div>

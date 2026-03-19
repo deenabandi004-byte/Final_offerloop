@@ -12,14 +12,14 @@ export default function CalendarPage() {
         <MainContentWrapper>
           <AppHeader title="" />
           
-          <main className="px-3 py-6 sm:px-6 sm:py-12" style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }}>
+          <main className="px-3 py-6 sm:px-6 sm:py-12" style={{ background: '#FAFBFF', flex: 1, overflowY: 'auto' }}>
             <div style={{ width: '100%', minWidth: 'fit-content' }}>
               <div style={{ maxWidth: '900px', margin: '0 auto', width: '100%' }}>
                 {/* Page Title */}
                 <h1
                   className="text-[28px] sm:text-[42px]"
                   style={{
-                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontFamily: "'Lora', Georgia, serif",
                     fontWeight: 400,
                     letterSpacing: '-0.025em',
                     color: '#0F172A',
@@ -36,7 +36,7 @@ export default function CalendarPage() {
                   style={{
                     fontFamily: "'DM Sans', system-ui, sans-serif",
                     fontSize: '16px',
-                    color: '#64748B',
+                    color: '#6B7280',
                     textAlign: 'center',
                     marginBottom: '28px',
                     lineHeight: 1.5,
@@ -46,7 +46,7 @@ export default function CalendarPage() {
                 </p>
                 
                 {/* Calendar Component */}
-                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="bg-white rounded-[3px] border border-[#E2E8F0] overflow-hidden">
                   <Calendar />
                 </div>
               </div>

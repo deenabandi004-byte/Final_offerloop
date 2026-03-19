@@ -124,8 +124,8 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ id, icon: Icon, title
       background: '#FFFFFF',
       border: variant === 'danger' 
         ? '1px solid rgba(239, 68, 68, 0.2)' 
-        : '1px solid rgba(37, 99, 235, 0.08)',
-      borderRadius: '14px',
+        : '1px solid rgba(59, 130, 246, 0.08)',
+      borderRadius: '3px',
       boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
     }}
   >
@@ -135,10 +135,10 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ id, icon: Icon, title
         padding: '20px 28px',
         borderBottom: variant === 'danger'
           ? '1px solid rgba(239, 68, 68, 0.1)'
-          : '1px solid rgba(37, 99, 235, 0.06)',
+          : '1px solid rgba(59, 130, 246, 0.06)',
         background: variant === 'danger'
           ? 'rgba(239, 68, 68, 0.03)'
-          : 'rgba(37, 99, 235, 0.02)',
+          : 'rgba(59, 130, 246, 0.02)',
       }}
     >
       <div className="flex items-center gap-3">
@@ -146,10 +146,10 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ id, icon: Icon, title
           style={{
             width: 40,
             height: 40,
-            borderRadius: '10px',
+            borderRadius: '3px',
             background: variant === 'danger'
               ? 'rgba(239, 68, 68, 0.08)'
-              : 'rgba(37, 99, 235, 0.06)',
+              : 'rgba(59, 130, 246, 0.06)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -157,7 +157,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ id, icon: Icon, title
         >
           <Icon
             className="w-5 h-5"
-            style={{ color: variant === 'danger' ? '#DC2626' : '#2563EB' }}
+            style={{ color: variant === 'danger' ? '#DC2626' : '#3B82F6' }}
           />
         </div>
         <div>
@@ -176,7 +176,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ id, icon: Icon, title
               style={{
                 fontFamily: "'DM Sans', system-ui, sans-serif",
                 fontSize: '14px',
-                color: variant === 'danger' ? '#EF4444' : '#64748B',
+                color: variant === 'danger' ? '#EF4444' : '#6B7280',
                 marginTop: '2px',
               }}
             >
@@ -812,7 +812,7 @@ export default function AccountSettings() {
         <MainContentWrapper>
           <AppHeader title="" />
           
-          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }}>
+          <main style={{ background: '#FAFBFF', flex: 1, overflowY: 'auto' }}>
             <div className="w-full px-3 py-6 sm:px-6 sm:py-12" style={{ maxWidth: '900px', margin: '0 auto' }}>
               
               {/* Header Section */}
@@ -820,7 +820,7 @@ export default function AccountSettings() {
                 <h1
                   className="text-[28px] sm:text-[42px]"
                   style={{
-                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontFamily: "'Lora', Georgia, serif",
                     fontWeight: 400,
                     letterSpacing: '-0.025em',
                     color: '#0F172A',
@@ -835,7 +835,7 @@ export default function AccountSettings() {
                   style={{
                     fontFamily: "'DM Sans', system-ui, sans-serif",
                     fontSize: '16px',
-                    color: '#64748B',
+                    color: '#6B7280',
                     textAlign: 'center',
                     marginBottom: '28px',
                     lineHeight: 1.5,
@@ -861,29 +861,29 @@ export default function AccountSettings() {
                         }}
                         className="flex items-center gap-3 px-4 py-3 text-sm font-medium transition-all"
                         style={{
-                          borderRadius: '10px',
+                          borderRadius: '3px',
                           fontFamily: "'DM Sans', system-ui, sans-serif",
                           background: activeSection === section.id
                             ? section.id === 'danger'
                               ? 'rgba(239, 68, 68, 0.06)'
-                              : 'rgba(37, 99, 235, 0.08)'
+                              : 'rgba(59, 130, 246, 0.08)'
                             : 'transparent',
                           color: activeSection === section.id
                             ? section.id === 'danger'
                               ? '#DC2626'
-                              : '#2563EB'
-                            : '#64748B',
+                              : '#3B82F6'
+                            : '#6B7280',
                         }}
                         onMouseEnter={(e) => {
                           if (activeSection !== section.id) {
-                            e.currentTarget.style.background = 'rgba(37, 99, 235, 0.04)';
+                            e.currentTarget.style.background = 'rgba(59, 130, 246, 0.04)';
                             e.currentTarget.style.color = '#334155';
                           }
                         }}
                         onMouseLeave={(e) => {
                           if (activeSection !== section.id) {
                             e.currentTarget.style.background = 'transparent';
-                            e.currentTarget.style.color = '#64748B';
+                            e.currentTarget.style.color = '#6B7280';
                           }
                         }}
                       >
@@ -927,20 +927,20 @@ export default function AccountSettings() {
                             className="w-full transition-all"
                             style={{
                               padding: '12px 16px',
-                              borderRadius: '10px',
-                              border: '1px solid rgba(37, 99, 235, 0.12)',
-                              background: '#F8FAFF',
+                              borderRadius: '3px',
+                              border: '1px solid rgba(59, 130, 246, 0.12)',
+                              background: '#FAFBFF',
                               fontFamily: "'DM Sans', system-ui, sans-serif",
                               fontSize: '15px',
                               color: '#0F172A',
                               outline: 'none',
                             }}
                             onFocus={(e) => {
-                              e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.3)';
-                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
+                              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.08)';
                             }}
                             onBlur={(e) => {
-                              e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.12)';
                               e.currentTarget.style.boxShadow = 'none';
                             }}
                           />
@@ -966,20 +966,20 @@ export default function AccountSettings() {
                             className="w-full transition-all"
                             style={{
                               padding: '12px 16px',
-                              borderRadius: '10px',
-                              border: '1px solid rgba(37, 99, 235, 0.12)',
-                              background: '#F8FAFF',
+                              borderRadius: '3px',
+                              border: '1px solid rgba(59, 130, 246, 0.12)',
+                              background: '#FAFBFF',
                               fontFamily: "'DM Sans', system-ui, sans-serif",
                               fontSize: '15px',
                               color: '#0F172A',
                               outline: 'none',
                             }}
                             onFocus={(e) => {
-                              e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.3)';
-                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
+                              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.08)';
                             }}
                             onBlur={(e) => {
-                              e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.12)';
                               e.currentTarget.style.boxShadow = 'none';
                             }}
                           />
@@ -1008,9 +1008,9 @@ export default function AccountSettings() {
                             style={{
                               padding: '12px 16px',
                               paddingRight: '40px',
-                              borderRadius: '10px',
-                              border: '1px solid rgba(37, 99, 235, 0.08)',
-                              background: '#F0F4FD',
+                              borderRadius: '3px',
+                              border: '1px solid rgba(59, 130, 246, 0.08)',
+                              background: '#EEF2F8',
                               fontFamily: "'DM Sans', system-ui, sans-serif",
                               fontSize: '15px',
                               color: '#94A3B8',
@@ -1062,20 +1062,20 @@ export default function AccountSettings() {
                             style={{
                               padding: '12px 16px',
                               paddingLeft: '48px',
-                              borderRadius: '10px',
-                              border: '1px solid rgba(37, 99, 235, 0.12)',
-                              background: '#F8FAFF',
+                              borderRadius: '3px',
+                              border: '1px solid rgba(59, 130, 246, 0.12)',
+                              background: '#FAFBFF',
                               fontFamily: "'DM Sans', system-ui, sans-serif",
                               fontSize: '15px',
                               color: '#0F172A',
                               outline: 'none',
                             }}
                             onFocus={(e) => {
-                              e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.3)';
-                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
+                              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.08)';
                             }}
                             onBlur={(e) => {
-                              e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.12)';
                               e.currentTarget.style.boxShadow = 'none';
                             }}
                           />
@@ -1104,20 +1104,20 @@ export default function AccountSettings() {
                           className="w-full transition-all"
                           style={{
                             padding: '12px 16px',
-                            borderRadius: '10px',
-                            border: '1px solid rgba(37, 99, 235, 0.12)',
-                            background: '#F8FAFF',
+                            borderRadius: '3px',
+                            border: '1px solid rgba(59, 130, 246, 0.12)',
+                            background: '#FAFBFF',
                             fontFamily: "'DM Sans', system-ui, sans-serif",
                             fontSize: '15px',
                             color: '#0F172A',
                             outline: 'none',
                           }}
                           onFocus={(e) => {
-                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.3)';
-                            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
+                            e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+                            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.08)';
                           }}
                           onBlur={(e) => {
-                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                            e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.12)';
                             e.currentTarget.style.boxShadow = 'none';
                           }}
                         />
@@ -1156,9 +1156,9 @@ export default function AccountSettings() {
                               className="w-full"
                               style={{
                                 padding: '12px 16px',
-                                borderRadius: '10px',
-                                border: '1px solid rgba(37, 99, 235, 0.12)',
-                                background: '#F8FAFF',
+                                borderRadius: '3px',
+                                border: '1px solid rgba(59, 130, 246, 0.12)',
+                                background: '#FAFBFF',
                                 fontFamily: "'DM Sans', system-ui, sans-serif",
                                 fontSize: '15px',
                                 color: '#0F172A',
@@ -1197,20 +1197,20 @@ export default function AccountSettings() {
                             className="w-full transition-all"
                             style={{
                               padding: '12px 16px',
-                              borderRadius: '10px',
-                              border: '1px solid rgba(37, 99, 235, 0.12)',
-                              background: '#F8FAFF',
+                              borderRadius: '3px',
+                              border: '1px solid rgba(59, 130, 246, 0.12)',
+                              background: '#FAFBFF',
                               fontFamily: "'DM Sans', system-ui, sans-serif",
                               fontSize: '15px',
                               color: '#0F172A',
                               outline: 'none',
                             }}
                             onFocus={(e) => {
-                              e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.3)';
-                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
+                              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.08)';
                             }}
                             onBlur={(e) => {
-                              e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.12)';
                               e.currentTarget.style.boxShadow = 'none';
                             }}
                           />
@@ -1239,20 +1239,20 @@ export default function AccountSettings() {
                           className="w-full transition-all"
                           style={{
                             padding: '12px 16px',
-                            borderRadius: '10px',
-                            border: '1px solid rgba(37, 99, 235, 0.12)',
-                            background: '#F8FAFF',
+                            borderRadius: '3px',
+                            border: '1px solid rgba(59, 130, 246, 0.12)',
+                            background: '#FAFBFF',
                             fontFamily: "'DM Sans', system-ui, sans-serif",
                             fontSize: '15px',
                             color: '#0F172A',
                             outline: 'none',
                           }}
                           onFocus={(e) => {
-                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.3)';
-                            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
+                            e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+                            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.08)';
                           }}
                           onBlur={(e) => {
-                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                            e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.12)';
                             e.currentTarget.style.boxShadow = 'none';
                           }}
                         />
@@ -1280,9 +1280,9 @@ export default function AccountSettings() {
                             className="w-full"
                             style={{
                               padding: '12px 16px',
-                              borderRadius: '10px',
-                              border: '1px solid rgba(37, 99, 235, 0.12)',
-                              background: '#F8FAFF',
+                              borderRadius: '3px',
+                              border: '1px solid rgba(59, 130, 246, 0.12)',
+                              background: '#FAFBFF',
                               fontFamily: "'DM Sans', system-ui, sans-serif",
                               fontSize: '15px',
                               color: '#0F172A',
@@ -1325,11 +1325,11 @@ export default function AccountSettings() {
                         </label>
                         
                         {resumeData ? (
-                          <div className="bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-200 rounded-2xl p-5">
+                          <div className="bg-gradient-to-r from-[#FAFBFF] to-[#FAFBFF] border border-[#E2E8F0] rounded-[3px] p-5">
                             <div className="flex items-start gap-4">
                               {/* File Icon */}
-                              <div className="w-14 h-14 bg-white rounded-xl border border-blue-200 flex items-center justify-center flex-shrink-0">
-                                <FileText className="w-7 h-7 text-blue-600" />
+                              <div className="w-14 h-14 bg-white rounded-[3px] border border-[#E2E8F0] flex items-center justify-center flex-shrink-0">
+                                <FileText className="w-7 h-7 text-[#3B82F6]" />
                               </div>
                               
                               {/* File Info */}
@@ -1383,7 +1383,7 @@ export default function AccountSettings() {
                             </div>
                             
                             {/* Action Buttons */}
-                            <div className="flex flex-wrap items-center gap-3 mt-5 pt-5 border-t border-blue-200">
+                            <div className="flex flex-wrap items-center gap-3 mt-5 pt-5 border-t border-[#E2E8F0]">
                               <button 
                                 onClick={() => {
                                   if (resumeUrl) {
@@ -1415,8 +1415,8 @@ export default function AccountSettings() {
                                 className="flex items-center gap-2 transition-all disabled:opacity-50"
                                 style={{
                                   padding: '10px 20px',
-                                  borderRadius: '10px',
-                                  border: '1px solid rgba(37, 99, 235, 0.12)',
+                                  borderRadius: '3px',
+                                  border: '1px solid rgba(59, 130, 246, 0.12)',
                                   background: 'transparent',
                                   color: '#334155',
                                   fontFamily: "'DM Sans', system-ui, sans-serif",
@@ -1427,12 +1427,12 @@ export default function AccountSettings() {
                                 onMouseEnter={(e) => {
                                   if (!(!resumeUrl && !resumeFile)) {
                                     e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.25)';
-                                    e.currentTarget.style.color = '#2563EB';
+                                    e.currentTarget.style.color = '#3B82F6';
                                   }
                                 }}
                                 onMouseLeave={(e) => {
                                   if (!(!resumeUrl && !resumeFile)) {
-                                    e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                                    e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.12)';
                                     e.currentTarget.style.color = '#334155';
                                   }
                                 }}
@@ -1446,8 +1446,8 @@ export default function AccountSettings() {
                                   className="flex items-center gap-2 transition-all"
                                   style={{
                                     padding: '10px 20px',
-                                    borderRadius: '10px',
-                                    border: '1px solid rgba(37, 99, 235, 0.12)',
+                                    borderRadius: '3px',
+                                    border: '1px solid rgba(59, 130, 246, 0.12)',
                                     background: 'transparent',
                                     color: '#334155',
                                     fontFamily: "'DM Sans', system-ui, sans-serif",
@@ -1457,10 +1457,10 @@ export default function AccountSettings() {
                                   }}
                                   onMouseEnter={(e) => {
                                     e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.25)';
-                                    e.currentTarget.style.color = '#2563EB';
+                                    e.currentTarget.style.color = '#3B82F6';
                                   }}
                                   onMouseLeave={(e) => {
-                                    e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                                    e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.12)';
                                     e.currentTarget.style.color = '#334155';
                                   }}
                                 >
@@ -1478,7 +1478,7 @@ export default function AccountSettings() {
                               
                               <button 
                                 onClick={handleResumeDelete}
-                                className="flex items-center gap-2 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-sm font-medium text-red-600 hover:bg-red-100 hover:border-red-300 transition-all"
+                                className="flex items-center gap-2 px-4 py-2.5 bg-red-50 border border-red-200 rounded-[3px] text-sm font-medium text-red-600 hover:bg-red-100 hover:border-red-300 transition-all"
                               >
                                 <Trash2 className="w-4 h-4" />
                                 Delete Resume
@@ -1492,31 +1492,31 @@ export default function AccountSettings() {
                               style={{
                                 border: '2px dashed rgba(37, 99, 235, 0.15)',
                                 borderRadius: '12px',
-                                background: '#F8FAFF',
+                                background: '#FAFBFF',
                                 padding: '32px',
                                 cursor: 'pointer',
                               }}
                               onMouseEnter={(e) => {
-                                e.currentTarget.style.border = '2px dashed rgba(37, 99, 235, 0.3)';
+                                e.currentTarget.style.border = '2px dashed rgba(59, 130, 246, 0.3)';
                                 e.currentTarget.style.background = 'rgba(37, 99, 235, 0.03)';
                               }}
                               onMouseLeave={(e) => {
                                 e.currentTarget.style.border = '2px dashed rgba(37, 99, 235, 0.15)';
-                                e.currentTarget.style.background = '#F8FAFF';
+                                e.currentTarget.style.background = '#FAFBFF';
                               }}
                             >
                               <div
-                                className="rounded-xl flex items-center justify-center mx-auto mb-4"
+                                className="rounded-[3px] flex items-center justify-center mx-auto mb-4"
                                 style={{
                                   width: 56,
                                   height: 56,
-                                  background: 'rgba(37, 99, 235, 0.06)',
+                                  background: 'rgba(59, 130, 246, 0.06)',
                                 }}
                               >
                                 {isUploading ? (
-                                  <div className="w-7 h-7 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                                  <div className="w-7 h-7 border-2 border-[#3B82F6] border-t-transparent rounded-full animate-spin" />
                                 ) : (
-                                  <Upload className="w-7 h-7" style={{ color: '#64748B' }} />
+                                  <Upload className="w-7 h-7" style={{ color: '#6B7280' }} />
                                 )}
                               </div>
                               <p
@@ -1534,7 +1534,7 @@ export default function AccountSettings() {
                                 style={{
                                   fontFamily: "'DM Sans', system-ui, sans-serif",
                                   fontSize: '14px',
-                                  color: '#64748B',
+                                  color: '#6B7280',
                                 }}
                               >
                                 PDF, DOC, or DOCX up to 10MB
@@ -1592,10 +1592,10 @@ export default function AccountSettings() {
                             <Button
                               variant="outline"
                               role="combobox"
-                              className="w-full justify-between rounded-xl py-3 h-auto"
+                              className="w-full justify-between rounded-[3px] py-3 h-auto"
                               style={{
-                                border: '1px solid rgba(37, 99, 235, 0.12)',
-                                borderRadius: '10px',
+                                border: '1px solid rgba(59, 130, 246, 0.12)',
+                                borderRadius: '3px',
                               }}
                             >
                               {careerInfo.industriesOfInterest.length > 0
@@ -1649,8 +1649,8 @@ export default function AccountSettings() {
                                 style={{
                                   padding: '4px 10px',
                                   borderRadius: '6px',
-                                  background: 'rgba(37, 99, 235, 0.08)',
-                                  color: '#2563EB',
+                                  background: 'rgba(59, 130, 246, 0.08)',
+                                  color: '#3B82F6',
                                   fontFamily: "'DM Sans', system-ui, sans-serif",
                                   fontSize: '13px',
                                   fontWeight: 500,
@@ -1705,20 +1705,20 @@ export default function AccountSettings() {
                           className="w-full transition-all"
                           style={{
                             padding: '12px 16px',
-                            borderRadius: '10px',
-                            border: '1px solid rgba(37, 99, 235, 0.12)',
-                            background: '#F8FAFF',
+                            borderRadius: '3px',
+                            border: '1px solid rgba(59, 130, 246, 0.12)',
+                            background: '#FAFBFF',
                             fontFamily: "'DM Sans', system-ui, sans-serif",
                             fontSize: '15px',
                             color: '#0F172A',
                             outline: 'none',
                           }}
                           onFocus={(e) => {
-                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.3)';
-                            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
+                            e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+                            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.08)';
                           }}
                           onBlur={(e) => {
-                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                            e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.12)';
                             e.currentTarget.style.boxShadow = 'none';
                           }}
                         />
@@ -1743,10 +1743,10 @@ export default function AccountSettings() {
                             <Button
                               variant="outline"
                               role="combobox"
-                              className="w-full justify-between rounded-xl py-3 h-auto"
+                              className="w-full justify-between rounded-[3px] py-3 h-auto"
                               style={{
-                                border: '1px solid rgba(37, 99, 235, 0.12)',
-                                borderRadius: '10px',
+                                border: '1px solid rgba(59, 130, 246, 0.12)',
+                                borderRadius: '3px',
                               }}
                             >
                               {careerInfo.preferredLocations.length > 0
@@ -1800,8 +1800,8 @@ export default function AccountSettings() {
                                 style={{
                                   padding: '4px 10px',
                                   borderRadius: '6px',
-                                  background: 'rgba(37, 99, 235, 0.08)',
-                                  color: '#2563EB',
+                                  background: 'rgba(59, 130, 246, 0.08)',
+                                  color: '#3B82F6',
                                   fontFamily: "'DM Sans', system-ui, sans-serif",
                                   fontSize: '13px',
                                   fontWeight: 500,
@@ -1858,9 +1858,9 @@ export default function AccountSettings() {
                                 className="w-5 h-5 rounded border-2 flex items-center justify-center transition-all"
                                 style={{
                                   borderColor: careerInfo.jobTypes.includes(jobType)
-                                    ? '#2563EB'
+                                    ? '#3B82F6'
                                     : 'rgba(37, 99, 235, 0.2)',
-                                  background: careerInfo.jobTypes.includes(jobType) ? '#2563EB' : 'transparent',
+                                  background: careerInfo.jobTypes.includes(jobType) ? '#3B82F6' : 'transparent',
                                 }}
                               >
                                 {careerInfo.jobTypes.includes(jobType) && (
@@ -1899,9 +1899,9 @@ export default function AccountSettings() {
                           className="flex items-center gap-2 transition-all disabled:opacity-50"
                           style={{
                             padding: '12px 28px',
-                            borderRadius: '10px',
+                            borderRadius: '3px',
                             border: 'none',
-                            background: '#2563EB',
+                            background: '#3B82F6',
                             color: 'white',
                             fontFamily: "'DM Sans', system-ui, sans-serif",
                             fontSize: '15px',
@@ -1912,12 +1912,12 @@ export default function AccountSettings() {
                           onMouseEnter={(e) => {
                             if (!isSaving) {
                               e.currentTarget.style.background = '#1d4ed8';
-                              e.currentTarget.style.boxShadow = '0 2px 8px rgba(37, 99, 235, 0.3)';
+                              e.currentTarget.style.boxShadow = '0 2px 8px rgba(59, 130, 246, 0.3)';
                             }
                           }}
                           onMouseLeave={(e) => {
                             if (!isSaving) {
-                              e.currentTarget.style.background = '#2563EB';
+                              e.currentTarget.style.background = '#3B82F6';
                               e.currentTarget.style.boxShadow = '0 1px 3px rgba(37, 99, 235, 0.2)';
                             }
                           }}
@@ -1947,8 +1947,8 @@ export default function AccountSettings() {
                       style={{
                         padding: '20px',
                         borderRadius: '12px',
-                        background: '#F8FAFF',
-                        border: '1px solid rgba(37, 99, 235, 0.06)',
+                        background: '#FAFBFF',
+                        border: '1px solid rgba(59, 130, 246, 0.06)',
                       }}
                     >
                       <div className="flex items-center gap-4">
@@ -1957,13 +1957,13 @@ export default function AccountSettings() {
                             width: 48,
                             height: 48,
                             borderRadius: '12px',
-                            background: 'rgba(37, 99, 235, 0.08)',
+                            background: 'rgba(59, 130, 246, 0.08)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                           }}
                         >
-                          <Mail className="w-6 h-6" style={{ color: '#2563EB' }} />
+                          <Mail className="w-6 h-6" style={{ color: '#3B82F6' }} />
                         </div>
                         <div>
                           <h4
@@ -1980,7 +1980,7 @@ export default function AccountSettings() {
                             style={{
                               fontFamily: "'DM Sans', system-ui, sans-serif",
                               fontSize: '14px',
-                              color: '#64748B',
+                              color: '#6B7280',
                               marginTop: '2px',
                             }}
                           >
@@ -2004,7 +2004,7 @@ export default function AccountSettings() {
                                   onClick={handleConnectGmail}
                                   style={{
                                     padding: '10px 20px',
-                                    borderRadius: '10px',
+                                    borderRadius: '3px',
                                     fontFamily: "'DM Sans', system-ui, sans-serif",
                                     fontSize: '14px',
                                   }}
@@ -2018,10 +2018,10 @@ export default function AccountSettings() {
                                   onClick={handleDisconnectGmail}
                                   style={{
                                     padding: '10px 20px',
-                                    borderRadius: '10px',
+                                    borderRadius: '3px',
                                     fontFamily: "'DM Sans', system-ui, sans-serif",
                                     fontSize: '14px',
-                                    color: '#64748B',
+                                    color: '#6B7280',
                                   }}
                                 >
                                   Disconnect
@@ -2034,10 +2034,10 @@ export default function AccountSettings() {
                                 onClick={handleConnectGmail}
                                 style={{
                                   padding: '10px 20px',
-                                  borderRadius: '10px',
+                                  borderRadius: '3px',
                                   fontFamily: "'DM Sans', system-ui, sans-serif",
                                   fontSize: '14px',
-                                  background: '#2563EB',
+                                  background: '#3B82F6',
                                   color: 'white',
                                 }}
                               >
@@ -2064,8 +2064,8 @@ export default function AccountSettings() {
                         style={{
                           padding: '20px',
                           borderRadius: '12px',
-                          background: '#F8FAFF',
-                          border: '1px solid rgba(37, 99, 235, 0.06)',
+                          background: '#FAFBFF',
+                          border: '1px solid rgba(59, 130, 246, 0.06)',
                         }}
                       >
                         <div className="flex items-center gap-4">
@@ -2074,13 +2074,13 @@ export default function AccountSettings() {
                               width: 48,
                               height: 48,
                               borderRadius: '12px',
-                              background: 'rgba(37, 99, 235, 0.08)',
+                              background: 'rgba(59, 130, 246, 0.08)',
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
                             }}
                           >
-                            <CreditCard className="w-6 h-6" style={{ color: '#2563EB' }} />
+                            <CreditCard className="w-6 h-6" style={{ color: '#3B82F6' }} />
                           </div>
                           <div>
                             <h4
@@ -2097,7 +2097,7 @@ export default function AccountSettings() {
                               style={{
                                 fontFamily: "'DM Sans', system-ui, sans-serif",
                                 fontSize: '14px',
-                                color: '#64748B',
+                                color: '#6B7280',
                                 marginTop: '2px',
                               }}
                             >
@@ -2123,8 +2123,8 @@ export default function AccountSettings() {
                           className="flex items-center gap-2 transition-all"
                           style={{
                             padding: '10px 20px',
-                            borderRadius: '10px',
-                            border: '1px solid rgba(37, 99, 235, 0.12)',
+                            borderRadius: '3px',
+                            border: '1px solid rgba(59, 130, 246, 0.12)',
                             background: 'transparent',
                             color: '#334155',
                             fontFamily: "'DM Sans', system-ui, sans-serif",
@@ -2134,10 +2134,10 @@ export default function AccountSettings() {
                           }}
                           onMouseEnter={(e) => {
                             e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.25)';
-                            e.currentTarget.style.color = '#2563EB';
+                            e.currentTarget.style.color = '#3B82F6';
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                            e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.12)';
                             e.currentTarget.style.color = '#334155';
                           }}
                         >
@@ -2152,8 +2152,8 @@ export default function AccountSettings() {
                         style={{
                           padding: '20px',
                           borderRadius: '12px',
-                          background: '#F8FAFF',
-                          border: '1px solid rgba(37, 99, 235, 0.06)',
+                          background: '#FAFBFF',
+                          border: '1px solid rgba(59, 130, 246, 0.06)',
                         }}
                       >
                         <div className="flex items-center gap-4">
@@ -2162,13 +2162,13 @@ export default function AccountSettings() {
                               width: 48,
                               height: 48,
                               borderRadius: '12px',
-                              background: 'rgba(37, 99, 235, 0.06)',
+                              background: 'rgba(59, 130, 246, 0.06)',
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
                             }}
                           >
-                            <LogOut className="w-6 h-6" style={{ color: '#64748B' }} />
+                            <LogOut className="w-6 h-6" style={{ color: '#6B7280' }} />
                           </div>
                           <div>
                             <h4
@@ -2185,7 +2185,7 @@ export default function AccountSettings() {
                               style={{
                                 fontFamily: "'DM Sans', system-ui, sans-serif",
                                 fontSize: '14px',
-                                color: '#64748B',
+                                color: '#6B7280',
                                 marginTop: '2px',
                               }}
                             >
@@ -2199,8 +2199,8 @@ export default function AccountSettings() {
                           className="flex items-center gap-2 transition-all"
                           style={{
                             padding: '10px 20px',
-                            borderRadius: '10px',
-                            border: '1px solid rgba(37, 99, 235, 0.12)',
+                            borderRadius: '3px',
+                            border: '1px solid rgba(59, 130, 246, 0.12)',
                             background: 'transparent',
                             color: '#334155',
                             fontFamily: "'DM Sans', system-ui, sans-serif",
@@ -2210,10 +2210,10 @@ export default function AccountSettings() {
                           }}
                           onMouseEnter={(e) => {
                             e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.25)';
-                            e.currentTarget.style.color = '#2563EB';
+                            e.currentTarget.style.color = '#3B82F6';
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                            e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.12)';
                             e.currentTarget.style.color = '#334155';
                           }}
                         >
@@ -2261,7 +2261,7 @@ export default function AccountSettings() {
                         className="flex items-center gap-2 transition-all"
                         style={{
                           padding: '10px 20px',
-                          borderRadius: '10px',
+                          borderRadius: '3px',
                           border: 'none',
                           background: '#DC2626',
                           color: 'white',
@@ -2301,7 +2301,7 @@ export default function AccountSettings() {
             style={{
               background: '#FFFFFF',
               borderRadius: '12px',
-              border: '1px solid rgba(37, 99, 235, 0.08)',
+              border: '1px solid rgba(59, 130, 246, 0.08)',
               boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
               padding: '16px',
               display: 'flex',
@@ -2326,20 +2326,20 @@ export default function AccountSettings() {
               <p style={{ fontFamily: "'DM Sans'", fontWeight: 600, color: '#0F172A', fontSize: '14px' }}>
                 Changes saved!
               </p>
-              <p style={{ fontFamily: "'DM Sans'", color: '#64748B', fontSize: '13px' }}>
+              <p style={{ fontFamily: "'DM Sans'", color: '#6B7280', fontSize: '13px' }}>
                 Your settings have been updated
               </p>
             </div>
             <button 
               onClick={() => setShowSaveToast(false)}
-              className="p-1 rounded-lg ml-2"
+              className="p-1 rounded-[3px] ml-2"
               style={{
                 background: 'transparent',
                 border: 'none',
                 cursor: 'pointer',
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#F8FAFF';
+                e.currentTarget.style.background = '#FAFBFF';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = 'transparent';

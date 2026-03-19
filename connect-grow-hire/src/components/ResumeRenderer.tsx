@@ -98,18 +98,18 @@ const ResumeRenderer: React.FC<ResumeRendererProps> = ({ resume, className = '' 
           <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-sm text-gray-600">
             {resume.contact.location && <span>{resume.contact.location}</span>}
             {resume.contact.email && (
-              <a href={`mailto:${resume.contact.email}`} className="hover:text-blue-600">
+              <a href={`mailto:${resume.contact.email}`} className="hover:text-[#3B82F6]">
                 {resume.contact.email}
               </a>
             )}
             {resume.contact.phone && <span>{resume.contact.phone}</span>}
             {resume.contact.linkedin && (
-              <a href={resume.contact.linkedin} target="_blank" rel="noopener noreferrer" className="hover:text-blue-600">
+              <a href={resume.contact.linkedin} target="_blank" rel="noopener noreferrer" className="hover:text-[#3B82F6]">
                 LinkedIn
               </a>
             )}
             {resume.contact.github && (
-              <a href={resume.contact.github} target="_blank" rel="noopener noreferrer" className="hover:text-blue-600">
+              <a href={resume.contact.github} target="_blank" rel="noopener noreferrer" className="hover:text-[#3B82F6]">
                 GitHub
               </a>
             )}

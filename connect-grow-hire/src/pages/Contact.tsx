@@ -65,7 +65,7 @@ const Contact = () => {
           {/* Hero Section */}
           <div className="text-center space-y-6">
             
-            <h2 className="text-5xl font-extrabold text-center bg-gradient-to-r from-blue-800 via-blue-400 to-purple-900 bg-clip-text text-transparent mb-6">
+            <h2 className="text-5xl font-extrabold text-center text-[#0F172A] mb-6" style={{ fontFamily: "'Lora', Georgia, serif" }}>
               Contact Us
             </h2>
 

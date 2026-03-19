@@ -86,7 +86,7 @@ export function UpgradeModal({
       />
       
       {/* Modal */}
-      <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 border border-slate-200 dark:border-slate-800">
+      <div className="relative bg-white dark:bg-[#0F172A] rounded-[3px] shadow-2xl max-w-md w-full mx-4 p-6 border border-slate-200 dark:border-slate-800">
         <button
           onClick={() => onOpenChange(false)}
           className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
@@ -95,8 +95,8 @@ export function UpgradeModal({
         </button>
 
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/30 mb-4">
-            <Lock className="h-8 w-8 text-blue-600 dark:text-blue-400" />
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[rgba(59,130,246,0.10)] dark:bg-[rgba(59,130,246,0.10)] mb-4">
+            <Lock className="h-8 w-8 text-[#3B82F6] dark:text-[#3B82F6]" />
           </div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
             Feature Locked
@@ -107,7 +107,7 @@ export function UpgradeModal({
         </div>
 
         {reason && (
-          <div className="mb-6 p-4 bg-slate-100 dark:bg-slate-800 rounded-lg">
+          <div className="mb-6 p-4 bg-slate-100 dark:bg-slate-800 rounded-[3px]">
             <p className="text-sm text-slate-700 dark:text-slate-300">{reason}</p>
           </div>
         )}
@@ -119,7 +119,7 @@ export function UpgradeModal({
           <ul className="space-y-2">
             {getTierBenefits(requiredTier).map((benefit, idx) => (
               <li key={idx} className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-400">
-                <ArrowRight className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                <ArrowRight className="h-4 w-4 text-[#3B82F6] mt-0.5 flex-shrink-0" />
                 <span>{benefit}</span>
               </li>
             ))}
@@ -136,7 +136,7 @@ export function UpgradeModal({
           </Button>
           <Button
             onClick={handleUpgrade}
-            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+            className="flex-1 bg-[#0F172A] hover:bg-[#1E293B] text-white"
           >
             Upgrade to {requiredTier === 'pro' ? 'Pro' : 'Elite'}
           </Button>

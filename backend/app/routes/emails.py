@@ -503,10 +503,12 @@ def generate_and_draft():
         except Exception as e:
             print(f"❌ [{i}] Draft creation failed for {to_addr}: {e}")
 
+    skipped_count = len(contacts) - len(created)
     return jsonify({
-        "success": True,
+        "success": len(created) > 0 or len(contacts) == 0,
         "connected_email": connected_email,
         "draft_count": len(draft_ids),
         "draft_ids": draft_ids,
-        "drafts": created
+        "drafts": created,
+        **({"skipped_count": skipped_count} if skipped_count > 0 else {}),
     }), 200

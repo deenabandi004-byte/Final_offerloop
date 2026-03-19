@@ -1,8 +1,9 @@
 """
-Fetch job listings from Greenhouse, Lever, Workday, and Ashby board APIs.
+Fetch job listings from Greenhouse, Lever, Workday, Ashby, and Fantastic.jobs APIs.
 Outputs a list of pre-normalized job dicts ready for the normalizer/writer.
 """
 import logging
+import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -342,23 +343,200 @@ def _fetch_all_ashby() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Fantastic.jobs (RapidAPI active-jobs-db) fetcher
+# ---------------------------------------------------------------------------
+
+FANTASTICJOBS_BASE_URL = "https://active-jobs-db.p.rapidapi.com/active-ats-7d"
+FANTASTICJOBS_HOST = "active-jobs-db.p.rapidapi.com"
+
+FANTASTICJOBS_COMPANIES = {
+    "finance": [
+        "JPMorgan Chase & Co.",
+        "Goldman Sachs",
+        "Morgan Stanley",
+        "Bank of America",
+        "Citigroup",
+        "Wells Fargo",
+    ],
+    "consulting": [
+        "Deloitte",
+        "McKinsey & Company",
+        "Boston Consulting Group",
+        "Bain & Company",
+        "Accenture",
+        "PwC",
+        "EY",
+        "Oliver Wyman",
+    ],
+    "pe_finance": [
+        "Blackstone",
+        "KKR",
+        "Citadel",
+        "Bridgewater Associates",
+        "Two Sigma",
+    ],
+}
+
+
+def _fantasticjobs_headers() -> dict:
+    return {
+        "x-rapidapi-key": os.getenv("RAPIDAPI_KEY"),
+        "x-rapidapi-host": FANTASTICJOBS_HOST,
+    }
+
+
+def _extract_fj_location(job: dict) -> str:
+    """Extract location from Fantastic.jobs job data."""
+    locations = job.get("locations_derived") or []
+    if locations and isinstance(locations[0], dict):
+        parts = []
+        city = locations[0].get("city")
+        state = locations[0].get("state")
+        if city:
+            parts.append(city)
+        if state:
+            parts.append(state)
+        if parts:
+            return ", ".join(parts)
+    raw_locs = job.get("locations_raw") or []
+    if raw_locs and isinstance(raw_locs[0], dict):
+        addr = raw_locs[0].get("address")
+        if addr:
+            return addr
+    return ""
+
+
+def _normalize_fj_job(job: dict) -> dict:
+    """Convert a single Fantastic.jobs API result to our pre-normalized format."""
+    return {
+        "job_id": f"fantasticjobs_{job['id']}",
+        "source": "fantasticjobs",
+        "title": job.get("title", ""),
+        "company": job.get("organization", ""),
+        "employer_logo": job.get("organization_logo"),
+        "location": _extract_fj_location(job) or "United States",
+        "remote": bool(job.get("remote_derived", False)),
+        "description_raw": (job.get("description") or "")[:8000],
+        "apply_url": job.get("url", ""),
+        "posted_at": job.get("date_posted"),
+        "salary_min": None,
+        "salary_max": None,
+        "salary_period": None,
+    }
+
+
+def _fetch_fantasticjobs_company(company: str) -> list[dict]:
+    """Fetch jobs for a single company from Fantastic.jobs."""
+    params = {
+        "limit": "100",
+        "offset": "0",
+        "advanced_organization_filter": f"{company}:*",
+        "description_type": "text",
+        "location_filter": "United States",
+    }
+    try:
+        resp = requests.get(
+            FANTASTICJOBS_BASE_URL,
+            headers=_fantasticjobs_headers(),
+            params=params,
+            timeout=REQUEST_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        logger.warning("Fantastic.jobs [%s] failed: %s", company, exc)
+        return []
+
+    jobs_data = data if isinstance(data, list) else data.get("data", [])
+    jobs = [_normalize_fj_job(j) for j in jobs_data if j.get("id") and j.get("title")]
+    logger.info("  Fantastic.jobs [%s] → %d jobs", company, len(jobs))
+    return jobs
+
+
+def _fetch_fantasticjobs_internships() -> list[dict]:
+    """Fetch internship listings across all companies."""
+    params = {
+        "limit": "100",
+        "offset": "0",
+        "ai_employment_type_filter": "INTERN",
+        "description_type": "text",
+        "location_filter": "United States",
+    }
+    try:
+        resp = requests.get(
+            FANTASTICJOBS_BASE_URL,
+            headers=_fantasticjobs_headers(),
+            params=params,
+            timeout=REQUEST_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        logger.warning("Fantastic.jobs [internships] failed: %s", exc)
+        return []
+
+    jobs_data = data if isinstance(data, list) else data.get("data", [])
+    jobs = [_normalize_fj_job(j) for j in jobs_data if j.get("id") and j.get("title")]
+    logger.info("  Fantastic.jobs [internships] → %d jobs", len(jobs))
+    return jobs
+
+
+def fetch_fantasticjobs() -> list[dict]:
+    """Fetch jobs from Fantastic.jobs API for target companies + internships."""
+    if not os.getenv("RAPIDAPI_KEY"):
+        logger.info("Fantastic.jobs: skipped (no API key)")
+        return []
+
+    all_companies = []
+    for companies in FANTASTICJOBS_COMPANIES.values():
+        all_companies.extend(companies)
+
+    results = []
+    companies_with_jobs = 0
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(_fetch_fantasticjobs_company, c): c for c in all_companies}
+        # TODO: re-enable after upgrading to Pro plan with taxonomy filters
+        # futures[pool.submit(_fetch_fantasticjobs_internships)] = "internships"
+
+        for future in as_completed(futures):
+            jobs = future.result()
+            if jobs:
+                companies_with_jobs += 1
+            results.extend(jobs)
+
+    # Deduplicate by job_id (internship call may overlap with company calls)
+    seen = set()
+    deduped = []
+    for job in results:
+        if job["job_id"] not in seen:
+            seen.add(job["job_id"])
+            deduped.append(job)
+
+    logger.info("Fantastic.jobs: %d jobs from %d companies", len(deduped), companies_with_jobs)
+    return deduped
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
 def fetch_jobs() -> list[dict]:
-    """Fetch jobs from Greenhouse, Lever, Workday, and Ashby concurrently.
+    """Fetch jobs from Greenhouse, Lever, Workday, Ashby, and Fantastic.jobs concurrently.
     Returns a list of pre-normalized job dicts."""
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=5) as pool:
         gh_future = pool.submit(_fetch_all_greenhouse)
         lv_future = pool.submit(_fetch_all_lever)
         wd_future = pool.submit(_fetch_all_workday)
         ab_future = pool.submit(_fetch_all_ashby)
+        fj_future = pool.submit(fetch_fantasticjobs)
 
         greenhouse_jobs = gh_future.result()
         lever_jobs = lv_future.result()
         workday_jobs = wd_future.result()
         ashby_jobs = ab_future.result()
+        fantasticjobs = fj_future.result()
 
-    all_jobs = greenhouse_jobs + lever_jobs + workday_jobs + ashby_jobs
+    all_jobs = greenhouse_jobs + lever_jobs + workday_jobs + ashby_jobs + fantasticjobs
     logger.info("Total: %d jobs fetched", len(all_jobs))
     return all_jobs

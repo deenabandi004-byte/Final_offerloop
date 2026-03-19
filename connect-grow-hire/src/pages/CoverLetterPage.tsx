@@ -58,7 +58,7 @@ const PDFPreview: React.FC<PDFPreviewProps> = ({ pdfUrl, pdfBase64, title = 'PDF
   }
   
   return (
-    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+    <div className="border border-gray-200 rounded-[3px] overflow-hidden bg-white">
       <iframe
         src={src}
         className="w-full h-[500px]"
@@ -515,7 +515,7 @@ export default function CoverLetterPage() {
         <MainContentWrapper>
           <AppHeader title="" />
 
-          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
+          <main style={{ background: '#FAFBFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
             <div className="w-full px-3 py-6 sm:px-6 sm:py-12" style={{ maxWidth: '900px', margin: '0 auto' }}>
               
               {/* Header Section */}
@@ -523,7 +523,7 @@ export default function CoverLetterPage() {
                 <h1
                   className="text-[28px] sm:text-[42px]"
                   style={{
-                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontFamily: "'Lora', Georgia, serif",
                     fontWeight: 400,
                     letterSpacing: '-0.025em',
                     color: '#0F172A',
@@ -577,7 +577,7 @@ export default function CoverLetterPage() {
                       fontSize: '14px',
                       fontWeight: 500,
                       transition: 'all 0.15s ease',
-                      background: activeTab === 'cover-letter-generator' ? '#2563EB' : 'transparent',
+                      background: activeTab === 'cover-letter-generator' ? '#0F172A' : 'transparent',
                       color: activeTab === 'cover-letter-generator' ? 'white' : '#64748B',
                       boxShadow: activeTab === 'cover-letter-generator' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
                     }}
@@ -600,7 +600,7 @@ export default function CoverLetterPage() {
                       fontSize: '14px',
                       fontWeight: 500,
                       transition: 'all 0.15s ease',
-                      background: activeTab === 'cover-letter-library' ? '#2563EB' : 'transparent',
+                      background: activeTab === 'cover-letter-library' ? '#0F172A' : 'transparent',
                       color: activeTab === 'cover-letter-library' ? 'white' : '#64748B',
                       boxShadow: activeTab === 'cover-letter-library' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
                     }}
@@ -614,7 +614,7 @@ export default function CoverLetterPage() {
                           padding: '2px 8px',
                           borderRadius: '6px',
                           background: activeTab === 'cover-letter-library' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(37, 99, 235, 0.08)',
-                          color: activeTab === 'cover-letter-library' ? 'white' : '#2563EB',
+                          color: activeTab === 'cover-letter-library' ? 'white' : '#0F172A',
                           fontFamily: "'DM Sans', system-ui, sans-serif",
                           fontSize: '11px',
                           fontWeight: 600,
@@ -633,7 +633,7 @@ export default function CoverLetterPage() {
                 <div className="animate-fadeInUp" style={{ animationDelay: '200ms' }}>
                   {/* Error display */}
                   {error && (
-                    <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+                    <div className="mb-6 bg-red-50 border border-red-200 rounded-[3px] p-4 flex items-start gap-3">
                       <AlertCircle className="text-red-600 flex-shrink-0 mt-0.5" size={20} />
                       <div className="flex-1">
                         <p className="text-sm text-red-700">{error}</p>
@@ -647,14 +647,14 @@ export default function CoverLetterPage() {
                       {/* Left Column - Job Details Input */}
                       <div className="space-y-6">
                         {/* Job Details Card */}
-                        <div className="bg-white rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden h-fit">
+                        <div className="bg-white rounded-[3px] shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden h-fit">
                           {/* Simple gray divider */}
                           <div className="h-1 bg-gray-100"></div>
                           
                           <div className="p-6">
                             {/* Header */}
                             <div className="flex items-center gap-3 mb-6">
-                              <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center">
+                              <div className="w-10 h-10 bg-gray-100 rounded-[3px] flex items-center justify-center">
                                 <Briefcase className="w-5 h-5 text-gray-600" />
                               </div>
                               <div>
@@ -670,7 +670,7 @@ export default function CoverLetterPage() {
                               </label>
                               <div className="relative group">
                                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                  <Link className="h-4 w-4 text-gray-400 group-focus-within:text-blue-600 transition-colors" />
+                                  <Link className="h-4 w-4 text-gray-400 group-focus-within:text-[#3B82F6] transition-colors" />
                                 </div>
                                 <input
                                   type="url"
@@ -682,10 +682,10 @@ export default function CoverLetterPage() {
                                   }}
                                   placeholder="https://linkedin.com/jobs/..."
                                   disabled={isGenerating}
-                                  className={`block w-full pl-10 pr-10 py-3 border-2 rounded-2xl
+                                  className={`block w-full pl-10 pr-10 py-3 border-2 rounded-[3px]
                                              text-gray-900 placeholder-gray-400 text-sm bg-white
                                              hover:border-gray-400
-                                             focus:border-blue-400 focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20
+                                             focus:border-[#3B82F6] focus:bg-[#FAFBFF]/20 focus:ring-2 focus:ring-[#3B82F6]/20
                                              transition-all duration-150 disabled:opacity-50
                                              ${jobUrlError ? 'border-red-300' : 'border-gray-300'}`}
                                 />
@@ -734,10 +734,10 @@ export default function CoverLetterPage() {
                                         onChange={(e) => setCompany(e.target.value)}
                                         placeholder="e.g. Google, Stripe"
                                         disabled={(urlParsedSuccessfully && jobUrl) || isGenerating}
-                                        className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl
+                                        className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-[3px]
                                                    text-gray-900 placeholder-gray-400 text-sm
                                                    hover:border-gray-300
-                                                   focus:border-blue-400 focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20
+                                                   focus:border-[#3B82F6] focus:bg-[#FAFBFF]/20 focus:ring-2 focus:ring-[#3B82F6]/20
                                                    transition-all duration-150
                                                    hover:border-gray-300 transition-all disabled:bg-gray-50 disabled:cursor-not-allowed"
                                       />
@@ -758,10 +758,10 @@ export default function CoverLetterPage() {
                                         onChange={(e) => setJobTitle(e.target.value)}
                                         placeholder="e.g. Product Manager, Software Engineer"
                                         disabled={(urlParsedSuccessfully && jobUrl) || isGenerating}
-                                        className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl
+                                        className="block w-full pl-10 pr-4 py-3 border border-gray-200 rounded-[3px]
                                                    text-gray-900 placeholder-gray-400 text-sm
                                                    hover:border-gray-300
-                                                   focus:border-blue-400 focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20
+                                                   focus:border-[#3B82F6] focus:bg-[#FAFBFF]/20 focus:ring-2 focus:ring-[#3B82F6]/20
                                                    transition-all duration-150
                                                    hover:border-gray-300 transition-all disabled:bg-gray-50 disabled:cursor-not-allowed"
                                       />
@@ -778,10 +778,10 @@ export default function CoverLetterPage() {
                                       placeholder="Paste the job description or key requirements here..."
                                       rows={5}
                                       disabled={(urlParsedSuccessfully && jobUrl) || isGenerating}
-                                      className="block w-full px-4 py-3 border border-gray-200 rounded-xl
+                                      className="block w-full px-4 py-3 border border-gray-200 rounded-[3px]
                                                  text-gray-900 placeholder-gray-400 text-sm resize-none
                                                  hover:border-gray-300
-                                                 focus:border-blue-400 focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20
+                                                 focus:border-[#3B82F6] focus:bg-[#FAFBFF]/20 focus:ring-2 focus:ring-[#3B82F6]/20
                                                  transition-all duration-150
                                                  hover:border-gray-300 transition-all disabled:bg-gray-50 disabled:cursor-not-allowed"
                                     />
@@ -796,12 +796,12 @@ export default function CoverLetterPage() {
                               onClick={handleGenerate}
                               disabled={!canGenerate || isGenerating || (user?.credits ?? 0) === 0}
                               className={`
-                                w-full py-4 rounded-xl font-semibold text-base
+                                w-full py-4 rounded-[3px] font-semibold text-base
                                 flex items-center justify-center gap-3
                                 transition-all duration-200 transform
                                 ${!canGenerate || isGenerating || (user?.credits ?? 0) === 0
                                   ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                                  : 'bg-blue-600 text-white shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-100'
+                                  : 'bg-[#0F172A] text-white shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-100'
                                 }
                               `}
                             >
@@ -829,12 +829,12 @@ export default function CoverLetterPage() {
                             </div>
                             
                             {/* Resume info */}
-                            <div className="mt-4 flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-                              <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center">
+                            <div className="mt-4 flex items-center gap-3 p-3 bg-gray-50 rounded-[3px]">
+                              <div className="w-8 h-8 bg-white rounded-[3px] flex items-center justify-center">
                                 <FileText className="w-4 h-4 text-gray-600" />
                               </div>
                               <p className="text-sm text-gray-600">
-                                Your resume from <button onClick={() => navigate('/account-settings')} className="text-blue-600 hover:underline font-medium">Account Settings</button> will be used to personalize the cover letter.
+                                Your resume from <button onClick={() => navigate('/account-settings')} className="text-[#3B82F6] hover:underline font-medium">Account Settings</button> will be used to personalize the cover letter.
                               </p>
                             </div>
                           </div>
@@ -850,7 +850,7 @@ export default function CoverLetterPage() {
                       <div>
                         {generatedPdfBase64 ? (
                           /* Preview Card (With Content) */
-                          <div className="bg-white rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden h-full min-h-[600px] flex flex-col">
+                          <div className="bg-white rounded-[3px] shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden h-full min-h-[600px] flex flex-col">
                             {/* Simple gray divider */}
                             <div className="h-1 bg-gray-100"></div>
                             
@@ -858,7 +858,7 @@ export default function CoverLetterPage() {
                             <div className="p-6 border-b border-gray-100">
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
-                                  <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center">
+                                  <div className="w-10 h-10 bg-gray-100 rounded-[3px] flex items-center justify-center">
                                     <FileText className="w-5 h-5 text-gray-600" />
                                   </div>
                                   <div>
@@ -873,14 +873,14 @@ export default function CoverLetterPage() {
                                 <div className="flex items-center gap-2">
                                   <button 
                                     onClick={handleCopyToClipboard}
-                                    className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                                    className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-[3px] transition-colors"
                                     title="Copy to clipboard"
                                   >
                                     <Copy className="w-5 h-5" />
                                   </button>
                                   <button 
                                     onClick={handleDownload}
-                                    className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                                    className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-[3px] transition-colors"
                                     title="Download PDF"
                                   >
                                     <Download className="w-5 h-5" />
@@ -906,14 +906,14 @@ export default function CoverLetterPage() {
                                 <div className="flex items-center gap-3">
                                   <button 
                                     onClick={handleStartOver}
-                                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-[3px] hover:bg-gray-50 transition-colors"
                                   >
                                     Start Over
                                   </button>
                                   <button 
                                     onClick={handleRegenerate}
                                     disabled={isGenerating}
-                                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                                    className="px-4 py-2 text-sm font-medium text-white bg-[#0F172A] rounded-[3px] hover:bg-[#1E293B] transition-colors disabled:opacity-50"
                                   >
                                     Regenerate
                                   </button>
@@ -923,7 +923,7 @@ export default function CoverLetterPage() {
                           </div>
                         ) : (
                           /* Preview Card (Empty State) */
-                          <div className="bg-white rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden h-full min-h-[600px] flex flex-col">
+                          <div className="bg-white rounded-[3px] shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden h-full min-h-[600px] flex flex-col">
                             {/* Simple gray divider */}
                             <div className="h-1 bg-gray-100"></div>
                             
@@ -931,7 +931,7 @@ export default function CoverLetterPage() {
                             <div className="p-6 border-b border-gray-100">
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
-                                  <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center">
+                                  <div className="w-10 h-10 bg-gray-100 rounded-[3px] flex items-center justify-center">
                                     <FileText className="w-5 h-5 text-gray-400" />
                                   </div>
                                   <div>
@@ -945,7 +945,7 @@ export default function CoverLetterPage() {
                             {/* Empty State Content */}
                             <div className="flex-1 flex items-center justify-center p-8">
                               <div className="text-center">
-                                <div className="w-20 h-20 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                                <div className="w-20 h-20 bg-gray-100 rounded-[3px] flex items-center justify-center mx-auto mb-4">
                                   <PenLine className="w-10 h-10 text-gray-300" />
                                 </div>
                                 <h3 className="text-lg font-medium text-gray-500 mb-2">No cover letter to preview</h3>
@@ -966,7 +966,7 @@ export default function CoverLetterPage() {
                           <h3 className="text-lg font-semibold text-gray-900">Recent Cover Letters</h3>
                           <button 
                             onClick={() => handleTabChange('cover-letter-library')}
-                            className="text-sm text-blue-600 hover:underline font-medium"
+                            className="text-sm text-[#3B82F6] hover:underline font-medium"
                           >
                             View all ({libraryEntries.length})
                           </button>
@@ -977,10 +977,10 @@ export default function CoverLetterPage() {
                             <div 
                               key={letter.id}
                               onClick={() => loadCoverLetter(letter)}
-                              className="bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-300 hover:shadow-md cursor-pointer transition-all group"
+                              className="bg-white rounded-[3px] border border-gray-200 p-4 hover:border-gray-300 hover:shadow-md cursor-pointer transition-all group"
                             >
                               <div className="flex items-center gap-3 mb-3">
-                                <div className="w-10 h-10 bg-gray-50 rounded-lg flex items-center justify-center group-hover:bg-gray-100 transition-colors">
+                                <div className="w-10 h-10 bg-gray-50 rounded-[3px] flex items-center justify-center group-hover:bg-gray-100 transition-colors">
                                   <FileText className="w-5 h-5 text-gray-600" />
                                 </div>
                                 <div className="flex-1 min-w-0">
@@ -997,7 +997,7 @@ export default function CoverLetterPage() {
                   </TabsContent>
 
                   <TabsContent value="cover-letter-library" className="mt-0">
-                    <div className="bg-white rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden">
+                    <div className="bg-white rounded-[3px] shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden">
                       <div className="h-1 bg-gray-100"></div>
                       
                       <div className="p-6">
@@ -1016,7 +1016,7 @@ export default function CoverLetterPage() {
                             </p>
                             <button 
                               onClick={() => handleTabChange('cover-letter-generator')}
-                              className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
+                              className="px-6 py-3 bg-[#0F172A] text-white font-semibold rounded-full hover:shadow-lg transition-all"
                             >
                               Create a Cover Letter
                             </button>
@@ -1032,16 +1032,16 @@ export default function CoverLetterPage() {
                               {libraryEntries.map((entry) => (
                                 <div
                                   key={entry.id}
-                                  className={`border rounded-xl p-4 bg-white transition-colors cursor-pointer ${
+                                  className={`border rounded-[3px] p-4 bg-white transition-colors cursor-pointer ${
                                     previewEntry?.id === entry.id 
-                                      ? 'border-blue-400 ring-1 ring-blue-400/20' 
+                                      ? 'border-[#3B82F6] ring-1 ring-[#3B82F6]/20' 
                                       : 'border-gray-200 hover:border-gray-300'
                                   }`}
                                   onClick={() => handleViewEntry(entry)}
                                 >
                                   <div className="flex items-start justify-between gap-4">
                                     <div className="flex items-start gap-3">
-                                      <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                      <div className="w-10 h-10 bg-gray-100 rounded-[3px] flex items-center justify-center flex-shrink-0">
                                         <FileText className="h-5 w-5 text-gray-600" />
                                       </div>
                                       <div className="min-w-0">
@@ -1066,7 +1066,7 @@ export default function CoverLetterPage() {
                                           e.stopPropagation();
                                           handleViewEntry(entry);
                                         }}
-                                        className="text-gray-600 rounded-lg"
+                                        className="text-gray-600 rounded-[3px]"
                                       >
                                         <Eye className="h-4 w-4" />
                                       </Button>
@@ -1077,7 +1077,7 @@ export default function CoverLetterPage() {
                                           e.stopPropagation();
                                           handleDownloadEntry(entry);
                                         }}
-                                        className="text-gray-600 rounded-lg"
+                                        className="text-gray-600 rounded-[3px]"
                                       >
                                         <Download className="h-4 w-4" />
                                       </Button>
@@ -1092,7 +1092,7 @@ export default function CoverLetterPage() {
                               <h2 className="text-lg font-semibold text-gray-900 mb-4">Preview</h2>
                               
                               {isLoadingPreview ? (
-                                <div className="border border-gray-200 rounded-xl p-8 bg-gray-50 text-center">
+                                <div className="border border-gray-200 rounded-[3px] p-8 bg-gray-50 text-center">
                                   <Loader2 className="h-8 w-8 animate-spin text-gray-500 mx-auto" />
                                   <p className="text-sm text-gray-500 mt-2">Loading preview...</p>
                                 </div>
@@ -1105,7 +1105,7 @@ export default function CoverLetterPage() {
                                   <div className="flex gap-2">
                                     <Button
                                       onClick={() => handleDownloadEntry(previewEntry)}
-                                      className="flex-1 rounded-xl"
+                                      className="flex-1 rounded-[3px]"
                                       variant="outline"
                                     >
                                       <Download className="h-4 w-4 mr-2" />
@@ -1114,7 +1114,7 @@ export default function CoverLetterPage() {
                                   </div>
                                 </div>
                               ) : (
-                                <div className="border border-gray-200 rounded-xl p-8 bg-gray-50 text-center">
+                                <div className="border border-gray-200 rounded-[3px] p-8 bg-gray-50 text-center">
                                   <Eye className="h-12 w-12 text-gray-300 mx-auto mb-4" />
                                   <p className="text-gray-500">
                                     Click on a cover letter to preview it
@@ -1137,7 +1137,7 @@ export default function CoverLetterPage() {
       {/* Loading Modal */}
       {isGenerating && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-2xl animate-scaleIn">
+          <div className="bg-white rounded-[3px] p-8 max-w-md text-center shadow-2xl animate-scaleIn">
             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <PenLine className="w-8 h-8 text-gray-600 animate-pulse" />
             </div>
@@ -1150,7 +1150,7 @@ export default function CoverLetterPage() {
             </p>
             <div className="w-full bg-gray-200 rounded-full h-2">
               <div 
-                className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+                className="bg-[#0F172A] h-2 rounded-full transition-all duration-300" 
                 style={{ width: `${progress}%` }}
               ></div>
             </div>
@@ -1162,7 +1162,7 @@ export default function CoverLetterPage() {
       {/* Success Toast */}
       {showSuccessToast && (
         <div className="fixed bottom-6 right-6 z-50 animate-fadeInUp">
-          <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-4 flex items-center gap-3">
+          <div className="bg-white rounded-[3px] shadow-lg border border-gray-200 p-4 flex items-center gap-3">
             <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
               <CheckCircle className="w-6 h-6 text-green-600" />
             </div>
@@ -1172,7 +1172,7 @@ export default function CoverLetterPage() {
             </div>
             <button 
               onClick={() => setShowSuccessToast(false)}
-              className="p-1 hover:bg-gray-100 rounded-lg"
+              className="p-1 hover:bg-gray-100 rounded-[3px]"
             >
               <X className="w-5 h-5 text-gray-400" />
             </button>
@@ -1187,7 +1187,7 @@ export default function CoverLetterPage() {
           onClick={handleGenerate}
           isLoading={isGenerating}
           disabled={!canGenerate || isGenerating}
-          buttonClassName="rounded-xl"
+          buttonClassName="rounded-[3px]"
         >
           <span>Generate Cover Letter</span>
         </StickyCTA>

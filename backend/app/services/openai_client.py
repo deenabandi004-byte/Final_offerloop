@@ -1,9 +1,15 @@
 """
-OpenAI client service - email generation and AI operations
+OpenAI and Anthropic client service - email generation and AI operations
 """
 from openai import OpenAI, AsyncOpenAI
 import httpx
-from backend.app.config import OPENAI_API_KEY
+from backend.app.config import OPENAI_API_KEY, CLAUDE_API_KEY
+
+try:
+    import anthropic
+    _anthropic_client = anthropic.Anthropic(api_key=CLAUDE_API_KEY) if CLAUDE_API_KEY else None
+except ImportError:
+    _anthropic_client = None
 
 # Create custom HTTP client configurations for better connection pool handling
 _httpx_timeout = httpx.Timeout(
@@ -57,4 +63,8 @@ def get_openai_client():
 def get_async_openai_client():
     """Get the async OpenAI client"""
     return async_client
+
+def get_anthropic_client():
+    """Get the Anthropic client"""
+    return _anthropic_client
 

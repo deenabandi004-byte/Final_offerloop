@@ -12,6 +12,7 @@ load_dotenv()
 # API Keys & Secrets
 # ========================================
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
 PEOPLE_DATA_LABS_API_KEY = os.getenv('PEOPLE_DATA_LABS_API_KEY')
 STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY')
 STRIPE_PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY')
@@ -252,6 +253,11 @@ if not PEOPLE_DATA_LABS_API_KEY:
 
 if not OPENAI_API_KEY:
     print("WARNING: OPENAI_API_KEY not found in .env file")
+
+if not CLAUDE_API_KEY:
+    print("WARNING: CLAUDE_API_KEY not found in .env file")
+else:
+    print("✓ Claude API key loaded")
 
 if STRIPE_SECRET_KEY:
     import stripe

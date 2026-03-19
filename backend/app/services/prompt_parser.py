@@ -1,40 +1,75 @@
 """
-Prompt parser service - converts natural language prompts into structured search filters
+Prompt parser service - converts natural language prompts into structured search filters.
+
+Single canonical parser (parse_search_prompt_structured) with adapter functions
+for legacy callers that expect different output shapes.
 """
 import json
-import re
-from typing import Dict, List, Optional, Any
+import hashlib
+import threading
+import time
+from typing import Dict, Any
 from app.services.openai_client import get_openai_client
 
 # Default timeout for OpenAI prompt parsing (keep prompt search fast)
 PROMPT_PARSE_TIMEOUT = 10.0
 
+# Shared empty result template
+_EMPTY_STRUCTURED = {
+    "confidence": "low",
+    "original_prompt": "",
+    "company_context": "",
+    "companies": [],
+    "locations": [],
+    "schools": [],
+    "industries": [],
+    "title_variations": [],
+}
+
+# Manual TTL cache for parsed prompts — same pattern as company_search.py
+_parse_cache: dict[str, tuple[float, dict]] = {}
+_parse_cache_lock = threading.Lock()
+_PARSE_CACHE_TTL = 3600   # 1 hour
+_PARSE_CACHE_MAX = 500
+
+
+def _make_empty(prompt: str, error: str = "") -> Dict[str, Any]:
+    """Return a valid empty structured result."""
+    out = dict(_EMPTY_STRUCTURED)
+    out["original_prompt"] = prompt
+    if error:
+        out["error"] = error
+    return out
+
 
 def parse_search_prompt_structured(prompt: str) -> Dict[str, Any]:
     """
     Parse a natural language search prompt into structured params with company-specific
-    job titles. Uses OpenAI with structured JSON output for the new prompt-based contact search.
+    job titles. Uses OpenAI with structured JSON output.
+
+    This is the SINGLE canonical parser. All other parse functions delegate to this one.
 
     Returns:
-        Dict with: original_prompt, company_context (brief description of what the company does),
-        companies [{name, matched_titles}], locations, schools, seniority_levels, industries,
-        confidence ("high"|"low"), title_variations (flat list). On error: includes "error" key.
-        If confidence is "low", caller should reject or ask user to be more specific.
+        Dict with: original_prompt, company_context, companies [{name, matched_titles}],
+        locations, schools, seniority_levels, industries, confidence ("high"|"low"),
+        title_variations (flat list). On error: includes "error" key.
     """
     client = get_openai_client()
     if not client:
-        return {
-            "error": "OpenAI client not available",
-            "confidence": "low",
-            "original_prompt": prompt,
-            "company_context": "",
-            "companies": [],
-            "locations": [],
-            "schools": [],
-            "seniority_levels": [],
-            "industries": [],
-            "title_variations": [],
-        }
+        return _make_empty(prompt, "OpenAI client not available")
+
+    # --- Cache lookup ---
+    cache_key = hashlib.md5(prompt.lower().strip().encode()).hexdigest()
+    with _parse_cache_lock:
+        if cache_key in _parse_cache:
+            ts, cached_result = _parse_cache[cache_key]
+            if time.time() - ts < _PARSE_CACHE_TTL:
+                print(f"[PromptParser] Cache hit for prompt (MD5: {cache_key})")
+                return cached_result
+            else:
+                del _parse_cache[cache_key]
+
+    print("[PromptParser] Cache miss — calling OpenAI")
 
     system_prompt = """You are a contact search query parser. Extract structured search parameters from a user's natural language prompt for finding professional contacts.
 
@@ -61,6 +96,8 @@ RULES:
    - "Engineers at McKinsey" → McKinsey is a consulting firm that does have engineers. Generate: "Software Engineer", "Data Engineer", "Engineering Manager".
    Always think about what titles actually exist at the specified company before generating variations.
 
+11. If the user mentions an industry (e.g. "consulting", "finance", "tech", "healthcare"), include it in the industries array. Use PDL-compatible industry labels when possible: "financial services", "technology", "management consulting", "health care", "real estate", "education", "media", "legal services", "accounting", "marketing and advertising".
+
 Return ONLY valid JSON with this exact structure (no markdown, no explanation):
 {
   "original_prompt": "<user prompt>",
@@ -68,7 +105,6 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
   "companies": [{"name": "<company name>", "matched_titles": ["<title1>", "<title2>"]}],
   "locations": ["<location1>", "<location2>"],
   "schools": [],
-  "seniority_levels": [],
   "industries": [],
   "confidence": "high" or "low",
   "title_variations": ["<title1>", "<title2>", ...]
@@ -83,55 +119,30 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            max_tokens=800,
+            max_tokens=1200,
             temperature=0.2,
             response_format={"type": "json_object"},
             timeout=PROMPT_PARSE_TIMEOUT,
         )
         result_text = (response.choices[0].message.content or "").strip()
         if not result_text:
-            return {
-                "error": "Empty response from OpenAI",
-                "confidence": "low",
-                "original_prompt": prompt,
-                "company_context": "",
-                "companies": [],
-                "locations": [],
-                "schools": [],
-                "seniority_levels": [],
-                "industries": [],
-                "title_variations": [],
-            }
+            return _make_empty(prompt, "Empty response from OpenAI")
         parsed = json.loads(result_text)
-        return _validate_structured_parse(parsed, prompt)
+        result = _validate_structured_parse(parsed, prompt)
+        # --- Cache successful parse (don't cache errors) ---
+        if "error" not in result:
+            with _parse_cache_lock:
+                if len(_parse_cache) >= _PARSE_CACHE_MAX:
+                    oldest_key = min(_parse_cache, key=lambda k: _parse_cache[k][0])
+                    del _parse_cache[oldest_key]
+                _parse_cache[cache_key] = (time.time(), result)
+        return result
     except json.JSONDecodeError as e:
         print(f"⚠️ Prompt parser JSON decode error: {e}")
-        return {
-            "error": "Failed to parse OpenAI response",
-            "confidence": "low",
-            "original_prompt": prompt,
-            "company_context": "",
-            "companies": [],
-            "locations": [],
-            "schools": [],
-            "seniority_levels": [],
-            "industries": [],
-            "title_variations": [],
-        }
+        return _make_empty(prompt, "Failed to parse OpenAI response")
     except Exception as e:
         print(f"⚠️ Prompt parser error: {e}")
-        return {
-            "error": str(e),
-            "confidence": "low",
-            "original_prompt": prompt,
-            "company_context": "",
-            "companies": [],
-            "locations": [],
-            "schools": [],
-            "seniority_levels": [],
-            "industries": [],
-            "title_variations": [],
-        }
+        return _make_empty(prompt, str(e))
 
 
 def _validate_structured_parse(parsed: Dict, original_prompt: str) -> Dict[str, Any]:
@@ -155,7 +166,7 @@ def _validate_structured_parse(parsed: Dict, original_prompt: str) -> Dict[str, 
                     "name": str(c["name"]).strip(),
                     "matched_titles": [str(t).strip() for t in titles if t and str(t).strip()],
                 })
-    for key in ("locations", "schools", "seniority_levels", "industries", "title_variations"):
+    for key in ("locations", "schools", "industries", "title_variations"):
         val = parsed.get(key)
         if isinstance(val, list):
             out[key] = [str(x).strip() for x in val if x and str(x).strip()]
@@ -169,7 +180,7 @@ def _validate_structured_parse(parsed: Dict, original_prompt: str) -> Dict[str, 
                 if t and t not in seen:
                     seen.add(t)
                     out["title_variations"].append(t)
-    # Override confidence: high if we have at least one search dimension (title, company, school, or location)
+    # Override confidence: high if we have at least one search dimension
     has_specifics = bool(
         out["title_variations"] or out["companies"] or out["schools"] or out["locations"]
     )
@@ -181,189 +192,58 @@ def _validate_structured_parse(parsed: Dict, original_prompt: str) -> Dict[str, 
     return out
 
 
+# ---------------------------------------------------------------------------
+# Legacy adapter: used by /api/search/parse-prompt route (parse_prompt.py)
+# Converts structured output → legacy flat-array format
+# ---------------------------------------------------------------------------
+
 def parse_search_prompt(prompt: str) -> Dict:
     """
-    Parse a natural language prompt into structured search filters.
-    
-    Args:
-        prompt: Natural language description of desired contacts
-        
-    Returns:
-        Dictionary with extracted filters:
-        {
-            "company": List[str],
-            "roles": List[str],
-            "location": List[str],
-            "schools": List[str],
-            "industries": List[str],
-            "max_results": int,
-            "confidence": float
-        }
+    Adapter around the canonical parser. Returns the legacy flat-array format
+    expected by the /api/search/parse-prompt endpoint.
+
+    Returns: { company, roles, location, schools, industries, max_results, confidence }
     """
-    client = get_openai_client()
-    if not client:
-        # Fallback if OpenAI is not available
-        return _fallback_parse(prompt)
-    
-    system_prompt = """You are a contact search filter extraction assistant. Your job is to extract structured search parameters from natural language prompts.
+    structured = parse_search_prompt_structured(prompt)
 
-CRITICAL RULES:
-1. Only extract fields that are explicitly mentioned or strongly implied
-2. Never hallucinate or invent filters that aren't in the prompt
-3. If a field is unclear or not mentioned, use an empty array []
-4. Normalize company names (e.g., "GS" → "Goldman Sachs", "JPM" → "JPMorgan Chase")
-5. Normalize school names (e.g., "USC" → "University of Southern California", "NYU" → "New York University")
-6. Extract job titles/roles as they appear or common variations
-7. Location can be city, state, or region
-8. Always return valid JSON with no additional text
-
-SUPPORTED FIELDS:
-- company: Array of company names (normalized)
-- roles: Array of job titles/roles
-- location: Array of locations (cities, states, regions)
-- schools: Array of school/university names (normalized)
-- industries: Array of industry names (if mentioned)
-- max_results: Number (default 15, max 15)
-- confidence: Float between 0.0 and 1.0 indicating extraction confidence
-
-EXAMPLES:
-
-Input: "Find USC alumni in investment banking at Goldman Sachs in New York"
-Output: {
-  "company": ["Goldman Sachs"],
-  "roles": ["Investment Banking Analyst", "Investment Banker"],
-  "location": ["New York"],
-  "schools": ["University of Southern California"],
-  "industries": [],
-  "max_results": 15,
-  "confidence": 0.95
-}
-
-Input: "Software engineers at Google in San Francisco"
-Output: {
-  "company": ["Google"],
-  "roles": ["Software Engineer"],
-  "location": ["San Francisco"],
-  "schools": [],
-  "industries": [],
-  "max_results": 15,
-  "confidence": 0.9
-}
-
-Input: "Find people"
-Output: {
-  "company": [],
-  "roles": [],
-  "location": [],
-  "schools": [],
-  "industries": [],
-  "max_results": 15,
-  "confidence": 0.1
-}
-
-Return ONLY valid JSON, no markdown, no explanations."""
-
-    user_prompt = f"""Extract search filters from this prompt:
-
-"{prompt}"
-
-Return a JSON object with the exact structure shown in the examples."""
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            max_tokens=500,
-            temperature=0.1  # Low temperature for consistent extraction
-        )
-        
-        result_text = response.choices[0].message.content.strip()
-        
-        # Remove markdown code blocks if present
-        if '```' in result_text:
-            result_text = result_text.split('```')[1]
-            if result_text.startswith('json'):
-                result_text = result_text[4:]
-            result_text = result_text.strip()
-        
-        # Parse JSON response
-        parsed = json.loads(result_text)
-        
-        # Validate and normalize the response
-        return _validate_and_normalize(parsed)
-        
-    except json.JSONDecodeError as e:
-        print(f"⚠️ Failed to parse JSON from LLM response: {e}")
-        print(f"Response was: {result_text}")
-        return _fallback_parse(prompt)
-    except Exception as e:
-        print(f"⚠️ Error in prompt parsing: {e}")
+    # If the canonical parser errored, fall back to keyword matching
+    if structured.get("error") and structured.get("confidence") == "low":
         return _fallback_parse(prompt)
 
+    # Reshape: structured → legacy format
+    companies = [c["name"] for c in structured.get("companies", []) if c.get("name")]
+    roles = list(structured.get("title_variations", []))
 
-def _validate_and_normalize(parsed: Dict) -> Dict:
-    """
-    Validate and normalize the parsed response.
-    
-    Ensures:
-    - All arrays contain only strings
-    - max_results is capped at 15
-    - confidence is between 0.0 and 1.0
-    - All required fields are present
-    """
-    # Ensure all array fields are lists of strings
-    array_fields = ["company", "roles", "location", "schools", "industries"]
-    for field in array_fields:
-        if field not in parsed:
-            parsed[field] = []
-        elif not isinstance(parsed[field], list):
-            parsed[field] = []
-        else:
-            # Filter to only strings and remove empty strings
-            parsed[field] = [str(item).strip() for item in parsed[field] if item and str(item).strip()]
-    
-    # Validate max_results
-    if "max_results" not in parsed:
-        parsed["max_results"] = 15
-    else:
-        try:
-            max_results = int(parsed["max_results"])
-            parsed["max_results"] = min(max(1, max_results), 15)  # Cap at 15, min 1
-        except (ValueError, TypeError):
-            parsed["max_results"] = 15
-    
-    # Validate confidence
-    if "confidence" not in parsed:
-        parsed["confidence"] = 0.5
-    else:
-        try:
-            confidence = float(parsed["confidence"])
-            parsed["confidence"] = max(0.0, min(1.0, confidence))
-        except (ValueError, TypeError):
-            parsed["confidence"] = 0.5
-    
-    return parsed
+    # Confidence: map "high"/"low" → float
+    conf = 0.9 if structured.get("confidence") == "high" else 0.2
 
+    return {
+        "company": companies,
+        "roles": roles,
+        "location": list(structured.get("locations", [])),
+        "schools": list(structured.get("schools", [])),
+        "industries": list(structured.get("industries", [])),
+        "max_results": 15,
+        "confidence": conf,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Keyword fallback (no LLM available)
+# ---------------------------------------------------------------------------
 
 def _fallback_parse(prompt: str) -> Dict:
-    """
-    Fallback parser using simple keyword matching when LLM is unavailable.
-    """
+    """Fallback parser using simple keyword matching when LLM is unavailable."""
     prompt_lower = prompt.lower()
-    
-    # Simple keyword extraction (very basic)
+
     companies = []
     roles = []
     locations = []
     schools = []
-    
-    # Common company patterns
+
     company_keywords = {
         "goldman sachs": ["goldman", "gs"],
-        "morgan stanley": ["morgan stanley", "ms"],
+        "morgan stanley": ["morgan stanley"],
         "jpmorgan": ["jpmorgan", "jpm", "jp morgan"],
         "mckinsey": ["mckinsey"],
         "bain": ["bain"],
@@ -374,40 +254,44 @@ def _fallback_parse(prompt: str) -> Dict:
         "apple": ["apple"],
         "meta": ["meta", "facebook"],
     }
-    
     for company, keywords in company_keywords.items():
         if any(kw in prompt_lower for kw in keywords):
             companies.append(company)
-    
-    # Common role patterns
-    if "investment banking" in prompt_lower or "ib" in prompt_lower:
+
+    if "investment banking" in prompt_lower or "ib " in prompt_lower:
         roles.append("Investment Banking Analyst")
     if "software engineer" in prompt_lower or "swe" in prompt_lower:
         roles.append("Software Engineer")
+    if "product manager" in prompt_lower or "pm " in prompt_lower:
+        roles.append("Product Manager")
     if "consultant" in prompt_lower:
         roles.append("Consultant")
-    
-    # Common school patterns
+
     school_keywords = {
-        "university of southern california": ["usc", "southern california"],
-        "new york university": ["nyu", "new york university"],
-        "stanford": ["stanford"],
-        "harvard": ["harvard"],
-        "mit": ["mit", "massachusetts institute"],
+        "University of Southern California": ["usc", "southern california"],
+        "New York University": ["nyu"],
+        "Stanford University": ["stanford"],
+        "Harvard University": ["harvard"],
+        "MIT": ["mit"],
+        "UC Berkeley": ["berkeley", "uc berkeley"],
     }
-    
     for school, keywords in school_keywords.items():
         if any(kw in prompt_lower for kw in keywords):
             schools.append(school)
-    
-    # Location patterns (very basic)
-    if "new york" in prompt_lower:
-        locations.append("New York")
-    if "san francisco" in prompt_lower or "sf" in prompt_lower:
-        locations.append("San Francisco")
-    if "los angeles" in prompt_lower or "la" in prompt_lower:
-        locations.append("Los Angeles")
-    
+
+    location_map = {
+        "New York": ["new york", "nyc"],
+        "San Francisco": ["san francisco", "sf"],
+        "Los Angeles": ["los angeles", "la"],
+        "Chicago": ["chicago"],
+        "Boston": ["boston"],
+        "Seattle": ["seattle"],
+        "Austin": ["austin"],
+    }
+    for loc, keywords in location_map.items():
+        if any(kw in prompt_lower for kw in keywords):
+            locations.append(loc)
+
     return {
         "company": companies,
         "roles": roles,
@@ -415,193 +299,5 @@ def _fallback_parse(prompt: str) -> Dict:
         "schools": schools,
         "industries": [],
         "max_results": 15,
-        "confidence": 0.3  # Low confidence for fallback
+        "confidence": 0.3,
     }
-
-
-def parse_search_prompt_simple(prompt: str) -> Dict[str, str]:
-    """
-    Parse natural language search prompt into structured fields.
-    
-    This is a simpler version that returns single string values instead of arrays,
-    designed to work with search_contacts_with_smart_location_strategy().
-    
-    Example: "Find me USC alumni in investment banking at Goldman in NYC"
-    Returns: {
-        "job_title": "investment banking analyst",
-        "company": "Goldman Sachs",
-        "location": "New York, NY", 
-        "school": "University of Southern California"
-    }
-    
-    Args:
-        prompt: Natural language description of desired contacts
-        
-    Returns:
-        Dictionary with extracted fields (empty strings if not mentioned):
-        {
-            "job_title": str,
-            "company": str,
-            "location": str,
-            "school": str
-        }
-    """
-    print(f"🔍 parse_search_prompt_simple called with: '{prompt}'")
-    
-    client = get_openai_client()
-    if not client:
-        print("⚠️ OpenAI client not available, using fallback parser")
-        # Fallback if OpenAI is not available
-        return _fallback_parse_simple(prompt)
-    
-    system_prompt = """You extract structured search parameters from natural language queries about finding professional contacts.
-
-Extract these fields (use empty string "" if not mentioned):
-- job_title: The role/position. Expand abbreviations: "IB" → "investment banking analyst", "PM" → "product manager", "SWE" → "software engineer"
-- company: Company name. Use full official name: "Goldman" → "Goldman Sachs", "Google" → "Google"
-- location: City and state. Format as "City, ST" or "City, State" when possible
-- school: University for alumni filter. Use full name: "USC" → "University of Southern California", "Cal" → "UC Berkeley"
-
-Return ONLY valid JSON with these 4 keys, no markdown, no explanation.
-
-Example:
-Input: "Find me USC alumni in investment banking at Goldman in NYC"
-Output: {"job_title": "investment banking analyst", "company": "Goldman Sachs", "location": "New York, NY", "school": "University of Southern California"}
-
-Example:
-Input: "Software engineers at Google in San Francisco"
-Output: {"job_title": "software engineer", "company": "Google", "location": "San Francisco, CA", "school": ""}"""
-
-    user_prompt = f"""Extract search parameters from this prompt:
-
-"{prompt}"
-
-Return ONLY valid JSON with keys: job_title, company, location, school"""
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            max_tokens=300,
-            temperature=0.1  # Low temperature for consistent extraction
-        )
-        
-        result_text = response.choices[0].message.content.strip()
-        print(f"🤖 LLM raw response: {result_text}")
-        
-        # Remove markdown code blocks if present
-        if '```' in result_text:
-            result_text = result_text.split('```')[1]
-            if result_text.startswith('json'):
-                result_text = result_text[4:]
-            result_text = result_text.strip()
-        
-        # Parse JSON response
-        parsed = json.loads(result_text)
-        print(f"📋 Parsed JSON: {parsed}")
-        
-        # Validate and normalize - ensure all fields are strings
-        result = {
-            "job_title": str(parsed.get("job_title", "")).strip(),
-            "company": str(parsed.get("company", "")).strip(),
-            "location": str(parsed.get("location", "")).strip(),
-            "school": str(parsed.get("school", "")).strip()
-        }
-        
-        print(f"✅ Final result: {result}")
-        return result
-        
-    except json.JSONDecodeError as e:
-        print(f"⚠️ Failed to parse JSON from LLM response: {e}")
-        print(f"Response was: {result_text}")
-        return _fallback_parse_simple(prompt)
-    except Exception as e:
-        print(f"⚠️ Error in prompt parsing: {e}")
-        return _fallback_parse_simple(prompt)
-
-
-def _fallback_parse_simple(prompt: str) -> Dict[str, str]:
-    """
-    Fallback parser for simple format when LLM is unavailable.
-    """
-    prompt_lower = prompt.lower()
-    
-    job_title = ""
-    company = ""
-    location = ""
-    school = ""
-    
-    # Common company patterns
-    company_keywords = {
-        "Goldman Sachs": ["goldman", "gs"],
-        "Morgan Stanley": ["morgan stanley", "ms"],
-        "JPMorgan Chase": ["jpmorgan", "jpm", "jp morgan"],
-        "McKinsey": ["mckinsey"],
-        "Bain": ["bain"],
-        "BCG": ["bcg", "boston consulting"],
-        "Google": ["google"],
-        "Microsoft": ["microsoft", "msft"],
-        "Amazon": ["amazon"],
-        "Apple": ["apple"],
-        "Meta": ["meta", "facebook"],
-        "Illumina": ["illumina"],
-    }
-    
-    for comp_name, keywords in company_keywords.items():
-        if any(kw in prompt_lower for kw in keywords):
-            company = comp_name
-            break
-    
-    # Common role patterns
-    if "investment banking" in prompt_lower or "ib" in prompt_lower:
-        job_title = "investment banking analyst"
-    elif "software engineer" in prompt_lower or "swe" in prompt_lower:
-        job_title = "software engineer"
-    elif "product manager" in prompt_lower or "pm" in prompt_lower:
-        job_title = "product manager"
-    elif "consultant" in prompt_lower:
-        job_title = "consultant"
-    
-    # Common school patterns
-    school_keywords = {
-        "University of Southern California": ["usc", "southern california"],
-        "New York University": ["nyu", "new york university"],
-        "Stanford University": ["stanford"],
-        "Harvard University": ["harvard"],
-        "MIT": ["mit", "massachusetts institute"],
-        "UC Berkeley": ["cal", "berkeley", "uc berkeley"],
-    }
-    
-    for school_name, keywords in school_keywords.items():
-        if any(kw in prompt_lower for kw in keywords):
-            school = school_name
-            break
-    
-    # Location patterns (very basic)
-    if "new york" in prompt_lower or "nyc" in prompt_lower:
-        location = "New York, NY"
-    elif "san francisco" in prompt_lower or "sf" in prompt_lower:
-        location = "San Francisco, CA"
-    elif "los angeles" in prompt_lower or "la" in prompt_lower:
-        location = "Los Angeles, CA"
-    elif "san diego" in prompt_lower:
-        location = "San Diego, CA"
-    elif "seattle" in prompt_lower:
-        location = "Seattle, WA"
-    elif "boston" in prompt_lower:
-        location = "Boston, MA"
-    elif "chicago" in prompt_lower:
-        location = "Chicago, IL"
-    elif "austin" in prompt_lower:
-        location = "Austin, TX"
-    
-    return {
-        "job_title": job_title,
-        "company": company,
-        "location": location,
-        "school": school
-    }
-

@@ -32,8 +32,8 @@ export function UniversitySelect({
       ? {
           padding: "12px 16px",
           borderRadius: "10px",
-          border: "1px solid rgba(37, 99, 235, 0.12)",
-          background: "#F8FAFF",
+          border: "1px solid rgba(59, 130, 246, 0.12)",
+          background: "#FAFBFF",
           fontFamily: "'DM Sans', system-ui, sans-serif",
           fontSize: "15px",
           color: value ? "#0F172A" : "#64748B",

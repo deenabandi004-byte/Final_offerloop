@@ -139,7 +139,7 @@ const AboutUs = () => {
         </div>
         <nav className="hidden md:flex items-center gap-8">
           <Link to="/pricing" className="nav-link text-sm font-medium relative" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-body)' }}>Pricing</Link>
-          <Link to="/about" className="nav-link text-sm font-medium relative" style={{ color: '#2563EB', fontFamily: 'var(--font-body)' }}>About</Link>
+          <Link to="/about" className="nav-link text-sm font-medium relative" style={{ color: '#3B82F6', fontFamily: 'var(--font-body)' }}>About</Link>
         </nav>
         <div className="hidden md:flex items-center gap-4">
           {user ? (
@@ -147,7 +147,7 @@ const AboutUs = () => {
           ) : (
             <>
               <button onClick={() => navigate('/signin?mode=signin')} className="btn-ghost">Sign in</button>
-              <button onClick={() => navigate('/signin?mode=signup')} className="btn-primary-lg" style={{ background: '#2563EB' }}>Create account</button>
+              <button onClick={() => navigate('/signin?mode=signup')} className="btn-primary-lg" style={{ background: '#3B82F6' }}>Create account</button>
             </>
           )}
         </div>
@@ -167,7 +167,7 @@ const AboutUs = () => {
               ) : (
                 <>
                   <button onClick={() => { navigate('/signin?mode=signin'); setMobileMenuOpen(false); }} className="btn-ghost w-full text-left px-4 py-3">Sign in</button>
-                  <button onClick={() => { navigate('/signin?mode=signup'); setMobileMenuOpen(false); }} className="btn-primary-lg w-full" style={{ background: '#2563EB' }}>Create account</button>
+                  <button onClick={() => { navigate('/signin?mode=signup'); setMobileMenuOpen(false); }} className="btn-primary-lg w-full" style={{ background: '#3B82F6' }}>Create account</button>
                 </>
               )}
             </div>
@@ -182,8 +182,8 @@ const AboutUs = () => {
         <div className="max-w-7xl mx-auto">
           <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(ellipse at center, rgba(37, 99, 235, 0.08) 0%, transparent 70%)', transform: 'scale(1.3)', filter: 'blur(40px)', zIndex: 0 }} />
           <div className="relative z-10 text-center max-w-[780px] mx-auto reveal">
-            <h1 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '52px', fontWeight: 400, letterSpacing: '-0.03em', color: 'var(--text-primary)', marginBottom: '20px', lineHeight: 1.1 }}>
-              Built by students, <span style={{ color: '#2563EB' }}>for students</span>
+            <h1 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '52px', fontWeight: 400, letterSpacing: '-0.03em', color: 'var(--text-primary)', marginBottom: '20px', lineHeight: 1.1 }}>
+              Built by students, <span style={{ color: '#3B82F6' }}>for students</span>
             </h1>
             <p style={{ fontFamily: 'var(--font-body)', fontSize: '17px', lineHeight: 1.7, color: 'var(--text-secondary)', maxWidth: '640px', margin: '0 auto' }}>
               Offerloop was founded in 2025 at the University of Southern California by three students who were frustrated with the manual grind of networking for internships. We built the tool we wished we had.
@@ -195,7 +195,7 @@ const AboutUs = () => {
       {/* Founding Story */}
       <section className="py-[80px] px-6 md:px-12" style={{ background: 'var(--bg-white)' }}>
         <div className="max-w-[640px] mx-auto reveal">
-          <h2 className="text-center mb-8" style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '40px', fontWeight: 400, letterSpacing: '-0.025em', color: 'var(--text-primary)' }}>
+          <h2 className="text-center mb-8" style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '40px', fontWeight: 400, letterSpacing: '-0.025em', color: 'var(--text-primary)' }}>
             Our Story
           </h2>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: '17px', lineHeight: 1.7, color: 'var(--text-secondary)', marginBottom: '24px' }}>
@@ -213,7 +213,7 @@ const AboutUs = () => {
       {/* Team */}
       <section className="py-[80px] px-6 md:px-12" style={{ background: 'var(--bg-off)' }}>
         <div className="max-w-7xl mx-auto">
-          <h2 className="text-center mb-14 reveal" style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '40px', fontWeight: 400, letterSpacing: '-0.025em', color: 'var(--text-primary)' }}>
+          <h2 className="text-center mb-14 reveal" style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '40px', fontWeight: 400, letterSpacing: '-0.025em', color: 'var(--text-primary)' }}>
             Meet the Founders
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-[900px] mx-auto">
@@ -227,14 +227,14 @@ const AboutUs = () => {
                     {founder.name}
                   </h3>
                 </a>
-                <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', fontWeight: 500, color: '#2563EB', marginBottom: '6px' }}>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', fontWeight: 500, color: '#3B82F6', marginBottom: '6px' }}>
                   {founder.role}
                 </p>
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
                   {founder.classYear}
                 </p>
                 <a href={founder.linkedin} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-tertiary)', display: 'inline-block', transition: 'color 0.2s' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = '#2563EB'; }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = '#3B82F6'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
                 >
                   <Linkedin className="w-[18px] h-[18px]" />
@@ -248,7 +248,7 @@ const AboutUs = () => {
       {/* Mission */}
       <section className="py-[80px] px-6 md:px-12" style={{ background: 'var(--bg-white)' }}>
         <div className="max-w-[640px] mx-auto text-center reveal">
-          <h2 className="mb-6" style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '40px', fontWeight: 400, letterSpacing: '-0.025em', color: 'var(--text-primary)' }}>
+          <h2 className="mb-6" style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '40px', fontWeight: 400, letterSpacing: '-0.025em', color: 'var(--text-primary)' }}>
             Our Mission
           </h2>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: '17px', lineHeight: 1.7, color: 'var(--text-secondary)' }}>
@@ -260,13 +260,13 @@ const AboutUs = () => {
       {/* Traction */}
       <section className="py-[80px] px-6 md:px-12" style={{ background: 'var(--bg-off)' }}>
         <div className="max-w-[800px] mx-auto">
-          <h2 className="text-center mb-12 reveal" style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '40px', fontWeight: 400, letterSpacing: '-0.025em', color: 'var(--text-primary)' }}>
+          <h2 className="text-center mb-12 reveal" style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '40px', fontWeight: 400, letterSpacing: '-0.025em', color: 'var(--text-primary)' }}>
             Traction
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-6 reveal">
             {tractionStats.map((stat, i) => (
               <div key={i} className="text-center">
-                <p style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '32px', fontWeight: 400, color: '#2563EB', marginBottom: '4px' }}>
+                <p style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '32px', fontWeight: 400, color: '#3B82F6', marginBottom: '4px' }}>
                   {stat.value}
                 </p>
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: '12px', color: 'var(--text-tertiary)', lineHeight: 1.4 }}>
@@ -292,7 +292,7 @@ const AboutUs = () => {
               { period: 'Now', label: '300+ users, growing daily' },
             ].map((milestone, i) => (
               <div key={i} className="text-center relative flex-1">
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: i === 3 ? '#2563EB' : 'var(--border)', margin: '0 auto 12px' }} />
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: i === 3 ? '#3B82F6' : 'var(--border)', margin: '0 auto 12px' }} />
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>{milestone.period}</p>
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: '13px', color: 'var(--text-tertiary)' }}>{milestone.label}</p>
                 {i < 3 && (
@@ -316,14 +316,14 @@ const AboutUs = () => {
             <p style={{ fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, color: 'var(--text-tertiary)', letterSpacing: '0.02em', marginBottom: 20 }}>
               Join 300+ students from USC, Georgetown, NYU &amp; more
             </p>
-            <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '38px', fontWeight: 400, letterSpacing: '-0.025em', color: 'var(--text-primary)', marginBottom: '12px' }}>
+            <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '38px', fontWeight: 400, letterSpacing: '-0.025em', color: 'var(--text-primary)', marginBottom: '12px' }}>
               Try Offerloop free
             </h2>
             <p style={{ fontFamily: 'var(--font-body)', fontSize: '15px', color: 'var(--text-secondary)', marginBottom: '32px' }}>
               Free to start. Set up in under two minutes.
             </p>
             <div>
-              <button onClick={() => navigate('/signin?mode=signup')} className="btn-primary-lg btn-pulse" style={{ background: '#2563EB' }}>
+              <button onClick={() => navigate('/signin?mode=signup')} className="btn-primary-lg btn-pulse" style={{ background: '#3B82F6' }}>
                 Create free account
               </button>
             </div>

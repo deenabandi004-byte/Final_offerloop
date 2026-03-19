@@ -69,7 +69,7 @@ const Dashboard = () => {
               <Card key={index} className="border-2 hover:border-primary/50 transition-colors">
                 <CardContent className="pt-6">
                   <div className="flex items-start gap-4">
-                    <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <div className="flex-shrink-0 w-12 h-12 rounded-[3px] bg-primary/10 flex items-center justify-center">
                       <feature.icon className="w-6 h-6 text-primary" />
                     </div>
                     <div>
@@ -87,7 +87,7 @@ const Dashboard = () => {
           </div>
 
           {/* CTA Section */}
-          <div className="text-center bg-primary/5 rounded-2xl p-8 border border-primary/20">
+          <div className="text-center bg-primary/5 rounded-[3px] p-8 border border-primary/20">
             <p className="text-lg text-muted-foreground mb-4">
               Stay organized and motivated as you build your professional network and advance your career goals.
             </p>

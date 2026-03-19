@@ -92,7 +92,7 @@ export function ConversationPanel({
                 href={contact.linkedinUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
+                className="inline-flex items-center gap-1 text-xs text-[#3B82F6] hover:text-[#2563EB]"
               >
                 <Linkedin className="w-3 h-3" />
                 LinkedIn
@@ -123,7 +123,7 @@ export function ConversationPanel({
 
         {/* 2. AI Summary */}
         {contact.conversationSummary && (
-          <div className="bg-gray-50 border border-gray-100 rounded-lg p-3">
+          <div className="bg-gray-50 border border-gray-100 rounded-[3px] p-3">
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">
               AI Summary
             </p>
@@ -142,7 +142,7 @@ export function ConversationPanel({
                 {formatTimeAgo(contact.lastActivityAt)}
               </span>
               {contact.lastMessageFrom === "contact" && (
-                <span className="text-[10px] font-medium text-blue-600">They replied</span>
+                <span className="text-[10px] font-medium text-[#3B82F6]">They replied</span>
               )}
               {contact.lastMessageFrom === "user" && (
                 <span className="text-[10px] font-medium text-gray-500">You sent</span>
@@ -181,7 +181,7 @@ export function ConversationPanel({
 
         {/* Sync error */}
         {contact.lastSyncError && (
-          <div className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+          <div className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-[3px] px-3 py-2">
             {contact.lastSyncError.message}
           </div>
         )}
@@ -209,7 +209,7 @@ export function ConversationPanel({
               if (e.target.value) onStageChange(contact.id, e.target.value);
             }}
             disabled={isMutating}
-            className="w-full max-w-[220px] text-sm bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full max-w-[220px] text-sm bg-white border border-gray-200 rounded-[3px] px-2.5 py-1.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/20 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <option value="" disabled>Select stage...</option>
             {STAGE_OPTIONS.map((opt) => (

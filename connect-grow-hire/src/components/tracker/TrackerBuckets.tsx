@@ -110,9 +110,9 @@ export function TrackerBuckets({
         title="Waiting"
         bucket="waiting"
         contacts={waiting}
-        accent="text-blue-600"
-        badgeBg="bg-blue-100"
-        badgeText="text-blue-700"
+        accent="text-[#3B82F6]"
+        badgeBg="bg-[rgba(59,130,246,0.10)]"
+        badgeText="text-[#2563EB]"
         emptyMessage="No emails sent yet — find contacts to reach out to"
         defaultOpen={true}
         selectedContactId={selectedContactId}

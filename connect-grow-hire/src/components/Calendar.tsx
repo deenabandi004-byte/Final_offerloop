@@ -270,11 +270,11 @@ export function Calendar() {
   return (
     <div className="grid grid-cols-12 gap-6 calendar-container">
       {/* Calendar Grid */}
-      <div className="col-span-8 bg-card border border-border rounded-xl overflow-hidden calendar-main">
+      <div className="col-span-8 bg-card border border-border rounded-[3px] overflow-hidden calendar-main">
         <div className="p-4 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-4">
             <h3 className="text-lg font-semibold">{format(currentMonth, 'MMMM yyyy')}</h3>
-            <div className="flex items-center gap-1 bg-background rounded-lg p-1">
+            <div className="flex items-center gap-1 bg-background rounded-[3px] p-1">
               <button
                 onClick={() => setCurrentMonth(new Date())}
                 className="px-3 py-1 text-sm rounded-md transition-all text-text-secondary hover:text-text-primary"
@@ -287,13 +287,13 @@ export function Calendar() {
           <div className="flex items-center gap-2">
             <button
               onClick={handlePreviousMonth}
-              className="w-8 h-8 rounded-lg hover:bg-background flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors"
+              className="w-8 h-8 rounded-[3px] hover:bg-background flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors"
             >
               <ChevronLeft size={18} />
             </button>
             <button
               onClick={handleNextMonth}
-              className="w-8 h-8 rounded-lg hover:bg-background flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors"
+              className="w-8 h-8 rounded-[3px] hover:bg-background flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors"
             >
               <ChevronRight size={18} />
             </button>
@@ -303,7 +303,7 @@ export function Calendar() {
         <div className="p-6">
           {loading ? (
             <div className="flex items-center justify-center h-64">
-              <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+              <Loader2 className="h-6 w-6 animate-spin text-[#3B82F6]" />
             </div>
           ) : (
             <>
@@ -330,7 +330,7 @@ export function Calendar() {
                     <div
                       key={index}
                       onClick={() => handleDayClick(day.date)}
-                      className={`aspect-square p-2 rounded-lg border transition-all cursor-pointer ${
+                      className={`aspect-square p-2 rounded-[3px] border transition-all cursor-pointer ${
                         day.isToday
                           ? 'border-purple bg-purple-soft'
                           : isSelected
@@ -340,7 +340,7 @@ export function Calendar() {
                           : 'border-border-subtle hover:border-border bg-card'
                       }`}
                     >
-                      <div className={`text-sm ${day.isToday || isSelected ? 'text-blue-600 font-medium' : 'text-text-primary'}`}>
+                      <div className={`text-sm ${day.isToday || isSelected ? 'text-[#3B82F6] font-medium' : 'text-text-primary'}`}>
                         {day.date}
                       </div>
                       {day.hasEvent && (
@@ -349,7 +349,7 @@ export function Calendar() {
                         </div>
                       )}
                       {isSelected && dayEvents.length > 0 && (
-                        <div className="mt-1 text-[10px] text-blue-600 font-medium">
+                        <div className="mt-1 text-[10px] text-[#3B82F6] font-medium">
                           {dayEvents.length} event{dayEvents.length > 1 ? 's' : ''}
                         </div>
                       )}
@@ -365,15 +365,15 @@ export function Calendar() {
       {/* Upcoming Events & Reminders */}
       <div className="col-span-4 space-y-6 calendar-sidebar">
         {/* Upcoming Events */}
-        <div className="bg-card border border-border rounded-xl p-6 calendar-upcoming-events">
+        <div className="bg-card border border-border rounded-[3px] p-6 calendar-upcoming-events">
           <div className="flex items-center gap-2 mb-4">
-            <CalendarIcon size={18} className="text-blue-600" />
+            <CalendarIcon size={18} className="text-[#3B82F6]" />
             <h3 className="text-lg font-semibold calendar-upcoming-title">Upcoming Events</h3>
           </div>
           
           {loading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+              <Loader2 className="h-5 w-5 animate-spin text-[#3B82F6]" />
             </div>
           ) : upcomingEvents.length === 0 ? (
             <div className="text-center py-8 text-text-muted text-sm">
@@ -384,13 +384,13 @@ export function Calendar() {
               {upcomingEvents.map((event) => (
                 <div
                   key={event.id}
-                  className="p-3 rounded-lg bg-background border border-border-subtle hover:border-purple transition-all"
+                  className="p-3 rounded-[3px] bg-background border border-border-subtle hover:border-purple transition-all"
                 >
                   <div className="flex items-start justify-between mb-2">
                     <div className="font-medium text-sm flex-1">{event.title}</div>
                     <span className={`px-2 py-0.5 rounded-full text-xs ml-2 ${
                       event.status === 'confirmed'
-                        ? 'bg-blue-500/10 text-blue-500'
+                        ? 'bg-[#3B82F6]/10 text-[#3B82F6]'
                         : event.status === 'pending'
                         ? 'bg-yellow-500/10 text-yellow-500'
                         : 'bg-gray-500/10 text-gray-500'
@@ -406,9 +406,9 @@ export function Calendar() {
                       <Clock size={12} />
                       <span>{formatEventDate(event.date)} • {formatTime(event.time)}</span>
                     </div>
-                    {event.type === 'video' && <Video size={12} className="text-blue-600" />}
-                    {event.type === 'phone' && <Phone size={12} className="text-blue-600" />}
-                    {event.type === 'in-person' && <MapPin size={12} className="text-blue-600" />}
+                    {event.type === 'video' && <Video size={12} className="text-[#3B82F6]" />}
+                    {event.type === 'phone' && <Phone size={12} className="text-[#3B82F6]" />}
+                    {event.type === 'in-person' && <MapPin size={12} className="text-[#3B82F6]" />}
                   </div>
                   
                   <div className="flex items-center gap-2 mt-2">
@@ -442,20 +442,20 @@ export function Calendar() {
           
           <button
             onClick={() => setIsModalOpen(true)}
-            className="w-full mt-4 text-white px-4 py-2 rounded-lg font-medium text-sm shadow-sm transition-all hover:opacity-90 calendar-schedule-btn"
-            style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
+            className="w-full mt-4 text-white px-4 py-2 rounded-[3px] font-medium text-sm shadow-sm transition-all hover:opacity-90 calendar-schedule-btn"
+            style={{ background: 'linear-gradient(135deg, #0F172A, #1E293B)' }}
           >
             Schedule New Chat
           </button>
         </div>
 
         {/* Follow-Up Reminders */}
-        <div className="bg-card border border-border rounded-xl p-6 calendar-followup-reminders">
+        <div className="bg-card border border-border rounded-[3px] p-6 calendar-followup-reminders">
           <h3 className="text-lg font-semibold mb-4 calendar-followup-title">Follow-Up Reminders</h3>
           
           {loading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+              <Loader2 className="h-5 w-5 animate-spin text-[#3B82F6]" />
             </div>
           ) : reminders.length === 0 ? (
             <div className="text-center py-8 text-text-muted text-sm">
@@ -464,7 +464,7 @@ export function Calendar() {
           ) : (
             <div className="space-y-3 calendar-followup-list">
               {reminders.map((reminder) => (
-                <div key={reminder.id} className="p-3 rounded-lg bg-background calendar-followup-item">
+                <div key={reminder.id} className="p-3 rounded-[3px] bg-background calendar-followup-item">
                   <div className="flex items-start gap-2">
                     <div className="w-2 h-2 rounded-full bg-purple-500 mt-1.5 flex-shrink-0"></div>
                     <div className="calendar-followup-content">

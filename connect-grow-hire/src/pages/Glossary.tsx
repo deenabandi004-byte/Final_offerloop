@@ -73,15 +73,15 @@ const Glossary = () => {
       {/* Nav */}
       <nav className="w-full px-6 py-5 flex items-center justify-between" style={{ maxWidth: '1100px', margin: '0 auto' }}>
         <Link to="/" className="text-xl font-bold" style={{ color: '#0F172A', letterSpacing: '-0.02em' }}>Offerloop</Link>
-        <Link to="/signin?mode=signup" className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: '#2563EB' }}>
+        <Link to="/signin?mode=signup" className="px-5 py-2.5 rounded-[3px] text-sm font-semibold text-white" style={{ background: '#3B82F6' }}>
           Get Started Free
         </Link>
       </nav>
 
       {/* Hero */}
       <section className="px-6 pt-16 pb-8" style={{ maxWidth: '800px', margin: '0 auto' }}>
-        <p className="text-sm font-medium mb-4" style={{ color: '#2563EB', letterSpacing: '0.02em' }}>GLOSSARY</p>
-        <h1 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 'clamp(36px, 5vw, 52px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '20px' }}>
+        <p className="text-sm font-medium mb-4" style={{ color: '#3B82F6', letterSpacing: '0.02em' }}>GLOSSARY</p>
+        <h1 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(36px, 5vw, 52px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '20px' }}>
           Recruiting & Networking Glossary
         </h1>
         <p style={{ fontSize: '15px', lineHeight: 1.7, color: '#64748B', maxWidth: '680px' }}>
@@ -97,15 +97,15 @@ const Glossary = () => {
               <a
                 key={letter}
                 href={`#letter-${letter}`}
-                className="w-9 h-9 rounded-lg flex items-center justify-center text-sm font-semibold transition-colors hover:bg-blue-50"
-                style={{ color: '#2563EB', border: '1px solid #E2E8F0' }}
+                className="w-9 h-9 rounded-[3px] flex items-center justify-center text-sm font-semibold transition-colors hover:bg-[#FAFBFF]"
+                style={{ color: '#3B82F6', border: '1px solid #E2E8F0' }}
               >
                 {letter}
               </a>
             ) : (
               <span
                 key={letter}
-                className="w-9 h-9 rounded-lg flex items-center justify-center text-sm"
+                className="w-9 h-9 rounded-[3px] flex items-center justify-center text-sm"
                 style={{ color: '#CBD5E1' }}
               >
                 {letter}
@@ -120,7 +120,7 @@ const Glossary = () => {
         {alphabet.filter(l => activeLetters.has(l)).map(letter => (
           <div key={letter} id={`letter-${letter}`} style={{ marginBottom: '40px' }}>
             <div className="flex items-center gap-3 mb-5">
-              <span className="text-2xl font-bold" style={{ fontFamily: "'Instrument Serif', Georgia, serif", color: '#2563EB' }}>{letter}</span>
+              <span className="text-2xl font-bold" style={{ fontFamily: "'Lora', Georgia, serif", color: '#3B82F6' }}>{letter}</span>
               <div className="flex-1 h-px" style={{ background: '#E2E8F0' }} />
             </div>
             <div className="space-y-6">
@@ -140,9 +140,9 @@ const Glossary = () => {
       </section>
 
       {/* CTA */}
-      <section className="px-6 py-20" style={{ background: '#F8FAFF' }}>
+      <section className="px-6 py-20" style={{ background: '#FAFBFF' }}>
         <div className="text-center" style={{ maxWidth: '520px', margin: '0 auto' }}>
-          <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 'clamp(28px, 4vw, 40px)', fontWeight: 400, lineHeight: 1.15, color: '#0F172A', marginBottom: '16px' }}>
+          <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(28px, 4vw, 40px)', fontWeight: 400, lineHeight: 1.15, color: '#0F172A', marginBottom: '16px' }}>
             Put these terms into practice
           </h2>
           <p style={{ fontSize: '15px', color: '#64748B', marginBottom: '28px' }}>
@@ -150,8 +150,8 @@ const Glossary = () => {
           </p>
           <Link
             to="/signin?mode=signup"
-            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl text-white font-semibold text-base hover:shadow-lg transition-all"
-            style={{ background: '#2563EB' }}
+            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-[3px] text-white font-semibold text-base hover:shadow-lg transition-all"
+            style={{ background: '#3B82F6' }}
           >
             Create free account <ArrowRight className="w-4 h-4" />
           </Link>

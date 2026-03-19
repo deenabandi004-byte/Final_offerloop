@@ -135,27 +135,27 @@ export function ExpandablePrivacyLock() {
                     You can export or delete your information at any time, giving you complete control
                     and peace of mind.
                   </p>
-                  <div className="mt-8 p-6 bg-blue-500/10 border border-blue-500/30 rounded-xl">
-                    <h3 className="text-xl font-semibold text-blue-400 mb-3">Our Commitments:</h3>
+                  <div className="mt-8 p-6 bg-[#3B82F6]/10 border border-[#3B82F6]/30 rounded-[3px]">
+                    <h3 className="text-xl font-semibold text-[#3B82F6] mb-3">Our Commitments:</h3>
                     <ul className="space-y-2 text-gray-300">
                       <li className="flex items-start gap-2">
-                        <span className="text-blue-400 mt-1">✓</span>
+                        <span className="text-[#3B82F6] mt-1">✓</span>
                         <span>End-to-end encryption for all your data</span>
                       </li>
                       <li className="flex items-start gap-2">
-                        <span className="text-blue-400 mt-1">✓</span>
+                        <span className="text-[#3B82F6] mt-1">✓</span>
                         <span>No third-party data sharing or selling</span>
                       </li>
                       <li className="flex items-start gap-2">
-                        <span className="text-blue-400 mt-1">✓</span>
+                        <span className="text-[#3B82F6] mt-1">✓</span>
                         <span>Full data export and deletion capabilities</span>
                       </li>
                       <li className="flex items-start gap-2">
-                        <span className="text-blue-400 mt-1">✓</span>
+                        <span className="text-[#3B82F6] mt-1">✓</span>
                         <span>Secure Google OAuth authentication</span>
                       </li>
                       <li className="flex items-start gap-2">
-                        <span className="text-blue-400 mt-1">✓</span>
+                        <span className="text-[#3B82F6] mt-1">✓</span>
                         <span>GDPR and CCPA compliant</span>
                       </li>
                     </ul>
@@ -210,7 +210,7 @@ export function ExpandablePrivacyLock() {
             
             {/* Pulsing ring effect */}
             <motion.div
-              className="absolute inset-0 rounded-2xl border border-blue-400/30"
+              className="absolute inset-0 rounded-2xl border border-[#3B82F6]/30"
               animate={{
                 scale: [1, 1.12, 1],
                 opacity: [0.35, 0, 0.35],

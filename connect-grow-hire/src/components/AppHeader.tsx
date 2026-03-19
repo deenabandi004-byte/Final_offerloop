@@ -103,7 +103,7 @@ export function AppHeader({
   };
 
   return (
-    <header className="h-16 flex items-center justify-between px-4 lg:px-6 bg-white flex-shrink-0 relative z-20">
+    <header className="h-16 flex items-center justify-between px-4 lg:px-6 bg-[#FFFFFF] flex-shrink-0 relative z-20" style={{ borderBottom: "1px solid #E2E8F0" }}>
       {/* Left Section: Mobile menu, icons, title */}
       <div className="flex items-center gap-2 lg:gap-3">
         <MobileMenuButton />
@@ -114,7 +114,7 @@ export function AppHeader({
             variant="ghost"
             size="icon"
             onClick={startTour}
-            className="h-8 w-8 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+            className="h-8 w-8 text-[#6B7280] hover:bg-[#F8FAFF] hover:text-[#0F172A]"
             aria-label="View tour"
           >
             <BookOpen className="h-5 w-5" />
@@ -124,11 +124,11 @@ export function AppHeader({
               variant="ghost"
               size="icon"
               onClick={handleBellClick}
-              className={`h-8 w-8 hover:bg-gray-100 ${notifications.unreadReplyCount > 0 ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+              className={`h-8 w-8 hover:bg-[#F8FAFF] ${notifications.unreadReplyCount > 0 ? 'text-[#3B82F6]' : 'text-[#6B7280] hover:text-[#0F172A]'}`}
               aria-label="Notifications"
             >
               <div className="relative">
-                <Bell className={`h-5 w-5 ${notifications.unreadReplyCount > 0 ? 'fill-blue-600' : ''}`} />
+                <Bell className={`h-5 w-5 ${notifications.unreadReplyCount > 0 ? 'fill-[#3B82F6]' : ''}`} />
                 {notifications.unreadReplyCount > 0 && (
                   <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[10px] font-medium rounded-full flex items-center justify-center">
                     {notifications.unreadReplyCount > 9 ? '9+' : notifications.unreadReplyCount}
@@ -137,14 +137,14 @@ export function AppHeader({
               </div>
             </Button>
             {dropdownOpen && (
-              <div className="absolute left-0 top-full mt-1 w-[320px] max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-lg border border-gray-100 max-h-80 overflow-hidden flex flex-col z-50">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <div className="absolute left-0 top-full mt-1 w-[320px] max-w-[calc(100vw-2rem)] bg-white rounded-[3px] shadow-lg border border-[#E2E8F0] max-h-80 overflow-hidden flex flex-col z-50">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-[#E2E8F0]">
                   <span className="text-sm font-semibold text-foreground">Notifications</span>
                   {notifications.unreadReplyCount > 0 && (
                     <button
                       type="button"
                       onClick={() => markAllRead()}
-                      className="text-xs text-blue-600 hover:underline"
+                      className="text-xs text-[#3B82F6] hover:underline"
                     >
                       Mark all read
                     </button>
@@ -154,14 +154,14 @@ export function AppHeader({
                   {notifications.items.length === 0 ? (
                     <p className="px-4 py-6 text-sm text-muted-foreground">No notifications yet</p>
                   ) : (
-                    <ul className="divide-y divide-gray-50">
+                    <ul className="divide-y divide-[#EEF2F8]">
                       {notifications.items.map((item) => (
                         <li key={`${item.contactId}-${item.timestamp}`}>
                           <button
                             type="button"
                             onClick={() => handleNotificationClick(item)}
-                            className={`w-full text-left px-4 py-3 transition-colors hover:bg-gray-50 ${
-                              !item.read ? 'bg-blue-50/50' : ''
+                            className={`w-full text-left px-4 py-3 transition-colors hover:bg-[#F8FAFF] ${
+                              !item.read ? 'bg-[#F8FAFF]' : ''
                             }`}
                           >
                             <p className="text-sm font-medium text-foreground">
@@ -188,7 +188,7 @@ export function AppHeader({
             variant="ghost"
             size="icon"
             onClick={handleSettingsClick}
-            className="h-8 w-8 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+            className="h-8 w-8 text-[#6B7280] hover:bg-[#F8FAFF] hover:text-[#0F172A]"
             aria-label="Account settings"
           >
             <Settings className="h-5 w-5" />
@@ -197,8 +197,8 @@ export function AppHeader({
 
         {/* Page Title */}
         <div className="flex items-center gap-2">
-          {titleIcon && <span className="text-gray-600">{titleIcon}</span>}
-          <h1 className="text-lg lg:text-xl font-semibold text-gray-900 truncate max-w-[150px] sm:max-w-none">
+          {titleIcon && <span className="text-[#6B7280]">{titleIcon}</span>}
+          <h1 className="text-lg lg:text-xl font-semibold text-[#0F172A] truncate max-w-[150px] sm:max-w-none font-serif">
             {title}
           </h1>
         </div>

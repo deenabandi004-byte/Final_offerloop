@@ -51,7 +51,7 @@ export function UsageMeter({
           className={`h-2 rounded-full transition-all ${
             isLow
               ? 'bg-orange-500'
-              : 'bg-blue-500'
+              : 'bg-[#3B82F6]'
           }`}
           style={{ width: `${Math.max(0, Math.min(100, percentage))}%` }}
         />

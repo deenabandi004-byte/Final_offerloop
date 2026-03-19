@@ -231,9 +231,9 @@ export const ApplicationLabPanel: React.FC<ApplicationLabPanelProps> = ({
   const visibleRequirements = analysis.job_requirements;
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+    <div className="bg-white rounded-[3px] border border-gray-200 overflow-hidden">
       {/* Header with Score */}
-      <div className="bg-gradient-to-r from-blue-50 to-blue-50 p-4 border-b border-gray-200">
+      <div className="bg-gradient-to-r from-[#FAFBFF] to-[#FAFBFF] p-4 border-b border-gray-200">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="font-semibold text-gray-900">
@@ -244,7 +244,7 @@ export const ApplicationLabPanel: React.FC<ApplicationLabPanelProps> = ({
           <div className="text-right">
             <div className={`text-3xl font-bold ${
               analysis.score >= 80 ? 'text-green-600' :
-              analysis.score >= 60 ? 'text-blue-600' :
+              analysis.score >= 60 ? 'text-[#3B82F6]' :
               analysis.score >= 40 ? 'text-yellow-600' :
               'text-red-600'
             }`}>
@@ -286,7 +286,7 @@ export const ApplicationLabPanel: React.FC<ApplicationLabPanelProps> = ({
             onClick={() => setActiveTab(tab.id as any)}
             className={`flex-1 px-4 py-2 text-sm font-medium transition-colors relative ${
               activeTab === tab.id
-                ? 'border-b-2 border-blue-600 text-blue-600 bg-blue-50'
+                ? 'border-b-2 border-[#3B82F6] text-[#3B82F6] bg-[#FAFBFF]'
                 : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
@@ -301,9 +301,9 @@ export const ApplicationLabPanel: React.FC<ApplicationLabPanelProps> = ({
         {activeTab === 'overview' && (
           <div className="space-y-4">
             {/* Pitch */}
-            <div className="bg-blue-50 rounded-lg p-3">
-              <h4 className="font-medium text-blue-900 mb-1">Your Pitch</h4>
-              <p className="text-blue-800 text-sm">{analysis.pitch}</p>
+            <div className="bg-[#FAFBFF] rounded-[3px] p-3">
+              <h4 className="font-medium text-[#0F172A] mb-1">Your Pitch</h4>
+              <p className="text-[#0F172A] text-sm">{analysis.pitch}</p>
             </div>
 
             {/* Strengths */}
@@ -366,13 +366,13 @@ export const ApplicationLabPanel: React.FC<ApplicationLabPanelProps> = ({
               <h4 className="font-medium text-gray-700 mb-2">Talking Points</h4>
               <ul className="space-y-3">
                 {analysis.talking_points.map((point, i) => (
-                  <li key={i} className="text-sm text-gray-700 border border-gray-200 rounded-lg p-3 bg-gray-50">
+                  <li key={i} className="text-sm text-gray-700 border border-gray-200 rounded-[3px] p-3 bg-gray-50">
                     <div className="font-medium text-gray-900 mb-1">{point.topic}</div>
                     <div className="text-gray-600 mb-2">{point.angle}</div>
                     <div className="text-gray-700 mb-2">
                       <span className="font-medium">Example (STAR):</span> {point.example}
                     </div>
-                    <div className="text-blue-600 text-xs">
+                    <div className="text-[#3B82F6] text-xs">
                       <span className="font-medium">Potential question:</span> {point.potential_question}
                     </div>
                   </li>
@@ -382,7 +382,7 @@ export const ApplicationLabPanel: React.FC<ApplicationLabPanelProps> = ({
 
             {/* Potential Score */}
             {analysis.potential_score_after_edits > analysis.score && (
-              <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-3 border border-green-200">
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-[3px] p-3 border border-green-200">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-green-800">
                     Potential score after edits:
@@ -407,7 +407,7 @@ export const ApplicationLabPanel: React.FC<ApplicationLabPanelProps> = ({
                 {visibleRequirements.map((req, index) => (
                   <div
                     key={index}
-                    className="border border-gray-200 rounded-lg overflow-hidden"
+                    className="border border-gray-200 rounded-[3px] overflow-hidden"
                   >
                     <button
                       onClick={() => toggleRequirement(index)}
@@ -423,7 +423,7 @@ export const ApplicationLabPanel: React.FC<ApplicationLabPanelProps> = ({
                             req.requirement_type === 'required'
                               ? 'bg-red-100 text-red-700'
                               : req.requirement_type === 'preferred'
-                              ? 'bg-blue-100 text-blue-700'
+                              ? 'bg-[rgba(59,130,246,0.10)] text-[#2563EB]'
                               : 'bg-gray-100 text-gray-600'
                           }`}>
                             {req.requirement_type}
@@ -504,7 +504,7 @@ export const ApplicationLabPanel: React.FC<ApplicationLabPanelProps> = ({
           <div className="space-y-3">
             <>
                 {analysis.potential_score_after_edits > analysis.score && (
-                  <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-3 mb-4">
+                  <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-[3px] p-3 mb-4">
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-green-800">
                         Potential score after edits:
@@ -521,13 +521,13 @@ export const ApplicationLabPanel: React.FC<ApplicationLabPanelProps> = ({
 
                 {/* TODO: PDF generation temporarily disabled - rebuild needed */}
                 {false && analysis.resume_edits.length > 0 && (
-                  <div className="bg-blue-50 rounded-lg p-4 mb-4 border border-blue-200">
+                  <div className="bg-[#FAFBFF] rounded-[3px] p-4 mb-4 border border-[#E2E8F0]">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h4 className="font-medium text-blue-900 mb-1">
+                        <h4 className="font-medium text-[#0F172A] mb-1">
                           Generate Complete Edited Resume
                         </h4>
-                        <p className="text-sm text-blue-700">
+                        <p className="text-sm text-[#0F172A]">
                           Apply all {analysis.resume_edits.length} edits and get a formatted resume ready to use
                         </p>
                       </div>
@@ -535,7 +535,7 @@ export const ApplicationLabPanel: React.FC<ApplicationLabPanelProps> = ({
                         <Button
                           onClick={() => handleGenerateEditedResume('pdf')}
                           disabled={isGeneratingResume}
-                          className="bg-blue-600 hover:bg-blue-700"
+                          className="bg-[#0F172A] hover:bg-[#1E293B]"
                         >
                           {isGeneratingResume ? (
                             <Loader2 size={16} className="animate-spin" />
@@ -568,12 +568,12 @@ export const ApplicationLabPanel: React.FC<ApplicationLabPanelProps> = ({
                 {analysis.resume_edits.map((edit) => (
                   <div
                     key={edit.id}
-                    className="border border-gray-200 rounded-lg overflow-hidden"
+                    className="border border-gray-200 rounded-[3px] overflow-hidden"
                   >
                     <div className="p-3">
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          <Edit3 size={16} className="text-blue-500" />
+                          <Edit3 size={16} className="text-[#3B82F6]" />
                           <span className="font-medium text-gray-900">
                             {edit.section}
                             {edit.subsection && (
@@ -586,7 +586,7 @@ export const ApplicationLabPanel: React.FC<ApplicationLabPanelProps> = ({
                         </span>
                       </div>
 
-                      <p className="text-sm text-blue-600 mb-2">{edit.impact}</p>
+                      <p className="text-sm text-[#3B82F6] mb-2">{edit.impact}</p>
 
                       {edit.before_after_preview && (
                         <div className="space-y-2 mb-2">
@@ -610,9 +610,9 @@ export const ApplicationLabPanel: React.FC<ApplicationLabPanelProps> = ({
                       )}
 
                       {!edit.before_after_preview && (
-                        <div className="bg-blue-50 rounded p-2 border border-blue-100 mb-2">
-                          <p className="text-xs text-blue-600 font-medium mb-1">Suggestion:</p>
-                          <p className="text-sm text-blue-800">{edit.suggested_content}</p>
+                        <div className="bg-[#FAFBFF] rounded p-2 border border-[#E2E8F0] mb-2">
+                          <p className="text-xs text-[#3B82F6] font-medium mb-1">Suggestion:</p>
+                          <p className="text-sm text-[#0F172A]">{edit.suggested_content}</p>
                         </div>
                       )}
 
@@ -667,7 +667,7 @@ export const ApplicationLabPanel: React.FC<ApplicationLabPanelProps> = ({
                             ? 'bg-gray-100 text-gray-700'
                             : coverLetter.tone === 'enthusiastic'
                             ? 'bg-orange-100 text-orange-700'
-                            : 'bg-blue-100 text-blue-700'
+                            : 'bg-[rgba(59,130,246,0.10)] text-[#2563EB]'
                         }`}>
                           {coverLetter.tone} tone
                         </span>
@@ -678,7 +678,7 @@ export const ApplicationLabPanel: React.FC<ApplicationLabPanelProps> = ({
                       <Button
                         onClick={() => copyToClipboard(coverLetter.full_text, 'full_letter')}
                         size="sm"
-                        className="bg-blue-600 hover:bg-blue-700"
+                        className="bg-[#0F172A] hover:bg-[#1E293B]"
                       >
                         {copiedText === 'full_letter' ? (
                           <>
@@ -694,12 +694,12 @@ export const ApplicationLabPanel: React.FC<ApplicationLabPanelProps> = ({
                       </Button>
                     </div>
 
-                    <div className="bg-purple-50 rounded-lg p-3 text-sm">
+                    <div className="bg-purple-50 rounded-[3px] p-3 text-sm">
                       <span className="font-medium text-purple-800">Customization: </span>
                       <span className="text-purple-700">{coverLetter.customization_summary}</span>
                     </div>
 
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                    <div className="bg-gray-50 rounded-[3px] p-4 border border-gray-200">
                       <div className="prose prose-sm max-w-none">
                         {coverLetter.full_text.split('\n\n').map((paragraph, i) => (
                           <p key={i} className="text-gray-800 mb-3 last:mb-0">
@@ -722,7 +722,7 @@ export const ApplicationLabPanel: React.FC<ApplicationLabPanelProps> = ({
                     <Button
                       onClick={handleGenerateCoverLetter}
                       disabled={isGeneratingCoverLetter}
-                      className="bg-blue-600 hover:bg-blue-700"
+                      className="bg-[#0F172A] hover:bg-[#1E293B]"
                     >
                       {isGeneratingCoverLetter ? (
                         <>

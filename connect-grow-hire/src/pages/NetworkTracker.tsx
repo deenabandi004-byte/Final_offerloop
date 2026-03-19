@@ -212,7 +212,7 @@ export default function NetworkTracker() {
 
   return (
     <SidebarProvider>
-      <div className="flex h-screen w-full bg-gray-50">
+      <div className="flex h-screen w-full bg-[#FAFBFF]">
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0">
           <AppHeader />
@@ -221,7 +221,7 @@ export default function NetworkTracker() {
             <div className="px-6 pt-5 pb-4 border-b border-gray-100 bg-white flex-shrink-0">
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="text-xl font-bold text-gray-900 tracking-tight">
+                  <h1 className="text-xl font-bold text-[#0F172A] tracking-tight">
                     Network Tracker
                   </h1>
                   <p className="text-sm text-gray-500 mt-0.5">
@@ -230,7 +230,7 @@ export default function NetworkTracker() {
                 </div>
                 <button
                   onClick={handleRefreshAll}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[3px] bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   Refresh
@@ -244,7 +244,7 @@ export default function NetworkTracker() {
                     {searchQuery ? needsAttention.length : statsData?.needsAttentionCount || 0} Needs Attention
                   </span>
                   <span className="text-gray-300">|</span>
-                  <span className="text-blue-600 font-medium">
+                  <span className="text-[#3B82F6] font-medium">
                     {searchQuery ? waiting.length : statsData?.waitingCount || 0} Waiting
                   </span>
                   <span className="text-gray-300">|</span>
@@ -301,7 +301,7 @@ export default function NetworkTracker() {
                         placeholder="Search contacts..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-8 pr-3 py-1.5 text-sm bg-gray-50 border border-gray-100 rounded-lg placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-200"
+                        className="w-full pl-8 pr-3 py-1.5 text-sm bg-gray-50 border border-gray-100 rounded-[3px] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/20 focus:border-[#3B82F6]"
                       />
                     </div>
                   </div>
@@ -324,7 +324,7 @@ export default function NetworkTracker() {
                       {/* Mobile back button */}
                       <button
                         onClick={() => setSelectedContactId(null)}
-                        className="md:hidden px-4 py-2 text-sm text-blue-600 font-medium border-b border-gray-100 w-full text-left"
+                        className="md:hidden px-4 py-2 text-sm text-[#3B82F6] font-medium border-b border-gray-100 w-full text-left"
                       >
                         &larr; Back to list
                       </button>

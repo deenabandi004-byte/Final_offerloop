@@ -9,11 +9,11 @@ import uuid
 import json
 import threading
 import time
+import traceback
 
 from app.extensions import get_db, require_firebase_auth, require_tier
 from app.services.company_search import (
     search_firms,
-    search_firms_structured,
     get_available_industries,
     get_size_options
 )
@@ -76,17 +76,6 @@ def deduct_credits(db, uid, amount):
         return 0
 
 
-def validate_batch_size(tier, batch_size):
-    """Validate batch size for tier according to audit spec."""
-    if tier == 'free':
-        return batch_size == 1, "Free tier allows 1 firm per search"
-    elif tier == 'pro':
-        return 1 <= batch_size <= 5, "Pro tier allows 1-5 firms per search"
-    elif tier == 'elite':
-        return 1 <= batch_size <= 15, "Elite tier allows 1-15 firms per search"
-    else:
-        return False, f"Invalid tier: {tier}"
-
 
 def calculate_firm_search_cost(num_firms):
     """Calculate credit cost for firm search."""
@@ -142,7 +131,10 @@ def search_firms_route():
         
         query = validated_data['query']
         batch_size = validated_data.get('batchSize', 10)
-        
+
+        # Cap batch size server-side (max 15 firms regardless of tier)
+        batch_size = max(1, min(batch_size, 15))
+
         # Get user's tier and credits
         current_credits, tier, max_credits = get_user_credits_and_tier(db, uid)
         
@@ -168,7 +160,6 @@ def search_firms_route():
             result = search_firms(query, limit=batch_size, search_id=search_id)
         except Exception as e:
             print(f"❌ Error calling search_firms: {e}")
-            import traceback
             traceback.print_exc()
             fail_search_progress(search_id, str(e))
             raise ExternalAPIError("Firm Search", f"Search service error: {str(e)}")
@@ -223,16 +214,16 @@ def search_firms_route():
             raise InsufficientCreditsError(actual_credits_to_charge, current_credits)
         
         # Save to history
-        search_id = save_search_to_history(
+        history_id = save_search_to_history(
             uid=uid,
             query=query,
             parsed_filters=result.get('parsedFilters', {}),
             results=firms
         )
-        
+
         print(f"[FirmSearch] Search successful: {actual_firms_returned} firms returned, {actual_credits_to_charge} credits charged")
-        
-        # Mark search as complete
+
+        # Mark search as complete (use original search_id, not history_id)
         complete_search_progress(search_id, step="Search complete!")
         
         response_data = {
@@ -240,7 +231,7 @@ def search_firms_route():
             'firms': firms,
             'total': len(firms),
             'parsedFilters': result.get('parsedFilters'),
-            'searchId': search_id,
+            'searchId': history_id or search_id,
             'batchSize': batch_size,
             'firmsReturned': actual_firms_returned,
             'creditsCharged': actual_credits_to_charge,
@@ -257,7 +248,6 @@ def search_firms_route():
         raise
     except Exception as e:
         print(f"Firm search error: {e}")
-        import traceback
         traceback.print_exc()
         raise OfferloopException(f"Firm search failed: {str(e)}", error_code="FIRM_SEARCH_ERROR")
 
@@ -293,7 +283,40 @@ def get_search_status(search_id):
 
 
 # In-memory store for async search results keyed by search_id
+# Each entry stores (timestamp, result_data) for TTL-based cleanup
 _async_results: dict = {}
+_async_results_lock = threading.Lock()
+_ASYNC_RESULT_TTL = 300  # 5 minutes
+
+
+def _cleanup_stale_results():
+    """Remove async results older than TTL."""
+    now = time.time()
+    with _async_results_lock:
+        stale = [k for k, (ts, _) in _async_results.items() if now - ts > _ASYNC_RESULT_TTL]
+        for k in stale:
+            del _async_results[k]
+
+
+def _store_async_result(search_id: str, data: dict):
+    """Store an async result with timestamp."""
+    _cleanup_stale_results()
+    with _async_results_lock:
+        _async_results[search_id] = (time.time(), data)
+
+
+def _pop_async_result(search_id: str) -> dict | None:
+    """Pop an async result if it exists and hasn't expired."""
+    with _async_results_lock:
+        entry = _async_results.get(search_id)
+        if entry is None:
+            return None
+        ts, data = entry
+        if time.time() - ts > _ASYNC_RESULT_TTL:
+            del _async_results[search_id]
+            return None
+        del _async_results[search_id]
+    return data
 
 
 @firm_search_bp.route('/stream/<search_id>', methods=['GET'])
@@ -333,8 +356,8 @@ def stream_search_progress(search_id):
             progress = get_search_progress(search_id)
             if progress is None:
                 # Check if result arrived (search finished before SSE connected)
-                if search_id in _async_results:
-                    result_data = _async_results.pop(search_id)
+                result_data = _pop_async_result(search_id)
+                if result_data is not None:
                     yield f"event: complete\ndata: {json.dumps(result_data)}\n\n"
                     return
                 yield f"event: error\ndata: {json.dumps({'message': 'Search not found'})}\n\n"
@@ -350,8 +373,8 @@ def stream_search_progress(search_id):
 
             if status == "completed":
                 # Deliver the full result if available
-                if search_id in _async_results:
-                    result_data = _async_results.pop(search_id)
+                result_data = _pop_async_result(search_id)
+                if result_data is not None:
                     yield f"event: complete\ndata: {json.dumps(result_data)}\n\n"
                 else:
                     yield f"event: progress\ndata: {json.dumps(progress)}\n\n"
@@ -400,6 +423,9 @@ def search_firms_async():
         query = validated_data['query']
         batch_size = validated_data.get('batchSize', 10)
 
+        # Cap batch size server-side (max 15 firms regardless of tier)
+        batch_size = max(1, min(batch_size, 15))
+
         # Pre-flight credit check
         current_credits, tier, max_credits_val = get_user_credits_and_tier(db, uid)
         max_credits_needed = calculate_firm_search_cost(batch_size)
@@ -414,16 +440,29 @@ def search_firms_async():
                 result = search_firms(query, limit=batch_size, search_id=search_id)
                 firms = result.get('firms', [])
 
-                if not result.get('success') or not firms:
-                    fail_search_progress(search_id, result.get('error', 'No firms found'))
-                    _async_results[search_id] = {
-                        'success': not result.get('success', True),
+                if not result.get('success'):
+                    fail_search_progress(search_id, result.get('error', 'Search failed'))
+                    _store_async_result(search_id, {
+                        'success': False,
                         'firms': [],
                         'total': 0,
                         'creditsCharged': 0,
                         'remainingCredits': current_credits,
-                        'error': result.get('error', 'No firms found'),
-                    }
+                        'error': result.get('error', 'Search failed'),
+                    })
+                    return
+
+                if not firms:
+                    # Successful search but no results — not a failure
+                    _store_async_result(search_id, {
+                        'success': True,
+                        'firms': [],
+                        'total': 0,
+                        'creditsCharged': 0,
+                        'remainingCredits': current_credits,
+                        'message': 'No firms found matching your search criteria.',
+                    })
+                    complete_search_progress(search_id, step="Search complete!")
                     return
 
                 firms.sort(
@@ -434,14 +473,23 @@ def search_firms_async():
                 ok, new_balance = deduct_credits_atomic(uid, actual_credits, "firm_search")
                 if not ok:
                     fail_search_progress(search_id, "Insufficient credits")
-                    _async_results[search_id] = {'success': False, 'error': 'Insufficient credits'}
+                    # Re-fetch actual balance instead of using stale pre-flight snapshot
+                    current_balance, _, _ = get_user_credits_and_tier(db, uid)
+                    _store_async_result(search_id, {
+                        'success': False,
+                        'error': 'Insufficient credits',
+                        'error_code': 'INSUFFICIENT_CREDITS',
+                        'creditsCharged': 0,
+                        'remainingCredits': current_balance,
+                    })
                     return
 
                 save_search_to_history(uid=uid, query=query,
                                        parsed_filters=result.get('parsedFilters', {}),
                                        results=firms)
-                complete_search_progress(search_id, step="Search complete!")
-                _async_results[search_id] = {
+                # Store result BEFORE marking complete to avoid race condition
+                # where SSE reads completed status but result isn't stored yet
+                _store_async_result(search_id, {
                     'success': True,
                     'firms': firms,
                     'total': len(firms),
@@ -451,10 +499,11 @@ def search_firms_async():
                     'firmsReturned': len(firms),
                     'creditsCharged': actual_credits,
                     'remainingCredits': new_balance,
-                }
+                })
+                complete_search_progress(search_id, step="Search complete!")
             except Exception as exc:
                 fail_search_progress(search_id, str(exc))
-                _async_results[search_id] = {'success': False, 'error': str(exc)}
+                _store_async_result(search_id, {'success': False, 'error': str(exc)})
 
         thread = threading.Thread(target=_run_search, daemon=True)
         thread.start()
@@ -510,7 +559,6 @@ def get_search_history():
     
     except Exception as e:
         print(f"Error getting search history: {e}")
-        import traceback
         traceback.print_exc()
         from app.utils.exceptions import OfferloopException
         raise OfferloopException(f"Failed to load search history: {str(e)}", error_code="FIRM_SEARCH_HISTORY_ERROR")
@@ -538,7 +586,7 @@ def get_search_by_id(search_id):
         return jsonify({
             'success': True,
             'search': {
-                'id': search_data.get('id'),
+                'id': doc.id,
                 'query': search_data.get('query'),
                 'parsedFilters': search_data.get('parsedFilters'),
                 'results': search_data.get('results', []),
@@ -626,9 +674,9 @@ def delete_firm():
         match_attempts = 0
         
         def matches_this_firm(firm):
+            """Match function specific to this deletion request."""
             nonlocal match_attempts
             match_attempts += 1
-            """Match function specific to this deletion request."""
             # PRIORITY 1: Match by ID if provided
             if firm_id:
                 firm_id_value = firm.get('id')
@@ -744,7 +792,6 @@ def delete_firm():
     
     except Exception as e:
         print(f"❌ Error deleting firm: {e}")
-        import traceback
         traceback.print_exc()
         return jsonify({
             'success': False,

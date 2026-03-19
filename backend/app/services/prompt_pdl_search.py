@@ -16,6 +16,8 @@ import time
 import random
 import logging
 import json
+import hashlib
+import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -25,6 +27,41 @@ from app.config import PEOPLE_DATA_LABS_API_KEY, PDL_BASE_URL
 from app.services.pdl_client import clean_company_name
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# P2 FIX: Short-TTL cache for PDL search results (avoids duplicate API calls
+# for identical searches within a few minutes)
+# ---------------------------------------------------------------------------
+_PDL_CACHE: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+_PDL_CACHE_LOCK = threading.Lock()
+_PDL_CACHE_TTL = 300  # 5 minutes
+_PDL_CACHE_MAX_SIZE = 50
+
+
+def _cache_key(query: Dict[str, Any]) -> str:
+    """Deterministic hash of a PDL query for caching."""
+    raw = json.dumps(query, sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _cache_get(key: str) -> Optional[List[Dict[str, Any]]]:
+    with _PDL_CACHE_LOCK:
+        entry = _PDL_CACHE.get(key)
+        if entry and (time.time() - entry[0]) < _PDL_CACHE_TTL:
+            logger.info("[PROMPT_PDL] Cache HIT for key=%s (%d records)", key, len(entry[1]))
+            return entry[1]
+        if entry:
+            del _PDL_CACHE[key]  # expired
+        return None
+
+
+def _cache_set(key: str, records: List[Dict[str, Any]]) -> None:
+    with _PDL_CACHE_LOCK:
+        # Evict oldest entries if cache is full
+        if len(_PDL_CACHE) >= _PDL_CACHE_MAX_SIZE:
+            oldest_key = min(_PDL_CACHE, key=lambda k: _PDL_CACHE[k][0])
+            del _PDL_CACHE[oldest_key]
+        _PDL_CACHE[key] = (time.time(), records)
 
 # -----------------------------
 # Strategies (prompt-search only)
@@ -89,47 +126,65 @@ def _retry_pdl_call(func, max_retries=3, initial_delay=1.0):
 
 def _build_job_clause(job_titles: List[str], strict: bool, require_fallback: bool = False) -> Dict[str, Any]:
     """
-    Build job title clause.
-    Strict: uses match_phrase on first job title.
-    Loose: uses tokenized matches on individual tokens (OR).
-    
+    Build job title clause using ALL title variations (not just the first).
+    Strict: uses match_phrase with should (any title variation matches).
+    Loose: uses tokenized matches on individual tokens (OR) with minimum_should_match.
+
     If require_fallback=True and no job titles provided, returns an "exists" clause
     to ensure we get people with job titles (PDL requires some person filter).
     """
-    if not job_titles:
-        if require_fallback:
-            # Fallback: at least require people have a job title
-            return {"exists": {"field": "job_title"}}
-        return {}
+    # Filter to non-empty titles
+    titles = [t.strip() for t in job_titles if t and t.strip()] if job_titles else []
 
-    primary = job_titles[0].strip()
-    if not primary:
+    if not titles:
         if require_fallback:
             return {"exists": {"field": "job_title"}}
         return {}
 
     if strict:
-        return {"match_phrase": {"job_title": primary}}
+        # Use ALL title variations as should clauses (any one match is sufficient)
+        if len(titles) == 1:
+            return {"match_phrase": {"job_title": titles[0]}}
+        return {
+            "bool": {
+                "should": [{"match_phrase": {"job_title": t}} for t in titles[:8]],
+                "minimum_should_match": 1,
+            }
+        }
 
-    # Loose: split into tokens and match any
+    # Loose: tokenize the primary title but require most tokens to match
+    primary = titles[0]
     tokens = [t.strip() for t in primary.replace(",", " ").split() if t.strip()]
     if not tokens:
         return {"match": {"job_title": primary}}
 
     should = [{"match": {"job_title": t}} for t in tokens[:4]]
+    # Also add other title variations as phrase matches (broadens recall)
+    for t in titles[1:5]:
+        should.append({"match_phrase": {"job_title": t}})
     return {
         "bool": {
             "should": should,
+            "minimum_should_match": max(1, len(tokens) - 1),
         }
     }
+
+
+_INTERNATIONAL_INDICATORS = {
+    "london", "toronto", "mumbai", "bangalore", "berlin", "paris", "tokyo",
+    "singapore", "sydney", "dublin", "amsterdam", "hong kong", "shanghai",
+    "beijing", "seoul", "zurich", "munich", "madrid", "barcelona",
+    "uk", "united kingdom", "canada", "india", "germany", "france", "japan",
+    "australia", "ireland", "netherlands", "china", "south korea", "switzerland",
+    "spain", "brazil", "mexico", "israel", "uae", "dubai",
+}
 
 
 def _build_location_clause(location_values: List[str], strict: bool) -> Dict[str, Any]:
     """
     Prompt-search-only location logic:
     - OR-based locality/metro/region matching (always uses match, never match_phrase)
-    - Only includes country=united states term if location is provided
-    - Strict/loose distinction doesn't affect location - always uses flexible OR matching
+    - P1 FIX: Only adds US country filter for US locations; international searches work correctly
     """
     if not location_values:
         return {}  # Return empty clause if no location provided (allow global search)
@@ -138,15 +193,28 @@ def _build_location_clause(location_values: List[str], strict: bool) -> Dict[str
     if not primary:
         return {"term": {"location_country": "united states"}}
 
-    # Simplified structure - PDL prefers flatter bool queries
-    # Use should for location fields (any one match is fine)
+    # P1 FIX: Detect international locations — don't force US country filter
+    is_international = any(indicator in primary for indicator in _INTERNATIONAL_INDICATORS)
+
+    location_should = [
+        {"match": {"location_metro": primary}},
+        {"match": {"location_locality": primary}},
+        {"match": {"location_region": primary}},
+    ]
+
+    if is_international:
+        # International: also try matching as country name, no US restriction
+        location_should.append({"match": {"location_country": primary}})
+        return {
+            "bool": {
+                "should": location_should,
+            }
+        }
+
+    # US locations: keep the country filter for precision
     return {
         "bool": {
-            "should": [
-                {"match": {"location_metro": primary}},
-                {"match": {"location_locality": primary}},
-                {"match": {"location_region": primary}},
-            ],
+            "should": location_should,
             "must": [
                 {"term": {"location_country": "united states"}},
             ]
@@ -155,13 +223,15 @@ def _build_location_clause(location_values: List[str], strict: bool) -> Dict[str
 
 
 def _build_company_clause(companies: List[str]) -> Dict[str, Any]:
-    """Build company clause with match_phrase only (no loose match). Single clause as must (PDL-friendly)."""
+    """Build company clause with match_phrase. Cleans company name via PDL API for better matching."""
     if not companies:
         return {}
     primary = companies[0].strip()
     if not primary:
         return {}
-    return {"match_phrase": {"job_company_name": primary}}
+    # P1 FIX: Clean company name before querying (e.g. "JP Morgan" → "JPMorgan Chase & Co.")
+    cleaned = clean_company_name(primary)
+    return {"match_phrase": {"job_company_name": cleaned}}
 
 
 def _build_query(
@@ -179,6 +249,7 @@ def _build_query(
     
     # Company handling (check first to know if we need job fallback)
     companies = []
+    has_company_filter = False
     if strategy.get("include_company", True):
         companies = filters.get("company", [])
         if isinstance(companies, str):
@@ -186,7 +257,9 @@ def _build_query(
         company_clause = _build_company_clause(companies)
         if company_clause:
             must_clauses.append(company_clause)
-    
+            has_company_filter = True
+            # Note: job_company_name already refers to the current/primary position in PDL
+
     # Build job clause - use fallback if no company provided (need at least one person filter)
     need_job_fallback = len(must_clauses) == 0  # No company clause added
     job_clause = _build_job_clause(roles, strategy["strict_job_title"], require_fallback=need_job_fallback)
@@ -201,7 +274,22 @@ def _build_query(
         location_clause = _build_location_clause(locations, strategy["strict_location"])
         if location_clause:
             must_clauses.append(location_clause)
-    
+
+    # P3 FIX: Add industry filter when specified
+    industries = filters.get("industries", [])
+    if isinstance(industries, str):
+        industries = [industries]
+    if industries:
+        industry_clauses = [{"match": {"industry": ind.lower().strip()}} for ind in industries if ind and ind.strip()]
+        if industry_clauses:
+            if len(industry_clauses) == 1:
+                must_clauses.append(industry_clauses[0])
+            else:
+                must_clauses.append({"bool": {"should": industry_clauses}})
+
+    # P0 FIX: Only return contacts that have email addresses (avoids paying for unusable contacts)
+    must_clauses.append({"exists": {"field": "emails"}})
+
     # CRITICAL: PDL requires at least one filter - if still empty, add exists filter
     if not must_clauses:
         logger.warning("[PROMPT_PDL] No valid filters - adding fallback exists filter")
@@ -222,8 +310,15 @@ def _build_query(
 def _call_pdl_with_pagination(query: Dict[str, Any], desired_limit: int = 50) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     Execute a PDL person/search call with pagination support.
-    Returns (records, raw_response_json)
+    Returns (records, raw_response_json).
+    Uses short-TTL cache to avoid duplicate API calls for identical queries.
     """
+    # P2 FIX: Check cache first
+    ck = _cache_key(query)
+    cached = _cache_get(ck)
+    if cached is not None:
+        return cached[:desired_limit], {}
+
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
@@ -286,6 +381,9 @@ def _call_pdl_with_pagination(query: Dict[str, Any], desired_limit: int = 50) ->
             if not page_records:
                 break
 
+        # P2 FIX: Cache successful results
+        if all_records:
+            _cache_set(ck, all_records)
         return all_records[:desired_limit], response_data
 
     except requests.exceptions.HTTPError as e:
@@ -498,75 +596,28 @@ def _extract_contact_from_pdl_person(person: Dict[str, Any]) -> Optional[Dict[st
         return None
 
 
-def extract_school_names(profile: Dict[str, Any]) -> List[str]:
-    """Extract school names from a PDL person profile."""
-    schools = []
-    
-    # Check education array
-    edu = profile.get("education", []) or []
-    if not isinstance(edu, list):
-        edu = []
-    
-    for e in edu:
-        if not isinstance(e, dict):
-            continue
-        school_info = e.get("school") or {}
-        if isinstance(school_info, dict):
-            name = school_info.get("name") or school_info.get("display_name") or ""
-            if name:
-                schools.append(str(name).strip())
-    
-    # Check top-level education fields
-    if profile.get("education_school_name"):
-        schools.append(str(profile["education_school_name"]).strip())
-    
-    # Check College field (from contact format)
-    if profile.get("College"):
-        schools.append(str(profile["College"]).strip())
-    
-    return [s for s in schools if s]
-
-
 def is_target_alumni(profile: Dict[str, Any], target_schools: List[str]) -> bool:
     """
     Check if a profile is an alumni of any target school.
-    Uses both PDL person format and contact format.
+    Delegates to the consolidated contact_matches_school in pdl_client.
     """
     if not target_schools:
         return False
-    
-    # Get raw PDL person if available
-    pdl_person = profile.get("_pdl_person") or profile
-    
-    profile_schools = extract_school_names(pdl_person)
-    
-    # Normalize for comparison
-    target_normalized = [ts.lower().strip() for ts in target_schools if ts]
-    profile_normalized = [s.lower().strip() for s in profile_schools if s]
-    
-    # Check for matches (substring or exact)
-    for target in target_normalized:
-        for profile_school in profile_normalized:
-            if target in profile_school or profile_school in target:
-                # Additional validation: prefer degree-granting education
-                edu = pdl_person.get("education", []) or []
-                if isinstance(edu, list):
-                    for e in edu:
-                        if isinstance(e, dict):
-                            school_info = e.get("school") or {}
-                            if isinstance(school_info, dict):
-                                school_name = (school_info.get("name") or "").lower()
-                                if target in school_name or school_name in target:
-                                    # Check for degree indicators
-                                    if e.get("degrees") or e.get("degree") or e.get("end_date"):
-                                        return True
-                                    # Or field of study/major (usually indicates degree)
-                                    if e.get("field_of_study") or e.get("major"):
-                                        return True
-                # Fallback: any match
-                return True
-    
-    return False
+
+    from app.services.pdl_client import _school_aliases, contact_matches_school
+
+    # Get raw PDL person if available (prompt search stores it under _pdl_person)
+    check_target = profile.get("_pdl_person") or profile
+
+    # Build combined aliases for all target schools
+    all_aliases: list[str] = []
+    for school in target_schools:
+        all_aliases.extend(_school_aliases(school))
+
+    if not all_aliases:
+        return False
+
+    return contact_matches_school(check_target, all_aliases, strictness="normal")
 
 
 def rank_results(results: List[Dict[str, Any]], target_schools: List[str]) -> List[Dict[str, Any]]:

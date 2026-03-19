@@ -29,12 +29,12 @@ const ExtensionPrivacyPolicy = () => {
               </button>
 
               {/* Privacy Policy Tabs */}
-              <div className="flex gap-4 mb-6 border-b border-gray-200">
+              <div className="flex gap-4 mb-6 border-b border-[#E2E8F0]">
                 <Link
                   to="/privacy"
                   className={`pb-3 px-1 text-sm font-medium transition-colors ${
                     !isExtensionPrivacy
-                      ? 'text-gray-900 border-b-2 border-gray-900'
+                      ? 'text-[#0F172A] border-b-2 border-[#0F172A]'
                       : 'text-gray-500 hover:text-gray-700'
                   }`}
                 >
@@ -44,7 +44,7 @@ const ExtensionPrivacyPolicy = () => {
                   to="/extension-privacy"
                   className={`pb-3 px-1 text-sm font-medium transition-colors ${
                     isExtensionPrivacy
-                      ? 'text-gray-900 border-b-2 border-gray-900'
+                      ? 'text-[#0F172A] border-b-2 border-[#0F172A]'
                       : 'text-gray-500 hover:text-gray-700'
                   }`}
                 >
@@ -53,7 +53,7 @@ const ExtensionPrivacyPolicy = () => {
               </div>
 
               {/* Page Title */}
-              <h1 className="text-[28px] font-semibold text-gray-900 mb-2">
+              <h1 className="text-[28px] font-semibold text-[#0F172A] mb-2">
                 Privacy Policy — Chrome Extension
               </h1>
               <p className="text-gray-500 text-sm mb-2">
@@ -70,14 +70,14 @@ const ExtensionPrivacyPolicy = () => {
                   uses, and protects your information when you use the Offerloop for LinkedIn Chrome extension
                   (the "Extension"). This policy applies specifically to the Extension. For our full platform
                   privacy policy, please visit{" "}
-                  <Link to="/privacy" className="text-blue-600 hover:underline">offerloop.ai/privacy</Link>.
+                  <Link to="/privacy" className="text-[#3B82F6] hover:underline">offerloop.ai/privacy</Link>.
                 </p>
                 <p className="text-gray-600">
                   By installing and using the Extension, you agree to the practices described in this policy.
                   If you do not agree, please uninstall the Extension.
                 </p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">1. What the Extension Does</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">1. What the Extension Does</h2>
                 <p className="text-gray-600">
                   Offerloop for LinkedIn helps students and job seekers connect with professionals directly
                   from LinkedIn. The Extension allows you to:
@@ -90,9 +90,9 @@ const ExtensionPrivacyPolicy = () => {
                   <li>Generate Interview Prep documents and cover letters from job postings.</li>
                 </ul>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">2. Information We Collect</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">2. Information We Collect</h2>
 
-                <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">a. LinkedIn Page Data</h3>
+                <h3 className="text-base font-semibold text-[#0F172A] mt-6 mb-3">a. LinkedIn Page Data</h3>
                 <p className="text-gray-600">
                   When you click the Extension icon while viewing a LinkedIn profile or job posting, the
                   Extension reads publicly visible information from that page, including:
@@ -107,26 +107,26 @@ const ExtensionPrivacyPolicy = () => {
                   LinkedIn.
                 </p>
 
-                <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">b. Authentication Information</h3>
+                <h3 className="text-base font-semibold text-[#0F172A] mt-6 mb-3">b. Authentication Information</h3>
                 <p className="text-gray-600">
                   When you sign in through the Extension, we collect your Google account email address and
                   basic profile information via Google OAuth (Chrome Identity API). This is used solely for
                   authenticating your Offerloop account.
                 </p>
 
-                <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">c. Locally Stored Data</h3>
+                <h3 className="text-base font-semibold text-[#0F172A] mt-6 mb-3">c. Locally Stored Data</h3>
                 <p className="text-gray-600">
                   The Extension stores your authentication state and user preferences locally in your browser
                   using Chrome's storage API. This data does not leave your device.
                 </p>
 
-                <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">d. Usage and Credit Data</h3>
+                <h3 className="text-base font-semibold text-[#0F172A] mt-6 mb-3">d. Usage and Credit Data</h3>
                 <p className="text-gray-600">
                   We track your credit balance and feature usage (e.g., emails looked up, drafts created) to
                   manage your subscription and enforce plan limits.
                 </p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">3. Information We Do NOT Collect</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">3. Information We Do NOT Collect</h2>
                 <ul className="text-gray-600 list-disc pl-6 space-y-1">
                   <li><strong>Browsing history:</strong> We do not track, collect, or store your general web browsing activity.</li>
                   <li><strong>Non-LinkedIn data:</strong> The Extension does not read content from any website other than LinkedIn.</li>
@@ -134,7 +134,7 @@ const ExtensionPrivacyPolicy = () => {
                   <li><strong>Keystrokes or form data:</strong> We do not capture any input outside of the Extension's own interface.</li>
                 </ul>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">4. How We Use Your Information</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">4. How We Use Your Information</h2>
                 <p className="text-gray-600">We use the information collected through the Extension to:</p>
                 <ul className="text-gray-600 list-disc pl-6 space-y-1">
                   <li>Look up professional email addresses via our backend service (People Data Labs).</li>
@@ -145,7 +145,7 @@ const ExtensionPrivacyPolicy = () => {
                   <li>Track credit usage across your account.</li>
                 </ul>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">5. Third-Party Services</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">5. Third-Party Services</h2>
                 <p className="text-gray-600">
                   The Extension communicates with the following third-party services to deliver its functionality:
                 </p>
@@ -161,7 +161,7 @@ const ExtensionPrivacyPolicy = () => {
                   not sell, rent, or trade your data to any third party.
                 </p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">6. Browser Permissions</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">6. Browser Permissions</h2>
                 <p className="text-gray-600">
                   The Extension requests the following Chrome permissions, limited to what is necessary:
                 </p>
@@ -180,16 +180,16 @@ const ExtensionPrivacyPolicy = () => {
                   backend API server.
                 </p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">7. Remote Code</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">7. Remote Code</h2>
                 <p className="text-gray-600">
                   The Extension loads the Firebase Authentication SDK from Google's official CDN (gstatic.com)
                   to securely handle user authentication. No other remote code is executed.
                 </p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">8. Chrome Web Store User Data Policy Compliance</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">8. Chrome Web Store User Data Policy Compliance</h2>
                 <p className="text-gray-600">
                   The use of information received from Chrome APIs adheres to the{" "}
-                  <a href="https://developer.chrome.com/docs/webstore/program-policies" className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">
+                  <a href="https://developer.chrome.com/docs/webstore/program-policies" className="text-[#3B82F6] hover:underline" target="_blank" rel="noopener noreferrer">
                     Chrome Web Store User Data Policy
                   </a>
                   , including the Limited Use requirements. Specifically:
@@ -201,7 +201,7 @@ const ExtensionPrivacyPolicy = () => {
                   <li><strong>No human access:</strong> Humans do not read user data except: (a) with your explicit consent for support purposes, (b) for security or abuse investigation, (c) to comply with applicable law, or (d) when data is aggregated and anonymized for internal operations.</li>
                 </ul>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">9. Data Security</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">9. Data Security</h2>
                 <p className="text-gray-600">We protect your data through:</p>
                 <ul className="text-gray-600 list-disc pl-6 space-y-1">
                   <li><strong>Encryption in transit:</strong> All data transmitted between the Extension, our servers, and third-party services uses TLS (HTTPS).</li>
@@ -210,14 +210,14 @@ const ExtensionPrivacyPolicy = () => {
                   <li><strong>Minimal data retention:</strong> We retain only what is necessary to provide the service.</li>
                 </ul>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">10. Data Retention</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">10. Data Retention</h2>
                 <ul className="text-gray-600 list-disc pl-6 space-y-1">
                   <li><strong>Locally stored data</strong> (authentication state, preferences) persists until you uninstall the Extension or clear Chrome storage.</li>
                   <li><strong>Server-side data</strong> (contacts saved, outreach history, credit usage) is retained as long as your Offerloop account is active.</li>
                   <li><strong>Deletion requests</strong> are honored within 30 days, except where retention is legally required.</li>
                 </ul>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">11. Your Rights</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">11. Your Rights</h2>
                 <p className="text-gray-600">Depending on your jurisdiction, you may:</p>
                 <ul className="text-gray-600 list-disc pl-6 space-y-1">
                   <li>Request access to the personal data we hold about you.</li>
@@ -228,38 +228,38 @@ const ExtensionPrivacyPolicy = () => {
                 </ul>
                 <p className="text-gray-600">
                   To exercise any of these rights, contact us at{" "}
-                  <a href="mailto:privacy@offerloop.ai" className="text-blue-600 hover:underline">privacy@offerloop.ai</a>.
+                  <a href="mailto:privacy@offerloop.ai" className="text-[#3B82F6] hover:underline">privacy@offerloop.ai</a>.
                 </p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">12. Revoking Access</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">12. Revoking Access</h2>
                 <p className="text-gray-600">
                   You may uninstall the Extension at any time by visiting{" "}
                   <code className="text-sm bg-gray-100 px-1 rounded">chrome://extensions</code> in your browser.
                   Upon uninstallation, all data stored locally by the Extension is automatically removed. To
                   request deletion of data stored on our servers, contact{" "}
-                  <a href="mailto:privacy@offerloop.ai" className="text-blue-600 hover:underline">privacy@offerloop.ai</a>.
+                  <a href="mailto:privacy@offerloop.ai" className="text-[#3B82F6] hover:underline">privacy@offerloop.ai</a>.
                 </p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">13. Children's Privacy</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">13. Children's Privacy</h2>
                 <p className="text-gray-600">
                   The Extension is not intended for use by anyone under the age of 13 (or 16 in certain
                   jurisdictions). We do not knowingly collect data from children. If we discover such data has
                   been collected, it will be deleted promptly.
                 </p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">14. Changes to This Policy</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">14. Changes to This Policy</h2>
                 <p className="text-gray-600">
                   We may update this Privacy Policy from time to time. Updates are effective immediately once
                   posted with a new "Last Updated" date. We encourage you to review this policy periodically.
                 </p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">15. Contact Us</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">15. Contact Us</h2>
                 <p className="text-gray-600">
                   If you have questions or concerns about this Privacy Policy or the Extension's data practices:
                 </p>
                 <ul className="text-gray-600 list-disc pl-6 space-y-1">
-                  <li><a href="mailto:support@offerloop.ai" className="text-blue-600 hover:underline">support@offerloop.ai</a> (general inquiries)</li>
-                  <li><a href="mailto:privacy@offerloop.ai" className="text-blue-600 hover:underline">privacy@offerloop.ai</a> (privacy and data protection)</li>
+                  <li><a href="mailto:support@offerloop.ai" className="text-[#3B82F6] hover:underline">support@offerloop.ai</a> (general inquiries)</li>
+                  <li><a href="mailto:privacy@offerloop.ai" className="text-[#3B82F6] hover:underline">privacy@offerloop.ai</a> (privacy and data protection)</li>
                 </ul>
 
                 <p className="text-gray-500 text-sm mt-10 italic">

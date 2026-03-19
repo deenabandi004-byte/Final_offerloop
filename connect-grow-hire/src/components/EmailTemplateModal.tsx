@@ -161,8 +161,8 @@ export const EmailTemplateModal: React.FC<EmailTemplateModalProps> = ({
                   className={cn(
                     "px-3 py-2 rounded-lg border text-sm font-medium transition-colors",
                     purpose === opt.id
-                      ? "bg-blue-600 text-white border-blue-600"
-                      : "bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:bg-blue-50"
+                      ? "bg-[#0F172A] text-white border-[#0F172A]"
+                      : "bg-white text-gray-700 border-gray-200 hover:border-[#3B82F6] hover:bg-[#FAFBFF]"
                   )}
                 >
                   {opt.name}
@@ -175,8 +175,8 @@ export const EmailTemplateModal: React.FC<EmailTemplateModalProps> = ({
                 className={cn(
                   "px-3 py-2 rounded-lg border text-sm font-medium transition-colors",
                   purpose === CUSTOM_PURPOSE_ID
-                    ? "bg-blue-600 text-white border-blue-600"
-                    : "bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:bg-blue-50"
+                    ? "bg-[#0F172A] text-white border-[#0F172A]"
+                    : "bg-white text-gray-700 border-gray-200 hover:border-[#3B82F6] hover:bg-[#FAFBFF]"
                 )}
               >
                 Custom purpose
@@ -205,8 +205,8 @@ export const EmailTemplateModal: React.FC<EmailTemplateModalProps> = ({
                   className={cn(
                     "px-3 py-2 rounded-lg border text-sm font-medium transition-colors",
                     stylePreset === opt.id
-                      ? "bg-blue-600 text-white border-blue-600"
-                      : "bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:bg-blue-50"
+                      ? "bg-[#0F172A] text-white border-[#0F172A]"
+                      : "bg-white text-gray-700 border-gray-200 hover:border-[#3B82F6] hover:bg-[#FAFBFF]"
                   )}
                 >
                   {opt.name}
@@ -262,7 +262,7 @@ export const EmailTemplateModal: React.FC<EmailTemplateModalProps> = ({
                     onClick={() => { setSignoffPhrase(preset); setSignoffPhraseCustom(""); }}
                     className={cn(
                       "px-3 py-1.5 text-xs font-medium rounded-full border",
-                      signoffPhrase === preset ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-white border-gray-200"
+                      signoffPhrase === preset ? "bg-[#FAFBFF] text-[#0F172A] border-[#E2E8F0]" : "bg-white border-gray-200"
                     )}
                   >
                     {preset}
@@ -273,7 +273,7 @@ export const EmailTemplateModal: React.FC<EmailTemplateModalProps> = ({
                   onClick={() => setSignoffPhrase("custom")}
                   className={cn(
                     "px-3 py-1.5 text-xs font-medium rounded-full border",
-                    signoffPhrase === "custom" ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-white border-gray-200"
+                    signoffPhrase === "custom" ? "bg-[#FAFBFF] text-[#0F172A] border-[#E2E8F0]" : "bg-white border-gray-200"
                   )}
                 >
                   Custom

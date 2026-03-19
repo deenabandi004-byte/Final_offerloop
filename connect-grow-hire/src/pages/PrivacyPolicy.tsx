@@ -29,12 +29,12 @@ const PrivacyPolicy = () => {
               </button>
 
               {/* Privacy Policy Tabs */}
-              <div className="flex gap-4 mb-6 border-b border-gray-200">
+              <div className="flex gap-4 mb-6 border-b border-[#E2E8F0]">
                 <Link
                   to="/privacy"
                   className={`pb-3 px-1 text-sm font-medium transition-colors ${
                     !isExtensionPrivacy
-                      ? 'text-gray-900 border-b-2 border-gray-900'
+                      ? 'text-[#0F172A] border-b-2 border-[#0F172A]'
                       : 'text-gray-500 hover:text-gray-700'
                   }`}
                 >
@@ -44,7 +44,7 @@ const PrivacyPolicy = () => {
                   to="/extension-privacy"
                   className={`pb-3 px-1 text-sm font-medium transition-colors ${
                     isExtensionPrivacy
-                      ? 'text-gray-900 border-b-2 border-gray-900'
+                      ? 'text-[#0F172A] border-b-2 border-[#0F172A]'
                       : 'text-gray-500 hover:text-gray-700'
                   }`}
                 >
@@ -53,7 +53,7 @@ const PrivacyPolicy = () => {
               </div>
 
               {/* Page Title */}
-              <h1 className="text-[28px] font-semibold text-gray-900 mb-2">
+              <h1 className="text-[28px] font-semibold text-[#0F172A] mb-2">
                 Privacy Policy
               </h1>
               <p className="text-gray-500 text-sm mb-8">
@@ -74,10 +74,10 @@ const PrivacyPolicy = () => {
                   periodically to remain informed.
                 </p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">1. Information We Collect</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">1. Information We Collect</h2>
                 <p className="text-gray-600">We may collect information about you in the following ways, depending on how you use the Services:</p>
 
-                <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">a. Personal Data You Provide to Us</h3>
+                <h3 className="text-base font-semibold text-[#0F172A] mt-6 mb-3">a. Personal Data You Provide to Us</h3>
                 <p className="text-gray-600">
                   <strong>Account Information:</strong> When you register for an account, we collect your name, email
                   address, and authentication information from your chosen provider (e.g., Google ID or Microsoft ID,
@@ -94,7 +94,7 @@ const PrivacyPolicy = () => {
                   contacts, and any content you generate within our performance-tracking modules.
                 </p>
 
-                <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">b. Data Related to Your Use of the Services</h3>
+                <h3 className="text-base font-semibold text-[#0F172A] mt-6 mb-3">b. Data Related to Your Use of the Services</h3>
                 <p className="text-gray-600">
                   <strong>Contact and Professional Information:</strong> Information about professionals you connect
                   with through Offerloop.ai, including names, positions, companies, contact details, and any notes or
@@ -121,7 +121,7 @@ const PrivacyPolicy = () => {
                   response rates, meeting conversions, template effectiveness, and connection growth.
                 </p>
 
-                <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">c. Information from Third-Party Services</h3>
+                <h3 className="text-base font-semibold text-[#0F172A] mt-6 mb-3">c. Information from Third-Party Services</h3>
                 <p className="text-gray-600">
                   <strong>Authentication (Firebase with Google/Microsoft):</strong> When registering or logging in, we
                   receive your name, email, profile picture, and authentication token. Encrypted access/refresh tokens
@@ -147,7 +147,7 @@ const PrivacyPolicy = () => {
                   contact information to supplement your searches and improve connection opportunities.
                 </p>
 
-                <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">d. Technical &amp; Usage Data</h3>
+                <h3 className="text-base font-semibold text-[#0F172A] mt-6 mb-3">d. Technical &amp; Usage Data</h3>
                 <p className="text-gray-600">
                   <strong>Device &amp; Connection Info:</strong> IP address, browser type, device type, OS, and related
                   metadata.
@@ -157,7 +157,7 @@ const PrivacyPolicy = () => {
                   the Services.
                 </p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">2. How We Use Your Information</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">2. How We Use Your Information</h2>
                 <ul className="text-gray-600 list-disc pl-6 space-y-1">
                   <li>Create and manage your account.</li>
                   <li>
@@ -173,7 +173,7 @@ const PrivacyPolicy = () => {
                   <li>Ensure compliance with privacy and anti-spam laws such as GDPR, CCPA, and CAN-SPAM.</li>
                 </ul>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">3. Legal Bases for Processing (GDPR)</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">3. Legal Bases for Processing (GDPR)</h2>
                 <ul className="text-gray-600 list-disc pl-6 space-y-1">
                   <li>
                     <strong>Consent:</strong> When you provide explicit consent (e.g., connecting your Google account).
@@ -193,7 +193,7 @@ const PrivacyPolicy = () => {
                   </li>
                 </ul>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">4. Security Measures</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">4. Security Measures</h2>
                 <ul className="text-gray-600 list-disc pl-6 space-y-1">
                   <li>
                     <strong>Encryption in Transit &amp; At Rest:</strong> TLS (HTTPS) for data in motion; AES-256 for
@@ -210,7 +210,7 @@ const PrivacyPolicy = () => {
                   </li>
                 </ul>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">5. Disclosure of Your Information</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">5. Disclosure of Your Information</h2>
                 <ul className="text-gray-600 list-disc pl-6 space-y-1">
                   <li>
                     <strong>By Law / Protection of Rights:</strong> As required to comply with law, legal process, or
@@ -240,7 +240,7 @@ const PrivacyPolicy = () => {
                   </li>
                 </ul>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">6. Google API Services User Data Policy</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">6. Google API Services User Data Policy</h2>
                 <p className="text-gray-600">
                   Offerloop.ai's use and transfer of information received from Google APIs strictly adheres to the
                   Google API Services User Data Policy, including the Limited Use requirements. Specifically:
@@ -269,7 +269,7 @@ const PrivacyPolicy = () => {
                   </li>
                 </ul>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">7. Data Retention</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">7. Data Retention</h2>
                 <ul className="text-gray-600 list-disc pl-6 space-y-1">
                   <li>
                     <strong>Account Data:</strong> Stored as long as your account is active.
@@ -291,7 +291,7 @@ const PrivacyPolicy = () => {
                   </li>
                 </ul>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">8. Your Rights &amp; Choices</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">8. Your Rights &amp; Choices</h2>
                 <p className="text-gray-600">Depending on your jurisdiction, you may request:</p>
                 <ul className="text-gray-600 list-disc pl-6 space-y-1">
                   <li>Access to personal data we hold.</li>
@@ -307,18 +307,18 @@ const PrivacyPolicy = () => {
                   </li>
                 </ul>
                 <p className="text-gray-600">
-                  Requests may be made via <a href="mailto:privacy@offerloop.ai" className="text-blue-600 hover:underline">privacy@offerloop.ai</a> or{" "}
-                  <a href="mailto:support@offerloop.ai" className="text-blue-600 hover:underline">support@offerloop.ai</a>.
+                  Requests may be made via <a href="mailto:privacy@offerloop.ai" className="text-[#3B82F6] hover:underline">privacy@offerloop.ai</a> or{" "}
+                  <a href="mailto:support@offerloop.ai" className="text-[#3B82F6] hover:underline">support@offerloop.ai</a>.
                 </p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">9. Chrome Extension ("Offerloop for LinkedIn")</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">9. Chrome Extension ("Offerloop for LinkedIn")</h2>
                 <p className="text-gray-600">
                   Our Chrome browser extension ("Offerloop for LinkedIn") provides additional functionality on
                   LinkedIn. This section explains what data the extension accesses, how it is used, and how it
                   complies with Chrome Web Store policies.
                 </p>
 
-                <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">a. Browser Permissions</h3>
+                <h3 className="text-base font-semibold text-[#0F172A] mt-6 mb-3">a. Browser Permissions</h3>
                 <p className="text-gray-600">The extension requests the following Chrome permissions, each limited to what is necessary for its features:</p>
                 <ul className="text-gray-600 list-disc pl-6 space-y-1">
                   <li><strong>tabs</strong> — Detects when you are viewing a LinkedIn profile or job posting so the extension can activate relevant features.</li>
@@ -333,7 +333,7 @@ const PrivacyPolicy = () => {
                   Host permissions are limited to <code className="text-sm bg-gray-100 px-1 rounded">https://*.linkedin.com/*</code> (to read LinkedIn page content) and our backend server (to process requests).
                 </p>
 
-                <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">b. Data the Extension Collects</h3>
+                <h3 className="text-base font-semibold text-[#0F172A] mt-6 mb-3">b. Data the Extension Collects</h3>
                 <p className="text-gray-600">
                   <strong>LinkedIn Profile &amp; Job Page Data:</strong> When you click the extension icon on a LinkedIn
                   page, the extension reads publicly visible information from that page — such as the person's name,
@@ -350,7 +350,7 @@ const PrivacyPolicy = () => {
                   browser using Chrome's storage API. This data never leaves your device.
                 </p>
 
-                <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">c. How Extension Data Is Used</h3>
+                <h3 className="text-base font-semibold text-[#0F172A] mt-6 mb-3">c. How Extension Data Is Used</h3>
                 <ul className="text-gray-600 list-disc pl-6 space-y-1">
                   <li>Looking up professional email addresses via our backend (People Data Labs).</li>
                   <li>Generating personalized outreach emails using AI (OpenAI).</li>
@@ -360,7 +360,7 @@ const PrivacyPolicy = () => {
                   <li>Tracking your credit usage and subscription status.</li>
                 </ul>
 
-                <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">d. What the Extension Does NOT Do</h3>
+                <h3 className="text-base font-semibold text-[#0F172A] mt-6 mb-3">d. What the Extension Does NOT Do</h3>
                 <ul className="text-gray-600 list-disc pl-6 space-y-1">
                   <li>Does not track or store your general browsing history.</li>
                   <li>Does not collect data from any website other than LinkedIn.</li>
@@ -370,10 +370,10 @@ const PrivacyPolicy = () => {
                   <li>Does not use data to train general AI or machine learning models.</li>
                 </ul>
 
-                <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">e. Chrome Web Store User Data Policy Compliance</h3>
+                <h3 className="text-base font-semibold text-[#0F172A] mt-6 mb-3">e. Chrome Web Store User Data Policy Compliance</h3>
                 <p className="text-gray-600">
                   Offerloop for LinkedIn's use of data complies with the{" "}
-                  <a href="https://developer.chrome.com/docs/webstore/program-policies" className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">
+                  <a href="https://developer.chrome.com/docs/webstore/program-policies" className="text-[#3B82F6] hover:underline" target="_blank" rel="noopener noreferrer">
                     Chrome Web Store User Data Policy
                   </a>
                   , including the Limited Use requirements. Specifically:
@@ -385,39 +385,39 @@ const PrivacyPolicy = () => {
                   <li>Humans do not read user data except (a) with your explicit consent for support purposes, (b) for security or abuse investigation, (c) to comply with applicable law, or (d) when aggregated and anonymized for internal operations.</li>
                 </ul>
 
-                <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">f. Remote Code</h3>
+                <h3 className="text-base font-semibold text-[#0F172A] mt-6 mb-3">f. Remote Code</h3>
                 <p className="text-gray-600">
                   The extension loads the Firebase Authentication SDK from Google's official CDN
                   (gstatic.com) to securely handle user authentication. No other remote code is loaded.
                 </p>
 
-                <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">g. Revoking Extension Access</h3>
+                <h3 className="text-base font-semibold text-[#0F172A] mt-6 mb-3">g. Revoking Extension Access</h3>
                 <p className="text-gray-600">
                   You may uninstall the extension at any time from <code className="text-sm bg-gray-100 px-1 rounded">chrome://extensions</code>. Upon
                   uninstallation, all locally stored data is automatically removed. To request deletion of data
                   stored on our servers, contact us at{" "}
-                  <a href="mailto:privacy@offerloop.ai" className="text-blue-600 hover:underline">privacy@offerloop.ai</a>.
+                  <a href="mailto:privacy@offerloop.ai" className="text-[#3B82F6] hover:underline">privacy@offerloop.ai</a>.
                 </p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">10. Children's Privacy</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">10. Children's Privacy</h2>
                 <p className="text-gray-600">
                   The Services are not intended for children under 13 (or 16 in certain regions). We do not knowingly
                   collect data from children under these ages. If such data is discovered, it will be deleted promptly.
                 </p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">11. International Data Transfers</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">11. International Data Transfers</h2>
                 <p className="text-gray-600">
                   Your information may be stored on servers located outside your home country (e.g., via Render and
                   Firebase Hosting). By using the Services, you consent to international transfers as permitted by law.
                 </p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">12. Third-Party Websites &amp; Services</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">12. Third-Party Websites &amp; Services</h2>
                 <p className="text-gray-600">
                   Our Services may link to third-party sites (LinkedIn, Stripe, AI providers, etc.). We are not
                   responsible for their practices; please review their privacy policies separately.
                 </p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">13. Cookies &amp; Tracking Technologies</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">13. Cookies &amp; Tracking Technologies</h2>
                 <p className="text-gray-600">We use:</p>
                 <ul className="text-gray-600 list-disc pl-6 space-y-1">
                   <li><strong>Session Cookies</strong> for secure navigation.</li>
@@ -427,24 +427,24 @@ const PrivacyPolicy = () => {
                 </ul>
                 <p className="text-gray-600">You may disable cookies in browser settings, though this may impact functionality.</p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">14. Service Availability Disclaimer</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">14. Service Availability Disclaimer</h2>
                 <p className="text-gray-600">
                   The Services may rely on third-party infrastructure providers (e.g., Firebase, Render, OpenAI). While
                   we use industry-standard practices to maintain availability, we cannot guarantee uninterrupted or
                   error-free operation, and availability may depend on those providers.
                 </p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">15. Changes to This Policy</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">15. Changes to This Policy</h2>
                 <p className="text-gray-600">
                   We may update this Privacy Policy periodically. Updates are effective immediately once posted with a
                   new "Last Updated" date.
                 </p>
 
-                <h2 className="text-lg font-semibold text-gray-900 mt-8 mb-4">16. Contact Us</h2>
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">16. Contact Us</h2>
                 <p className="text-gray-600">If you have questions or concerns about this Privacy Policy, please contact us:</p>
                 <ul className="text-gray-600 list-disc pl-6 space-y-1">
-                  <li><a href="mailto:support@offerloop.ai" className="text-blue-600 hover:underline">support@offerloop.ai</a> (general inquiries)</li>
-                  <li><a href="mailto:privacy@offerloop.ai" className="text-blue-600 hover:underline">privacy@offerloop.ai</a> (privacy and data protection inquiries)</li>
+                  <li><a href="mailto:support@offerloop.ai" className="text-[#3B82F6] hover:underline">support@offerloop.ai</a> (general inquiries)</li>
+                  <li><a href="mailto:privacy@offerloop.ai" className="text-[#3B82F6] hover:underline">privacy@offerloop.ai</a> (privacy and data protection inquiries)</li>
                 </ul>
               </div>
             </div>

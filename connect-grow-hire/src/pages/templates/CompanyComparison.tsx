@@ -123,16 +123,16 @@ const CompanyComparison = ({ companyA, companyB }: Props) => {
       {/* Nav */}
       <nav className="w-full px-6 py-5 flex items-center justify-between" style={{ maxWidth: '1100px', margin: '0 auto' }}>
         <Link to="/" className="text-xl font-bold" style={{ color: '#0F172A', letterSpacing: '-0.02em' }}>Offerloop</Link>
-        <Link to="/signin?mode=signup" className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: '#2563EB' }}>
+        <Link to="/signin?mode=signup" className="px-5 py-2.5 rounded-[3px] text-sm font-semibold text-white" style={{ background: '#3B82F6' }}>
           Get Started Free
         </Link>
       </nav>
 
       {/* Hero */}
       <section className="px-6 pt-16 pb-12" style={{ maxWidth: '800px', margin: '0 auto' }}>
-        <p className="text-sm font-medium mb-4" style={{ color: '#2563EB', letterSpacing: '0.02em' }}>COMPANY COMPARISON</p>
-        <h1 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 'clamp(36px, 5vw, 56px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '20px' }}>
-          <span style={{ color: '#2563EB' }}>{a.name}</span> vs <span style={{ color: '#2563EB' }}>{b.name}</span> -- Networking and Recruiting Guide for Students
+        <p className="text-sm font-medium mb-4" style={{ color: '#3B82F6', letterSpacing: '0.02em' }}>COMPANY COMPARISON</p>
+        <h1 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(36px, 5vw, 56px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '20px' }}>
+          <span style={{ color: '#3B82F6' }}>{a.name}</span> vs <span style={{ color: '#3B82F6' }}>{b.name}</span> -- Networking and Recruiting Guide for Students
         </h1>
         <p style={{ fontSize: '17px', lineHeight: 1.7, color: '#64748B', maxWidth: '620px' }}>
           A side-by-side comparison for college students deciding where to focus their networking energy
@@ -141,17 +141,17 @@ const CompanyComparison = ({ companyA, companyB }: Props) => {
 
       {/* Comparison Table */}
       <section className="px-6 pb-8" style={{ maxWidth: '800px', margin: '0 auto' }}>
-        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid #E2E8F0' }}>
+        <div className="rounded-[3px] overflow-hidden" style={{ border: '1px solid #E2E8F0' }}>
           {/* Header */}
-          <div className="grid grid-cols-3" style={{ background: '#F8FAFF' }}>
+          <div className="grid grid-cols-3" style={{ background: '#FAFBFF' }}>
             <div className="p-4">
               <p className="text-xs font-medium" style={{ color: '#94A3B8' }}>Category</p>
             </div>
             <div className="p-4" style={{ borderLeft: '1px solid #E2E8F0' }}>
-              <p className="text-sm font-semibold" style={{ color: '#2563EB' }}>{a.name}</p>
+              <p className="text-sm font-semibold" style={{ color: '#3B82F6' }}>{a.name}</p>
             </div>
             <div className="p-4" style={{ borderLeft: '1px solid #E2E8F0' }}>
-              <p className="text-sm font-semibold" style={{ color: '#2563EB' }}>{b.name}</p>
+              <p className="text-sm font-semibold" style={{ color: '#3B82F6' }}>{b.name}</p>
             </div>
           </div>
           {/* Rows */}
@@ -173,7 +173,7 @@ const CompanyComparison = ({ companyA, companyB }: Props) => {
 
       {/* Networking at Company A */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           Networking at {a.name}
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
@@ -186,7 +186,7 @@ const CompanyComparison = ({ companyA, companyB }: Props) => {
 
       {/* Networking at Company B */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           Networking at {b.name}
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
@@ -199,23 +199,23 @@ const CompanyComparison = ({ companyA, companyB }: Props) => {
 
       {/* Which Should You Target First? */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           Which Should You Target First?
         </h2>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
           The answer depends on your background, interests, and where you are in the recruiting cycle. Here is a simple framework:
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-          <div className="rounded-xl p-5" style={{ border: '1px solid #E2E8F0', background: '#FAFBFE' }}>
-            <p className="text-sm font-semibold mb-3" style={{ color: '#2563EB' }}>Choose {a.name} first if:</p>
+          <div className="rounded-[3px] p-5" style={{ border: '1px solid #E2E8F0', background: '#FAFBFF' }}>
+            <p className="text-sm font-semibold mb-3" style={{ color: '#3B82F6' }}>Choose {a.name} first if:</p>
             <ul className="space-y-2">
               <li className="text-sm" style={{ color: '#475569', lineHeight: 1.6 }}>You are drawn to a culture that is {a.culture.split(', ').slice(0, 2).join(' and ')}</li>
               <li className="text-sm" style={{ color: '#475569', lineHeight: 1.6 }}>You have alumni connections at {a.name}</li>
               <li className="text-sm" style={{ color: '#475569', lineHeight: 1.6 }}>You are interested in {a.divisions[0]} specifically</li>
             </ul>
           </div>
-          <div className="rounded-xl p-5" style={{ border: '1px solid #E2E8F0', background: '#FAFBFE' }}>
-            <p className="text-sm font-semibold mb-3" style={{ color: '#2563EB' }}>Choose {b.name} first if:</p>
+          <div className="rounded-[3px] p-5" style={{ border: '1px solid #E2E8F0', background: '#FAFBFF' }}>
+            <p className="text-sm font-semibold mb-3" style={{ color: '#3B82F6' }}>Choose {b.name} first if:</p>
             <ul className="space-y-2">
               <li className="text-sm" style={{ color: '#475569', lineHeight: 1.6 }}>You prefer a culture that is {b.culture.split(', ').slice(0, 2).join(' and ')}</li>
               <li className="text-sm" style={{ color: '#475569', lineHeight: 1.6 }}>You have alumni connections at {b.name}</li>
@@ -230,12 +230,12 @@ const CompanyComparison = ({ companyA, companyB }: Props) => {
 
       {/* Cold Email Templates for Both */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
           Cold Email Templates for Both
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="rounded-xl p-6" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
-            <p className="text-sm font-semibold mb-3" style={{ color: '#2563EB' }}>Email to {a.name}</p>
+          <div className="rounded-[3px] p-6" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+            <p className="text-sm font-semibold mb-3" style={{ color: '#3B82F6' }}>Email to {a.name}</p>
             <div style={{ fontSize: '13px', lineHeight: 1.7, color: '#334155' }}>
               <p style={{ marginBottom: '4px' }}><strong>Subject:</strong> [University] student, question about {a.name}'s {a.divisions[0]}</p>
               <p style={{ marginBottom: '10px', color: '#94A3B8', fontSize: '12px' }}>___</p>
@@ -250,8 +250,8 @@ const CompanyComparison = ({ companyA, companyB }: Props) => {
               <p>Best,<br />[Your Name]</p>
             </div>
           </div>
-          <div className="rounded-xl p-6" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
-            <p className="text-sm font-semibold mb-3" style={{ color: '#2563EB' }}>Email to {b.name}</p>
+          <div className="rounded-[3px] p-6" style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+            <p className="text-sm font-semibold mb-3" style={{ color: '#3B82F6' }}>Email to {b.name}</p>
             <div style={{ fontSize: '13px', lineHeight: 1.7, color: '#334155' }}>
               <p style={{ marginBottom: '4px' }}><strong>Subject:</strong> [University] student, question about {b.name}'s {b.divisions[0]}</p>
               <p style={{ marginBottom: '10px', color: '#94A3B8', fontSize: '12px' }}>___</p>
@@ -284,19 +284,19 @@ const CompanyComparison = ({ companyA, companyB }: Props) => {
       <section className="px-6 py-16" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
         <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '24px', color: '#0F172A' }}>Related Resources</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Link to={`/networking/${a.slug}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+          <Link to={`/networking/${a.slug}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#3B82F6')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
             <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>{a.name} Networking Guide</p>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Full networking playbook for {a.name}.</p>
           </Link>
-          <Link to={`/networking/${b.slug}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+          <Link to={`/networking/${b.slug}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#3B82F6')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
             <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>{b.name} Networking Guide</p>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Full networking playbook for {b.name}.</p>
           </Link>
-          <Link to={`/coffee-chat/${a.slug}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+          <Link to={`/coffee-chat/${a.slug}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#3B82F6')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
             <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>{a.name} Coffee Chat Guide</p>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Prep questions and follow-up templates.</p>
           </Link>
-          <Link to={`/coffee-chat/${b.slug}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+          <Link to={`/coffee-chat/${b.slug}`} style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#3B82F6')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
             <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>{b.name} Coffee Chat Guide</p>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Prep questions and follow-up templates.</p>
           </Link>
@@ -304,9 +304,9 @@ const CompanyComparison = ({ companyA, companyB }: Props) => {
       </section>
 
       {/* CTA */}
-      <section className="px-6 py-20" style={{ background: '#F8FAFF' }}>
+      <section className="px-6 py-20" style={{ background: '#FAFBFF' }}>
         <div className="text-center" style={{ maxWidth: '560px', margin: '0 auto' }}>
-          <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 'clamp(28px, 4vw, 40px)', fontWeight: 400, lineHeight: 1.15, color: '#0F172A', marginBottom: '16px' }}>
+          <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(28px, 4vw, 40px)', fontWeight: 400, lineHeight: 1.15, color: '#0F172A', marginBottom: '16px' }}>
             Find contacts at both {a.name} and {b.name} with Offerloop
           </h2>
           <p style={{ fontSize: '15px', color: '#64748B', marginBottom: '28px' }}>
@@ -314,8 +314,8 @@ const CompanyComparison = ({ companyA, companyB }: Props) => {
           </p>
           <Link
             to="/signin?mode=signup"
-            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl text-white font-semibold text-base hover:shadow-lg transition-all"
-            style={{ background: '#2563EB' }}
+            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-[3px] text-white font-semibold text-base hover:shadow-lg transition-all"
+            style={{ background: '#3B82F6' }}
           >
             Get started free <ArrowRight className="w-4 h-4" />
           </Link>

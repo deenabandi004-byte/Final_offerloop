@@ -151,13 +151,13 @@ export function LibraryTab({
           {entries.map((entry) => (
             <div
               key={entry.id}
-              className={`border rounded-xl p-4 bg-white transition-colors ${
-                previewEntryId === entry.id ? 'border-blue-400 ring-1 ring-blue-400/20' : 'border-gray-200 hover:border-gray-300'
+              className={`border rounded-[3px] p-4 bg-white transition-colors ${
+                previewEntryId === entry.id ? 'border-[#3B82F6] ring-1 ring-[#3B82F6]/20' : 'border-gray-200 hover:border-gray-300'
               }`}
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-start gap-3 flex-1 min-w-0">
-                  <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <div className="w-10 h-10 bg-gray-100 rounded-[3px] flex items-center justify-center flex-shrink-0">
                     <FileText className="h-5 w-5 text-gray-600" />
                   </div>
                   <div className="min-w-0">

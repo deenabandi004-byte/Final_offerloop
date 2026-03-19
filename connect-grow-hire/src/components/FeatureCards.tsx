@@ -170,7 +170,7 @@ const FeatureCards: React.FC = () => {
           return (
             <div
               key={`card-${index}`}
-              className="glass-card rounded-2xl overflow-hidden"
+              className="glass-card rounded-[3px] overflow-hidden"
               style={{
                 position: 'absolute',
                 top: 0,
@@ -211,7 +211,7 @@ const FeatureCards: React.FC = () => {
                       <React.Fragment key={i}>
                         {part}
                         {i < arr.length - 1 && (
-                          <span className="font-bold text-blue-600">
+                          <span className="font-bold text-[#3B82F6]">
                             {card.headerEmphasis}
                           </span>
                         )}
@@ -245,7 +245,7 @@ const FeatureCards: React.FC = () => {
                     <div className="w-full h-full relative">
                       {/* Background layer for depth effect */}
                       <div 
-                        className="absolute inset-0 rounded-xl bg-slate-200"
+                        className="absolute inset-0 rounded-[3px] bg-slate-200"
                         style={{
                           transform: 'translate(3px, 3px)',
                           opacity: 0.3,
@@ -255,7 +255,7 @@ const FeatureCards: React.FC = () => {
                       />
                       {/* Main screenshot container with shadow/glow */}
                       <div 
-                        className="w-full h-full rounded-xl overflow-hidden bg-slate-100 flex items-center justify-center relative z-10"
+                        className="w-full h-full rounded-[3px] overflow-hidden bg-slate-100 flex items-center justify-center relative z-10"
                         style={{
                           boxShadow: '0 8px 32px rgba(59, 130, 246, 0.15), 0 4px 16px rgba(0, 0, 0, 0.1)',
                         }}
@@ -263,7 +263,7 @@ const FeatureCards: React.FC = () => {
                         <img 
                           src={card.image} 
                           alt={card.header} 
-                          className="max-w-full max-h-full object-contain rounded-xl"
+                          className="max-w-full max-h-full object-contain rounded-[3px]"
                           style={{
                             opacity: isActive ? 1 : 0,
                             transform: isActive ? 'scale(1)' : 'scale(0.95)',
@@ -273,7 +273,7 @@ const FeatureCards: React.FC = () => {
                       </div>
                     </div>
                   ) : (
-                    <div className="w-full h-full bg-slate-100 rounded-xl flex items-center justify-center">
+                    <div className="w-full h-full bg-slate-100 rounded-[3px] flex items-center justify-center">
                       <span className="text-slate-400 text-sm font-medium">
                         Screenshot {card.number}
                       </span>

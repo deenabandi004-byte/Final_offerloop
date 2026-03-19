@@ -331,7 +331,7 @@ export function ScoutSidePanel() {
                       />
                     </div>
                     <div className="flex-1 max-w-[85%]">
-                      <div className="bg-gray-100 rounded-2xl rounded-tl-md px-4 py-3">
+                      <div className="bg-gray-100 rounded-[3px] rounded-tl-md px-4 py-3">
                         <p className="text-sm text-gray-900 leading-relaxed">
                           {searchHelpResponse.message}
                         </p>
@@ -343,9 +343,9 @@ export function ScoutSidePanel() {
                           {searchHelpResponse.suggestions.map((suggestion, idx) => (
                             <div 
                               key={idx}
-                              className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-xl border border-blue-100"
+                              className="flex items-center gap-2 px-3 py-2 bg-[#FAFBFF] rounded-xl border border-[#EEF2F8]"
                             >
-                              <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 text-xs font-medium flex items-center justify-center">
+                              <span className="w-5 h-5 rounded-full bg-[rgba(59,130,246,0.10)] text-[#3B82F6] text-xs font-medium flex items-center justify-center">
                                 {idx + 1}
                               </span>
                               <span className="text-sm text-gray-800">{suggestion}</span>
@@ -358,7 +358,7 @@ export function ScoutSidePanel() {
                       <div className="mt-4">
                         <button
                           onClick={handleContinue}
-                          className="px-4 py-2 rounded-xl bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 transition-colors"
+                          className="px-4 py-2 rounded-xl bg-[#0F172A] text-white text-sm font-medium hover:bg-[#1E293B] transition-colors"
                         >
                           Continue
                         </button>
@@ -408,7 +408,7 @@ export function ScoutSidePanel() {
                           />
                         </div>
                         <div className="max-w-[85%]">
-                          <div className="bg-gray-100 rounded-2xl rounded-tl-md px-4 py-3">
+                          <div className="bg-gray-100 rounded-[3px] rounded-tl-md px-4 py-3">
                             <p className="text-sm text-gray-900 leading-relaxed">
                               Need help finding people, companies, or something else?
                             </p>
@@ -422,7 +422,7 @@ export function ScoutSidePanel() {
                           <button
                             key={idx}
                             onClick={() => handleSuggestionClick(question)}
-                            className="text-left px-3 py-2.5 rounded-xl bg-white border border-gray-200 hover:border-blue-300 hover:bg-blue-50/50 text-sm text-gray-700 transition-colors"
+                            className="text-left px-3 py-2.5 rounded-xl bg-white border border-gray-200 hover:border-[#3B82F6] hover:bg-[#FAFBFF]/50 text-sm text-gray-700 transition-colors"
                           >
                             {question}
                           </button>
@@ -454,7 +454,7 @@ export function ScoutSidePanel() {
                                 />
                               </div>
                               <div className="flex flex-col gap-2">
-                                <div className="bg-gray-100 rounded-2xl rounded-tl-md px-4 py-3">
+                                <div className="bg-gray-100 rounded-[3px] rounded-tl-md px-4 py-3">
                                   <div
                                     className="text-sm text-gray-900 leading-relaxed"
                                     dangerouslySetInnerHTML={{ __html: formatMessage(message.content) }}
@@ -465,7 +465,7 @@ export function ScoutSidePanel() {
                                 {message.navigate_to && (
                                   <button
                                     onClick={() => handleNavigate(message.navigate_to!, message.auto_populate)}
-                                    className="self-start px-4 py-2 rounded-xl bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 transition-colors"
+                                    className="self-start px-4 py-2 rounded-xl bg-[#0F172A] text-white text-sm font-medium hover:bg-[#1E293B] transition-colors"
                                   >
                                     Take me there
                                   </button>
@@ -490,7 +490,7 @@ export function ScoutSidePanel() {
                           ) : (
                             // User message - no avatar, right aligned
                             <div className="max-w-[85%]">
-                              <div className="bg-blue-500 text-white rounded-2xl rounded-tr-md px-4 py-3">
+                              <div className="bg-[#0F172A] text-white rounded-[3px] rounded-tr-md px-4 py-3">
                                 <p className="text-sm leading-relaxed">
                                   {message.content}
                                 </p>
@@ -514,7 +514,7 @@ export function ScoutSidePanel() {
                               style={{ transform: 'scale(1.05)' }}
                             />
                           </div>
-                          <div className="bg-gray-100 rounded-2xl rounded-tl-md px-4 py-3">
+                          <div className="bg-gray-100 rounded-[3px] rounded-tl-md px-4 py-3">
                             <div className="flex items-center gap-2 text-gray-500">
                               <Loader2 className="h-4 w-4 animate-spin" />
                               <span className="text-sm">{SCOUT_LOADING_MESSAGES[Math.floor(Math.random() * SCOUT_LOADING_MESSAGES.length)]}</span>
@@ -540,13 +540,13 @@ export function ScoutSidePanel() {
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder="Ask Scout anything..."
-                    className="w-full pl-4 pr-12 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full pl-4 pr-12 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent"
                     disabled={isLoading}
                   />
                   <button
                     onClick={() => sendMessage()}
                     disabled={!input.trim() || isLoading}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg text-white bg-[#0F172A] hover:bg-[#1E293B] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                     aria-label="Send message"
                   >
                     {isLoading ? (

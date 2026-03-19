@@ -597,269 +597,393 @@ const CoffeeChatPrepPage: React.FC = () => {
           <AppHeader title="" />
 
           <ProGate title="Coffee Chat Prep" description="Get AI-generated talking points, background research, and conversation starters for any professional — just paste their LinkedIn." videoId="D1--4aVisho">
-          <main data-tour="tour-coffee-chat-prep" style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }}>
-            <div className="max-w-4xl mx-auto px-3 py-6 sm:px-6 sm:py-12">
-              
-              {/* Header Section */}
-              <div className="w-full px-3 py-6 sm:px-6 sm:py-12 !pb-0" style={{ maxWidth: '900px', margin: '0 auto' }}>
-                <h1
-                  className="text-[28px] sm:text-[42px]"
-                  style={{
-                    fontFamily: "'Instrument Serif', Georgia, serif",
-                    fontWeight: 400,
-                    letterSpacing: '-0.025em',
-                    color: '#0F172A',
-                    textAlign: 'center',
-                    marginBottom: '10px',
-                    lineHeight: 1.1,
-                  }}
-                >
+          <main data-tour="tour-coffee-chat-prep" style={{ background: '#FFFFFF', flex: 1, overflowY: 'auto' }}>
+
+            <div style={{ maxWidth: 640, margin: '0 auto', padding: '0 40px' }}>
+
+              {/* ── Book-aesthetic page header ── */}
+              <div style={{ marginBottom: 32, paddingTop: 44 }}>
+                <span style={{
+                  fontFamily: "'Lora', Georgia, serif",
+                  fontStyle: 'italic',
+                  fontSize: 11,
+                  color: '#93C5FD',
+                  letterSpacing: '.02em',
+                  display: 'block',
+                  marginBottom: 6,
+                }}>Chapter III</span>
+                <h1 style={{
+                  fontSize: 28,
+                  fontWeight: 700,
+                  color: '#0F172A',
+                  letterSpacing: '-.02em',
+                  lineHeight: 1.2,
+                  marginBottom: 10,
+                  fontFamily: "'Lora', Georgia, serif",
+                }}>
                   Coffee Chat Prep
                 </h1>
-                <p
-                  style={{
-                    fontFamily: "'DM Sans', system-ui, sans-serif",
-                    fontSize: '16px',
-                    color: '#64748B',
-                    textAlign: 'center',
-                    marginBottom: '28px',
-                    lineHeight: 1.5,
-                  }}
-                >
-                  Paste a LinkedIn URL and get a personalized prep sheet with talking points, recent news, and smart questions.
+                <div style={{
+                  height: 1.5,
+                  background: 'linear-gradient(90deg, #2563EB, #60A5FA, transparent)',
+                  marginBottom: 10,
+                }} />
+                <p style={{
+                  fontFamily: "'Lora', Georgia, serif",
+                  fontStyle: 'italic',
+                  fontSize: 14,
+                  color: '#6B7280',
+                  lineHeight: 1.6,
+                }}>
+                  Paste a LinkedIn URL and get a personalized prep sheet with company intel, talking points, and smart questions.
                 </p>
               </div>
 
-              {/* Animated underline tabs — matches Find page StripeTabs */}
-              <div className="flex justify-center mb-9">
-              <div className="relative">
-                <div className="flex items-center gap-8">
-                  {coffeeChatTabs.map((tab, index) => (
-                    <button
-                      key={tab.id}
-                      ref={(el) => { tabRefs.current[index] = el; }}
-                      onClick={() => setActiveTab(tab.id)}
-                      className={`
-                        relative pb-2.5 text-sm transition-colors duration-150 flex items-center gap-1.5
-                        focus:outline-none focus-visible:outline-none
-                        ${activeTab === tab.id
-                          ? 'text-gray-900 font-bold'
-                          : 'text-gray-400 hover:text-gray-700 font-medium'
-                        }
-                      `}
-                    >
-                      <tab.icon className="w-4 h-4" />
-                      {tab.label}
-                    </button>
-                  ))}
+              {/* ── Search area (no card wrapper) ── */}
+              <div style={{ marginBottom: 32 }}>
+                {!hasAccess && (
+                  <div style={{ marginBottom: 16 }}>
+                    <UpgradeBanner
+                      hasExhaustedLimit={!hasMonthlyAccess}
+                      hasEnoughCredits={hasEnoughCredits}
+                      currentUsage={currentUsage}
+                      limit={limit}
+                      tier={tier}
+                      requiredCredits={COFFEE_CHAT_CREDITS}
+                      currentCredits={effectiveUser.credits ?? 0}
+                      featureName="Coffee Chat Preps"
+                      nextTier={subscription?.tier === 'free' ? 'Pro' : 'Elite'}
+                      showUpgradeButton={!hasMonthlyAccess || !hasEnoughCredits}
+                    />
+                  </div>
+                )}
+
+                {/* Input row */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '8px 0',
+                  borderBottom: '1.5px solid #CBD5E1',
+                  transition: 'border-color .15s',
+                  marginBottom: 12,
+                }}
+                className="focus-within:border-b-[#3B82F6]"
+                >
+                  <Linkedin style={{ width: 16, height: 16, flexShrink: 0, color: '#94A3B8' }} />
+                  <input
+                    type="url"
+                    value={linkedinUrl}
+                    onChange={(e) => setLinkedinUrl(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCoffeeChatSubmit(); } }}
+                    placeholder="Paste a LinkedIn profile URL..."
+                    disabled={coffeeChatLoading || !hasAccess}
+                    style={{
+                      flex: 1,
+                      border: 'none',
+                      background: 'none',
+                      fontSize: 14,
+                      color: '#0F172A',
+                      outline: 'none',
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                  {linkedinUrl && isValidLinkedInUrl(linkedinUrl) && (
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: 4,
+                      background: '#DCFCE7', color: '#15803D',
+                      fontSize: 11, fontWeight: 500, padding: '3px 8px',
+                      borderRadius: 100, whiteSpace: 'nowrap',
+                    }}>
+                      <CheckCircle className="h-2.5 w-2.5" />
+                      Valid
+                    </div>
+                  )}
                 </div>
-                {/* Full-width divider line */}
-                <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gray-200" />
-                {/* Animated underline indicator */}
-                <div
-                  className="absolute bottom-0 h-[2px] bg-gray-900 transition-all duration-200 ease-out"
-                  style={{ left: indicatorStyle.left, width: indicatorStyle.width }}
-                />
-              </div>
+
+                {linkedinUrl && !isValidLinkedInUrl(linkedinUrl) && linkedinUrl.length > 10 && (
+                  <p className="text-xs text-red-500 flex items-center gap-1 mb-3">
+                    <AlertCircle className="w-3 h-3" /> Please enter a valid LinkedIn profile URL
+                  </p>
+                )}
+
+                {/* CTA */}
+                <button
+                  onClick={handleCoffeeChatSubmit}
+                  disabled={!linkedinUrl.trim() || coffeeChatLoading || !hasAccess || (effectiveUser.credits ?? 0) < COFFEE_CHAT_CREDITS}
+                  style={{
+                    width: '100%',
+                    height: 46,
+                    borderRadius: 3,
+                    background: (!linkedinUrl.trim() || coffeeChatLoading || !hasAccess) ? '#E2E8F0' : '#0F172A',
+                    color: (!linkedinUrl.trim() || coffeeChatLoading || !hasAccess) ? '#94A3B8' : '#DBEAFE',
+                    border: 'none',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    cursor: (!linkedinUrl.trim() || coffeeChatLoading || !hasAccess) ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    transition: 'all .15s',
+                    fontFamily: 'inherit',
+                    letterSpacing: '-.01em',
+                  }}
+                >
+                  {coffeeChatLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Generating prep sheet...</span>
+                    </>
+                  ) : (
+                    <span>Generate Prep Sheet</span>
+                  )}
+                </button>
+
+                {/* Meta row */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, color: '#94A3B8' }}>{COFFEE_CHAT_CREDITS} credits · PDF auto-saved</span>
+                  {subscription?.resumeFileName ? (
+                    <button
+                      onClick={() => navigate('/settings')}
+                      style={{
+                        fontSize: 11, color: '#16A34A', fontWeight: 500,
+                        display: 'flex', alignItems: 'center', gap: 3,
+                        background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                      }}
+                    >
+                      <CheckCircle className="w-3 h-3" />
+                      {subscription.resumeFileName}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => navigate('/settings')}
+                      style={{
+                        fontSize: 11, color: '#3B82F6', fontWeight: 500,
+                        display: 'flex', alignItems: 'center', gap: 3,
+                        background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                      }}
+                    >
+                      <Upload className="w-3 h-3" />
+                      Add resume for personalized questions
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <div className="flex justify-center mb-6">
-                <VideoDemo videoId="D1--4aVisho" />
+              {/* ── Tabs ── */}
+              <div style={{ marginBottom: 28 }}>
+                <div className="relative">
+                  <div className="flex items-center gap-8">
+                    {coffeeChatTabs.map((tab, index) => (
+                      <button
+                        key={tab.id}
+                        ref={(el) => { tabRefs.current[index] = el; }}
+                        onClick={() => setActiveTab(tab.id)}
+                        style={{ color: activeTab === tab.id ? '#0F172A' : '#94A3B8' }}
+                        className={`
+                          relative pb-2.5 text-sm transition-colors duration-150 flex items-center gap-1.5
+                          focus:outline-none focus-visible:outline-none
+                          ${activeTab === tab.id
+                            ? 'font-bold'
+                            : 'font-medium'
+                          }
+                        `}
+                      >
+                        <tab.icon className="w-4 h-4" />
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="absolute bottom-0 left-0 right-0 h-[1px]" style={{ background: '#E2E8F0' }} />
+                  <div
+                    className="absolute bottom-0 h-[2px] transition-all duration-200 ease-out" style={{ background: '#0F172A' }}
+                    style={{ left: indicatorStyle.left, width: indicatorStyle.width }}
+                  />
+                </div>
               </div>
 
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
 
                 {/* COFFEE CHAT PREP TAB */}
                 <TabsContent value="coffee-chat-prep" className="mt-0">
-                  {!hasAccess && (
-                    <div className="mb-6 animate-fadeInUp" style={{ animationDelay: '150ms' }}>
-                      <UpgradeBanner
-                        hasExhaustedLimit={!hasMonthlyAccess}
-                        hasEnoughCredits={hasEnoughCredits}
-                        currentUsage={currentUsage}
-                        limit={limit}
-                        tier={tier}
-                        requiredCredits={COFFEE_CHAT_CREDITS}
-                        currentCredits={effectiveUser.credits ?? 0}
-                        featureName="Coffee Chat Preps"
-                        nextTier={subscription?.tier === 'free' ? 'Pro' : 'Elite'}
-                        showUpgradeButton={!hasMonthlyAccess || !hasEnoughCredits}
-                      />
-                    </div>
-                  )}
-
-                  <div className="animate-fadeInUp" style={{ animationDelay: '200ms' }}>
-                      {/* Enhanced URL Input with Integrated Button */}
-                      <div className="max-w-2xl mx-auto">
-                        <div className="relative flex items-center group">
-                          {/* LinkedIn icon inside input */}
-                          <div className="absolute left-3 pointer-events-none">
-                            <Linkedin className="w-4 h-4 text-gray-400 group-focus-within:text-blue-600 transition-colors" />
-                          </div>
-
-                          <input
-                            type="url"
-                            value={linkedinUrl}
-                            onChange={(e) => setLinkedinUrl(e.target.value)}
-                            placeholder="https://linkedin.com/in/username"
-                            disabled={coffeeChatLoading || !hasAccess}
-                            className="w-full pl-10 pr-36 h-[46px] text-[13.5px] border border-gray-200 rounded-xl
-                                       text-gray-900 placeholder-gray-300 bg-white
-                                       hover:border-gray-300
-                                       focus:border-blue-300 focus:ring-2 focus:ring-blue-400/10
-                                       transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-                          />
-                          
-                          {/* Button inside input */}
-                          <button
-                            onClick={handleCoffeeChatSubmit}
-                            disabled={!linkedinUrl.trim() || coffeeChatLoading || !hasAccess || (effectiveUser.credits ?? 0) < COFFEE_CHAT_CREDITS}
-                            className={`
-                              absolute right-2 px-5 py-2 rounded-full font-semibold text-sm
-                              flex items-center gap-2 transition-all duration-150
-                              ${linkedinUrl.trim() && !coffeeChatLoading && hasAccess
-                                ? 'bg-blue-600 text-white shadow-md hover:shadow-lg hover:scale-[1.02]'
-                                : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                              }
-                            `}
-                          >
-                            {coffeeChatLoading ? (
-                              <>
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                Generating...
-                              </>
-                            ) : (
-                              <>
-                                Generate Prep
-                              </>
-                            )}
-                          </button>
-                        </div>
-                        
-                        {/* Validation + helper — 2 lines max */}
-                        <div className="text-center mt-2 space-y-0.5">
-                          {linkedinUrl && !isValidLinkedInUrl(linkedinUrl) && linkedinUrl.length > 10 ? (
-                            <p className="text-xs text-red-500 flex items-center justify-center gap-1">
-                              <AlertCircle className="w-3 h-3" /> Please enter a valid LinkedIn profile URL
-                            </p>
-                          ) : linkedinUrl && isValidLinkedInUrl(linkedinUrl) ? (
-                            <p className="text-xs text-green-600 flex items-center justify-center gap-1">
-                              <CheckCircle className="w-3 h-3" /> Valid LinkedIn URL — ready to generate
-                            </p>
-                          ) : (
-                            <p className="text-xs text-gray-400">Uses {COFFEE_CHAT_CREDITS} credits · PDF saved automatically</p>
-                          )}
-                          {subscription?.resumeFileName ? (
-                            <p className="text-xs text-center">
-                              <span className="text-green-600 font-medium">✓ Using {subscription.resumeFileName}</span>
-                              <span className="text-gray-400"> — questions personalized to your background</span>
-                            </p>
-                          ) : (
-                            <p className="text-xs text-center">
-                              <span className="text-amber-500">⚠ No resume on file</span>
-                            </p>
-                          )}
-                        </div>
-                      </div>
+                  <div>
 
                       {/* Progress/Status Display */}
                       {coffeeChatStatus !== 'idle' && (
-                        <div className="mt-6 max-w-2xl mx-auto">
+                        <div style={{ marginBottom: 24 }}>
                           {coffeeChatStatus === 'completed' ? (
-                            <div className="mt-5 flex items-center justify-between px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl animate-in fade-in">
+                            <div style={{
+                              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                              padding: '16px 20px',
+                              background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 3,
+                            }}>
                               <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 bg-green-50 border border-green-100 rounded-full flex items-center justify-center flex-shrink-0">
-                                  <CheckCircle className="w-4 h-4 text-green-600" />
+                                <div style={{
+                                  width: 36, height: 36, borderRadius: '50%', background: '#DCFCE7',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                                }}>
+                                  <CheckCircle className="w-4 h-4" style={{ color: '#15803D' }} />
                                 </div>
                                 <div>
-                                  <p className="text-sm font-medium text-gray-900">
+                                  <p style={{ fontSize: 14, fontWeight: 600, color: '#0F172A' }}>
                                     {coffeeChatResult?.contactData?.firstName} {coffeeChatResult?.contactData?.lastName} — prep sheet ready
                                   </p>
-                                  <p className="text-xs text-gray-400">{coffeeChatResult?.contactData?.company}</p>
+                                  <p style={{ fontSize: 12, color: '#6B7280' }}>{coffeeChatResult?.contactData?.company}</p>
                                 </div>
                               </div>
                               <button
                                 onClick={() => downloadCoffeeChatPDF()}
-                                className="px-4 py-2 bg-green-600 text-white text-xs font-semibold rounded-full hover:bg-green-700 transition-colors flex items-center gap-1.5 shadow-sm"
+                                style={{
+                                  padding: '9px 18px', background: '#0F172A', color: '#DBEAFE',
+                                  fontSize: 13, fontWeight: 600, borderRadius: 3, border: 'none',
+                                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit',
+                                }}
                               >
                                 <Download className="w-3.5 h-3.5" />
                                 Download PDF
                               </button>
                             </div>
                           ) : coffeeChatStatus === 'failed' ? (
-                            <div className="flex items-center justify-center gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700">
+                            <div className="flex items-center justify-center gap-2 p-4 bg-red-50 border border-red-200 text-red-700" style={{ borderRadius: 3 }}>
                               <XCircle className="h-5 w-5" />
                               <span>{coffeeChatProgress || 'Generation failed'}</span>
                             </div>
                           ) : (
-                            <div className="mt-5 space-y-2.5">
+                            <div className="space-y-2.5">
                               <SteppedLoadingBar steps={coffeeChatSteps} currentStepId={currentPrepStatus} />
-                              <p className="text-xs text-gray-400 text-center">Usually 20–35 seconds</p>
+                              <p style={{ fontSize: 11, color: '#94A3B8', textAlign: 'center' }}>Usually 20-35 seconds</p>
                             </div>
                           )}
                         </div>
                       )}
 
-                      {/* What You'll Receive Section */}
+                      {/* What's included — feature cards */}
                       {coffeeChatStatus !== 'completed' && (
-                        <div className="mt-8 pt-6 border-t border-gray-100">
-                          <p className="text-center text-xs text-gray-400 mb-5">Includes curated headlines, talking points, and a PDF prep sheet</p>
-                          <div className="flex items-start justify-center gap-10 max-w-2xl mx-auto">
-                            <div className="flex flex-col items-center gap-1.5 text-center">
-                              <div className="w-8 h-8 bg-gray-50 border border-gray-100 rounded-lg flex items-center justify-center">
-                                <Newspaper className="w-4 h-4 text-gray-400" />
+                        <div style={{ marginTop: 36, marginBottom: 32 }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+                            {[
+                              {
+                                section: 'Section i',
+                                icon: Newspaper,
+                                title: 'Company Intel',
+                                desc: 'Recent news, funding rounds, leadership changes, and industry trends',
+                                iconBg: 'rgba(59,130,246,0.06)',
+                                iconColor: '#3B82F6',
+                              },
+                              {
+                                section: 'Section ii',
+                                icon: MessageSquare,
+                                title: 'Talking Points',
+                                desc: 'Shared backgrounds, mutual connections, and common ground to build rapport',
+                                iconBg: 'rgba(37,99,235,0.06)',
+                                iconColor: '#2563EB',
+                              },
+                              {
+                                section: 'Section iii',
+                                icon: FileText,
+                                title: 'PDF Prep Sheet',
+                                desc: 'Smart questions, career timeline analysis, and conversation starters',
+                                iconBg: 'rgba(37,99,235,0.06)',
+                                iconColor: '#2563EB',
+                              },
+                            ].map((item) => (
+                              <div
+                                key={item.title}
+                                style={{
+                                  background: '#FAFBFF',
+                                  border: '1px solid #E2E8F0',
+                                  borderRadius: 3,
+                                  padding: '20px 18px 22px',
+                                  transition: 'transform .18s ease, box-shadow .18s ease',
+                                }}
+                                onMouseEnter={(e) => {
+                                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)';
+                                  (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 12px rgba(0,0,0,.04)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)';
+                                  (e.currentTarget as HTMLDivElement).style.boxShadow = 'none';
+                                }}
+                              >
+                                <span style={{
+                                  fontFamily: "'Lora', Georgia, serif",
+                                  fontStyle: 'italic',
+                                  fontSize: 11,
+                                  color: '#93C5FD',
+                                  display: 'block',
+                                  marginBottom: 12,
+                                }}>{item.section}</span>
+                                <div style={{
+                                  width: 28, height: 28, borderRadius: 3,
+                                  background: item.iconBg,
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  marginBottom: 12,
+                                }}>
+                                  <item.icon style={{ width: 14, height: 14, color: item.iconColor }} />
+                                </div>
+                                <p style={{ fontSize: 14, fontWeight: 600, color: '#0F172A', marginBottom: 6, letterSpacing: '-.01em', fontFamily: "'Lora', Georgia, serif" }}>{item.title}</p>
+                                <p style={{ fontSize: 12.5, color: '#6B7280', lineHeight: 1.55 }}>{item.desc}</p>
                               </div>
-                              <p className="text-xs font-medium text-gray-700">Curated Headlines</p>
-                              <p className="text-[11px] text-gray-400">Recent news</p>
-                            </div>
-                            <div className="flex flex-col items-center gap-1.5 text-center">
-                              <div className="w-8 h-8 bg-gray-50 border border-gray-100 rounded-lg flex items-center justify-center">
-                                <MessageSquare className="w-4 h-4 text-gray-400" />
-                              </div>
-                              <p className="text-xs font-medium text-gray-700">Talking Points</p>
-                              <p className="text-[11px] text-gray-400">Similarity summary</p>
-                            </div>
-                            <div className="flex flex-col items-center gap-1.5 text-center">
-                              <div className="w-8 h-8 bg-gray-50 border border-gray-100 rounded-lg flex items-center justify-center">
-                                <FileText className="w-4 h-4 text-gray-400" />
-                              </div>
-                              <p className="text-xs font-medium text-gray-700">PDF Prep Sheet</p>
-                              <p className="text-[11px] text-gray-400">Auto-saved</p>
-                            </div>
+                            ))}
                           </div>
                         </div>
                       )}
 
                       {/* Recent Preps from Library */}
                       {recentPreps.length > 0 && coffeeChatStatus !== 'completed' && (
-                        <div className="mt-10 pt-8 border-t border-gray-100">
-                          <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-sm font-semibold text-gray-700">Recent Prep Sheets</h3>
-                            <button 
+                        <div style={{ paddingTop: 24, borderTop: '1px solid #EEF2F8' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                            <h3 style={{ fontSize: 14, fontWeight: 600, color: '#0F172A', fontFamily: "'Lora', Georgia, serif" }}>Recent Prep Sheets</h3>
+                            <button
                               onClick={() => setActiveTab('coffee-library')}
-                              className="text-sm text-blue-600 hover:underline"
+                              style={{
+                                fontSize: 12, color: '#3B82F6', fontWeight: 500,
+                                background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                              }}
                             >
                               View all ({preps.length})
                             </button>
                           </div>
-                          
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
                             {recentPreps.map((prep) => (
-                              <div 
+                              <div
                                 key={prep.id}
                                 onClick={() => handleLibraryDownload(prep)}
-                                className="p-4 bg-gray-50 rounded-xl hover:bg-gray-100 cursor-pointer transition-colors group"
+                                style={{
+                                  padding: '14px 16px',
+                                  border: '1px solid #EEF2F8',
+                                  borderRadius: 3,
+                                  cursor: 'pointer',
+                                  transition: 'all .15s',
+                                }}
+                                onMouseEnter={(e) => {
+                                  (e.currentTarget as HTMLDivElement).style.borderColor = '#3B82F6';
+                                  (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 8px rgba(59,130,246,.08)';
+                                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-1px)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  (e.currentTarget as HTMLDivElement).style.borderColor = '#EEF2F8';
+                                  (e.currentTarget as HTMLDivElement).style.boxShadow = 'none';
+                                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)';
+                                }}
                               >
-                                <div className="flex items-center gap-3 mb-2">
-                                  <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center border border-gray-200">
-                                    <MessageSquare className="h-4 w-4 text-gray-600" />
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                                  <div style={{
+                                    width: 32, height: 32, borderRadius: 3, background: 'rgba(59,130,246,0.05)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                                  }}>
+                                    <span style={{ fontSize: 11, fontWeight: 600, color: '#3B82F6' }}>
+                                      {(prep.contactName || '?').split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
+                                    </span>
                                   </div>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="font-medium text-gray-900 text-sm truncate">{prep.contactName}</p>
-                                    <p className="text-xs text-gray-500 truncate">{prep.company}</p>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <p style={{ fontSize: 13, fontWeight: 500, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prep.contactName}</p>
+                                    <p style={{ fontSize: 11, color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prep.company}</p>
                                   </div>
                                 </div>
-                                <p className="text-xs text-gray-400">
+                                <p style={{ fontSize: 11, color: '#94A3B8' }}>
                                   {prep.createdAt ? new Date(prep.createdAt).toLocaleDateString() : ''}
                                 </p>
                               </div>
@@ -867,61 +991,29 @@ const CoffeeChatPrepPage: React.FC = () => {
                           </div>
                         </div>
                       )}
-
-                      {/* Resume status — matches Find page style */}
-                      <div className="flex justify-center mt-8 pt-6 border-t border-gray-100">
-                        {subscription?.resumeFileName ? (
-                          <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 bg-green-50 border border-green-100 rounded-full flex items-center justify-center flex-shrink-0">
-                              <CheckCircle className="w-5 h-5 text-green-600" />
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <p className="text-sm font-medium text-gray-900">Resume Active</p>
-                                <span className="text-[10px] font-bold tracking-wider uppercase bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
-                                  Optimizing
-                                </span>
-                              </div>
-                              <p className="text-sm text-gray-500">
-                                Using <span className="font-medium text-gray-700">{subscription.resumeFileName}</span>
-                              </p>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-4 cursor-pointer group" onClick={() => navigate('/settings')}>
-                            <div className="w-10 h-10 bg-gray-50 border border-gray-200 rounded-full flex items-center justify-center group-hover:bg-blue-50 group-hover:border-blue-200 transition-colors">
-                              <Upload className="w-5 h-5 text-gray-400 group-hover:text-blue-500 transition-colors" />
-                            </div>
-                            <div>
-                              <p className="text-sm font-medium text-gray-900 group-hover:text-blue-600 transition-colors">Upload Resume</p>
-                              <p className="text-sm text-gray-500">For personalized questions</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
                   </div>
                 </TabsContent>
 
                 {/* COFFEE LIBRARY TAB */}
                 <TabsContent value="coffee-library" className="mt-0">
-                  <div className="bg-white rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms' }}>
-                    <div className="h-1 bg-gray-100"></div>
+                  <div className="bg-white overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms', borderRadius: 3, boxShadow: '0 1px 4px rgba(0,0,0,.03)', border: '1px solid #EEF2F8' }}>
+                    <div className="h-1" style={{ background: '#EEF2F8' }}></div>
                     
                     <div className="p-8">
                       {libraryLoading ? (
                         <LoadingSkeleton variant="card" count={3} />
                       ) : preps.length === 0 ? (
                         <div className="text-center py-12">
-                          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <Coffee className="h-8 w-8 text-gray-600" />
+                          <div className="w-16 h-16 flex items-center justify-center mx-auto mb-4" style={{ background: '#FAFBFF', borderRadius: 3 }}>
+                            <Coffee className="h-8 w-8" style={{ color: '#6B7280' }} />
                           </div>
-                          <h3 className="text-lg font-semibold text-gray-900 mb-2">No preps yet</h3>
-                          <p className="text-sm text-gray-500 mb-6">
+                          <h3 className="text-lg font-semibold mb-2" style={{ color: '#0F172A', fontFamily: "'Lora', Georgia, serif" }}>No preps yet</h3>
+                          <p className="text-sm mb-6" style={{ color: '#6B7280' }}>
                             Generate your first coffee chat prep to see it appear here.
                           </p>
                           <button
                             onClick={() => setActiveTab('coffee-chat-prep')}
-                            className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
+                            className="px-6 py-3 font-semibold transition-all" style={{ background: '#0F172A', color: '#DBEAFE', borderRadius: 3 }}
                           >
                             Create Your First Prep
                           </button>
@@ -930,25 +1022,25 @@ const CoffeeChatPrepPage: React.FC = () => {
                         <div className="space-y-6">
                           {groupedPreps.inProgress.length > 0 && (
                             <section>
-                              <h3 className="text-sm font-semibold text-gray-500 uppercase mb-3">
+                              <h3 className="text-sm font-semibold uppercase mb-3" style={{ color: '#6B7280' }}>
                                 In Progress
                               </h3>
                               <div className="space-y-3">
                                 {groupedPreps.inProgress.map((prep) => (
                                   <div
                                     key={prep.id}
-                                    className="p-4 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-between"
+                                    className="p-4 flex items-center justify-between" style={{ background: '#FAFBFF', border: '1px solid #E2E8F0', borderRadius: 3 }}
                                   >
                                     <div>
-                                      <p className="font-medium text-gray-900">{prep.contactName}</p>
-                                      <p className="text-sm text-gray-600">
+                                      <p className="font-medium" style={{ color: '#0F172A' }}>{prep.contactName}</p>
+                                      <p className="text-sm" style={{ color: '#6B7280' }}>
                                         {prep.jobTitle} @ {prep.company}
                                       </p>
-                                      <p className="text-xs text-gray-400 mt-1">
+                                      <p className="text-xs mt-1" style={{ color: '#94A3B8' }}>
                                         Requested {prep.createdAt ? new Date(prep.createdAt).toLocaleString() : ""}
                                       </p>
                                     </div>
-                                    <div className="flex items-center gap-2 text-gray-600">
+                                    <div className="flex items-center gap-2" style={{ color: '#6B7280' }}>
                                       <Loader2 className="w-4 h-4 animate-spin" />
                                       <span className="text-xs uppercase font-medium">Processing...</span>
                                     </div>
@@ -960,24 +1052,24 @@ const CoffeeChatPrepPage: React.FC = () => {
 
                           {groupedPreps.completed.length > 0 && (
                             <section className="space-y-3">
-                              <h3 className="text-sm font-semibold text-gray-500 uppercase">
+                              <h3 className="text-sm font-semibold uppercase" style={{ color: '#6B7280' }}>
                                 Completed ({groupedPreps.completed.length})
                               </h3>
                               <div className="space-y-3">
                                 {groupedPreps.completed.map((prep) => (
                                   <div
                                     key={prep.id}
-                                    className="p-5 bg-white border border-gray-200 rounded-xl hover:shadow-md transition-shadow flex flex-col md:flex-row md:items-center md:justify-between gap-4"
+                                    className="p-5 bg-white flex flex-col md:flex-row md:items-center md:justify-between gap-4 transition-shadow" style={{ border: '1px solid #E2E8F0', borderRadius: 3 }}
                                   >
                                     <div className="space-y-2">
                                       <div className="flex items-center gap-2">
                                         <BadgeCheck className="h-5 w-5 text-green-600" />
-                                        <span className="font-semibold text-gray-900">{prep.contactName}</span>
+                                        <span className="font-semibold" style={{ color: '#0F172A' }}>{prep.contactName}</span>
                                       </div>
-                                      <p className="text-sm text-gray-600">
+                                      <p className="text-sm" style={{ color: '#6B7280' }}>
                                         {prep.jobTitle} @ {prep.company}
                                       </p>
-                                      <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                                      <div className="flex flex-wrap items-center gap-3 text-xs" style={{ color: '#94A3B8' }}>
                                         <span className="flex items-center gap-1">
                                           <Calendar className="h-3 w-3" />
                                           {prep.createdAt ? new Date(prep.createdAt).toLocaleDateString() : "—"}
@@ -994,7 +1086,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                                     <div className="flex items-center gap-3">
                                       <button
                                         onClick={() => handleLibraryDownload(prep)}
-                                        className="px-4 py-2 bg-blue-100 text-blue-700 rounded-full text-sm font-medium hover:bg-blue-200 transition-colors flex items-center gap-2"
+                                        className="px-4 py-2 text-sm font-medium transition-colors flex items-center gap-2" style={{ background: 'rgba(59,130,246,0.10)', color: '#3B82F6', borderRadius: 3 }}
                                       >
                                         <Download className="h-4 w-4" />
                                         PDF
@@ -1002,7 +1094,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                                       <Button
                                         size="sm"
                                         variant="ghost"
-                                        className="relative overflow-hidden text-red-500 hover:text-red-600 hover:bg-red-50 rounded-full"
+                                        className="relative overflow-hidden text-red-500 hover:text-red-600 hover:bg-red-50" style={{ borderRadius: 3 }}
                                         disabled={deletingId === prep.id}
                                         onClick={() => handleLibraryDelete(prep.id)}
                                       >

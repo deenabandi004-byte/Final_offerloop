@@ -137,7 +137,7 @@ export default function ScreenshotGallery({
                 }}
                 aria-label="Previous screenshot"
               >
-                <ChevronLeft className="h-5 w-5 transition-all duration-300 group-hover:-translate-x-0.5 text-foreground group-hover:text-blue-600" />
+                <ChevronLeft className="h-5 w-5 transition-all duration-300 group-hover:-translate-x-0.5 text-foreground group-hover:text-[#3B82F6]" />
               </button>
               <button
                 onClick={goToNext}
@@ -150,14 +150,14 @@ export default function ScreenshotGallery({
                 }}
                 aria-label="Next screenshot"
               >
-                <ChevronRight className="h-5 w-5 transition-all duration-300 group-hover:translate-x-0.5 text-foreground group-hover:text-blue-600" />
+                <ChevronRight className="h-5 w-5 transition-all duration-300 group-hover:translate-x-0.5 text-foreground group-hover:text-[#3B82F6]" />
               </button>
             </>
           )}
 
           {/* Device Frame with Parallax */}
           <div 
-            className="relative rounded-2xl overflow-hidden transition-all duration-300 ease-out group"
+            className="relative rounded-[3px] overflow-hidden transition-all duration-300 ease-out group"
             style={{
               transform: isHovered 
                 ? `perspective(1000px) rotateY(${parallaxX * 0.5}deg) rotateX(${-parallaxY * 0.5}deg) scale(1.01)`
@@ -195,12 +195,12 @@ export default function ScreenshotGallery({
               
               {/* URL Bar */}
               <div 
-                className="flex-1 max-w-md mx-auto h-7 rounded-lg flex items-center justify-center gap-2 px-4"
+                className="flex-1 max-w-md mx-auto h-7 rounded-[3px] flex items-center justify-center gap-2 px-4"
                 style={{
                   background: 'rgba(0, 0, 0, 0.04)',
                 }}
               >
-                <svg className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <svg className="w-3.5 h-3.5 text-[#3B82F6] flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
                 </svg>
                 <span className={`text-sm font-medium text-foreground`}>
@@ -234,7 +234,7 @@ export default function ScreenshotGallery({
                   className="h-full transition-all duration-100 ease-linear"
                   style={{
                     width: `${progress}%`,
-                    background: 'linear-gradient(90deg, #3b82f6 0%, #06b6d4 100%)',
+                    background: 'linear-gradient(90deg, #3B82F6 0%, #2563EB 100%)',
                   }}
                 />
               </div>
@@ -285,7 +285,7 @@ export default function ScreenshotGallery({
                         e.stopPropagation();
                         setFullscreenImage(activeItem.image);
                       }}
-                      className="p-2.5 rounded-xl backdrop-blur-md transition-all duration-300 hover:scale-110"
+                      className="p-2.5 rounded-[3px] backdrop-blur-md transition-all duration-300 hover:scale-110"
                       style={{
                         background: 'rgba(0, 0, 0, 0.5)',
                         border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -338,7 +338,7 @@ export default function ScreenshotGallery({
                   width: index === activeIndex ? '32px' : '10px',
                   height: '10px',
                   background: index === activeIndex
-                    ? 'linear-gradient(90deg, #3b82f6 0%, #06b6d4 100%)'
+                    ? 'linear-gradient(90deg, #3B82F6 0%, #2563EB 100%)'
                     : 'rgba(0, 0, 0, 0.12)',
                 }}
                 aria-label={`Go to screenshot ${index + 1}`}
@@ -348,7 +348,7 @@ export default function ScreenshotGallery({
                   className="absolute inset-0 rounded-full transition-all duration-300 group-hover/dot:scale-150 group-hover/dot:opacity-50"
                   style={{
                     background: index === activeIndex
-                      ? 'linear-gradient(90deg, #3b82f6 0%, #06b6d4 100%)'
+                      ? 'linear-gradient(90deg, #3B82F6 0%, #2563EB 100%)'
                       : 'rgba(0, 0, 0, 0.1)',
                     opacity: 0,
                   }}
@@ -391,7 +391,7 @@ export default function ScreenshotGallery({
           <img
             src={fullscreenImage}
             alt="Fullscreen screenshot"
-            className="max-w-[95vw] max-h-[90vh] object-contain rounded-lg shadow-2xl animate-scaleIn"
+            className="max-w-[95vw] max-h-[90vh] object-contain rounded-[3px] shadow-2xl animate-scaleIn"
             onClick={(e) => e.stopPropagation()}
           />
         </div>

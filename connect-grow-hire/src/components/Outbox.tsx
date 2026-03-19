@@ -69,7 +69,7 @@ export function Outbox() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'replied':
-        return 'text-blue-500 bg-green-500/10';
+        return 'text-[#3B82F6] bg-green-500/10';
       case 'needs-follow-up':
         return 'text-yellow-500 bg-yellow-500/10';
       case 'no-response':
@@ -108,7 +108,7 @@ export function Outbox() {
   return (
     <div className="grid grid-cols-12 gap-6 h-[calc(100vh-12rem)]">
       {/* Email Thread List */}
-      <div className="col-span-4 bg-card border border-border rounded-xl overflow-hidden flex flex-col">
+      <div className="col-span-4 bg-card border border-border rounded-[3px] overflow-hidden flex flex-col">
         <div className="p-4 border-b border-border">
           <h3>Conversations</h3>
           <p className="text-xs text-text-muted mt-1">{emailThreads.length} threads</p>
@@ -149,7 +149,7 @@ export function Outbox() {
       </div>
 
       {/* Conversation Detail */}
-      <div className="col-span-5 bg-card border border-border rounded-xl overflow-hidden flex flex-col">
+      <div className="col-span-5 bg-card border border-border rounded-[3px] overflow-hidden flex flex-col">
         <div className="p-4 border-b border-border flex items-center justify-between">
           <div>
             <h3 className="text-base">{selectedThread.subject}</h3>
@@ -180,7 +180,7 @@ export function Outbox() {
         </div>
         
         <div className="p-4 border-t border-border">
-          <button className="w-full gradient-bg text-white px-4 py-2.5 rounded-lg font-medium text-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
+          <button className="w-full gradient-bg text-white px-4 py-2.5 rounded-[3px] font-medium text-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
             <Send size={16} />
             Send Follow-Up
           </button>
@@ -188,7 +188,7 @@ export function Outbox() {
       </div>
 
       {/* Contact Details */}
-      <div className="col-span-3 bg-card border border-border rounded-xl overflow-hidden flex flex-col">
+      <div className="col-span-3 bg-card border border-border rounded-[3px] overflow-hidden flex flex-col">
         <div className="p-4 border-b border-border">
           <h3 className="text-base">Contact Details</h3>
         </div>
@@ -206,7 +206,7 @@ export function Outbox() {
           {/* Firm Info */}
           <div className="space-y-3">
             <div className="flex items-start gap-3">
-              <Building2 size={16} className="text-blue-600 mt-0.5" />
+              <Building2 size={16} className="text-[#3B82F6] mt-0.5" />
               <div>
                 <div className="text-xs text-text-muted">Firm</div>
                 <div className="text-sm">{selectedThread.firmName}</div>
@@ -214,7 +214,7 @@ export function Outbox() {
             </div>
             
             <div className="flex items-start gap-3">
-              <MapPin size={16} className="text-blue-600 mt-0.5" />
+              <MapPin size={16} className="text-[#3B82F6] mt-0.5" />
               <div>
                 <div className="text-xs text-text-muted">Location</div>
                 <div className="text-sm">New York, NY</div>
@@ -222,7 +222,7 @@ export function Outbox() {
             </div>
             
             <div className="flex items-start gap-3">
-              <Briefcase size={16} className="text-blue-600 mt-0.5" />
+              <Briefcase size={16} className="text-[#3B82F6] mt-0.5" />
               <div>
                 <div className="text-xs text-text-muted">Industry</div>
                 <div className="text-sm">Investment Banking</div>
@@ -234,13 +234,13 @@ export function Outbox() {
           <div className="pt-4 border-t border-border">
             <h3 className="text-sm mb-3">Suggested Next Steps</h3>
             <div className="space-y-2">
-              <button className="w-full text-left p-3 rounded-lg bg-background hover:bg-purple-soft transition-colors text-sm">
+              <button className="w-full text-left p-3 rounded-[3px] bg-background hover:bg-purple-soft transition-colors text-sm">
                 Schedule coffee chat
               </button>
-              <button className="w-full text-left p-3 rounded-lg bg-background hover:bg-purple-soft transition-colors text-sm">
+              <button className="w-full text-left p-3 rounded-[3px] bg-background hover:bg-purple-soft transition-colors text-sm">
                 View firm research
               </button>
-              <button className="w-full text-left p-3 rounded-lg bg-background hover:bg-purple-soft transition-colors text-sm">
+              <button className="w-full text-left p-3 rounded-[3px] bg-background hover:bg-purple-soft transition-colors text-sm">
                 Find similar contacts
               </button>
             </div>

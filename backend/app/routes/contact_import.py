@@ -3,6 +3,7 @@ Contact import routes - Upload CSV/Excel to import contacts
 """
 import csv
 import io
+import logging
 import requests
 from datetime import datetime
 from flask import Blueprint, request, jsonify, Response
@@ -11,6 +12,13 @@ from ..extensions import require_firebase_auth
 from ..extensions import get_db
 from app.utils.exceptions import OfferloopException, ValidationError
 from app.config import PDL_BASE_URL, PEOPLE_DATA_LABS_API_KEY
+
+logger = logging.getLogger(__name__)
+
+# Max file size: 5MB
+MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
+# Max rows per import
+MAX_IMPORT_ROWS = 1000
 from app.routes.linkedin_import import (
     resolve_email_for_linkedin_import,
     extract_contact_from_pdl_person_enhanced,
@@ -58,7 +66,8 @@ def map_columns(headers: list) -> dict:
     
     for our_field, variations in COLUMN_MAPPINGS.items():
         for idx, header in enumerate(normalized_headers):
-            if header in variations or header == our_field.lower():
+            normalized_variations = [normalize_header(v) for v in variations]
+            if header in normalized_variations or header == our_field.lower():
                 mapping[idx] = our_field
                 break
     
@@ -149,7 +158,14 @@ def preview_import():
         filename = file.filename.lower()
         if not (filename.endswith('.csv') or filename.endswith('.xlsx') or filename.endswith('.xls')):
             raise ValidationError("File must be CSV or Excel (.csv, .xlsx, .xls)", field="file")
-        
+
+        # Check file size
+        file.seek(0, 2)  # Seek to end
+        file_size = file.tell()
+        file.seek(0)  # Reset to start
+        if file_size > MAX_FILE_SIZE_BYTES:
+            raise ValidationError(f"File too large ({file_size // 1024}KB). Maximum is {MAX_FILE_SIZE_BYTES // (1024*1024)}MB.", field="file")
+
         # Parse file
         if filename.endswith('.csv'):
             file_content = file.read().decode('utf-8-sig')  # Handle BOM
@@ -159,23 +175,30 @@ def preview_import():
             try:
                 import openpyxl
                 from io import BytesIO
-                
+
                 workbook = openpyxl.load_workbook(BytesIO(file.read()), read_only=True)
                 sheet = workbook.active
-                
+
                 rows = list(sheet.iter_rows(values_only=True))
                 if not rows:
                     raise ValidationError("Excel file is empty", field="file")
-                
+
                 headers = [str(h) if h else '' for h in rows[0]]
                 data_rows = [[str(cell) if cell else '' for cell in row] for row in rows[1:]]
-                
+
             except ImportError:
                 raise OfferloopException(
                     "Excel support not available. Please upload a CSV file.",
                     error_code="EXCEL_NOT_SUPPORTED"
                 )
-        
+
+        # Check row count
+        if len(data_rows) > MAX_IMPORT_ROWS:
+            raise ValidationError(
+                f"File has {len(data_rows)} rows. Maximum is {MAX_IMPORT_ROWS} per import. Please split into smaller files.",
+                field="file"
+            )
+
         # Auto-detect column mappings
         column_mapping = map_columns(headers)
         
@@ -289,7 +312,14 @@ def import_contacts():
         filename = file.filename.lower()
         if not (filename.endswith('.csv') or filename.endswith('.xlsx') or filename.endswith('.xls')):
             raise ValidationError("File must be CSV or Excel (.csv, .xlsx, .xls)", field="file")
-        
+
+        # Check file size
+        file.seek(0, 2)
+        file_size = file.tell()
+        file.seek(0)
+        if file_size > MAX_FILE_SIZE_BYTES:
+            raise ValidationError(f"File too large ({file_size // 1024}KB). Maximum is {MAX_FILE_SIZE_BYTES // (1024*1024)}MB.", field="file")
+
         # Get optional custom column mapping from request
         custom_mapping = request.form.get('column_mapping')
         if custom_mapping:
@@ -323,9 +353,16 @@ def import_contacts():
                     error_code="EXCEL_NOT_SUPPORTED"
                 )
         
+        # Check row count
+        if len(data_rows) > MAX_IMPORT_ROWS:
+            raise ValidationError(
+                f"File has {len(data_rows)} rows. Maximum is {MAX_IMPORT_ROWS} per import. Please split into smaller files.",
+                field="file"
+            )
+
         # Use custom mapping or auto-detect
         column_mapping = custom_mapping if custom_mapping else map_columns(headers)
-        
+
         contacts_ref = db.collection('users').document(user_id).collection('contacts')
         today = datetime.now().strftime('%m/%d/%Y')
         
@@ -338,26 +375,64 @@ def import_contacts():
         enrichment_failed = 0
         enrichment_capped = 0
         contacts_for_drafting = []
-        
+
+        # Pre-load existing emails and LinkedIn URLs for fast dedup (case-insensitive)
+        existing_emails = set()
+        existing_linkedins = set()
+        existing_name_company = set()
+        try:
+            for doc in contacts_ref.stream():
+                c = doc.to_dict()
+                e = (c.get('email') or '').strip().lower()
+                if e:
+                    existing_emails.add(e)
+                li = (c.get('linkedinUrl') or '').strip().lower()
+                if li:
+                    existing_linkedins.add(li)
+                fn = (c.get('firstName') or '').strip().lower()
+                ln = (c.get('lastName') or '').strip().lower()
+                co = (c.get('company') or '').strip().lower()
+                if fn and ln and co:
+                    existing_name_company.add((fn, ln, co))
+        except Exception as e:
+            logger.warning(f"[ContactImport] Failed to pre-load contacts for dedup: {e}")
+
+        logger.info(f"[ContactImport] Starting import: {len(data_rows)} rows, {len(existing_emails)} existing emails, {credits} credits available")
+
         for row in data_rows:
             # Parse row to contact
             contact_data = parse_row_to_contact(row, column_mapping, headers)
-            
+
             first_name = contact_data.get('firstName', '').strip()
             last_name = contact_data.get('lastName', '').strip()
             email = contact_data.get('email', '').strip()
             linkedin = contact_data.get('linkedinUrl', '').strip()
-            
+
             # Validate - must have name OR email OR linkedin
             if not _is_valid_contact(contact_data):
                 skipped_invalid += 1
                 continue
-            
+
             # Check credits before processing
             if credits < CREDITS_PER_CONTACT:
                 skipped_no_credits += 1
                 continue
-            
+
+            # Dedup BEFORE enrichment to avoid wasting PDL quota on duplicates
+            is_duplicate = False
+            if email and email.lower() in existing_emails:
+                is_duplicate = True
+            if not is_duplicate and linkedin and linkedin.lower() in existing_linkedins:
+                is_duplicate = True
+            if not is_duplicate and first_name and last_name and contact_data.get('company'):
+                key = (first_name.lower(), last_name.lower(), contact_data['company'].strip().lower())
+                if key in existing_name_company:
+                    is_duplicate = True
+
+            if is_duplicate:
+                skipped_duplicate += 1
+                continue
+
             # Enrichment: PDL lookup for rows with LinkedIn URL but no email (cap 50)
             if not email and linkedin:
                 if enriched_count < ENRICHMENT_CAP:
@@ -373,7 +448,7 @@ def import_contacts():
                                     'profile': pdl_url,
                                     'pretty': True
                                 },
-                                timeout=30
+                                timeout=15
                             )
                             if response.status_code == 200:
                                 person_json = response.json()
@@ -396,40 +471,23 @@ def import_contacts():
                             else:
                                 enrichment_failed += 1
                                 if response.status_code == 402:
-                                    print(f"[ContactImport] PDL 402 quota exceeded for row")
+                                    logger.warning("[ContactImport] PDL 402 quota exceeded")
                         except Exception as e:
                             enrichment_failed += 1
-                            print(f"[ContactImport] Enrichment error for LinkedIn {linkedin[:50]!r}: {e}")
+                            logger.warning(f"[ContactImport] Enrichment error for LinkedIn {linkedin[:50]!r}: {e}")
                     else:
                         enrichment_failed += 1
                 else:
                     enrichment_capped += 1
-            
+
+            # Re-read email after potential enrichment
             email = contact_data.get('email', '').strip()
-            
-            # Duplicate detection (after enrichment, so enriched email can match existing)
-            is_duplicate = False
-            if email:
-                email_query = contacts_ref.where('email', '==', email).limit(1)
-                if list(email_query.stream()):
-                    is_duplicate = True
-            if not is_duplicate and linkedin:
-                linkedin_query = contacts_ref.where('linkedinUrl', '==', linkedin).limit(1)
-                if list(linkedin_query.stream()):
-                    is_duplicate = True
-            if not is_duplicate and first_name and last_name and contact_data.get('company'):
-                name_company_query = (contacts_ref
-                    .where('firstName', '==', first_name)
-                    .where('lastName', '==', last_name)
-                    .where('company', '==', contact_data.get('company'))
-                    .limit(1))
-                if list(name_company_query.stream()):
-                    is_duplicate = True
-            
-            if is_duplicate:
+
+            # Post-enrichment dedup: check if enriched email matches an existing contact
+            if email and contact_data.get('emailSource') == 'enriched' and email.lower() in existing_emails:
                 skipped_duplicate += 1
                 continue
-            
+
             # Create contact (same schema as existing contacts)
             contact = {
                 'firstName': first_name,
@@ -450,13 +508,21 @@ def import_contacts():
                 'importSource': 'spreadsheet',
                 'emailSource': contact_data.get('emailSource', 'imported'),
             }
-            
+
             doc_ref = contacts_ref.add(contact)
             doc_id = doc_ref[1].id
             contact['id'] = doc_id
             created_contacts.append(contact)
             created += 1
             credits -= CREDITS_PER_CONTACT
+
+            # Track in local dedup sets so CSV rows don't duplicate each other
+            if email:
+                existing_emails.add(email.lower())
+            if linkedin:
+                existing_linkedins.add(linkedin.lower())
+            if first_name and last_name and contact_data.get('company'):
+                existing_name_company.add((first_name.lower(), last_name.lower(), contact_data['company'].strip().lower()))
             
             if email:
                 contacts_for_drafting.append({'doc_id': doc_id, 'contact': contact})
@@ -470,6 +536,9 @@ def import_contacts():
         
         # Phase 2: Batch generate emails + create Gmail drafts
         drafts_created = 0
+        drafts_failed = 0
+        email_gen_failed = False
+        email_gen_error = None
         try:
             if contacts_for_drafting:
                 user_doc = user_ref.get()
@@ -485,7 +554,7 @@ def import_contacts():
                 career_interests = user_data_after.get('careerInterests') or []
                 if isinstance(career_interests, str):
                     career_interests = [career_interests] if career_interests else []
-                
+
                 email_contacts = []
                 for item in contacts_for_drafting:
                     c = item['contact']
@@ -497,7 +566,7 @@ def import_contacts():
                         'Email': c.get('email', ''),
                         'LinkedIn': c.get('linkedinUrl', ''),
                     })
-                
+
                 email_results = {}
                 try:
                     auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
@@ -512,11 +581,12 @@ def import_contacts():
                         signoff_config=None,
                         auth_display_name=auth_display_name,
                     )
+                    logger.info(f"[ContactImport] Email generation succeeded for {len(email_results)} of {len(email_contacts)} contacts")
                 except Exception as e:
-                    print(f"[ContactImport] Email generation failed: {e}")
-                    import traceback
-                    traceback.print_exc()
-                
+                    email_gen_failed = True
+                    email_gen_error = str(e)
+                    logger.error(f"[ContactImport] Email generation failed: {e}", exc_info=True)
+
                 user_email = request.firebase_user.get('email')
                 user_info = {
                     'name': user_profile.get('name', ''),
@@ -536,24 +606,26 @@ def import_contacts():
                         elif not resume_filename:
                             resume_filename = 'resume.pdf'
                     except Exception as e:
-                        print(f"[ContactImport] Resume download failed: {e}")
-                
+                        logger.warning(f"[ContactImport] Resume download failed (drafts will have no attachment): {e}")
+
                 for idx, item in enumerate(contacts_for_drafting):
                     r = email_results.get(idx) or email_results.get(str(idx))
                     if not r or not isinstance(r, dict):
+                        drafts_failed += 1
                         continue
                     subject = (r.get('subject') or '').strip()
                     body = (r.get('body') or '').strip()
                     if not subject or not body:
+                        drafts_failed += 1
                         continue
-                    
+
                     contact_ref = db.collection('users').document(user_id).collection('contacts').document(item['doc_id'])
                     update_data = {
                         'emailSubject': subject,
                         'emailBody': body,
                         'draftCreatedAt': datetime.now().isoformat(),
                     }
-                    
+
                     contact_for_draft = {
                         'FirstName': item['contact'].get('firstName', ''),
                         'LastName': item['contact'].get('lastName', ''),
@@ -577,16 +649,23 @@ def import_contacts():
                             if draft_result.get('message_id'):
                                 update_data['gmailMessageId'] = draft_result.get('message_id', '')
                             drafts_created += 1
+                        else:
+                            drafts_failed += 1
                     except Exception as e:
-                        print(f"[ContactImport] Gmail draft failed for contact {item['doc_id']}: {e}")
-                    
+                        drafts_failed += 1
+                        logger.warning(f"[ContactImport] Gmail draft failed for contact {item['doc_id']}: {e}")
+
                     contact_ref.update(update_data)
         except Exception as e:
-            print(f"[ContactImport] Enrichment/draft phase error: {e}")
-            import traceback
-            traceback.print_exc()
-        
-        return jsonify({
+            email_gen_failed = True
+            email_gen_error = str(e)
+            logger.error(f"[ContactImport] Draft phase error: {e}", exc_info=True)
+
+        logger.info(f"[ContactImport] Import complete: created={created}, duplicates={skipped_duplicate}, "
+                     f"enriched={enriched_count}, drafts={drafts_created}/{len(contacts_for_drafting)}, "
+                     f"drafts_failed={drafts_failed}, email_gen_failed={email_gen_failed}")
+
+        response_data = {
             'success': True,
             'created': created,
             'skipped': {
@@ -602,6 +681,7 @@ def import_contacts():
             },
             'drafts': {
                 'created': drafts_created,
+                'failed': drafts_failed,
                 'total_eligible': len(contacts_for_drafting),
             },
             'contacts': created_contacts,
@@ -609,7 +689,18 @@ def import_contacts():
                 'spent': created * CREDITS_PER_CONTACT,
                 'remaining': credits
             }
-        })
+        }
+
+        # Add warnings for partial failures so the frontend can inform the user
+        warnings = []
+        if email_gen_failed:
+            warnings.append(f"Email generation failed — {len(contacts_for_drafting)} contacts were saved without email drafts.")
+        elif drafts_failed > 0:
+            warnings.append(f"{drafts_failed} email draft(s) could not be created. Contacts were saved.")
+        if warnings:
+            response_data['warnings'] = warnings
+
+        return jsonify(response_data)
         
     except ValidationError as ve:
         return jsonify({'error': ve.message, 'field': getattr(ve, 'field', None)}), 400

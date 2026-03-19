@@ -128,6 +128,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       handleRefreshToken(sendResponse);
       return true;
 
+    case 'logScraperResult':
+      handleLogScraperResult(request);
+      // Fire-and-forget, no response needed
+      break;
+
     default:
       console.log('[Offerloop Background] Unknown action:', request.action);
       sendResponse({ error: 'Unknown action' });
@@ -324,6 +329,32 @@ async function handleRefreshToken(sendResponse) {
   } catch (error) {
     console.error('[Offerloop Background] Error in handleRefreshToken:', error);
     sendResponse({ success: false, error: error.message });
+  }
+}
+
+// Log scraper result to backend (fire-and-forget, best-effort)
+async function handleLogScraperResult(request) {
+  try {
+    const { authToken } = await chrome.storage.local.get(['authToken']);
+    if (!authToken) return;
+
+    await fetchWithTimeout(`${API_BASE_URL}/api/extension/scraper-log`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({
+        platform: request.platform || 'unknown',
+        success: request.success,
+        fields_found: request.fieldsFound || [],
+        url_pattern: request.urlPattern || '',
+        timestamp: new Date().toISOString(),
+      }),
+    }, 5000); // Short 5s timeout — this is best-effort
+  } catch (e) {
+    // Silently ignore — this is telemetry, not critical
+    console.log('[Offerloop Background] Scraper log failed (non-critical):', e.message);
   }
 }
 

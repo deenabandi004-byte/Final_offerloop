@@ -18,7 +18,7 @@ const Header = () => {
               <Button variant="ghost" onClick={() => navigate("/signin")} className="text-foreground hover:text-primary">
                 Sign In
               </Button>
-              <Button onClick={() => navigate("/signin")} className="text-white hover:opacity-90" style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}>
+              <Button onClick={() => navigate("/signin")} className="text-white hover:opacity-90" style={{ background: 'linear-gradient(135deg, #0F172A, #1E293B)' }}>
                 Sign Up
               </Button>
             </>

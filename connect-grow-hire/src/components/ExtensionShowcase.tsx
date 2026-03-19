@@ -17,7 +17,7 @@ const features: Feature[] = [
     id: 0,
     text: 'Find & Send Email',
     videoSrc: chromeExtensionWalkthrough,
-    color: '#3B82F6', // blue
+    color: '#0F172A', // blue
   },
   {
     id: 1,
@@ -90,8 +90,8 @@ const ExtensionShowcase: React.FC = () => {
   }, [activeIndex]);
 
   return (
-    <section className="py-20 px-5 bg-gradient-to-b from-slate-50 to-blue-100 w-full">
-      <h2 className="text-center text-[70px] md:text-[84px] lg:text-[96px] font-bold mb-12 font-instrument" style={{ color: '#3B82F6', lineHeight: '1.1', letterSpacing: '-0.02em' }}>
+    <section className="py-20 px-5 bg-gradient-to-b from-[#FAFBFF] to-[rgba(59,130,246,0.10)] w-full">
+      <h2 className="text-center text-[70px] md:text-[84px] lg:text-[96px] font-bold mb-12 font-instrument" style={{ color: '#0F172A', lineHeight: '1.1', letterSpacing: '-0.02em' }}>
         Extension Out Now!
       </h2>
       
@@ -151,7 +151,7 @@ const ExtensionShowcase: React.FC = () => {
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-3 px-8 py-4 text-white rounded-full font-semibold text-lg transition-colors hover:opacity-90"
-          style={{ backgroundColor: '#3B82F6' }}
+          style={{ backgroundColor: '#0F172A' }}
         >
           <svg
             className="w-6 h-6"

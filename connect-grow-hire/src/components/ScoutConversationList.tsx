@@ -112,7 +112,7 @@ export const ScoutConversationList: React.FC<ScoutConversationListProps> = ({
         <button
           onClick={onNewConversation}
           className="w-full flex items-center justify-center gap-2 px-5 py-3 
-                     bg-blue-600 text-white rounded-lg hover:bg-blue-700 
+                     bg-[#0F172A] text-white rounded-[3px] hover:bg-[#1E293B] 
                      transition-colors text-base font-medium"
         >
           <Plus size={20} />
@@ -135,10 +135,10 @@ export const ScoutConversationList: React.FC<ScoutConversationListProps> = ({
             {conversations.map((conversation) => (
               <div
                 key={conversation.id}
-                className={`group relative px-4 py-3 mx-3 rounded-lg cursor-pointer
+                className={`group relative px-4 py-3 mx-3 rounded-[3px] cursor-pointer
                            transition-colors ${
                              conversation.id === currentConversationId
-                               ? 'bg-blue-100 border border-blue-200'
+                               ? 'bg-[rgba(59,130,246,0.10)] border border-[#E2E8F0]'
                                : 'hover:bg-gray-100'
                            }`}
                 onClick={() => onSelectConversation(conversation)}

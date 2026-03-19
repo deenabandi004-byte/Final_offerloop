@@ -201,19 +201,19 @@ export default function PaymentSuccess() {
   }, [user, sessionId]); // Removed refreshUser and navigate from dependencies to prevent re-runs
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white px-6">
+    <div className="min-h-screen flex items-center justify-center bg-[#0F172A] text-white px-6">
       <div className="max-w-md w-full text-center">
         {status === 'processing' && (
-          <div className="bg-slate-900 p-8 rounded-lg">
-            <Loader2 className="h-16 w-16 text-blue-400 mx-auto mb-4 animate-spin" />
+          <div className="bg-[#1E293B] p-8 rounded-[3px]">
+            <Loader2 className="h-16 w-16 text-[#3B82F6] mx-auto mb-4 animate-spin" />
             <h1 className="text-3xl font-bold mb-2">Processing Payment</h1>
             <p className="text-gray-400 mb-6">{message}</p>
           </div>
         )}
 
         {status === 'success' && (
-          <div className="bg-slate-900 p-8 rounded-lg">
-            <CheckCircle2 className="h-16 w-16 text-blue-400 mx-auto mb-4" />
+          <div className="bg-[#1E293B] p-8 rounded-[3px]">
+            <CheckCircle2 className="h-16 w-16 text-[#3B82F6] mx-auto mb-4" />
             <h1 className="text-3xl font-bold mb-2">Welcome to Pro!</h1>
             <p className="text-gray-400 mb-2">{message}</p>
             <p className="text-sm text-gray-500 mb-6">
@@ -224,14 +224,14 @@ export default function PaymentSuccess() {
         )}
 
         {status === 'error' && (
-          <div className="bg-slate-900 p-8 rounded-lg">
+          <div className="bg-[#1E293B] p-8 rounded-[3px]">
             <XCircle className="h-16 w-16 text-red-400 mx-auto mb-4" />
             <h1 className="text-3xl font-bold mb-2">Upgrade Issue</h1>
             <p className="text-gray-400 mb-6">{message}</p>
             <div className="space-y-3">
               <Button 
                 onClick={() => window.location.reload()} 
-                className="w-full bg-blue-600 hover:bg-blue-700"
+                className="w-full bg-[#3B82F6] hover:bg-[#2563EB]"
               >
                 Try Again
               </Button>

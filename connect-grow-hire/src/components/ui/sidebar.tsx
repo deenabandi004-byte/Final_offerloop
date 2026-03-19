@@ -153,7 +153,7 @@ const SidebarProvider = React.forwardRef<
               {
                 "--sidebar-width": SIDEBAR_WIDTH,
                 "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
-                background: '#F0F4FD',
+                background: '#F8FAFF',
                 ...style,
               } as React.CSSProperties
             }
@@ -288,7 +288,7 @@ const SidebarTrigger = React.forwardRef<
       data-sidebar="trigger"
       variant="ghost"
       size="icon"
-      className={cn("h-7 w-7 bg-blue-100 text-blue-600 hover:bg-blue-200 hover:text-blue-700 [&_svg]:opacity-100", className)}
+      className={cn("h-7 w-7 bg-[#F8FAFF] text-[#3B82F6] hover:bg-[#DBEAFE] hover:text-[#2563EB] [&_svg]:opacity-100", className)}
       onClick={(event) => {
         onClick?.(event)
         toggleSidebar()
@@ -323,7 +323,7 @@ const MobileMenuButton = React.forwardRef<
       variant="ghost"
       size="icon"
       className={cn(
-        "h-9 w-9 text-gray-600 hover:text-gray-900 hover:bg-gray-100 lg:hidden",
+        "h-9 w-9 text-[#6B7280] hover:text-[#0F172A] hover:bg-[#F8FAFF] lg:hidden",
         className
       )}
       onClick={(event) => {

@@ -2,8 +2,6 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffe
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
-import { BackToHomeButton } from "@/components/BackToHomeButton";
-import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { useScout } from "@/contexts/ScoutContext";
 import {
@@ -12,27 +10,23 @@ import {
   FileText, Upload, Mail, Inbox, AlertCircle, X, ExternalLink
 } from "lucide-react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
-// ScoutBubble removed - now using ScoutHeaderButton in PageHeaderActions
 import { Button } from "@/components/ui/button";
-import ContactDirectoryComponent from "@/components/ContactDirectory";
 import { Progress } from "@/components/ui/progress";
-import { apiService, isErrorResponse, type EmailTemplate, hasEmailTemplateValues } from "@/services/api";
+import { apiService, isErrorResponse, type EmailTemplate, getEmailTemplateLabel } from "@/services/api";
 import { firebaseApi } from "../services/firebaseApi";
 import type { Contact as ContactApi } from '../services/firebaseApi';
 import { toast } from "@/hooks/use-toast";
 import { TIER_CONFIGS } from "@/lib/constants";
 import { logActivity, generateContactSearchSummary } from "@/utils/activityLogger";
-import { LoadingSkeleton } from "@/components/LoadingSkeleton";
-import { VideoDemo } from "@/components/VideoDemo";
 import { EliteGateModal } from "@/components/EliteGateModal";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { db, storage, auth } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { trackFeatureActionCompleted, trackError } from "../lib/analytics";
-import ContactImport from "@/components/ContactImport";
 import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileTypes";
 import { StickyCTA } from "@/components/StickyCTA";
+import ContactImport from "@/components/ContactImport";
 
 // Session storage key for Scout auto-populate
 const SCOUT_AUTO_POPULATE_KEY = 'scout_auto_populate';
@@ -118,7 +112,7 @@ const StripeTabs: React.FC<StripeTabsProps> = ({ activeTab, onTabChange, tabs })
               focus:outline-none focus-visible:outline-none
               ${activeTab === tab.id
                 ? 'text-[#3B82F6]'
-                : 'text-gray-500 hover:text-gray-700'
+                : 'text-[#6B7280] hover:text-[#0F172A]'
               }
             `}
           >
@@ -128,7 +122,7 @@ const StripeTabs: React.FC<StripeTabsProps> = ({ activeTab, onTabChange, tabs })
       </div>
 
       {/* Full-width divider line */}
-      <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gray-200" />
+      <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-[#E2E8F0]" />
 
       {/* Animated underline indicator - sits on top of divider */}
       <div
@@ -142,7 +136,7 @@ const StripeTabs: React.FC<StripeTabsProps> = ({ activeTab, onTabChange, tabs })
   );
 };
 
-const ContactSearchPage: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
+const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; parentEmailTemplate?: EmailTemplate | null }> = ({ embedded = false, hideSubTabs = false, parentEmailTemplate }) => {
   const { user, checkCredits, updateCredits } = useFirebaseAuth();
   const { openPanelWithSearchHelp } = useScout();
   const navigate = useNavigate();
@@ -184,6 +178,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean }> = ({ embedded = false 
   const [progressValue, setProgressValue] = useState(0);
   const [searchComplete, setSearchComplete] = useState(false);
   const [lastResults, setLastResults] = useState<any[]>([]);
+  const [companyContext, setCompanyContext] = useState<string>("");
   const [lastSearchStats, setLastSearchStats] = useState<{
     successful_drafts: number;
     total_contacts: number;
@@ -223,6 +218,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean }> = ({ embedded = false 
   // Tab state
   const [activeTab, setActiveTab] = useState<string>("contact-search");
   const [showEliteGate, setShowEliteGate] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
 
   const isElite = user?.tier === "elite";
 
@@ -236,7 +232,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean }> = ({ embedded = false 
   // Email template state (saved default + session override)
   const [savedEmailTemplate, setSavedEmailTemplate] = useState<EmailTemplate | null>(null);
   const [sessionEmailTemplate, setSessionEmailTemplate] = useState<EmailTemplate | null>(null);
-  const activeEmailTemplate = sessionEmailTemplate ?? savedEmailTemplate;
+  const activeEmailTemplate = parentEmailTemplate ?? sessionEmailTemplate ?? savedEmailTemplate;
 
   // Fallback to 'free' config if tier not found (safety for new tiers)
   const currentTierConfig = TIER_CONFIGS[userTier] || TIER_CONFIGS.free;
@@ -255,17 +251,21 @@ const ContactSearchPage: React.FC<{ embedded?: boolean }> = ({ embedded = false 
   useEffect(() => {
     const companyParam = searchParams.get('company');
     const locationParam = searchParams.get('location');
+    const roleParam = searchParams.get('role');
 
-    if (companyParam || locationParam) {
+    if (companyParam || locationParam || roleParam) {
       const parts = [];
-      if (companyParam) parts.push(`contacts at ${companyParam}`);
+      if (roleParam) parts.push(roleParam);
+      if (companyParam) parts.push(`at ${companyParam}`);
       if (locationParam) parts.push(`in ${locationParam}`);
       setSearchPrompt(parts.join(' ') || '');
 
       setSearchParams({}, { replace: true });
       toast({
         title: "Search pre-filled",
-        description: `Finding contacts at ${companyParam || 'this company'}`,
+        description: roleParam
+          ? `Finding ${roleParam}${companyParam ? ` at ${companyParam}` : ''}`
+          : `Finding contacts at ${companyParam || 'this company'}`,
       });
     }
   }, []); // Run once on mount
@@ -834,6 +834,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean }> = ({ embedded = false 
     setSearchComplete(false);
 
     let progressInterval: NodeJS.Timeout | null = null;
+    let searchSucceeded = false;
     const startProgressSimulation = () => {
       let currentProgress = 10;
       progressInterval = setInterval(() => {
@@ -867,7 +868,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean }> = ({ embedded = false 
       }
 
       setProgressValue(40);
-      const result = await apiService.runPromptSearch({ prompt: searchPrompt.trim(), batchSize });
+      const result = await apiService.runPromptSearch({ prompt: searchPrompt.trim(), batchSize, emailTemplate: activeEmailTemplate });
 
       if (!isSearchResult(result)) {
         if (progressInterval) clearInterval(progressInterval);
@@ -889,13 +890,16 @@ const ContactSearchPage: React.FC<{ embedded?: boolean }> = ({ embedded = false 
       if (progressInterval) clearInterval(progressInterval);
       setProgressValue(90);
 
-      const creditsUsed = result.contacts.length * 15;
-      const newCredits = Math.max(0, currentCredits - creditsUsed);
-      if (updateCredits) {
+      const creditsUsed = (result as any)?.credits_used ?? result.contacts.length * 15;
+      if ((result as any)?.credits_remaining !== undefined && updateCredits) {
+        await updateCredits((result as any).credits_remaining).catch(() => {});
+      } else if (updateCredits) {
+        const newCredits = Math.max(0, currentCredits - creditsUsed);
         await updateCredits(newCredits).catch(() => {});
       }
       setProgressValue(100);
       setLastResults(result.contacts);
+      setCompanyContext((result as any)?.parsed_query?.company_context || "");
 
       if (result.contacts.length === 0) {
         triggerScoutForNoResults();
@@ -924,21 +928,14 @@ const ContactSearchPage: React.FC<{ embedded?: boolean }> = ({ embedded = false 
         }
       }
 
-      // Save contacts to directory with pipelineStage: "new" (backend sets this automatically)
-      if (result.contacts.length > 0) {
-        try {
-          await autoSaveToDirectory(result.contacts);
-        } catch (saveError) {
-          const isDev = import.meta.env.DEV;
-          if (isDev) console.error("Auto-save to directory failed:", saveError);
-        }
-      }
+      // Backend already saves contacts to Firestore (runs.py save loop) — no frontend save needed
 
       setLastSearchStats({
         successful_drafts: 0,
         total_contacts: result.contacts.length,
       });
       setSearchComplete(true);
+      searchSucceeded = true;
 
       toast({
         title: "Contacts Found!",
@@ -998,7 +995,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean }> = ({ embedded = false 
       // Ensure progress interval is cleared
       if (progressInterval) clearInterval(progressInterval);
       setIsSearching(false);
-      if (searchComplete) {
+      if (searchSucceeded) {
         setTimeout(() => {
           setProgressValue(0);
           setSearchComplete(false);
@@ -1099,490 +1096,657 @@ const ContactSearchPage: React.FC<{ embedded?: boolean }> = ({ embedded = false 
   // --- Embedded content (rendered inside FindPage wrapper) ---
   const embeddedContent = (
     <>
-      {/* Navigation Tabs */}
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px', marginTop: '-4px', borderBottom: '1px solid #d4d4d0' }} className="overflow-x-auto max-w-full scrollbar-hide">
-              <div
-                style={{
-                  display: 'inline-flex',
-                  gap: '0px',
-                }}
-              >
-                {[
-                  { id: 'contact-search', label: 'Search' },
-                  { id: 'import', label: 'Import' },
-                  { id: 'contact-library', label: 'Tracker' },
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0',
-                      padding: '6px 16px',
-                      borderRadius: '0',
-                      border: 'none',
-                      borderBottom: activeTab === tab.id ? '2px solid #1a1a1a' : '2px solid transparent',
-                      cursor: 'pointer',
-                      fontFamily: "'IBM Plex Mono', monospace",
-                      fontSize: '11px',
-                      fontWeight: 400,
-                      textTransform: 'uppercase' as const,
-                      letterSpacing: '0.08em',
-                      transition: 'all 0.15s ease',
-                      background: 'transparent',
-                      color: activeTab === tab.id ? '#1a1a1a' : '#888',
-                      marginBottom: '-1px',
-                    }}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Main Content Area */}
-            <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 delay-100">
-              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <TabsContent value="contact-search" className="mt-0 focus-visible:outline-none">
-
-                  {/* Gmail not connected banner */}
-                  {gmailConnected === false && !gmailBannerDismissed && (
-                    <div
-                      className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm"
-                      role="alert"
-                    >
-                      <div className="flex items-center gap-2 text-amber-800">
-                        <Mail className="h-4 w-4 shrink-0" />
-                        <span>
-                          Gmail not connected — drafts won&apos;t be created.{" "}
-                          <Button
-                            variant="link"
-                            className="h-auto p-0 text-amber-800 underline underline-offset-2"
-                            onClick={initiateGmailOAuth}
-                          >
-                            Connect Gmail
-                          </Button>
-                        </span>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 shrink-0 text-amber-700 hover:bg-amber-100"
-                        aria-label="Dismiss"
-                        onClick={() => setGmailBannerDismissed(true)}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* Search Card */}
-                  <div 
-                    data-tour="tour-search-form"
-                    style={{
-                      maxWidth: '680px',
-                      margin: '0 auto',
-                    }}
-                    className="w-full px-4 py-2 sm:px-6"
-                  >
-
-                    {/* Progress Bar (if searching or drafting) */}
-                    {isSearching && (
-                      <div className="absolute top-0 left-0 right-0 z-10">
-                        <Progress value={progressValue} className="h-1 rounded-none bg-blue-50" />
-                      </div>
-                    )}
-
-                    <div className="py-2">
-
-                      <input
-                        type="file"
-                        accept={ACCEPTED_RESUME_TYPES.accept}
-                        onChange={handleFileUpload}
-                        className="hidden"
-                        id="resume-upload"
-                        disabled={isSearching || isUploadingResume}
-                      />
-
-                      {/* Targeted Email Indicator */}
-                      {currentFitContext && currentFitContext.job_title && (
-                        <div className="mb-8 bg-gray-50 border border-gray-100 rounded-2xl p-4 flex items-center justify-between animate-in fade-in slide-in-from-top-2">
-                          <div className="flex items-center gap-3">
-                            <div className="p-2 bg-white border border-gray-200 rounded-lg">
-                              <Sparkles className="w-4 h-4 text-blue-600" />
-                            </div>
-                            <div className="text-sm">
-                              <span className="font-medium text-gray-900">Targeted Search:</span>
-                              <span className="text-gray-600 ml-1">
-                                Scanning for <strong className="font-semibold text-gray-900">{currentFitContext.job_title}</strong> at {currentFitContext.company || 'target companies'}
-                              </span>
-                            </div>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              localStorage.removeItem('scout_fit_context');
-                              setCurrentFitContext(null);
-                            }}
-                            className="h-8 text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-                          >
-                            Clear
-                          </Button>
-                        </div>
-                      )}
-
-                      {/* Unified search input */}
-                      <div className="space-y-3 mb-6">
-                        <label className="text-sm font-semibold text-gray-700 ml-1">Tell us who you're looking for</label>
-                        <div className="relative">
-                          <input
-                            type="text"
-                            value={searchPrompt}
-                            onChange={(e) => { setSearchPrompt(e.target.value); setLinkedInError(null); setLinkedInSuccess(null); }}
-                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
-                            placeholder="e.g. LinkedIn URL, job title, company, alma mater"
-                            disabled={isSearching || linkedInLoading}
-                            className="w-full h-12 px-5 text-base bg-white border border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 transition-all duration-150 shadow-sm shadow-gray-200/50 hover:border-gray-300 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 focus:outline-none"
-                          />
-                          {searchPrompt.trim() && (
-                            <CheckCircle className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-green-500" />
-                          )}
-                        </div>
-                        {/* Mode indicator + example chips */}
-                        <div className="flex items-center justify-between">
-                          <div className="flex flex-wrap gap-2">
-                            {examplePromptChips.map((chip) => (
-                              <button
-                                key={chip.id}
-                                type="button"
-                                onClick={() => {
-                                  setSearchPrompt(chip.prompt);
-                                  setSelectedExampleId(chip.id);
-                                  setTimeout(() => setSelectedExampleId(null), 200);
-                                }}
-                                disabled={isSearching || linkedInLoading}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all duration-150
-                                  ${selectedExampleId === chip.id
-                                    ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                    : 'bg-gray-50/80 text-gray-600 border-gray-200 hover:bg-gray-100 hover:text-gray-800 hover:border-gray-300'
-                                  }`}
-                              >
-                                {chip.isLinkedIn && <Linkedin className="h-3 w-3 mr-1 inline" />}
-                                {chip.label}
-                              </button>
-                            ))}
-                          </div>
-                          {isLinkedInUrl(searchPrompt) && (
-                            <span className="flex items-center gap-1 text-xs text-primary whitespace-nowrap ml-2">
-                              <Linkedin className="h-3 w-3" />
-                              LinkedIn profile detected
-                            </span>
-                          )}
-                        </div>
-
-                        {/* LinkedIn error/success inline */}
-                        {linkedInError && (
-                          <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg flex items-center gap-2">
-                            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                            {linkedInError}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Quantity Selector - only for search queries, not LinkedIn */}
-                      {!isLinkedInUrl(searchPrompt) && (
-                      <div className="mb-10 w-full">
-                        {/* Header row */}
-                        <div className="flex items-center justify-between gap-4 mb-5">
-                          <div>
-                            <h3 className="text-base font-semibold text-gray-900 mb-1">Number of Contacts</h3>
-                            <p className="text-sm text-gray-500">How many people should we find?</p>
-                          </div>
-                          <span className="text-sm text-gray-500">
-                            {batchSize} selected
-                          </span>
-                        </div>
-
-                        <div className="slider-container">
-                          <div className="slider-wrapper">
-                            <span className="text-xs text-gray-400 min-w-[20px]">1</span>
-                            <div className="slider-input-wrapper">
-                              {/* Filled track background */}
-                              <div
-                                className="slider-filled-track"
-                                style={{
-                                  width: `${((batchSize - 1) / (maxBatchSize - 1)) * 100}%`
-                                }}
-                              />
-                              <input
-                                type="range"
-                                min={1}
-                                max={maxBatchSize}
-                                value={batchSize}
-                                onChange={(e) => {
-                                  const newValue = Number(e.target.value);
-                                  // Ensure value doesn't exceed maxBatchSize
-                                  const clampedValue = Math.min(newValue, maxBatchSize);
-                                  setBatchSize(clampedValue);
-                                }}
-                                disabled={isSearching}
-                                className="slider-custom"
-                                aria-label="Number of contacts to find"
-                                aria-valuemin={1}
-                                aria-valuemax={maxBatchSize}
-                                aria-valuenow={batchSize}
-                                aria-disabled={isSearching}
-                              />
-                            </div>
-                            <span className="text-xs text-gray-400 min-w-[24px]">{maxBatchSize}</span>
-                          </div>
-                        </div>
-
-                        {/* Dynamic helper message */}
-                        <p className="mt-2 text-sm text-gray-500 text-center">
-                          {getContactCountHelper(batchSize)}
-                        </p>
-
-                        {/* Credit cost preview */}
-                        <div className="mt-3 flex items-center justify-center gap-2 text-xs">
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 font-medium">
-                            {batchSize * 15} credits
-                          </span>
-                          <span className="text-gray-400">
-                            ({effectiveUser.credits ?? 0} available)
-                          </span>
-                        </div>
-                      </div>
-                      )}
-
-                      {/* Action Button */}
-                      <div className="flex flex-col items-center gap-4">
-                        <Button
-                          ref={originalButtonRef}
-                          onClick={handleSubmit}
-                          disabled={isSearching || linkedInLoading || !searchPrompt.trim()}
-                          className={`
-                            h-14 px-12 rounded-full text-lg font-medium shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300
-                            ${isSearching || linkedInLoading || !searchPrompt.trim()
-                              ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
-                              : 'bg-blue-600 text-white hover:bg-blue-700 hover:scale-[1.02]'
-                            }
-                          `}
-                        >
-                          {isSearching || linkedInLoading ? (
-                            <div className="flex items-center gap-3">
-                              <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
-                              <span>{linkedInLoading ? 'Importing...' : 'Searching...'}</span>
-                            </div>
-                          ) : isLinkedInUrl(searchPrompt) ? (
-                            <div className="flex items-center gap-2">
-                              <Linkedin className="w-5 h-5" />
-                              <span>Import from LinkedIn</span>
-                              <ArrowRight className="w-5 h-5" />
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <span>Discover Contacts</span>
-                              <ArrowRight className="w-5 h-5" />
-                            </div>
-                          )}
-                        </Button>
-
-                        {/* Search success state */}
-                        {hasResults && !isSearching && !linkedInSuccess && (
-                          <div ref={searchSuccessRef} className="flex flex-col items-center gap-4 animate-in fade-in slide-in-from-top-2 w-full max-w-2xl mx-auto">
-                            <div className="flex items-center gap-1.5 text-sm text-green-600">
-                              <CheckCircle className="w-3.5 h-3.5" />
-                              <span>
-                                Found {lastResults.length} contacts — head to your Outbox to draft emails.
-                              </span>
-                            </div>
-
-                            {/* Contact cards — only show when batch size is small to avoid crowding */}
-                            {lastResults.length <= 5 && (
-                            <div className="w-full space-y-2">
-                              {lastResults.map((c: any, i: number) => {
-                                const name = [c.FirstName || c.firstName, c.LastName || c.lastName].filter(Boolean).join(' ') || 'Unknown';
-                                const title = c.JobTitle || c.jobTitle || c.Title || '';
-                                const company = c.Company || c.company || '';
-                                const email = c.Email || c.email || '';
-                                const linkedin = c.LinkedIn || c.linkedinUrl || '';
-                                return (
-                                  <div key={i} className="flex items-center gap-3 p-3 bg-white border border-gray-100 rounded-xl hover:border-blue-200 transition-colors">
-                                    <div className="w-9 h-9 rounded-full bg-cyan-50 flex items-center justify-center text-cyan-600 font-semibold text-sm flex-shrink-0">
-                                      {name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-medium text-gray-900 truncate">{name}</p>
-                                      <p className="text-xs text-gray-500 truncate">{[title, company].filter(Boolean).join(' at ')}</p>
-                                    </div>
-                                    <div className="flex items-center gap-2 flex-shrink-0">
-                                      {email && (
-                                        <span className="text-xs text-gray-400 hidden sm:inline truncate max-w-[160px]">{email}</span>
-                                      )}
-                                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-cyan-50 text-cyan-700 border border-cyan-100">New</span>
-                                      {linkedin && (
-                                        <a href={linkedin} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-600" onClick={(e) => e.stopPropagation()}>
-                                          <ExternalLink className="w-3.5 h-3.5" />
-                                        </a>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            )}
-
-                            <div className="flex items-center gap-3">
-                              <Button
-                                onClick={() => navigate('/outbox')}
-                                className="h-11 px-6 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
-                              >
-                                <Inbox className="w-4 h-4" />
-                                View in Outbox
-                              </Button>
-                              <Button
-                                variant="outline"
-                                onClick={() => {
-                                  setActiveTab('contact-library');
-                                  setSearchParams({ tab: 'contact-library' }, { replace: true });
-                                }}
-                                className="h-11 px-6 rounded-xl border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-300 font-medium transition-all flex items-center justify-center gap-2"
-                              >
-                                <User className="w-4 h-4" />
-                                View in Networking Tracker
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* LinkedIn import success state */}
-                        {linkedInSuccess && (
-                          <div className="flex flex-col items-center gap-3 animate-in fade-in slide-in-from-top-2">
-                            <div className="flex items-center gap-1.5 text-sm text-green-600">
-                              <CheckCircle className="w-3.5 h-3.5" />
-                              <span>{linkedInSuccess}</span>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              {linkedInLastDraftUrl && (
-                                <Button
-                                  onClick={() => window.open(linkedInLastDraftUrl!, '_blank')}
-                                  className="h-11 px-6 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
-                                >
-                                  <ExternalLink className="w-4 h-4" />
-                                  Open Gmail Draft
-                                </Button>
-                              )}
-                              <Button
-                                variant="outline"
-                                onClick={() => {
-                                  setActiveTab('contact-library');
-                                  setSearchParams({ tab: 'contact-library' }, { replace: true });
-                                }}
-                                className="h-11 px-6 rounded-xl border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-300 font-medium transition-all flex items-center justify-center gap-2"
-                              >
-                                <User className="w-4 h-4" />
-                                View in Networking Tracker
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Resume Status */}
-                      <div className="flex justify-center mt-8 pt-8 border-t border-gray-100">
-                        {savedResumeUrl && savedResumeFileName ? (
-                          <div className="flex items-center gap-4 group">
-                            <div className="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center border border-green-100 group-hover:bg-green-100 transition-colors">
-                              <CheckCircle className="w-5 h-5 text-green-600" />
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <p className="font-medium text-gray-900">Resume Active</p>
-                                <span className="text-[10px] font-bold tracking-wider uppercase bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
-                                  Optimizing
-                                </span>
-                              </div>
-                              <button
-                                onClick={() => document.getElementById('resume-upload')?.click()}
-                                disabled={isSearching || isUploadingResume}
-                                className="text-sm text-gray-500 hover:text-blue-600 transition-colors text-left"
-                              >
-                                Using <span className="font-medium text-gray-700">{savedResumeFileName}</span>
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div
-                            onClick={() => !isSearching && !isUploadingResume && document.getElementById('resume-upload')?.click()}
-                            className="flex items-center gap-4 cursor-pointer group"
-                          >
-                            <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center border border-gray-200 group-hover:border-blue-300 group-hover:bg-blue-50 transition-colors">
-                              <Upload className="w-5 h-5 text-gray-400 group-hover:text-blue-500 transition-colors" />
-                            </div>
-                            <div>
-                              <p className="font-medium text-gray-900 group-hover:text-blue-600 transition-colors">Upload Resume</p>
-                              <p className="text-sm text-gray-500">For better matching</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                    </div>
-                  </div>
-
-                </TabsContent>
-
-                {/* Other Tabs content would go here, preserved as placeholders or real components if needed */}
-                <TabsContent value="import" className="mt-6">
-                  <ContactImport
-                    onSwitchTab={(tab) => {
-                      setActiveTab(tab);
-                      setSearchParams({ tab }, { replace: true });
-                    }}
-                  />
-                </TabsContent>
-
-                <TabsContent value="contact-library" className="mt-6">
-                  <div 
-                    data-tour="tour-tracker-table"
-                    style={{
-                      background: '#FFFFFF',
-                      border: '1px solid rgba(37, 99, 235, 0.08)',
-                      borderRadius: '14px',
-                      maxWidth: '900px',
-                      margin: '0 auto',
-                      boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03)',
-                      minHeight: '600px',
-                    }}
-                    className="overflow-hidden w-full px-4 py-5 sm:px-10 sm:py-9"
-                  >
-                    <ContactDirectoryComponent />
-                  </div>
-                </TabsContent>
-
-              </Tabs>
-            </div>
-
-      {/* Sticky CTA - Only show on contact-search tab */}
-      {activeTab === 'contact-search' && (
-        <StickyCTA
-          originalButtonRef={originalButtonRef}
-          onClick={handleSubmit}
-          isLoading={isSearching || linkedInLoading}
-          disabled={isSearching || linkedInLoading || !searchPrompt.trim() || !user}
-          buttonClassName="rounded-full"
+      {/* Gmail banner */}
+      {gmailConnected === false && !gmailBannerDismissed && (
+        <div
+          className="flex items-center justify-between gap-4 px-4 py-3 text-sm"
+          style={{ maxWidth: '860px', margin: '0 auto', borderBottom: '0.5px solid #E2E8F0', background: '#FFFBEB' }}
+          role="alert"
         >
-          {isLinkedInUrl(searchPrompt)
-            ? <span className="flex items-center gap-2"><Linkedin className="w-4 h-4" />Import from LinkedIn</span>
-            : <span>Discover Contacts</span>
-          }
-        </StickyCTA>
+          <div className="flex items-center gap-2 text-amber-800">
+            <Mail className="h-4 w-4 shrink-0" />
+            <span>
+              Gmail not connected — drafts won&apos;t be created.{" "}
+              <Button
+                variant="link"
+                className="h-auto p-0 text-amber-800 underline underline-offset-2"
+                onClick={initiateGmailOAuth}
+              >
+                Connect Gmail
+              </Button>
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0 text-amber-700 hover:bg-amber-100"
+            aria-label="Dismiss"
+            onClick={() => setGmailBannerDismissed(true)}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       )}
 
+      <div
+        data-tour="tour-search-form"
+        style={{ padding: '24px 32px 32px', maxWidth: '860px' }}
+      >
+        <input
+          type="file"
+          accept={ACCEPTED_RESUME_TYPES.accept}
+          onChange={handleFileUpload}
+          className="hidden"
+          id="resume-upload"
+          disabled={isSearching || isUploadingResume}
+        />
+
+        {/* Progress Bar */}
+        {isSearching && (
+          <div style={{ marginBottom: 16 }}>
+            <Progress value={progressValue} className="h-0.5 rounded-none" />
+          </div>
+        )}
+
+        {/* Targeted context banner */}
+        {currentFitContext && currentFitContext.job_title && (
+          <div
+            style={{
+              marginBottom: 16,
+              background: '#FAFBFF',
+              border: '0.5px solid #E2E8F0',
+              borderRadius: 3,
+              padding: '10px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div className="flex items-center gap-3">
+              <Sparkles className="w-4 h-4 text-[#3B82F6]" />
+              <span className="text-sm text-[#6B7280]">
+                Targeting <span className="font-medium text-[#0F172A]">{currentFitContext.job_title}</span> at {currentFitContext.company || 'target companies'}
+              </span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                localStorage.removeItem('scout_fit_context');
+                setCurrentFitContext(null);
+              }}
+              className="h-7 text-[#94A3B8] hover:text-[#0F172A]"
+            >
+              Clear
+            </Button>
+          </div>
+        )}
+
+        {/* Search input row with Import CSV button */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '11px 14px',
+              border: '1.5px solid #E2E8F0',
+              borderRadius: 3,
+              background: '#FAFBFF',
+              flex: 1,
+              transition: 'all .15s',
+            }}
+            className="focus-within:border-[#3B82F6] focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(59,130,246,0.10)]"
+          >
+            <Search style={{ width: 15, height: 15, flexShrink: 0, color: '#94A3B8' }} />
+            <input
+              value={searchPrompt}
+              onChange={(e) => { setSearchPrompt(e.target.value); setLinkedInError(null); setLinkedInSuccess(null); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
+              placeholder="USC alumni at Goldman Sachs, or paste a LinkedIn URL..."
+              disabled={isSearching || linkedInLoading}
+              style={{
+                flex: 1,
+                border: 'none',
+                background: 'none',
+                fontSize: 14,
+                color: '#0F172A',
+                outline: 'none',
+                fontFamily: 'inherit',
+              }}
+            />
+            {isLinkedInUrl(searchPrompt) && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                background: 'rgba(59,130,246,0.10)',
+                color: '#3B82F6',
+                fontSize: 11,
+                fontWeight: 500,
+                padding: '3px 8px',
+                borderRadius: 100,
+                whiteSpace: 'nowrap',
+              }}>
+                <Linkedin className="h-2.5 w-2.5" />
+                LinkedIn
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowImportDialog(true)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '10px 14px',
+              border: '1.5px solid #E2E8F0',
+              borderRadius: 3,
+              background: '#FAFBFF',
+              color: '#6B7280',
+              fontSize: 12,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              fontFamily: 'inherit',
+            }}
+          >
+            <Upload className="h-3 w-3" />
+            Import CSV
+          </button>
+        </div>
+
+        {/* Example chips — hidden after user types */}
+        {!searchPrompt.trim() && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+            {examplePromptChips.map((chip) => (
+              <button
+                key={chip.id}
+                type="button"
+                onClick={() => {
+                  setSearchPrompt(chip.prompt);
+                  setSelectedExampleId(chip.id);
+                  setTimeout(() => setSelectedExampleId(null), 200);
+                }}
+                disabled={isSearching || linkedInLoading}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '5px 12px',
+                  fontSize: 12,
+                  border: `0.5px solid ${selectedExampleId === chip.id ? '#3B82F6' : '#E2E8F0'}`,
+                  borderRadius: 100,
+                  background: selectedExampleId === chip.id ? 'rgba(59,130,246,0.05)' : '#fff',
+                  color: selectedExampleId === chip.id ? '#3B82F6' : '#6B7280',
+                  cursor: 'pointer',
+                  transition: 'all .12s',
+                  fontFamily: 'inherit',
+                }}
+                onMouseEnter={(e) => {
+                  if (selectedExampleId !== chip.id) {
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = '#3B82F6';
+                    (e.currentTarget as HTMLButtonElement).style.background = 'rgba(59,130,246,0.05)';
+                    (e.currentTarget as HTMLButtonElement).style.color = '#3B82F6';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (selectedExampleId !== chip.id) {
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = '#E2E8F0';
+                    (e.currentTarget as HTMLButtonElement).style.background = '#fff';
+                    (e.currentTarget as HTMLButtonElement).style.color = '#6B7280';
+                  }
+                }}
+              >
+                {chip.isLinkedIn && <Linkedin className="h-3 w-3" />}
+                {chip.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {linkedInError && (
+          <div className="p-3 bg-red-50 text-red-700 text-sm rounded-[3px] flex items-center gap-2 border border-red-200 mb-4">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            {linkedInError}
+          </div>
+        )}
+
+        {/* Quantity slider — shown after user types, hidden for LinkedIn */}
+        {searchPrompt.trim() && !isLinkedInUrl(searchPrompt) && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 500, letterSpacing: '.05em', marginBottom: 8 }}>
+              HOW MANY TO FIND?
+            </div>
+            <div className="slider-container">
+              <div className="slider-wrapper">
+                <span className="text-xs text-[#94A3B8] min-w-[16px]">1</span>
+                <div className="slider-input-wrapper">
+                  <div
+                    className="slider-filled-track"
+                    style={{
+                      width: maxBatchSize > 1 ? `${((batchSize - 1) / (maxBatchSize - 1)) * 100}%` : '0%'
+                    }}
+                  />
+                  <input
+                    type="range"
+                    min={1}
+                    max={maxBatchSize}
+                    value={batchSize}
+                    onChange={(e) => {
+                      const clampedValue = Math.min(Number(e.target.value), maxBatchSize);
+                      setBatchSize(clampedValue);
+                    }}
+                    disabled={isSearching}
+                    className="slider-custom"
+                    aria-label="Number of contacts to find"
+                  />
+                </div>
+                <span className="text-xs text-[#94A3B8] min-w-[20px] text-right">{maxBatchSize}</span>
+              </div>
+            </div>
+            <p className="text-xs text-[#6B7280] mt-2">{getContactCountHelper(batchSize)}</p>
+            <div className="mt-2 flex items-center gap-2 text-xs text-[#6B7280]">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[3px] bg-[#FAFBFF] border border-[#E2E8F0] font-medium text-[#0F172A]">
+                {batchSize * 15} credits
+              </span>
+              <span>of {effectiveUser.credits ?? 0} available</span>
+            </div>
+          </div>
+        )}
+
+        {/* CTA button */}
+        <button
+          ref={originalButtonRef}
+          onClick={handleSubmit}
+          disabled={isSearching || linkedInLoading || !searchPrompt.trim() || !user}
+          style={{
+            width: '100%',
+            height: 44,
+            borderRadius: 3,
+            background: (isSearching || linkedInLoading || !searchPrompt.trim() || !user) ? '#E2E8F0' : '#3B82F6',
+            color: (isSearching || linkedInLoading || !searchPrompt.trim() || !user) ? '#94A3B8' : '#fff',
+            border: 'none',
+            fontSize: 14,
+            fontWeight: 600,
+            cursor: (isSearching || linkedInLoading || !searchPrompt.trim() || !user) ? 'not-allowed' : 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+            transition: 'all .15s',
+            fontFamily: 'inherit',
+          }}
+        >
+          {isSearching || linkedInLoading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>{linkedInLoading ? 'Importing...' : 'Finding people...'}</span>
+            </>
+          ) : isLinkedInUrl(searchPrompt) ? (
+            <>
+              <Linkedin className="w-4 h-4" />
+              <span>Import from LinkedIn</span>
+            </>
+          ) : (
+            <>
+              <Search className="w-4 h-4" />
+              <span>Find people</span>
+            </>
+          )}
+        </button>
+
+        {/* Resume status as subtle text link below CTA */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10 }}>
+          {savedResumeUrl && savedResumeFileName ? (
+            <button
+              onClick={() => document.getElementById('resume-upload')?.click()}
+              disabled={isSearching || isUploadingResume}
+              style={{
+                fontSize: 11,
+                color: '#94A3B8',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                cursor: 'pointer',
+                background: 'none',
+                border: 'none',
+                fontFamily: 'inherit',
+              }}
+            >
+              <Check className="w-3 h-3 text-green-600" />
+              Resume: <span style={{ fontWeight: 500 }}>{savedResumeFileName}</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => !isSearching && !isUploadingResume && document.getElementById('resume-upload')?.click()}
+              style={{
+                fontSize: 11,
+                color: '#94A3B8',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                cursor: 'pointer',
+                background: 'none',
+                border: 'none',
+                fontFamily: 'inherit',
+              }}
+            >
+              <FileText className="w-3 h-3" />
+              Add resume for better personalization
+            </button>
+          )}
+        </div>
+
+        {/* Results section */}
+        {hasResults && !isSearching && !linkedInSuccess && (
+          <div
+            ref={searchSuccessRef}
+            style={{
+              marginTop: 24,
+              paddingTop: 24,
+              borderTop: '0.5px solid #EEF2F8',
+            }}
+          >
+            {/* Success pill */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '4px 10px',
+                background: '#DCFCE7',
+                color: '#15803D',
+                border: '0.5px solid #BBF7D0',
+                borderRadius: 100,
+                fontSize: 11,
+                fontWeight: 500,
+              }}>
+                <CheckCircle className="w-3 h-3" />
+                {lastResults.length} {lastResults.length === 1 ? 'result' : 'results'} found
+              </div>
+              <span style={{ fontSize: 11, color: '#94A3B8' }}>Saved to your tracker automatically</span>
+            </div>
+
+            {/* Company context hint — explains when search intent was reinterpreted */}
+            {companyContext && (
+              <div style={{
+                padding: '8px 12px',
+                background: 'rgba(59,130,246,0.05)',
+                border: '0.5px solid #E2E8F0',
+                borderRadius: 3,
+                fontSize: 12,
+                color: '#6B7280',
+                lineHeight: 1.4,
+              }}>
+                {companyContext}. Showing related roles at this organization.
+              </div>
+            )}
+
+            {/* Contact cards */}
+            {lastResults.length <= 8 && lastResults.map((c: any, i: number) => {
+              const name = [c.FirstName || c.firstName, c.LastName || c.lastName].filter(Boolean).join(' ') || 'Unknown';
+              const title = c.JobTitle || c.jobTitle || c.Title || '';
+              const company = c.Company || c.company || '';
+              const email = c.Email || c.email || '';
+              const linkedin = c.LinkedIn || c.linkedinUrl || '';
+              const initials = name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase();
+              return (
+                <div
+                  key={i}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 11,
+                    padding: '11px 13px',
+                    background: '#fff',
+                    border: '0.5px solid #E2E8F0',
+                    borderRadius: 3,
+                    marginBottom: 6,
+                    cursor: 'pointer',
+                    transition: 'all .12s',
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLDivElement).style.borderColor = '#3B82F6';
+                    (e.currentTarget as HTMLDivElement).style.boxShadow = '0 1px 3px rgba(59,130,246,.08)';
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLDivElement).style.borderColor = '#E2E8F0';
+                    (e.currentTarget as HTMLDivElement).style.boxShadow = 'none';
+                  }}
+                >
+                  <div style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: '50%',
+                    background: 'rgba(59,130,246,0.10)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: '#0F172A',
+                    flexShrink: 0,
+                  }}>
+                    {initials}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: '#0F172A' }}>{name}</div>
+                    <div style={{ fontSize: 11, color: '#6B7280', marginTop: 1 }}>
+                      {[title, company].filter(Boolean).join(' at ')}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    {email && <span style={{ fontSize: 11, color: '#94A3B8' }}>{email}</span>}
+                    {linkedin && (
+                      <a href={linkedin} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                        <ExternalLink className="w-3.5 h-3.5" style={{ color: '#94A3B8' }} />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Action buttons */}
+            <div style={{ display: 'flex', gap: 7, marginTop: 14 }}>
+              <button
+                onClick={() => navigate('/outbox')}
+                style={{
+                  flex: 1,
+                  height: 37,
+                  borderRadius: 3,
+                  background: '#3B82F6',
+                  color: '#fff',
+                  border: 'none',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 5,
+                  fontFamily: 'inherit',
+                }}
+              >
+                <Inbox className="w-3 h-3" />
+                View in Outbox
+              </button>
+              <button
+                onClick={() => navigate('/contact-directory')}
+                style={{
+                  flex: 1,
+                  height: 37,
+                  borderRadius: 3,
+                  background: '#fff',
+                  border: '0.5px solid #E2E8F0',
+                  color: '#6B7280',
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 5,
+                  fontFamily: 'inherit',
+                }}
+              >
+                <User className="w-3 h-3" />
+                View in Tracker
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* LinkedIn success */}
+        {linkedInSuccess && (
+          <div style={{
+            marginTop: 24,
+            paddingTop: 24,
+            borderTop: '0.5px solid #EEF2F8',
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              marginBottom: 12,
+            }}>
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '4px 10px',
+                background: '#DCFCE7',
+                color: '#15803D',
+                border: '0.5px solid #BBF7D0',
+                borderRadius: 100,
+                fontSize: 11,
+                fontWeight: 500,
+              }}>
+                <CheckCircle className="w-3 h-3" />
+                {linkedInSuccess}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 7 }}>
+              {linkedInLastDraftUrl && (
+                <button
+                  onClick={() => window.open(linkedInLastDraftUrl!, '_blank')}
+                  style={{
+                    flex: 1,
+                    height: 37,
+                    borderRadius: 3,
+                    background: '#3B82F6',
+                    color: '#fff',
+                    border: 'none',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 5,
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  Open Gmail Draft
+                </button>
+              )}
+              <button
+                onClick={() => navigate('/contact-directory')}
+                style={{
+                  flex: 1,
+                  height: 37,
+                  borderRadius: 3,
+                  background: '#fff',
+                  border: '0.5px solid #E2E8F0',
+                  color: '#6B7280',
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 5,
+                  fontFamily: 'inherit',
+                }}
+              >
+                <User className="w-3 h-3" />
+                View in Tracker
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Sticky CTA */}
+      <StickyCTA
+        originalButtonRef={originalButtonRef}
+        onClick={handleSubmit}
+        isLoading={isSearching || linkedInLoading}
+        disabled={isSearching || linkedInLoading || !searchPrompt.trim() || !user}
+        buttonClassName="rounded-[3px]"
+      >
+        {isLinkedInUrl(searchPrompt)
+          ? <span className="flex items-center gap-2"><Linkedin className="w-4 h-4" />Import from LinkedIn</span>
+          : <span>Find people</span>
+        }
+      </StickyCTA>
+
       <EliteGateModal open={showEliteGate} onClose={() => setShowEliteGate(false)} />
+
+      {/* Import CSV dialog */}
+      {showImportDialog && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 50,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <div
+            style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.4)' }}
+            onClick={() => setShowImportDialog(false)}
+          />
+          <div
+            style={{
+              position: 'relative',
+              background: '#fff',
+              borderRadius: 3,
+              width: '100%',
+              maxWidth: 600,
+              maxHeight: '85vh',
+              overflowY: 'auto',
+              margin: 16,
+              boxShadow: '0 4px 12px rgba(0,0,0,.08)',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setShowImportDialog(false)}
+              style={{
+                position: 'absolute',
+                top: 12,
+                right: 12,
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 4,
+                color: '#94A3B8',
+                zIndex: 1,
+              }}
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <div style={{ padding: '24px' }}>
+              <ContactImport
+                onImportComplete={() => setShowImportDialog(false)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 
@@ -1592,7 +1756,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean }> = ({ embedded = false 
   return (
     <>
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-[#FAFAFA] text-foreground font-sans">
+      <div className="flex min-h-screen w-full bg-[#FFFFFF] text-foreground font-sans">
         <AppSidebar />
 
         <MainContentWrapper>
@@ -1603,76 +1767,40 @@ const ContactSearchPage: React.FC<{ embedded?: boolean }> = ({ embedded = false 
               <>
                 <button
                   onClick={() => navigate("/find/templates")}
-                  className="hidden md:flex items-center gap-1 text-xs text-muted-foreground hover:text-primary cursor-pointer transition-colors"
+                  className="hidden md:flex items-center gap-1 text-xs text-[#6B7280] hover:text-[#0F172A] cursor-pointer transition-colors"
                 >
-                  Using:&nbsp;<span className="font-semibold text-foreground">
-                    {activeEmailTemplate && hasEmailTemplateValues(activeEmailTemplate)
-                      ? (() => {
-                          if (activeEmailTemplate.name && activeEmailTemplate.name.trim()) return activeEmailTemplate.name.trim();
-                          const p = activeEmailTemplate.purpose;
-                          if (p === "networking") return "Networking";
-                          if (p === "referral") return "Referral Request";
-                          if (p === "follow_up") return "Follow-Up";
-                          if (p === "sales") return "Sales";
-                          if (p === "custom") return "Custom Template";
-                          if (p) return p.charAt(0).toUpperCase() + p.slice(1).replace(/_/g, " ");
-                          return "Networking";
-                        })()
-                      : "Networking"}
+                  Template:&nbsp;<span className="font-medium text-[#0F172A]">
+                    {getEmailTemplateLabel(activeEmailTemplate)}
                   </span>
                 </button>
                 <Button
                   type="button"
                   onClick={() => isElite ? navigate("/find/templates") : setShowEliteGate(true)}
-                  className="h-9 px-5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold text-sm gap-2 shadow-sm hover:shadow-md hover:scale-[1.02] transition-all duration-150"
+                  className="h-8 px-4 rounded-[3px] bg-[#3B82F6] hover:bg-[#2563EB] text-white text-sm font-medium transition-all"
                   data-tour="tour-templates-button"
                 >
-                  <FileText className="h-4 w-4 text-white" />
-                  <span className="hidden sm:inline whitespace-nowrap">
-                    Create Your Own Email Template
+                  <FileText className="h-4 w-4" />
+                  <span className="hidden sm:inline whitespace-nowrap ml-2">
+                    Email Template
                   </span>
                 </Button>
               </>
             }
           />
 
-          <main style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto' }} className="px-3 py-6 pb-24 sm:px-6 sm:py-12 sm:pb-24">
-            {/* Header Section */}
-            <div className="w-full px-3 py-6 sm:px-6 sm:py-12" style={{ maxWidth: '900px', margin: '0 auto' }}>
-              <h1
-                className="text-[28px] sm:text-[42px]"
-                style={{
-                  fontFamily: "'Instrument Serif', Georgia, serif",
-                  fontWeight: 400,
-                  letterSpacing: '-0.025em',
-                  color: '#0F172A',
-                  textAlign: 'center',
-                  marginBottom: '10px',
-                  lineHeight: 1.1,
-                }}
-              >
+          <main style={{ background: '#FFFFFF', flex: 1, overflowY: 'auto' }} className="px-4 py-8 pb-24 sm:px-8 sm:py-12 sm:pb-24">
+            {/* Header */}
+            <div className="w-full mb-8" style={{ maxWidth: '720px', margin: '0 auto' }}>
+              <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[#0F172A] mb-2" style={{ fontFamily: "'Lora', Georgia, serif" }}>
                 {(activeTab === 'contact-search' || activeTab === 'import') && 'Find People'}
-                {activeTab === 'contact-library' && 'Track Your Contacts'}
-                {!['contact-search', 'import', 'contact-library'].includes(activeTab) && 'Find your next connection'}
+                {activeTab === 'contact-library' && 'Your Contacts'}
+                {!['contact-search', 'import', 'contact-library'].includes(activeTab) && 'Find'}
               </h1>
-              <p
-                style={{
-                  fontFamily: "'DM Sans', system-ui, sans-serif",
-                  fontSize: '16px',
-                  color: '#64748B',
-                  textAlign: 'center',
-                  marginBottom: '28px',
-                  lineHeight: 1.5,
-                }}
-              >
-                {(activeTab === 'contact-search' || activeTab === 'import') && 'Search by name, role, or company — or paste a LinkedIn URL. We\'ll find their emails and draft outreach for you.'}
-                {activeTab === 'contact-library' && 'Everyone you find lands here. Update their status, open email drafts, and export to CSV.'}
-                {!['contact-search', 'import', 'contact-library'].includes(activeTab) && 'Discover professionals who can open doors at your target companies.'}
+              <p className="text-sm text-[#6B7280] leading-relaxed">
+                {(activeTab === 'contact-search' || activeTab === 'import') && 'Search by name, role, or company — or paste a LinkedIn URL.'}
+                {activeTab === 'contact-library' && 'Everyone you find lands here. Track status, view emails, and export.'}
+                {!['contact-search', 'import', 'contact-library'].includes(activeTab) && 'Discover professionals at your target companies.'}
               </p>
-
-              <div style={{ display: 'flex', justifyContent: 'center' }}>
-                <VideoDemo videoId={activeTab === 'contact-library' ? 'n_AYHEJSXrE' : 'OTd5LOOpgvQ'} />
-              </div>
             </div>
 
             {embeddedContent}

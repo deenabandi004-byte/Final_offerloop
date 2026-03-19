@@ -133,14 +133,14 @@ const PDFPreview: React.FC<PDFPreviewProps> = ({ pdfUrl, pdfBase64, title = 'PDF
   if (!src) {
     if (isLoadingBlob && pdfUrl) {
       return (
-        <div className="border border-gray-200 rounded-xl p-8 bg-gray-50 text-center">
+        <div className="border border-gray-200 rounded-[3px] p-8 bg-gray-50 text-center">
           <Loader2 className="h-8 w-8 animate-spin text-gray-500 mx-auto mb-4" />
           <p className="text-gray-500">Loading PDF preview...</p>
         </div>
       );
     }
     return (
-      <div className="border border-gray-200 rounded-xl p-8 bg-gray-50 text-center">
+      <div className="border border-gray-200 rounded-[3px] p-8 bg-gray-50 text-center">
         <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" />
         <p className="text-gray-500">No resume to preview</p>
       </div>
@@ -148,7 +148,7 @@ const PDFPreview: React.FC<PDFPreviewProps> = ({ pdfUrl, pdfBase64, title = 'PDF
   }
   
   return (
-    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+    <div className="border border-gray-200 rounded-[3px] overflow-hidden bg-white">
       <iframe
         src={src}
         className="w-full h-[500px]"
@@ -172,12 +172,12 @@ const ReplaceResumeModal: React.FC<ConfirmModalProps> = ({ isOpen, onClose, onCo
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6 animate-scaleIn">
+      <div className="relative bg-white rounded-[3px] shadow-xl max-w-md w-full mx-4 p-6 animate-scaleIn">
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
           <X className="h-5 w-5" />
         </button>
         
-        <div className="w-14 h-14 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+        <div className="w-14 h-14 bg-gray-100 rounded-[3px] flex items-center justify-center mx-auto mb-4">
           <FileText className="w-7 h-7 text-gray-600" />
         </div>
         
@@ -195,7 +195,7 @@ const ReplaceResumeModal: React.FC<ConfirmModalProps> = ({ isOpen, onClose, onCo
           <Button 
             onClick={onConfirm} 
             disabled={isLoading}
-            className="bg-blue-600 hover:bg-blue-700 hover:shadow-lg rounded-full px-6"
+            className="bg-[#0F172A] hover:bg-[#1E293B] hover:shadow-lg rounded-full px-6"
           >
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
             Replace Resume
@@ -303,7 +303,7 @@ const RecommendationCard: React.FC<{ rec: Recommendation }> = ({ rec }) => {
   };
   
   return (
-    <div className="border border-gray-200 rounded-xl p-4 bg-white hover:shadow-md transition-shadow">
+    <div className="border border-gray-200 rounded-[3px] p-4 bg-white hover:shadow-md transition-shadow">
       <div 
         className="flex justify-between items-start cursor-pointer"
         onClick={() => setExpanded(!expanded)}
@@ -322,7 +322,7 @@ const RecommendationCard: React.FC<{ rec: Recommendation }> = ({ rec }) => {
         <div className="mt-4 space-y-3">
           {/* Current/Before */}
           {rec.current && (
-            <div className="bg-gray-50 rounded-lg p-3">
+            <div className="bg-gray-50 rounded-[3px] p-3">
               <div className="text-xs font-medium text-gray-500 mb-1">Current</div>
               <p className="text-sm text-gray-700 whitespace-pre-wrap">{rec.current}</p>
             </div>
@@ -330,7 +330,7 @@ const RecommendationCard: React.FC<{ rec: Recommendation }> = ({ rec }) => {
           
           {/* Suggested/After */}
           {rec.suggested && (
-            <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+            <div className="bg-gray-50 rounded-[3px] p-3 border border-gray-200">
               <div className="flex justify-between items-center mb-1">
                 <span className="text-xs font-medium text-gray-600">
                   {rec.current ? 'Suggested' : 'Add This'}
@@ -352,7 +352,7 @@ const RecommendationCard: React.FC<{ rec: Recommendation }> = ({ rec }) => {
           
           {/* For removals */}
           {rec.current && !rec.suggested && (
-            <div className="bg-red-50 rounded-lg p-3 border border-red-200">
+            <div className="bg-red-50 rounded-[3px] p-3 border border-red-200">
               <span className="text-xs font-medium text-red-600">Consider removing this</span>
             </div>
           )}
@@ -822,7 +822,7 @@ export default function ResumeWorkshopPage() {
         <AppSidebar />
         <MainContentWrapper>
           <AppHeader title="" />
-          <main data-tour="tour-resume" style={{ background: '#F8FAFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
+          <main data-tour="tour-resume" style={{ background: '#FAFBFF', flex: 1, overflowY: 'auto', paddingBottom: '96px' }}>
             <div className="w-full px-3 py-6 sm:px-6 sm:py-12" style={{ maxWidth: '900px', margin: '0 auto' }}>
               
               {/* Header Section */}
@@ -830,7 +830,7 @@ export default function ResumeWorkshopPage() {
                 <h1
                   className="text-[28px] sm:text-[42px]"
                   style={{
-                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontFamily: "'Lora', Georgia, serif",
                     fontWeight: 400,
                     letterSpacing: '-0.025em',
                     color: '#0F172A',
@@ -884,7 +884,7 @@ export default function ResumeWorkshopPage() {
                       fontSize: '14px',
                       fontWeight: 500,
                       transition: 'all 0.15s ease',
-                      background: activeTab === 'resume-workshop' ? '#2563EB' : 'transparent',
+                      background: activeTab === 'resume-workshop' ? '#0F172A' : 'transparent',
                       color: activeTab === 'resume-workshop' ? 'white' : '#64748B',
                       boxShadow: activeTab === 'resume-workshop' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
                     }}
@@ -907,7 +907,7 @@ export default function ResumeWorkshopPage() {
                       fontSize: '14px',
                       fontWeight: 500,
                       transition: 'all 0.15s ease',
-                      background: activeTab === 'resume-library' ? '#2563EB' : 'transparent',
+                      background: activeTab === 'resume-library' ? '#0F172A' : 'transparent',
                       color: activeTab === 'resume-library' ? 'white' : '#64748B',
                       boxShadow: activeTab === 'resume-library' ? '0 1px 3px rgba(37, 99, 235, 0.2)' : 'none',
                     }}
@@ -921,7 +921,7 @@ export default function ResumeWorkshopPage() {
                           padding: '2px 8px',
                           borderRadius: '6px',
                           background: activeTab === 'resume-library' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(37, 99, 235, 0.08)',
-                          color: activeTab === 'resume-library' ? 'white' : '#2563EB',
+                          color: activeTab === 'resume-library' ? 'white' : '#0F172A',
                           fontFamily: "'DM Sans', system-ui, sans-serif",
                           fontSize: '11px',
                           fontWeight: 600,
@@ -939,7 +939,7 @@ export default function ResumeWorkshopPage() {
 
                 <div className="animate-fadeInUp" style={{ animationDelay: '200ms' }}>
                   {error && (
-                    <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+                    <div className="mb-6 bg-red-50 border border-red-200 rounded-[3px] p-4 flex items-start gap-3">
                       <AlertCircle className="text-red-600 flex-shrink-0 mt-0.5" size={20} />
                       <div className="flex-1"><p className="text-sm text-red-700">{error}</p></div>
                       <button onClick={() => setError(null)} className="text-red-600 hover:text-red-800">×</button>
@@ -952,14 +952,14 @@ export default function ResumeWorkshopPage() {
                       <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
                         {/* Left Column - Resume Preview (3/5 width) */}
                         <div className="lg:col-span-3">
-                          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+                          <div className="bg-white rounded-[3px] shadow-lg border border-gray-100 overflow-hidden">
                             <div className="h-1 bg-gray-100"></div>
                             
                             <div className="p-6">
                               {/* Header */}
                               <div className="flex items-center justify-between mb-4">
                                 <div className="flex items-center gap-3">
-                                  <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center">
+                                  <div className="w-10 h-10 bg-gray-100 rounded-[3px] flex items-center justify-center">
                                     <FileText className="w-5 h-5 text-gray-600" />
                                   </div>
                                   <div>
@@ -972,7 +972,7 @@ export default function ResumeWorkshopPage() {
                                 
                                 <button 
                                   onClick={() => navigate('/account-settings')}
-                                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
+                                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-[#3B82F6] hover:bg-[#FAFBFF] rounded-[3px] transition-colors"
                                 >
                                   <Upload className="w-4 h-4" />
                                   Upload New
@@ -981,13 +981,13 @@ export default function ResumeWorkshopPage() {
                               
                               {/* PDF Viewer */}
                               {isLoadingResume ? (
-                                <div className="border border-gray-200 rounded-xl p-8 bg-gray-50 text-center">
+                                <div className="border border-gray-200 rounded-[3px] p-8 bg-gray-50 text-center">
                                   <Loader2 className="h-8 w-8 animate-spin text-gray-500 mx-auto" />
                                 </div>
                               ) : !resumeUrl ? (
                                 <div 
                                   onClick={() => navigate('/account-settings')}
-                                  className="border-2 border-dashed border-gray-300 rounded-xl p-12 text-center cursor-pointer hover:border-gray-400 hover:bg-gray-50 transition-all"
+                                  className="border-2 border-dashed border-gray-300 rounded-[3px] p-12 text-center cursor-pointer hover:border-gray-400 hover:bg-gray-50 transition-all"
                                 >
                                   <Upload className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                                   <p className="font-medium text-gray-700 mb-2">No resume uploaded yet</p>
@@ -1007,12 +1007,12 @@ export default function ResumeWorkshopPage() {
                         <div className="lg:col-span-2 space-y-6">
                           {/* Job Description Card */}
                           {resumeUrl && (
-                            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+                            <div className="bg-white rounded-[3px] shadow-lg border border-gray-100 overflow-hidden">
                               <div className="h-1 bg-gray-100"></div>
                               
                               <div className="p-6">
                                 <div className="flex items-center gap-3 mb-4">
-                                  <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center">
+                                  <div className="w-10 h-10 bg-gray-100 rounded-[3px] flex items-center justify-center">
                                     <Briefcase className="w-5 h-5 text-gray-600" />
                                   </div>
                                   <div>
@@ -1038,10 +1038,10 @@ export default function ResumeWorkshopPage() {
                                       onChange={(e) => { setJobUrl(e.target.value); setJobUrlError(null); }}
                                       placeholder="https://linkedin.com/jobs/..."
                                       disabled={isProcessing}
-                                      className={`block w-full pl-9 pr-10 py-3 border rounded-xl
+                                      className={`block w-full pl-9 pr-10 py-3 border rounded-[3px]
                                                  text-gray-900 placeholder-gray-400 text-sm
                                                  hover:border-gray-400
-                                                 focus:border-blue-400 focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20
+                                                 focus:border-[#3B82F6] focus:bg-[#FAFBFF]/20 focus:ring-2 focus:ring-[#3B82F6]/20
                                                  hover:border-gray-300 transition-all disabled:opacity-50
                                                  ${jobUrlError ? 'border-red-300' : 'border-gray-200'}`}
                                     />
@@ -1079,9 +1079,9 @@ export default function ResumeWorkshopPage() {
                                             onChange={(e) => setCompany(e.target.value)}
                                             placeholder="e.g. Google"
                                             disabled={!!jobUrl || isProcessing}
-                                            className="block w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm
+                                            className="block w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-[3px] text-sm
                                                        hover:border-gray-400
-                                                 focus:border-blue-400 focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 disabled:bg-gray-50"
+                                                 focus:border-[#3B82F6] focus:bg-[#FAFBFF]/20 focus:ring-2 focus:ring-[#3B82F6]/20 disabled:bg-gray-50"
                                           />
                                         </div>
                                       </div>
@@ -1098,9 +1098,9 @@ export default function ResumeWorkshopPage() {
                                             onChange={(e) => setJobTitle(e.target.value)}
                                             placeholder="e.g. Product Manager"
                                             disabled={!!jobUrl || isProcessing}
-                                            className="block w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm
+                                            className="block w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-[3px] text-sm
                                                        hover:border-gray-400
-                                                 focus:border-blue-400 focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 disabled:bg-gray-50"
+                                                 focus:border-[#3B82F6] focus:bg-[#FAFBFF]/20 focus:ring-2 focus:ring-[#3B82F6]/20 disabled:bg-gray-50"
                                           />
                                         </div>
                                       </div>
@@ -1117,9 +1117,9 @@ export default function ResumeWorkshopPage() {
                                             onChange={(e) => setLocationInput(e.target.value)}
                                             placeholder="e.g. San Francisco, CA"
                                             disabled={!!jobUrl || isProcessing}
-                                            className="block w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm
+                                            className="block w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-[3px] text-sm
                                                        hover:border-gray-400
-                                                 focus:border-blue-400 focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 disabled:bg-gray-50"
+                                                 focus:border-[#3B82F6] focus:bg-[#FAFBFF]/20 focus:ring-2 focus:ring-[#3B82F6]/20 disabled:bg-gray-50"
                                           />
                                         </div>
                                       </div>
@@ -1132,9 +1132,9 @@ export default function ResumeWorkshopPage() {
                                           placeholder="Paste the job description here..."
                                           rows={4}
                                           disabled={!!jobUrl || isProcessing}
-                                          className="block w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm resize-none
+                                          className="block w-full px-4 py-2.5 border border-gray-200 rounded-[3px] text-sm resize-none
                                                      hover:border-gray-400
-                                                 focus:border-blue-400 focus:bg-blue-50/20 focus:ring-2 focus:ring-blue-400/20 disabled:bg-gray-50"
+                                                 focus:border-[#3B82F6] focus:bg-[#FAFBFF]/20 focus:ring-2 focus:ring-[#3B82F6]/20 disabled:bg-gray-50"
                                         />
                                       </div>
                                     </div>
@@ -1146,7 +1146,7 @@ export default function ResumeWorkshopPage() {
 
                           {/* Action Buttons Card */}
                           {resumeUrl && (
-                            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+                            <div className="bg-white rounded-[3px] shadow-lg border border-gray-100 overflow-hidden">
                               <div className="h-1 bg-gray-100"></div>
                               
                               <div className="p-6">
@@ -1159,10 +1159,10 @@ export default function ResumeWorkshopPage() {
                                     onClick={handleTailor}
                                     disabled={isProcessing || !resumeUrl || !hasJobContext}
                                     className={`
-                                      w-full py-4 px-6 rounded-xl font-semibold transition-all duration-200
+                                      w-full py-4 px-6 rounded-[3px] font-semibold transition-all duration-200
                                       flex items-center justify-center gap-3
                                       ${hasJobContext && !isProcessing
-                                        ? 'text-white bg-blue-600 shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-100'
+                                        ? 'text-white bg-[#0F172A] shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-100'
                                         : 'text-gray-400 bg-gray-100 cursor-not-allowed'
                                       }
                                     `}
@@ -1204,7 +1204,7 @@ export default function ResumeWorkshopPage() {
 
                           {/* What Each Action Does */}
                           {resumeUrl && (
-                            <div className="bg-gray-50 rounded-2xl p-6 border border-gray-100">
+                            <div className="bg-gray-50 rounded-[3px] p-6 border border-gray-100">
                               <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">What this action does</h3>
                               
                               <div className="flex items-start gap-3">
@@ -1219,7 +1219,7 @@ export default function ResumeWorkshopPage() {
                       </div>
                     ) : showResults === 'tailor' ? (
                       /* Tailor Results */
-                      <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+                      <div className="bg-white rounded-[3px] shadow-lg border border-gray-100 overflow-hidden">
                         <div className="h-1 bg-gray-100"></div>
                         
                         <div className="p-6">
@@ -1237,7 +1237,7 @@ export default function ResumeWorkshopPage() {
                             <div className="space-y-6">
                               {/* Score Card */}
                               {tailorScore !== null && (
-                                <div className={`rounded-xl border p-4 ${
+                                <div className={`rounded-[3px] border p-4 ${
                                   tailorScore >= 80 ? 'bg-green-50 border-green-200' :
                                   tailorScore >= 60 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'
                                 }`}>
@@ -1291,7 +1291,7 @@ export default function ResumeWorkshopPage() {
                   </TabsContent>
 
                   <TabsContent value="resume-library" className="mt-0">
-                    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+                    <div className="bg-white rounded-[3px] shadow-lg border border-gray-100 overflow-hidden">
                       <div className="h-1 bg-gray-100"></div>
                       
                       <div className="p-6">
@@ -1310,7 +1310,7 @@ export default function ResumeWorkshopPage() {
                             </p>
                             <button 
                               onClick={() => handleTabChange('resume-workshop')} 
-                              className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-full hover:shadow-lg transition-all"
+                              className="px-6 py-3 bg-[#0F172A] text-white font-semibold rounded-full hover:shadow-lg transition-all"
                             >
                               Go to Resume Workshop
                             </button>
@@ -1322,14 +1322,14 @@ export default function ResumeWorkshopPage() {
                               {libraryEntries.map(entry => (
                                 <div
                                   key={entry.id}
-                                  className={`border rounded-xl p-4 bg-white transition-colors cursor-pointer ${
-                                    previewEntry?.id === entry.id ? 'border-blue-400 ring-1 ring-blue-400/20' : 'border-gray-200 hover:border-gray-300'
+                                  className={`border rounded-[3px] p-4 bg-white transition-colors cursor-pointer ${
+                                    previewEntry?.id === entry.id ? 'border-[#3B82F6] ring-1 ring-[#3B82F6]/20' : 'border-gray-200 hover:border-gray-300'
                                   }`}
                                   onClick={() => handleViewEntry(entry)}
                                 >
                                   <div className="flex items-start justify-between gap-4">
                                     <div className="flex items-start gap-3">
-                                      <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                      <div className="w-10 h-10 bg-gray-100 rounded-[3px] flex items-center justify-center flex-shrink-0">
                                         <FileText className="h-5 w-5 text-gray-600" />
                                       </div>
                                       <div>
@@ -1347,10 +1347,10 @@ export default function ResumeWorkshopPage() {
                                       </div>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                      <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleViewEntry(entry); }} className="rounded-lg">
+                                      <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleViewEntry(entry); }} className="rounded-[3px]">
                                         <Eye className="h-4 w-4" />
                                       </Button>
-                                      <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleDownloadEntry(entry); }} className="rounded-lg">
+                                      <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleDownloadEntry(entry); }} className="rounded-[3px]">
                                         <Download className="h-4 w-4" />
                                       </Button>
                                     </div>
@@ -1362,19 +1362,19 @@ export default function ResumeWorkshopPage() {
                             <div>
                               <h2 className="text-lg font-semibold text-gray-900 mb-4">Preview</h2>
                               {isLoadingPreview ? (
-                                <div className="border border-gray-200 rounded-xl p-8 bg-gray-50 text-center">
+                                <div className="border border-gray-200 rounded-[3px] p-8 bg-gray-50 text-center">
                                   <Loader2 className="h-8 w-8 animate-spin text-gray-500 mx-auto" />
                                 </div>
                               ) : previewEntry ? (
                                 <div className="space-y-4">
                                   <PDFPreview pdfBase64={previewEntry.pdf_base64} title={previewEntry.display_name} />
-                                  <Button variant="outline" className="w-full rounded-xl" onClick={() => handleDownloadEntry(previewEntry)}>
+                                  <Button variant="outline" className="w-full rounded-[3px]" onClick={() => handleDownloadEntry(previewEntry)}>
                                     <Download className="h-4 w-4 mr-2" />
                                     Download PDF
                                   </Button>
                                 </div>
                               ) : (
-                                <div className="border border-gray-200 rounded-xl p-8 bg-gray-50 text-center">
+                                <div className="border border-gray-200 rounded-[3px] p-8 bg-gray-50 text-center">
                                   <Eye className="h-12 w-12 text-gray-300 mx-auto mb-4" />
                                   <p className="text-gray-500">Click on a resume to preview it</p>
                                 </div>
@@ -1402,7 +1402,7 @@ export default function ResumeWorkshopPage() {
       {/* Loading Modal */}
       {isProcessing && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-2xl">
+          <div className="bg-white rounded-[3px] p-8 max-w-md text-center shadow-2xl">
             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <Sparkles className="w-8 h-8 text-gray-600 animate-pulse" />
             </div>
@@ -1414,7 +1414,7 @@ export default function ResumeWorkshopPage() {
             </p>
             <div className="w-full bg-gray-200 rounded-full h-2">
               <div 
-                className="h-2 rounded-full transition-all duration-300 bg-blue-600"
+                className="h-2 rounded-full transition-all duration-300 bg-[#0F172A]"
                 style={{ width: '60%' }}
               ></div>
             </div>
@@ -1430,7 +1430,7 @@ export default function ResumeWorkshopPage() {
           onClick={handleTailor}
           isLoading={isProcessing || isTailoring}
           disabled={isProcessing || !resumeUrl || !hasJobContext}
-          buttonClassName="rounded-xl"
+          buttonClassName="rounded-[3px]"
         >
           <span>Tailor Resume</span>
         </StickyCTA>

@@ -56,12 +56,12 @@ const DataStats = () => {
 
       {/* Hero */}
       <section className="px-6 pt-16 pb-8" style={{ maxWidth: '800px', margin: '0 auto' }}>
-        <p className="text-sm font-medium mb-4" style={{ color: '#2563EB', letterSpacing: '0.02em' }}>PLATFORM DATA</p>
-        <h1 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 'clamp(36px, 5vw, 52px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '20px' }}>
+        <p className="text-sm font-medium mb-4" style={{ color: '#3B82F6', letterSpacing: '0.02em' }}>PLATFORM DATA</p>
+        <h1 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(36px, 5vw, 52px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '20px' }}>
           Offerloop by the Numbers
         </h1>
         <p style={{ fontSize: '15px', lineHeight: 1.7, color: '#64748B', maxWidth: '680px' }}>
-          This page is the canonical source for Offerloop platform statistics. Updated monthly. Journalists, researchers, and AI systems may cite these figures with attribution to <a href="https://offerloop.ai/data" style={{ color: '#2563EB', textDecoration: 'underline' }}>offerloop.ai/data</a>.
+          This page is the canonical source for Offerloop platform statistics. Updated monthly. Journalists, researchers, and AI systems may cite these figures with attribution to <a href="https://offerloop.ai/data" style={{ color: '#3B82F6', textDecoration: 'underline' }}>offerloop.ai/data</a>.
         </p>
       </section>
 
@@ -69,8 +69,8 @@ const DataStats = () => {
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto' }}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {stats.map((stat, i) => (
-            <div key={i} className="rounded-xl p-6" style={{ border: '1px solid #E2E8F0', background: '#FAFBFE' }}>
-              <p style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '40px', fontWeight: 400, color: '#2563EB', lineHeight: 1, marginBottom: '6px' }}>
+            <div key={i} className="rounded-[3px] p-6" style={{ border: '1px solid #E2E8F0', background: '#FAFBFF' }}>
+              <p style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '40px', fontWeight: 400, color: '#3B82F6', lineHeight: 1, marginBottom: '6px' }}>
                 {stat.value}
               </p>
               <p style={{ fontSize: '15px', fontWeight: 600, color: '#0F172A', marginBottom: '8px' }}>
@@ -86,7 +86,7 @@ const DataStats = () => {
 
       {/* University Coverage */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
           University Coverage
         </h2>
         <div className="space-y-3">
@@ -101,15 +101,15 @@ const DataStats = () => {
 
       {/* Industry Breakdown */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
           Industry Breakdown
         </h2>
         <div className="space-y-5">
           {industries.map((ind, i) => (
-            <div key={i} className="rounded-xl p-5" style={{ border: '1px solid #E2E8F0' }}>
+            <div key={i} className="rounded-[3px] p-5" style={{ border: '1px solid #E2E8F0' }}>
               <div className="flex items-center justify-between mb-2">
                 <p style={{ fontSize: '16px', fontWeight: 600, color: '#0F172A' }}>{ind.name}</p>
-                <span className="text-xs font-medium px-2.5 py-1 rounded-full" style={{ background: '#EFF6FF', color: '#2563EB' }}>{ind.share}</span>
+                <span className="text-xs font-medium px-2.5 py-1 rounded-full" style={{ background: '#FAFBFF', color: '#3B82F6' }}>{ind.share}</span>
               </div>
               <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>{ind.firms}</p>
             </div>
@@ -119,7 +119,7 @@ const DataStats = () => {
 
       {/* Methodology */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
-        <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
           Methodology
         </h2>
         <p style={{ fontSize: '14px', lineHeight: 1.7, color: '#64748B', marginBottom: '12px' }}>

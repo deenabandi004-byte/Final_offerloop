@@ -31,13 +31,13 @@ export function EliteGateModal({ open, onClose }: EliteGateModalProps) {
       onClick={close}
     >
       <div
-        className="relative bg-white rounded-2xl p-8 md:p-10 max-w-md w-full mx-4 shadow-xl flex flex-col items-center space-y-4"
+        className="relative bg-white rounded-[3px] p-8 md:p-10 max-w-md w-full mx-4 shadow-xl flex flex-col items-center space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
         <button
           type="button"
           onClick={close}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+          className="absolute top-4 right-4 text-[#94A3B8] hover:text-[#6B7280] transition-colors"
           aria-label="Close"
         >
           <X className="h-5 w-5" />
@@ -61,7 +61,7 @@ export function EliteGateModal({ open, onClose }: EliteGateModalProps) {
           }}
           className="inline-flex items-center justify-center gap-2 px-8 py-3 rounded-full font-bold text-base text-white transition-all duration-150 hover:shadow-md hover:scale-[1.02]"
           style={{
-            background: "linear-gradient(to right, #2563EB, #4F46E5)",
+            background: "linear-gradient(to right, #0F172A, #1E293B)",
           }}
         >
           <Unlock className="h-4 w-4" />

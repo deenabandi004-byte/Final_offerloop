@@ -270,7 +270,7 @@ export default function EmailTemplatesPage() {
   if (loading) {
     return (
       <SidebarProvider>
-        <div className="flex min-h-screen w-full bg-[#FAFAFA]">
+        <div className="flex min-h-screen w-full bg-[#FAFBFF]">
           <AppSidebar />
           <MainContentWrapper>
             <AppHeader />
@@ -285,11 +285,11 @@ export default function EmailTemplatesPage() {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-[#FAFAFA] text-foreground font-sans">
+      <div className="flex min-h-screen w-full bg-[#FAFBFF] text-foreground font-sans">
         <AppSidebar />
         <MainContentWrapper>
           <AppHeader />
-          <main className="flex-1 overflow-y-auto bg-[#F8FAFF]" style={{ padding: "48px 24px 96px" }}>
+          <main className="flex-1 overflow-y-auto bg-[#FAFBFF]" style={{ padding: "48px 24px 96px" }}>
             <div className="max-w-[900px] mx-auto" data-tour="tour-templates">
               <Button
                 variant="ghost"
@@ -304,7 +304,7 @@ export default function EmailTemplatesPage() {
               <h1
                 className="text-[#0F172A] mb-2 text-[28px] sm:text-[42px]"
                 style={{
-                  fontFamily: "'Instrument Serif', Georgia, serif",
+                  fontFamily: "'Lora', Georgia, serif",
                   fontWeight: 400,
                   letterSpacing: "-0.025em",
                   lineHeight: 1.1,
@@ -313,7 +313,7 @@ export default function EmailTemplatesPage() {
                 Email template
               </h1>
               <p
-                className="text-[#64748B] mb-8"
+                className="text-[#6B7280] mb-8"
                 style={{
                   fontFamily: "'DM Sans', system-ui, sans-serif",
                   fontSize: "16px",
@@ -335,8 +335,8 @@ export default function EmailTemplatesPage() {
                       className={cn(
                         "px-4 py-2 text-xs font-medium rounded-full border transition-all duration-150",
                         purpose === pill.id && !activeSavedTemplateId
-                          ? "bg-blue-50 text-blue-700 border-blue-200 shadow-sm"
-                          : "bg-gray-50 hover:bg-blue-50 text-gray-600 hover:text-blue-700 border-gray-200 hover:border-blue-200 hover:shadow-sm"
+                          ? "bg-[#FAFBFF] text-[#3B82F6] border-[#3B82F6] shadow-sm"
+                          : "bg-gray-50 hover:bg-[#FAFBFF] text-gray-600 hover:text-[#3B82F6] border-gray-200 hover:border-[#3B82F6] hover:shadow-sm"
                       )}
                     >
                       {pill.name}
@@ -351,8 +351,8 @@ export default function EmailTemplatesPage() {
                         className={cn(
                           "px-4 py-2 text-xs font-medium rounded-full border transition-all duration-150 pr-7",
                           activeSavedTemplateId === t.id
-                            ? "bg-blue-50 text-blue-700 border-blue-200 shadow-sm"
-                            : "bg-gray-50 hover:bg-blue-50 text-gray-600 hover:text-blue-700 border-gray-200 hover:border-blue-200 hover:shadow-sm"
+                            ? "bg-[#FAFBFF] text-[#3B82F6] border-[#3B82F6] shadow-sm"
+                            : "bg-gray-50 hover:bg-[#FAFBFF] text-gray-600 hover:text-[#3B82F6] border-gray-200 hover:border-[#3B82F6] hover:shadow-sm"
                         )}
                       >
                         {t.name}
@@ -393,11 +393,11 @@ export default function EmailTemplatesPage() {
                   }
                 }}
                 className={cn(
-                  "w-full rounded-lg border py-4 px-5 transition-all duration-150 mb-8",
+                  "w-full rounded-[3px] border py-4 px-5 transition-all duration-150 mb-8",
                   "cursor-pointer text-xs font-medium",
                   isMakeYourOwn
-                    ? "bg-blue-50 text-blue-700 border-blue-200 shadow-sm"
-                    : "bg-white border-gray-200 text-gray-600 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 hover:shadow-sm"
+                    ? "bg-[#FAFBFF] text-[#3B82F6] border-[#3B82F6] shadow-sm"
+                    : "bg-white border-gray-200 text-gray-600 hover:bg-[#FAFBFF] hover:text-[#3B82F6] hover:border-[#3B82F6] hover:shadow-sm"
                 )}
               >
                 <div
@@ -433,7 +433,7 @@ export default function EmailTemplatesPage() {
                   )}
                 >
                   <div
-                    className="mt-4 pt-4 border-t border-blue-200/60 space-y-4"
+                    className="mt-4 pt-4 border-t border-[#3B82F6]/40 space-y-4"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div>
@@ -442,7 +442,7 @@ export default function EmailTemplatesPage() {
                         placeholder="e.g., Startup Pitch, Informational Interview Request..."
                         value={templateName}
                         onChange={(e) => setTemplateName(e.target.value.slice(0, 200))}
-                        className="w-full bg-white/80 border border-blue-200/60 rounded-lg text-gray-900 placeholder:text-gray-500 focus:bg-white focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400"
+                        className="w-full bg-white/80 border border-[#3B82F6]/40 rounded-[3px] text-gray-900 placeholder:text-gray-500 focus:bg-white focus:ring-2 focus:ring-[#3B82F6]/20 focus:border-[#3B82F6]"
                       />
                     </div>
                     <div>
@@ -451,7 +451,7 @@ export default function EmailTemplatesPage() {
                         placeholder="e.g., Quick question from a fellow USC Trojan"
                         value={subjectLine}
                         onChange={(e) => setSubjectLine(e.target.value.slice(0, 500))}
-                        className="w-full bg-white/80 border border-blue-200/60 rounded-lg text-gray-900 placeholder:text-gray-500 focus:bg-white focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400"
+                        className="w-full bg-white/80 border border-[#3B82F6]/40 rounded-[3px] text-gray-900 placeholder:text-gray-500 focus:bg-white focus:ring-2 focus:ring-[#3B82F6]/20 focus:border-[#3B82F6]"
                       />
                     </div>
                     <div>
@@ -462,7 +462,7 @@ export default function EmailTemplatesPage() {
                         placeholder="e.g., Write a 3-sentence email pitching my startup to university career center directors and asking for a 15-minute demo call..."
                         value={customInstructions}
                         onChange={(e) => setCustomInstructions(e.target.value.slice(0, MAX_CUSTOM_LEN))}
-                        className="min-h-[72px] resize-y w-full bg-white/80 border border-blue-200/60 rounded-lg text-gray-900 placeholder:text-gray-500 focus:bg-white focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400"
+                        className="min-h-[72px] resize-y w-full bg-white/80 border border-[#3B82F6]/40 rounded-[3px] text-gray-900 placeholder:text-gray-500 focus:bg-white focus:ring-2 focus:ring-[#3B82F6]/20 focus:border-[#3B82F6]"
                         maxLength={MAX_CUSTOM_LEN}
                         rows={3}
                       />
@@ -474,7 +474,7 @@ export default function EmailTemplatesPage() {
                 </div>
               </div>
               ) : (
-              <div className="w-full rounded-lg border border-gray-200 bg-gray-50 py-4 px-5 mb-8 opacity-60 cursor-default">
+              <div className="w-full rounded-[3px] border border-gray-200 bg-gray-50 py-4 px-5 mb-8 opacity-60 cursor-default">
                 <div className="flex items-center justify-center gap-2">
                   <LockKeyhole className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <h3 className="text-xs font-medium text-gray-500">Create Your Own Template</h3>
@@ -498,7 +498,7 @@ export default function EmailTemplatesPage() {
                       className={cn(
                         "px-3 py-1.5 text-xs font-medium rounded-full border transition-all",
                         signoffPhrase === preset
-                          ? "bg-blue-50 text-blue-700 border-blue-200"
+                          ? "bg-[#FAFBFF] text-[#3B82F6] border-[#3B82F6]"
                           : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
                       )}
                     >
@@ -511,7 +511,7 @@ export default function EmailTemplatesPage() {
                     className={cn(
                       "px-3 py-1.5 text-xs font-medium rounded-full border transition-all",
                       signoffPhrase === "custom"
-                        ? "bg-blue-50 text-blue-700 border-blue-200"
+                        ? "bg-[#FAFBFF] text-[#3B82F6] border-[#3B82F6]"
                         : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
                     )}
                   >
@@ -533,7 +533,7 @@ export default function EmailTemplatesPage() {
                     placeholder="e.g. John Smith\nUSC | Class of 2025\njohn@example.com"
                     value={signatureBlock}
                     onChange={(e) => setSignatureBlock(e.target.value.slice(0, 500))}
-                    className="min-h-[72px] resize-y w-full rounded-lg border border-gray-200 text-sm"
+                    className="min-h-[72px] resize-y w-full rounded-[3px] border border-gray-200 text-sm"
                     maxLength={500}
                     rows={3}
                   />
@@ -554,16 +554,16 @@ export default function EmailTemplatesPage() {
                 >
                   Reset
                 </button>
-                <Button variant="outline" onClick={handleApplyToSearch} disabled={isSaving} className="rounded-xl">
+                <Button variant="outline" onClick={handleApplyToSearch} disabled={isSaving} className="rounded-[3px]">
                   Apply to this search
                 </Button>
-                <Button onClick={handleSaveAsDefault} disabled={isSaving} className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white">
+                <Button onClick={handleSaveAsDefault} disabled={isSaving} className="rounded-[3px] bg-[#0F172A] hover:bg-[#1E293B] text-white">
                   {isSaving ? "Saving…" : isMakeYourOwn ? "Save Template" : "Save as default"}
                 </Button>
               </div>
 
               {/* Preview */}
-              <div className="border-l-4 border-blue-200 bg-gray-50/80 rounded-r-xl py-4 pl-5 pr-4">
+              <div className="border-l-4 border-[#E2E8F0] bg-gray-50/80 rounded-r-xl py-4 pl-5 pr-4">
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Preview</p>
                 {isMakeYourOwn ? (
                   <p className="text-sm text-gray-600">

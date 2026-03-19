@@ -104,7 +104,7 @@ export function SuggestionsView({ result, isOpen, onClose }: SuggestionsViewProp
 
         <div className="flex-1 overflow-y-auto space-y-6 pr-2">
           {/* Header with Score */}
-          <div className="flex items-center justify-between p-4 bg-gradient-to-r from-blue-50 to-blue-50 rounded-lg">
+          <div className="flex items-center justify-between p-4 bg-gradient-to-r from-[#FAFBFF] to-[#FAFBFF] rounded-[3px]">
             <div>
               <p className="text-sm text-gray-600">
                 Apply these changes to your resume to improve ATS matching.
@@ -114,7 +114,7 @@ export function SuggestionsView({ result, isOpen, onClose }: SuggestionsViewProp
               </p>
             </div>
             <div className="text-right">
-              <div className="text-3xl font-bold text-blue-600">
+              <div className="text-3xl font-bold text-[#3B82F6]">
                 {result.ats_score_estimate || 0}
               </div>
               <div className="text-xs text-gray-500">ATS Score</div>
@@ -124,19 +124,19 @@ export function SuggestionsView({ result, isOpen, onClose }: SuggestionsViewProp
           {/* Score Breakdown */}
           {result.score_breakdown && (
             <div className="grid grid-cols-3 gap-3">
-              <div className="p-3 bg-gray-50 rounded-lg text-center">
+              <div className="p-3 bg-gray-50 rounded-[3px] text-center">
                 <div className="text-lg font-semibold text-gray-900">
                   {result.score_breakdown.keyword_match}%
                 </div>
                 <div className="text-xs text-gray-500">Keywords</div>
               </div>
-              <div className="p-3 bg-gray-50 rounded-lg text-center">
+              <div className="p-3 bg-gray-50 rounded-[3px] text-center">
                 <div className="text-lg font-semibold text-gray-900">
                   {result.score_breakdown.formatting}%
                 </div>
                 <div className="text-xs text-gray-500">Formatting</div>
               </div>
-              <div className="p-3 bg-gray-50 rounded-lg text-center">
+              <div className="p-3 bg-gray-50 rounded-[3px] text-center">
                 <div className="text-lg font-semibold text-gray-900">
                   {result.score_breakdown.relevance}%
                 </div>
@@ -162,13 +162,13 @@ export function SuggestionsView({ result, isOpen, onClose }: SuggestionsViewProp
                       <div key={i} className="group relative">
                         <Badge
                           variant="outline"
-                          className="cursor-help bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
+                          className="cursor-help bg-[#FAFBFF] text-[#0F172A] border-[#E2E8F0] hover:bg-[rgba(59,130,246,0.10)]"
                         >
                           + {kw.keyword}
                         </Badge>
                         {/* Tooltip */}
                         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-20">
-                          <div className="bg-gray-900 text-white text-xs rounded-lg px-3 py-2 whitespace-nowrap max-w-xs">
+                          <div className="bg-gray-900 text-white text-xs rounded-[3px] px-3 py-2 whitespace-nowrap max-w-xs">
                             <p className="font-medium">{kw.where}</p>
                             <p className="text-gray-300 mt-1">{kw.reason}</p>
                           </div>
@@ -212,7 +212,7 @@ export function SuggestionsView({ result, isOpen, onClose }: SuggestionsViewProp
                 {result.suggestions.map((suggestion: OptimizationSuggestion, index: number) => (
                   <div
                     key={index}
-                    className="border border-gray-200 rounded-lg overflow-hidden"
+                    className="border border-gray-200 rounded-[3px] overflow-hidden"
                   >
                     {/* Suggestion Header */}
                     <div
@@ -246,7 +246,7 @@ export function SuggestionsView({ result, isOpen, onClose }: SuggestionsViewProp
                               Current
                             </span>
                           </div>
-                          <div className="p-3 bg-red-50 border border-red-100 rounded-lg text-sm text-gray-700 font-mono">
+                          <div className="p-3 bg-red-50 border border-red-100 rounded-[3px] text-sm text-gray-700 font-mono">
                             {suggestion.current_text}
                           </div>
                         </div>
@@ -277,15 +277,15 @@ export function SuggestionsView({ result, isOpen, onClose }: SuggestionsViewProp
                               )}
                             </Button>
                           </div>
-                          <div className="p-3 bg-green-50 border border-green-100 rounded-lg text-sm text-gray-700 font-mono">
+                          <div className="p-3 bg-green-50 border border-green-100 rounded-[3px] text-sm text-gray-700 font-mono">
                             {suggestion.suggested_text}
                           </div>
                         </div>
 
                         {/* Reason */}
-                        <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-100 rounded-lg">
-                          <AlertCircle className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
-                          <p className="text-sm text-blue-800">{suggestion.reason}</p>
+                        <div className="flex items-start gap-2 p-3 bg-[#FAFBFF] border border-[#EEF2F8] rounded-[3px]">
+                          <AlertCircle className="w-4 h-4 text-[#3B82F6] flex-shrink-0 mt-0.5" />
+                          <p className="text-sm text-[#0F172A]">{suggestion.reason}</p>
                         </div>
                       </div>
                     )}

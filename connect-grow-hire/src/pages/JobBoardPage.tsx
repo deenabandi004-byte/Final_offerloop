@@ -23,6 +23,7 @@ import {
   Users,
   Linkedin,
   Mail,
+  ArrowRight,
 } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -60,9 +61,10 @@ import { ResumeOptimizationModal } from '@/components/ResumeOptimizationModal';
 import { SuggestionsView } from '@/components/SuggestionsView';
 import { firebaseApi, type Recruiter as FirebaseRecruiter } from "../services/firebaseApi";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
+import { JobBoardSkeleton } from "@/components/JobBoardSkeleton";
 import { cn } from "@/lib/utils";
 import { InlineLoadingBar } from "@/components/ui/LoadingBar";
-import { doc, getDoc, collection, getDocs, setDoc, deleteDoc } from "firebase/firestore";
+import { doc, getDoc, collection, getDocs, setDoc, deleteDoc, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import ResumeRenderer from "@/components/ResumeRenderer";
 import ResumeActions from "@/components/ResumeActions";
@@ -138,7 +140,7 @@ interface CoverLetter {
 
 const JOBS_PER_PAGE = 12;
 const OPTIMIZATION_CREDIT_COST = 20;
-const COVER_LETTER_CREDIT_COST = 15;
+const COVER_LETTER_CREDIT_COST = 5;
 
 const JOB_TYPE_OPTIONS = [
   { value: "all", label: "All Types" },
@@ -166,12 +168,23 @@ const TYPE_DISPLAY: Record<string, string> = {
 };
 
 /** Convert a FeedJob from the API into the legacy Job shape used by detail views */
+function normalizeLocation(loc: unknown): string {
+  if (!loc) return "";
+  if (typeof loc === "string") return loc;
+  if (typeof loc === "object" && loc !== null) {
+    const l = loc as Record<string, unknown>;
+    const parts = [l.addressLocality, l.addressRegion, l.addressCountry].filter(Boolean);
+    return parts.join(", ") || JSON.stringify(loc);
+  }
+  return String(loc);
+}
+
 function feedJobToLegacy(fj: FeedJob): Job {
   return {
     id: fj.job_id,
     title: fj.title,
     company: fj.company,
-    location: fj.location,
+    location: normalizeLocation(fj.location),
     salary: fj.salary_display || undefined,
     type: (TYPE_DISPLAY[fj.type] || fj.type) as Job["type"],
     posted: fj.posted_at,
@@ -182,6 +195,39 @@ function feedJobToLegacy(fj: FeedJob): Job {
     remote: fj.remote,
     matchScore: fj.match_score ?? undefined,
   };
+}
+
+/** Extract the core role from a job title (e.g. "Senior Data Analyst, Talent Acquisition" → "Data Analyst") */
+function simplifyTitle(title: string): string {
+  // Known core roles — match longest first
+  const CORE_ROLES = [
+    "software development engineer", "software engineer", "data scientist",
+    "data analyst", "data engineer", "product manager", "product designer",
+    "program manager", "project manager", "business analyst", "systems engineer",
+    "machine learning engineer", "solutions architect", "account executive",
+    "financial analyst", "investment analyst", "research analyst",
+    "marketing manager", "operations manager", "technical writer",
+    "ux designer", "ux researcher", "ui designer", "frontend engineer",
+    "backend engineer", "full stack engineer", "devops engineer",
+    "site reliability engineer", "security engineer", "qa engineer",
+    "sales engineer", "customer success manager", "recruiter",
+    "consultant", "accountant", "engineer", "designer", "analyst",
+    "developer", "manager", "scientist", "researcher", "architect",
+  ];
+  const lower = title.toLowerCase();
+  for (const role of CORE_ROLES) {
+    if (lower.includes(role)) {
+      // Return with original casing from the title
+      const idx = lower.indexOf(role);
+      return title.slice(idx, idx + role.length);
+    }
+  }
+  // Fallback: take first segment before comma/dash/pipe, strip seniority
+  const segment = title.split(/[,\-–—|/]/)[0].trim();
+  return segment
+    .replace(/\b(senior|sr\.?|junior|jr\.?|lead|principal|staff|head of|associate|intern|entry[- ]level|mid[- ]level|people|team|global|regional)\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim() || title.split(/\s+/).pop() || title;
 }
 
 /** Format an ISO date string as relative time */
@@ -211,8 +257,8 @@ const MatchScoreBadge: React.FC<{ score?: number }> = ({ score }) => {
     barColor = "bg-green-500";
     textColor = "text-green-700 dark:text-green-400";
   } else if (score >= 60) {
-    barColor = "bg-blue-500";
-    textColor = "text-blue-700 dark:text-blue-400";
+    barColor = "bg-[#0F172A]";
+    textColor = "text-[#3B82F6]";
   } else if (score >= 40) {
     barColor = "bg-yellow-500";
     textColor = "text-yellow-700 dark:text-yellow-400";
@@ -235,8 +281,8 @@ const JobCard: React.FC<{
   onSelect: () => void;
   onSave: () => void;
   onApply: () => void;
-  onOptimize: () => void;
-}> = ({ job, isSelected, isSaved, onSelect, onSave, onApply, onOptimize }) => (
+  onFindHiringManager: () => void;
+}> = ({ job, isSelected, isSaved, onSelect, onSave, onApply, onFindHiringManager }) => (
   <GlassCard
     className={cn(
       "p-5 cursor-pointer transition-all duration-300 hover:scale-[1.02]",
@@ -250,10 +296,10 @@ const JobCard: React.FC<{
           <img
             src={job.logo}
             alt={job.company}
-            className="w-12 h-12 rounded-lg object-cover bg-muted"
+            className="w-12 h-12 rounded-[3px] object-cover bg-muted"
           />
         ) : (
-          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-[3px] bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
             <Building2 className="w-6 h-6 text-primary" />
           </div>
         )}
@@ -334,15 +380,15 @@ const JobCard: React.FC<{
         </Button>
       </div>
       
-      {/* Second row: Optimize CV & Resume */}
+      {/* Second row: Find Hiring Manager */}
       <Button
         variant="outline"
         size="sm"
-        className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 hover:border-blue-300"
-        onClick={(e) => { e.stopPropagation(); onOptimize(); }}
+        className="w-full"
+        onClick={(e) => { e.stopPropagation(); onFindHiringManager(); }}
       >
-        <FileCheck className="w-4 h-4 mr-2" />
-        Optimize CV & Resume
+        <Users className="w-4 h-4 mr-2" />
+        Find Hiring Manager
       </Button>
     </div>
   </GlassCard>
@@ -430,7 +476,7 @@ const EmptyState: React.FC<{
       {/* Animated glow effect */}
       <div className="absolute inset-0 bg-primary/20 blur-3xl rounded-full scale-150 animate-pulse"></div>
       {/* Icon container with subtle animation */}
-      <div className="relative w-24 h-24 rounded-2xl bg-gradient-to-br from-primary/30 via-primary/20 to-accent/20 flex items-center justify-center border border-primary/30 shadow-xl shadow-primary/10 transform transition-transform hover:scale-105">
+      <div className="relative w-24 h-24 rounded-[3px] bg-gradient-to-br from-primary/30 via-primary/20 to-accent/20 flex items-center justify-center border border-primary/30 shadow-xl shadow-primary/10 transform transition-transform hover:scale-105">
         {icon}
       </div>
     </div>
@@ -522,97 +568,7 @@ const JobBoardPage: React.FC = () => {
     return !!(jobUrl?.trim() || jobDescription?.trim());
   }, [jobUrl, jobDescription]);
 
-  // Check Gmail connection status
-  useEffect(() => {
-    const checkGmailStatus = async () => {
-      if (!user?.uid) {
-        setGmailConnected(false);
-        return;
-      }
-      
-      try {
-        setCheckingGmail(true);
-        const { getAuth } = await import('firebase/auth');
-        const auth = getAuth();
-        const firebaseUser = auth.currentUser;
-        
-        if (!firebaseUser) {
-          setGmailConnected(false);
-          return;
-        }
-        
-        const token = await firebaseUser.getIdToken();
-        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
-        
-        const response = await fetch(`${API_BASE_URL}/api/google/gmail/status`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          setGmailConnected(data.connected === true);
-        } else {
-          setGmailConnected(false);
-        }
-      } catch (error) {
-        console.error('Error checking Gmail status:', error);
-        setGmailConnected(false);
-      } finally {
-        setCheckingGmail(false);
-      }
-    };
-    
-    checkGmailStatus();
-  }, [user?.uid]);
-
-  // Fetch user preferences
-  useEffect(() => {
-    const fetchUserPreferences = async () => {
-      if (!user?.uid) return;
-      try {
-        // Try to get from user document first
-        const userRef = doc(db, "users", user.uid);
-        const userSnap = await getDoc(userRef);
-        
-        if (userSnap.exists()) {
-          const userData = userSnap.data();
-          const professionalInfo = userData.professionalInfo || {};
-          
-          // Get preferences from various possible locations
-          const jobTypes = userData.jobTypes || professionalInfo.jobTypes || ["Internship"];
-          const industries = professionalInfo.targetIndustries || userData.targetIndustries || [];
-          const locations = userData.locationPreferences || professionalInfo.locationPreferences || userData.preferredLocation || [];
-          
-          setUserPreferences({
-            jobTypes: Array.isArray(jobTypes) ? jobTypes : [jobTypes].filter(Boolean),
-            industries: Array.isArray(industries) ? industries : [],
-            locations: Array.isArray(locations) ? locations : [],
-          });
-        } else {
-          // Fallback to professionalInfo API
-          const professionalInfo = await firebaseApi.getProfessionalInfo(user.uid);
-          if (professionalInfo) {
-            setUserPreferences({
-              jobTypes: ["Internship"],
-              industries: professionalInfo.targetIndustries || [],
-              locations: [],
-            });
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching user preferences:", error);
-        // Set defaults
-        setUserPreferences({
-          jobTypes: ["Internship"],
-          industries: [],
-          locations: [],
-        });
-      }
-    };
-    fetchUserPreferences();
-  }, [user?.uid]);
-
-  // Fetch job feed from /api/jobs/feed
+  // Fetch job feed from /api/jobs/feed (kept as useCallback for refresh button)
   const fetchJobFeed = useCallback(async (refresh = false) => {
     if (!user?.uid) return;
     setLoadingJobs(true);
@@ -635,9 +591,90 @@ const JobBoardPage: React.FC = () => {
     }
   }, [user?.uid]);
 
+  // Parallel initialization: Gmail status, preferences, and job feed
   useEffect(() => {
-    fetchJobFeed();
-  }, [fetchJobFeed]);
+    if (!user?.uid) return;
+
+    const initGmailStatus = async () => {
+      try {
+        setCheckingGmail(true);
+        const { getAuth } = await import('firebase/auth');
+        const auth = getAuth();
+        const firebaseUser = auth.currentUser;
+        if (!firebaseUser) { setGmailConnected(false); return; }
+        const token = await firebaseUser.getIdToken();
+        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
+        const response = await fetch(`${API_BASE_URL}/api/google/gmail/status`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setGmailConnected(data.connected === true);
+        } else {
+          setGmailConnected(false);
+        }
+      } catch (error) {
+        console.error('Error checking Gmail status:', error);
+        setGmailConnected(false);
+      } finally {
+        setCheckingGmail(false);
+      }
+    };
+
+    const initPreferences = async () => {
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+          const userData = userSnap.data();
+          const professionalInfo = userData.professionalInfo || {};
+          const jobTypes = userData.jobTypes || professionalInfo.jobTypes || ["Internship"];
+          const industries = professionalInfo.targetIndustries || userData.targetIndustries || [];
+          const locations = userData.locationPreferences || professionalInfo.locationPreferences || userData.preferredLocation || [];
+          setUserPreferences({
+            jobTypes: Array.isArray(jobTypes) ? jobTypes : [jobTypes].filter(Boolean),
+            industries: Array.isArray(industries) ? industries : [],
+            locations: Array.isArray(locations) ? locations : [],
+          });
+        } else {
+          const professionalInfo = await firebaseApi.getProfessionalInfo(user.uid);
+          if (professionalInfo) {
+            setUserPreferences({
+              jobTypes: ["Internship"],
+              industries: professionalInfo.targetIndustries || [],
+              locations: [],
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching user preferences:", error);
+        setUserPreferences({ jobTypes: ["Internship"], industries: [], locations: [] });
+      }
+    };
+
+    const initJobFeed = async () => {
+      setLoadingJobs(true);
+      try {
+        const response = await apiService.getJobFeed({});
+        setFeedData(response);
+        const legacyJobs = response.top_jobs.map(feedJobToLegacy);
+        setJobs(legacyJobs);
+        console.log(`[JobBoard] Loaded ${response.new_matches.length} new matches, ${response.top_jobs.length} top jobs (ranked=${response.ranked}, cached=${response.cached})`);
+      } catch (error) {
+        console.error("Error fetching job feed:", error);
+        toast({
+          title: "Error loading jobs",
+          description: "Please try again later.",
+          variant: "destructive",
+        });
+      } finally {
+        setLoadingJobs(false);
+      }
+    };
+
+    // Fire all three in parallel - none depend on each other
+    Promise.all([initGmailStatus(), initPreferences(), initJobFeed()]);
+  }, [user?.uid]);
 
   // Load saved jobs from Firestore (with localStorage fallback)
   useEffect(() => {
@@ -665,12 +702,14 @@ const JobBoardPage: React.FC = () => {
           if (saved) {
             const ids = JSON.parse(saved);
             setSavedJobs(new Set(ids));
-            // Migrate to Firestore
+            // Migrate to Firestore using batched write
+            const batch = writeBatch(db);
             for (const jobId of ids) {
-              await setDoc(doc(db, 'users', user.uid, 'savedJobs', jobId), {
+              batch.set(doc(db, 'users', user.uid, 'savedJobs', jobId), {
                 savedAt: new Date().toISOString(),
               });
             }
+            await batch.commit();
           }
         }
       } catch (error) {
@@ -872,10 +911,10 @@ const JobBoardPage: React.FC = () => {
   };
 
   const handleFindRecruiter = async () => {
-    if ((user?.credits ?? 0) < 15) {
+    if ((user?.credits ?? 0) < 5) {
       toast({
         title: "Insufficient Credits",
-        description: "You need at least 15 credits to find recruiters.",
+        description: "You need at least 5 credits to find recruiters.",
         variant: "destructive"
       });
       return;
@@ -1215,48 +1254,9 @@ const JobBoardPage: React.FC = () => {
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           <AppHeader title="Job Board" />
 
-          {/* Tabs - Hide when in job detail view */}
+          {/* Spacer below header */}
           {!showJobDetailView && (
-            <div className="border-b border-border/50 bg-background/80 backdrop-blur-sm px-6 pt-4">
-              <div className="flex justify-center mb-4">
-                <Tabs 
-                  value={activeTab} 
-                  onValueChange={setActiveTab}
-                  className="w-full max-w-2xl"
-                >
-                  <TabsList className="h-14 tabs-container-gradient border border-border grid grid-cols-3 max-w-2xl w-full rounded-xl p-1 bg-white">
-                    <TabsTrigger
-                      value="jobs"
-                      className="h-12 font-medium text-base data-[state=active] data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
-                    >
-                      <Briefcase className="h-5 w-5 mr-2" />
-                      Job Board
-                  </TabsTrigger>
-                    <TabsTrigger
-                      value="recruiter-search"
-                      className="h-12 font-medium text-base data-[state=active] data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
-                    >
-                      <FileCheck className="h-5 w-5 mr-2" />
-                      Recruiter Search
-                  </TabsTrigger>
-                    <TabsTrigger
-                      value="recruiters"
-                      className="h-12 font-medium text-base data-[state=active] data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
-                    >
-                      <Users className="h-5 w-5 mr-2" />
-                      Recruiter Spreadsheet
-                    {recruiters.length > 0 && (
-                        <span className="ml-2 bg-blue-100 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full">
-                        {recruiters.length}
-                      </span>
-                    )}
-                  </TabsTrigger>
-                </TabsList>
-                </Tabs>
-              </div>
-              {/* spacer for tab content */}
-              {activeTab === "jobs" && <div className="pb-2" />}
-            </div>
+            <div className="border-b border-border/50 bg-background/80 backdrop-blur-sm px-6 pt-2 pb-2" />
           )}
 
           {/* Main Content */}
@@ -1277,7 +1277,7 @@ const JobBoardPage: React.FC = () => {
                 {/* Job Detail Tabs */}
                 <Tabs value={jobDetailActiveTab} onValueChange={setJobDetailActiveTab} className="space-y-6 w-full">
                   <div className="flex mb-8">
-                    <TabsList className="h-14 tabs-container-gradient border border-border grid grid-cols-3 w-full rounded-xl p-1 bg-white">
+                    <TabsList className="h-14 tabs-container-gradient border border-border grid grid-cols-3 w-full rounded-[3px] p-1 bg-white">
                       <TabsTrigger
                         value="job-application"
                         className="h-12 font-medium text-base data-[state=active] data-[state=active]:text-white data-[state=inactive]:text-muted-foreground transition-all"
@@ -1350,7 +1350,7 @@ const JobBoardPage: React.FC = () => {
                           <label className="block text-sm font-medium text-foreground mb-2">
                             Job Description
                           </label>
-                          <div className="max-h-96 overflow-y-auto p-4 bg-muted/50 rounded-lg border border-border">
+                          <div className="max-h-96 overflow-y-auto p-4 bg-muted/50 rounded-[3px] border border-border">
                             <div className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
                               {selectedJobForDetail.description || "No description available."}
                             </div>
@@ -1441,7 +1441,7 @@ const JobBoardPage: React.FC = () => {
                                   <TooltipTrigger asChild>
                                     <span>
                                       <Button
-                                        disabled={recruitersLoading || (user?.credits ?? 0) < 15}
+                                        disabled={recruitersLoading || (user?.credits ?? 0) < 5}
                                         onClick={() => {
                                           // Set selected job info for recruiter search
                                           setSelectedJob(selectedJobForDetail);
@@ -1451,13 +1451,13 @@ const JobBoardPage: React.FC = () => {
                                         }}
                                         variant={undefined}
                                         className={`
-                                          relative overflow-hidden text-sm px-4 py-2 rounded-lg font-medium transition-colors
-                                          ${!recruitersLoading && (user?.credits ?? 0) >= 15
-                                            ? '!bg-blue-600 !text-white hover:!bg-blue-700 active:!bg-blue-800 focus-visible:!ring-blue-600' 
+                                          relative overflow-hidden text-sm px-4 py-2 rounded-[3px] font-medium transition-colors
+                                          ${!recruitersLoading && (user?.credits ?? 0) >= 5
+                                            ? '!bg-[#0F172A] !text-white hover:!bg-[#1E293B] active:!bg-[#0F172A] focus-visible:!ring-[#3B82F6]' 
                                             : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                                           }
                                         `}
-                                        style={!recruitersLoading && (user?.credits ?? 0) >= 15 ? { 
+                                        style={!recruitersLoading && (user?.credits ?? 0) >= 5 ? { 
                                           backgroundColor: '#2563eb',
                                           color: '#ffffff'
                                         } : undefined}
@@ -1467,9 +1467,9 @@ const JobBoardPage: React.FC = () => {
                                       </Button>
                                     </span>
                                   </TooltipTrigger>
-                                  {(user?.credits ?? 0) < 15 && (
+                                  {(user?.credits ?? 0) < 5 && (
                                     <TooltipContent>
-                                      <p>You need at least 15 credits. You have {user?.credits ?? 0}.</p>
+                                      <p>You need at least 5 credits. You have {user?.credits ?? 0}.</p>
                                     </TooltipContent>
                                   )}
                                 </Tooltip>
@@ -1477,31 +1477,70 @@ const JobBoardPage: React.FC = () => {
                             </div>
                           )}
                         </div>
-                        
+                        {/* Tracker navigation buttons */}
+                        {recruiters.length > 0 && (
+                          <div className="flex gap-2 mt-3">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => { handleReturnToJobBoard(); setActiveTab("recruiters"); }}
+                              className="text-xs"
+                            >
+                              <Users className="w-3.5 h-3.5 mr-1.5" />
+                              View Recruiter Spreadsheet
+                              <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                            </Button>
+                            {draftsCreated.length > 0 && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => navigate('/tracker')}
+                                className="text-xs"
+                              >
+                                <Mail className="w-3.5 h-3.5 mr-1.5" />
+                                View in Tracker
+                                <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                              </Button>
+                            )}
+                          </div>
+                        )}
+
                         {/* Show drafts created notification */}
                         {draftsCreated.length > 0 && (
-                          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 mt-4">
+                          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-[3px] p-4 mt-4">
                             <div className="flex items-center gap-2">
                               <Mail className="h-5 w-5 text-green-600" />
                               <div className="flex-1">
                                 <p className="text-sm text-green-800 dark:text-green-200 font-medium">
                                   {draftsCreated.length} email draft{draftsCreated.length > 1 ? 's' : ''} created in your Gmail!
                                 </p>
-                                <a 
-                                  href="https://mail.google.com/mail/u/0/#drafts"
-                                  target="_blank"
-                                  rel="noopener,noreferrer"
-                                  className="text-sm text-green-600 dark:text-green-400 hover:underline mt-1 inline-block"
-                                >
-                                  Open Gmail Drafts →
-                                </a>
+                                <div className="flex items-center gap-3 mt-1">
+                                  <a
+                                    href="https://mail.google.com/mail/u/0/#drafts"
+                                    target="_blank"
+                                    rel="noopener,noreferrer"
+                                    className="text-sm text-green-600 dark:text-green-400 hover:underline inline-block"
+                                  >
+                                    Open Gmail Drafts →
+                                  </a>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => navigate('/tracker')}
+                                    className="text-xs h-7 border-green-300 text-green-700 hover:bg-green-50"
+                                  >
+                                    <Mail className="w-3 h-3 mr-1" />
+                                    View in Tracker
+                                    <ArrowRight className="w-3 h-3 ml-1" />
+                                  </Button>
+                                </div>
                               </div>
                             </div>
                           </div>
                         )}
 
                         {recruitersHasMore && (
-                          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mt-4">
+                          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-[3px] p-4 mt-4">
                             <div className="flex items-start gap-2">
                               <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5" />
                               <div>
@@ -1509,7 +1548,7 @@ const JobBoardPage: React.FC = () => {
                                   More Recruiters Available
                                 </p>
                                 <p className="text-xs text-yellow-800 dark:text-yellow-300 mt-1">
-                                  {recruitersMoreAvailable} more recruiter{recruitersMoreAvailable !== 1 ? 's' : ''} found, but you need {recruitersMoreAvailable * 15} more credits to view them. 
+                                  {recruitersMoreAvailable} more recruiter{recruitersMoreAvailable !== 1 ? 's' : ''} found, but you need {recruitersMoreAvailable * 5} more credits to view them. 
                                   You currently have {user?.credits ?? 0} credits.
                                 </p>
                               </div>
@@ -1632,7 +1671,7 @@ const JobBoardPage: React.FC = () => {
                                             <div className="space-y-2">
                                               <button
                                                 onClick={() => setExpandedEmail(expandedEmail === index ? null : index)}
-                                                className="text-sm text-blue-600 hover:underline flex items-center gap-1"
+                                                className="text-sm text-[#3B82F6] hover:underline flex items-center gap-1"
                                               >
                                                 {expandedEmail === index ? (
                                                   <>
@@ -1648,7 +1687,7 @@ const JobBoardPage: React.FC = () => {
                                               </button>
                                               
                                               {expandedEmail === index && (
-                                                <div className="mt-2 p-3 bg-background rounded-lg border border-border text-sm">
+                                                <div className="mt-2 p-3 bg-background rounded-[3px] border border-border text-sm">
                                                   <p className="font-medium text-foreground mb-2">Subject: {emailData.subject}</p>
                                                   <div className="text-muted-foreground whitespace-pre-wrap">
                                                     {emailData.plain_body}
@@ -1680,7 +1719,7 @@ const JobBoardPage: React.FC = () => {
                   <div className="space-y-6">
                   {/* No-resume banner */}
                   {feedData?.no_resume && (
-                    <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 flex items-center gap-3">
+                    <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-[3px] p-4 flex items-center gap-3">
                       <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0" />
                       <div className="flex-1">
                         <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
@@ -1781,7 +1820,7 @@ const JobBoardPage: React.FC = () => {
                                       <span>·</span>
                                       <span className="flex items-center gap-0.5 flex-shrink-0">
                                         <MapPin className="w-3 h-3" />
-                                        {job.location}
+                                        {normalizeLocation(job.location)}
                                       </span>
                                     </div>
                                   </div>
@@ -1795,7 +1834,10 @@ const JobBoardPage: React.FC = () => {
                                   </div>
                                 </div>
                                 <div className="flex gap-2 mt-2">
-                                  <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => navigate(`/find?company=${encodeURIComponent(job.company)}`)}>
+                                  <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => {
+                                    const role = simplifyTitle(job.title);
+                                    navigate(`/find?company=${encodeURIComponent(job.company)}&role=${encodeURIComponent(role)}`);
+                                  }}>
                                     <Users className="w-3 h-3 mr-1" />
                                     Find Contact
                                   </Button>
@@ -1804,6 +1846,10 @@ const JobBoardPage: React.FC = () => {
                                     Apply
                                   </Button>
                                 </div>
+                                <Button variant="outline" size="sm" className="w-full h-7 text-xs mt-1.5" onClick={() => navigate(`/find?tab=hiring-managers${job.apply_url ? `&jobUrl=${encodeURIComponent(job.apply_url)}` : ''}`)}>
+                                  <Users className="w-3 h-3 mr-1" />
+                                  Find Hiring Manager
+                                </Button>
                               </GlassCard>
                             </div>
                           );
@@ -1819,19 +1865,7 @@ const JobBoardPage: React.FC = () => {
                     </h2>
 
                   {loadingJobs ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {[...Array(6)].map((_, i) => (
-                        <GlassCard key={i} className="p-5 animate-pulse">
-                          <div className="flex gap-4">
-                            <div className="w-12 h-12 bg-muted rounded-lg" />
-                            <div className="flex-1 space-y-2">
-                              <div className="h-4 bg-muted rounded w-3/4" />
-                              <div className="h-3 bg-muted rounded w-1/2" />
-                            </div>
-                          </div>
-                        </GlassCard>
-                      ))}
-                    </div>
+                    <JobBoardSkeleton />
                   ) : sortedFeedJobs.length === 0 ? (
                     <EmptyState
                       icon={<Briefcase className="w-8 h-8 text-primary" />}
@@ -1864,14 +1898,12 @@ const JobBoardPage: React.FC = () => {
                             isSelected={selectedJob?.id === job.job_id}
                             isSaved={savedJobs.has(job.job_id)}
                             onSelect={() => {
-                              handleSelectJobForOptimization(legacyJob);
-                              setSelectedJobForDetail(legacyJob);
-                              setShowJobDetailView(true);
-                              setJobDetailActiveTab("contact-recruiter");
+                              const role = simplifyTitle(legacyJob.title);
+                              navigate(`/find?company=${encodeURIComponent(legacyJob.company)}&role=${encodeURIComponent(role)}`);
                             }}
                             onSave={() => handleSaveJob(job.job_id)}
                             onApply={() => handleApplyToJob(legacyJob)}
-                            onOptimize={() => handleSelectJobForOptimization(legacyJob)}
+                            onFindHiringManager={() => navigate(`/find?tab=hiring-managers${legacyJob.url ? `&jobUrl=${encodeURIComponent(legacyJob.url)}` : ''}`)}
                           />
                           );
                         })}
@@ -1961,7 +1993,7 @@ const JobBoardPage: React.FC = () => {
                                     variant="gradient"
                                     size="lg"
                                   onClick={handleFindRecruiter}
-                                    disabled={recruitersLoading || (user?.credits ?? 0) < 15 || (!jobUrl.trim() && !jobDescription.trim())}
+                                    disabled={recruitersLoading || (user?.credits ?? 0) < 5 || (!jobUrl.trim() && !jobDescription.trim())}
                                     className="w-full relative overflow-hidden"
                                   >
                                     <Users className="h-5 w-5 mr-2" />
@@ -1975,9 +2007,9 @@ const JobBoardPage: React.FC = () => {
                                   <p>Please provide a job URL or job description first</p>
                               </TooltipContent>
                               )}
-                              {(user?.credits ?? 0) < 15 && (
+                              {(user?.credits ?? 0) < 5 && (
                               <TooltipContent>
-                                <p>You need at least 15 credits. You have {user?.credits ?? 0}.</p>
+                                <p>You need at least 5 credits. You have {user?.credits ?? 0}.</p>
                               </TooltipContent>
                               )}
                           </Tooltip>
@@ -2039,28 +2071,40 @@ const JobBoardPage: React.FC = () => {
 
                     {/* Error Display */}
                     {recruitersError && (
-                      <div className="bg-destructive/10 border border-destructive text-destructive px-6 py-3 rounded-lg">
+                      <div className="bg-destructive/10 border border-destructive text-destructive px-6 py-3 rounded-[3px]">
                         {recruitersError}
                             </div>
                     )}
                       
                       {/* Show drafts created notification */}
                       {draftsCreated.length > 0 && (
-                      <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                      <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-[3px] p-4">
                           <div className="flex items-center gap-2">
                             <Mail className="h-5 w-5 text-green-600" />
                             <div className="flex-1">
                               <p className="text-sm text-green-800 dark:text-green-200 font-medium">
                                 {draftsCreated.length} email draft{draftsCreated.length > 1 ? 's' : ''} created in your Gmail!
                               </p>
-                              <a 
-                                href="https://mail.google.com/mail/u/0/#drafts"
-                                target="_blank"
-                              rel="noopener,noreferrer"
-                                className="text-sm text-green-600 dark:text-green-400 hover:underline mt-1 inline-block"
-                              >
-                                Open Gmail Drafts →
-                              </a>
+                              <div className="flex items-center gap-3 mt-1">
+                                <a
+                                  href="https://mail.google.com/mail/u/0/#drafts"
+                                  target="_blank"
+                                  rel="noopener,noreferrer"
+                                  className="text-sm text-green-600 dark:text-green-400 hover:underline inline-block"
+                                >
+                                  Open Gmail Drafts →
+                                </a>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => navigate('/tracker')}
+                                  className="text-xs h-7 border-green-300 text-green-700 hover:bg-green-50"
+                                >
+                                  <Mail className="w-3 h-3 mr-1" />
+                                  View in Tracker
+                                  <ArrowRight className="w-3 h-3 ml-1" />
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -2070,14 +2114,42 @@ const JobBoardPage: React.FC = () => {
                     {recruiters.length > 0 && (
                       <GlassCard className="p-0 overflow-hidden">
                         <div className="bg-background border-b border-border/40 px-6 py-4">
-                          <h3 className="text-xl font-bold flex items-center gap-2 text-foreground">
-                            <Users className="w-6 h-6 text-primary" />
-                            Found {recruiters.length} Recruiter{recruiters.length !== 1 ? 's' : ''}
-                          </h3>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            These recruiters have been automatically saved to your Recruiter Spreadsheet
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <h3 className="text-xl font-bold flex items-center gap-2 text-foreground">
+                                <Users className="w-6 h-6 text-primary" />
+                                Found {recruiters.length} Recruiter{recruiters.length !== 1 ? 's' : ''}
+                              </h3>
+                              <p className="text-sm text-muted-foreground mt-1">
+                                These recruiters have been automatically saved to your Recruiter Spreadsheet
                               </p>
                             </div>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setActiveTab("recruiters")}
+                                className="text-xs"
+                              >
+                                <Users className="w-3.5 h-3.5 mr-1.5" />
+                                View Recruiter Spreadsheet
+                                <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                              </Button>
+                              {draftsCreated.length > 0 && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => navigate('/tracker')}
+                                  className="text-xs"
+                                >
+                                  <Mail className="w-3.5 h-3.5 mr-1.5" />
+                                  View in Tracker
+                                  <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       <div className="w-full overflow-x-auto">
                         <div className="rounded-md border border-border bg-background/60 backdrop-blur-sm min-w-full">
                           <table className="w-full">
@@ -2174,7 +2246,7 @@ const JobBoardPage: React.FC = () => {
                                           <div className="space-y-2">
                                             <button
                                               onClick={() => setExpandedEmail(expandedEmail === index ? null : index)}
-                                              className="text-sm text-blue-600 hover:underline flex items-center gap-1"
+                                              className="text-sm text-[#3B82F6] hover:underline flex items-center gap-1"
                                             >
                                               {expandedEmail === index ? (
                                                 <>
@@ -2190,7 +2262,7 @@ const JobBoardPage: React.FC = () => {
                                             </button>
                                             
                                             {expandedEmail === index && (
-                                              <div className="mt-2 p-3 bg-background rounded-lg border border-border text-sm">
+                                              <div className="mt-2 p-3 bg-background rounded-[3px] border border-border text-sm">
                                                 <p className="font-medium text-foreground mb-2">Subject: {emailData.subject}</p>
                                                 <div className="text-muted-foreground whitespace-pre-wrap">
                                                   {emailData.plain_body}
@@ -2235,7 +2307,7 @@ const JobBoardPage: React.FC = () => {
                             </Button>
                                   </div>
                                 </div>
-                        <div className="bg-muted/50 rounded-lg border border-border p-4 max-h-96 overflow-y-auto">
+                        <div className="bg-muted/50 rounded-[3px] border border-border p-4 max-h-96 overflow-y-auto">
                           <div className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
                             {coverLetter.content}
                               </div>
@@ -2258,7 +2330,7 @@ const JobBoardPage: React.FC = () => {
                             <ATSScoreDisplay score={optimizedResume.atsScore} />
                               </div>
                         )}
-                        <div className="bg-muted/50 rounded-lg border border-border p-4 max-h-96 overflow-y-auto">
+                        <div className="bg-muted/50 rounded-[3px] border border-border p-4 max-h-96 overflow-y-auto">
                           <ResumeRenderer resume={optimizedResume} />
                                   </div>
                       </GlassCard>

@@ -349,7 +349,7 @@ const ScoutHelperChatbot: React.FC<ScoutHelperChatbotProps> = ({
   };
 
   return (
-    <div className="flex h-full bg-white rounded-lg shadow-lg overflow-hidden">
+    <div className="flex h-full bg-white rounded-[3px] shadow-lg overflow-hidden">
       {/* Sidebar */}
       {sidebarOpen && (
         <div className="w-64 flex-shrink-0">
@@ -373,7 +373,7 @@ const ScoutHelperChatbot: React.FC<ScoutHelperChatbotProps> = ({
             <Menu size={20} />
           </button>
           <div className="flex items-center gap-2">
-            <Sparkles className="text-blue-600" size={20} />
+            <Sparkles className="text-[#3B82F6]" size={20} />
             <span className="font-semibold text-gray-900">Scout</span>
           </div>
           {currentConversation && (
@@ -387,13 +387,13 @@ const ScoutHelperChatbot: React.FC<ScoutHelperChatbotProps> = ({
         <div className="flex-1 overflow-y-auto">
           {/* Static Scout Message Bubble */}
           {messages.length === 0 && (
-            <div className="mt-6 mx-6 p-4 rounded-2xl bg-[#F5F7FF]">
+            <div className="mt-6 mx-6 p-4 rounded-[3px] bg-[#FAFBFF]">
               <p className="text-base text-slate-800">
                 Hey! I'm Scout. I can help you navigate Offerloop, explain features, and guide you to the right tools.
                 {' '}
                 <button
                   onClick={() => navigate('/application-lab')}
-                  className="text-blue-600 underline font-medium"
+                  className="text-[#3B82F6] underline font-medium"
                 >
                   Try Application Lab
                 </button>
@@ -410,12 +410,12 @@ const ScoutHelperChatbot: React.FC<ScoutHelperChatbotProps> = ({
                 className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div
-                  className={`max-w-[80%] rounded-2xl p-4 ${
+                  className={`max-w-[80%] rounded-[3px] p-4 ${
                     message.role === 'user'
                       ? 'text-white'
-                      : 'bg-[#F5F7FF] text-slate-800'
+                      : 'bg-[#FAFBFF] text-slate-800'
                   }`}
-                  style={message.role === 'user' ? { background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' } : undefined}
+                  style={message.role === 'user' ? { background: 'linear-gradient(135deg, #0F172A, #1E293B)' } : undefined}
                 >
                   {message.content && (
                     <div
@@ -425,14 +425,14 @@ const ScoutHelperChatbot: React.FC<ScoutHelperChatbotProps> = ({
                   )}
 
                   {message.fields && Object.keys(message.fields).length > 0 && (
-                    <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="mt-4 p-3 bg-[#FAFBFF] border border-[#E2E8F0] rounded-[3px]">
                       <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2 text-blue-700 text-sm font-medium">
+                        <div className="flex items-center gap-2 text-[#0F172A] text-sm font-medium">
                           <Sparkles className="h-4 w-4" />
                           Search fields updated!
                         </div>
                       </div>
-                      <div className="text-sm text-blue-600 space-y-1">
+                      <div className="text-sm text-[#3B82F6] space-y-1">
                         {message.fields.job_title && (
                           <div className="flex items-center gap-1">
                             <span className="font-medium">Title:</span>
@@ -461,7 +461,7 @@ const ScoutHelperChatbot: React.FC<ScoutHelperChatbotProps> = ({
                       {message.jobListings.slice(0, 5).map((job, idx) => (
                         <div
                           key={idx}
-                          className="bg-white rounded-lg border border-slate-200 p-4 cursor-pointer hover:border-blue-300 transition-colors"
+                          className="bg-white rounded-lg border border-slate-200 p-4 cursor-pointer hover:border-[#3B82F6] transition-colors"
                           onClick={() => handleJobClick(job)}
                         >
                           <div className="text-base font-medium text-slate-900">{job.title}</div>
@@ -475,7 +475,7 @@ const ScoutHelperChatbot: React.FC<ScoutHelperChatbotProps> = ({
                                 href={job.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-sm text-blue-600 hover:underline flex items-center gap-1"
+                                className="text-sm text-[#3B82F6] hover:underline flex items-center gap-1"
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 <ExternalLink size={14} />
@@ -489,7 +489,7 @@ const ScoutHelperChatbot: React.FC<ScoutHelperChatbotProps> = ({
                                 e.stopPropagation();
                                 navigate('/application-lab');
                               }}
-                              className="text-sm text-blue-600 hover:underline font-medium"
+                              className="text-sm text-[#3B82F6] hover:underline font-medium"
                             >
                               Analyze in Application Lab →
                             </button>
@@ -506,7 +506,7 @@ const ScoutHelperChatbot: React.FC<ScoutHelperChatbotProps> = ({
 
             {isLoading && (
               <div className="flex justify-start">
-                <div className="bg-slate-100 border border-slate-200 rounded-lg p-3">
+                <div className="bg-slate-100 border border-slate-200 rounded-[3px] p-3">
                   <div className="flex items-center gap-2 text-slate-600">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     <span className="text-sm">Scout is thinking...</span>
@@ -518,7 +518,7 @@ const ScoutHelperChatbot: React.FC<ScoutHelperChatbotProps> = ({
         </div>
 
         {/* Input Area */}
-        <div className="px-6 py-4 border-t border-[#E3E8F0] bg-white">
+        <div className="px-6 py-4 border-t border-[#E2E8F0] bg-white">
           <div className="flex gap-3">
             <Input
               ref={inputRef}
@@ -526,14 +526,14 @@ const ScoutHelperChatbot: React.FC<ScoutHelperChatbotProps> = ({
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder="Ask me anything about Offerloop..."
-              className="flex-1 bg-white border-[#E3E8F0] text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500/20 rounded-md text-base py-3"
+              className="flex-1 bg-white border-[#E2E8F0] text-slate-900 placeholder:text-slate-400 focus:border-[#3B82F6] focus-visible:ring-2 focus-visible:ring-[#3B82F6]/20 rounded-md text-base py-3"
               disabled={isLoading}
             />
             <Button
               onClick={sendMessage}
               disabled={!input.trim() || isLoading}
               className="hover:opacity-90 rounded-md px-5 py-3"
-              style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}
+              style={{ background: 'linear-gradient(135deg, #0F172A, #1E293B)' }}
             >
               {isLoading ? (
                 <Loader2 className="h-5 w-5 animate-spin" />

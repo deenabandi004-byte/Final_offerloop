@@ -16,6 +16,7 @@ Usage:
 """
 
 import re
+import time
 from typing import List, Dict, Optional, Literal
 from .pdl_client import (
     clean_company_name,
@@ -446,7 +447,10 @@ def find_recruiters(
     max_results: int = 5,
     generate_emails: bool = False,
     user_resume: Dict = None,
-    user_contact: Dict = None
+    user_contact: Dict = None,
+    resume_text: str = "",
+    template_instructions: str = "",
+    role_type: str = "recruiter"
 ) -> Dict:
     """
     Main function to find recruiters at a company.
@@ -537,7 +541,7 @@ def find_recruiters(
         
         # Filter for current employees only (prioritize accuracy)
         current_recruiters = [r for r in raw_recruiters if r.get('IsCurrentlyAtTarget', False)]
-        historical_recruiters = [r for r in raw_recruiters if not r.get('IsCurrentlyAtTarget', True)]
+        historical_recruiters = [r for r in raw_recruiters if not r.get('IsCurrentlyAtTarget', False)]
         
         print(f"[RecruiterFinder] Found {len(current_recruiters)} current employees and {len(historical_recruiters)} historical employees")
         
@@ -594,7 +598,10 @@ def find_recruiters(
                     company=cleaned_company,
                     job_description=job_description,
                     user_resume=user_resume,
-                    user_contact=user_contact
+                    user_contact=user_contact,
+                    resume_text=resume_text,
+                    template_instructions=template_instructions,
+                    role_type=role_type
                 )
                 print(f"[RecruiterFinder] Generated {len(emails)} emails for {len(final_recruiters)} recruiters")
             except Exception as e:
@@ -608,7 +615,7 @@ def find_recruiters(
             "company_cleaned": cleaned_company,
             "search_titles": recruiter_titles[:5],
             "total_found": len(raw_recruiters),
-            "credits_charged": 15 * len(final_recruiters)
+            "credits_charged": 5 * len(final_recruiters)
         }
         
     except requests.exceptions.HTTPError as e:
@@ -750,12 +757,15 @@ def search_recruiters_with_fallback(
                     company=cleaned_company,
                     job_description=job_description,
                     user_resume=user_resume,
-                    user_contact=user_contact
+                    user_contact=user_contact,
+                    resume_text=resume_text,
+                    template_instructions=template_instructions,
+                    role_type=role_type
                 )
             except Exception as e:
                 print(f"[RecruiterSearch] Error generating emails: {e}")
                 emails = []
-        
+
         return {
             "recruiters": final_contacts,
             "emails": emails,
@@ -763,7 +773,7 @@ def search_recruiters_with_fallback(
             "company_cleaned": cleaned_company,
             "search_titles": hr_titles[:5],
             "total_found": len(hr_contacts),
-            "credits_charged": 15 * len(final_contacts),
+            "credits_charged": 5 * len(final_contacts),
             "search_type": "hr",
             "message": f"No dedicated recruiters found. Found {len(final_contacts)} HR contacts at {cleaned_company} who may help with hiring."
         }
@@ -806,7 +816,10 @@ def search_recruiters_with_fallback(
                     company=cleaned_company,
                     job_description=job_description,
                     user_resume=user_resume,
-                    user_contact=user_contact
+                    user_contact=user_contact,
+                    resume_text=resume_text,
+                    template_instructions=template_instructions,
+                    role_type=role_type
                 )
             except Exception as e:
                 print(f"[RecruiterSearch] Error generating emails: {e}")
@@ -819,7 +832,7 @@ def search_recruiters_with_fallback(
             "company_cleaned": cleaned_company,
             "search_titles": executive_titles[:5],
             "total_found": len(exec_contacts),
-            "credits_charged": 15 * len(final_contacts),
+            "credits_charged": 5 * len(final_contacts),
             "search_type": "executives",
             "message": f"Small company - no recruiters or HR found. Found {len(final_contacts)} executives who may handle hiring at {cleaned_company}."
         }
@@ -981,8 +994,8 @@ def rank_hiring_managers(
     
     def score_hiring_manager(manager: Dict) -> int:
         score = 0
-        title = manager.get("Title", "").lower()
-        company = manager.get("Company", "").lower()
+        title = (manager.get("Title", "") or "").lower()
+        company = (manager.get("Company", "") or "").lower()
         target = target_company.lower()
         manager_city = (manager.get("City", "") or "").lower()
         manager_state = (manager.get("State", "") or "").lower()
@@ -1039,7 +1052,10 @@ def find_hiring_manager(
     max_results: int = 3,
     generate_emails: bool = False,
     user_resume: Dict = None,
-    user_contact: Dict = None
+    user_contact: Dict = None,
+    resume_text: str = "",
+    template_instructions: str = "",
+    role_type: str = "hiring_manager"
 ) -> Dict:
     """
     Find hiring managers at a company using tiered search strategy.
@@ -1102,7 +1118,9 @@ def find_hiring_manager(
     # Track all contacts found for company size detection
     all_contacts_found = []
     candidate_pool = []  # ✅ Changed: Build candidate pool instead of final list
+    final_hiring_managers = []  # Initialize before conditional block
     highest_tier_used = 0
+    all_search_titles = []
     
     # Tiered search: Start with Tier 1, fallback to lower tiers if needed
     # ✅ FIX: Collect up to CANDIDATE_POOL_SIZE instead of max_results
@@ -1122,6 +1140,7 @@ def find_hiring_manager(
         tier_titles = get_hiring_manager_titles_for_tier(tier, job_type)
         if not tier_titles:
             continue
+        all_search_titles.extend(tier_titles)
         
         print(f"[HiringManagerFinder] Searching Tier {tier} with titles: {tier_titles[:3]}...")
         
@@ -1159,7 +1178,7 @@ def find_hiring_manager(
                 # ✅ FIX: Add all managers to candidate pool (up to pool size limit)
                 # Filter for current employees first
                 current_managers = [m for m in raw_managers if m.get('IsCurrentlyAtTarget', False)]
-                historical_managers = [m for m in raw_managers if not m.get('IsCurrentlyAtTarget', True)]
+                historical_managers = [m for m in raw_managers if not m.get('IsCurrentlyAtTarget', False)]
                 
                 # Add current employees first, then historical, up to pool size
                 remaining_slots = CANDIDATE_POOL_SIZE - len(candidate_pool)
@@ -1216,7 +1235,6 @@ def find_hiring_manager(
                 manager['Company'] = cleaned_company
         
         print(f"[HiringManagerFinder] Verifying emails for {len(candidate_pool)} candidates using Hunter.io...")
-        import time
         verify_start = time.time()
         try:
             candidate_pool = enrich_contacts_with_hunter(
@@ -1279,12 +1297,15 @@ def find_hiring_manager(
     if generate_emails and user_resume and user_contact and final_hiring_managers:
         try:
             emails = generate_recruiter_emails(
-                recruiters=final_hiring_managers,  # Reuse recruiter email generator
+                recruiters=final_hiring_managers,
                 job_title=job_title,
                 company=cleaned_company,
                 job_description=job_description,
                 user_resume=user_resume,
-                user_contact=user_contact
+                user_contact=user_contact,
+                resume_text=resume_text,
+                template_instructions=template_instructions,
+                role_type=role_type
             )
             print(f"[HiringManagerFinder] Generated {len(emails)} emails for {len(final_hiring_managers)} hiring managers")
         except Exception as e:
@@ -1297,7 +1318,8 @@ def find_hiring_manager(
         "job_type_detected": job_type,
         "company_cleaned": cleaned_company,
         "total_found": len(all_contacts_found),
-        "credits_charged": 15 * len(final_hiring_managers),
-        "search_tier_used": highest_tier_used
+        "credits_charged": 5 * len(final_hiring_managers),
+        "search_tier_used": highest_tier_used,
+        "search_titles": all_search_titles[:10]
     }
 

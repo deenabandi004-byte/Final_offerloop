@@ -57,7 +57,7 @@ def _parse_iso(s):
 
 
 def _now_iso():
-    return datetime.utcnow().isoformat() + "Z"  # TODO: deprecated in Python 3.12
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _get_contact_ref(uid, contact_id):
@@ -186,7 +186,7 @@ def get_outbox_stats(uid):
     Returns dict with stage counts, rates, and bucket counts.
     """
     contacts = get_outbox_contacts(uid, include_archived=False)
-    now_utc = datetime.utcnow()  # TODO: deprecated in Python 3.12
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     three_days_ago = now_utc - timedelta(days=3)
     seven_days_ago = now_utc - timedelta(days=7)
 
@@ -268,8 +268,12 @@ def get_outbox_stats(uid):
 
     reply_rate = (replied_count / eligible_for_reply_rate) if eligible_for_reply_rate else 0.0
     avg_response_time_hours = round(sum(response_hours) / len(response_hours), 1) if response_hours else None
+    # Meeting rate: of contacts that got any reply, what fraction led to a meeting?
+    # Denominator = all contacts that reached replied/meeting_scheduled/connected stages
     meeting_denom = by_stage.get("replied", 0) + by_stage.get("meeting_scheduled", 0) + by_stage.get("connected", 0)
-    meeting_rate = (by_stage.get("meeting_scheduled", 0) / meeting_denom) if meeting_denom else 0.0
+    # Numerator = meetings booked (meeting_scheduled) + connected (which implies a meeting happened)
+    meeting_numer = by_stage.get("meeting_scheduled", 0) + by_stage.get("connected", 0)
+    meeting_rate = (meeting_numer / meeting_denom) if meeting_denom else 0.0
 
     return {
         "total": total,
@@ -351,6 +355,11 @@ def unarchive_contact(uid, contact_id):
 
 def snooze_contact(uid, contact_id, snooze_until):
     """Snooze follow-ups until a specific date."""
+    # Validate snooze_until is a parseable ISO date
+    parsed = _parse_iso(snooze_until)
+    if not parsed:
+        raise ValueError("Invalid snoozeUntil date. Must be a valid ISO 8601 date string.")
+
     ref, data = _get_contact(uid, contact_id)
     updates = {
         "snoozedUntil": snooze_until,
@@ -571,7 +580,7 @@ def sync_contact_thread(uid, contact_id):
     if last_sync:
         last_sync_dt = _parse_iso(last_sync)
         if last_sync_dt:
-            elapsed = (datetime.utcnow() - last_sync_dt).total_seconds()  # TODO: deprecated in Python 3.12
+            elapsed = (datetime.now(timezone.utc).replace(tzinfo=None) - last_sync_dt).total_seconds()
             if elapsed < SYNC_LOCK_SECONDS:
                 return _contact_to_dict(contact_id, data)
 

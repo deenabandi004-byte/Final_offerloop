@@ -185,7 +185,7 @@ const ScoutFirmAssistant: React.FC<ScoutFirmAssistantProps> = ({
         {messages.length === 0 && (
           <>
             {/* Welcome message */}
-            <div className="bg-blue-50 rounded-lg p-3">
+            <div className="bg-[#FAFBFF] rounded-[3px] p-3">
               <p className="text-sm text-slate-700">
                 {firmContext.current_results.length > 0 
                   ? `You have ${firmContext.current_results.length} firms. I can help you find the best fits or research any of them!`
@@ -216,9 +216,9 @@ const ScoutFirmAssistant: React.FC<ScoutFirmAssistantProps> = ({
             className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div
-              className={`max-w-[90%] rounded-lg p-3 ${
+              className={`max-w-[90%] rounded-[3px] p-3 ${
                 message.role === 'user'
-                  ? 'bg-blue-500 text-white'
+                  ? 'bg-[#0F172A] text-white'
                   : 'bg-slate-100 text-slate-800'
               }`}
             >
@@ -234,7 +234,7 @@ const ScoutFirmAssistant: React.FC<ScoutFirmAssistantProps> = ({
                   {message.suggestions.refined_query && (
                     <button
                       onClick={() => handleApplyQuery(message.suggestions!.refined_query!)}
-                      className="w-full py-1.5 text-xs font-medium bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                      className="w-full py-1.5 text-xs font-medium bg-[#0F172A] text-white rounded hover:bg-[#1E293B] transition-colors"
                     >
                       Use this search
                     </button>
@@ -260,7 +260,7 @@ const ScoutFirmAssistant: React.FC<ScoutFirmAssistantProps> = ({
 
         {isLoading && (
           <div className="flex justify-start">
-            <div className="bg-slate-100 rounded-lg p-3">
+            <div className="bg-slate-100 rounded-[3px] p-3">
               <div className="flex items-center gap-2 text-slate-600">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span className="text-sm">Thinking...</span>
@@ -288,7 +288,7 @@ const ScoutFirmAssistant: React.FC<ScoutFirmAssistantProps> = ({
             onClick={() => sendMessage()}
             disabled={!input.trim() || isLoading}
             size="sm"
-            className="bg-blue-500 hover:bg-blue-600"
+            className="bg-[#0F172A] hover:bg-[#1E293B]"
           >
             {isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />

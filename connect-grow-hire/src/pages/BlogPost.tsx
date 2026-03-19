@@ -58,8 +58,8 @@ const BlogPost = () => {
 
       {/* Article Header */}
       <header className="px-6 pt-16 pb-8" style={{ maxWidth: '720px', margin: '0 auto' }}>
-        <Link to="/blog" className="text-sm font-medium mb-4 inline-block" style={{ color: '#2563EB', letterSpacing: '0.02em' }}>BLOG</Link>
-        <h1 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 'clamp(32px, 5vw, 48px)', fontWeight: 400, lineHeight: 1.15, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '16px' }}>
+        <Link to="/blog" className="text-sm font-medium mb-4 inline-block" style={{ color: '#3B82F6', letterSpacing: '0.02em' }}>BLOG</Link>
+        <h1 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(32px, 5vw, 48px)', fontWeight: 400, lineHeight: 1.15, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: '16px' }}>
           {post.title}
         </h1>
         <div className="flex items-center gap-3">
@@ -79,9 +79,9 @@ const BlogPost = () => {
       </article>
 
       {/* CTA */}
-      <section className="px-6 py-16" style={{ background: '#F8FAFF' }}>
+      <section className="px-6 py-16" style={{ background: '#FAFBFF' }}>
         <div className="text-center" style={{ maxWidth: '520px', margin: '0 auto' }}>
-          <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 'clamp(28px, 4vw, 36px)', fontWeight: 400, lineHeight: 1.15, color: '#0F172A', marginBottom: '16px' }}>
+          <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(28px, 4vw, 36px)', fontWeight: 400, lineHeight: 1.15, color: '#0F172A', marginBottom: '16px' }}>
             Skip the manual work
           </h2>
           <p style={{ fontSize: '15px', color: '#64748B', marginBottom: '28px' }}>
@@ -89,8 +89,8 @@ const BlogPost = () => {
           </p>
           <Link
             to="/signin?mode=signup"
-            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl text-white font-semibold text-base hover:shadow-lg transition-all"
-            style={{ background: '#2563EB' }}
+            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-[3px] text-white font-semibold text-base hover:shadow-lg transition-all"
+            style={{ background: '#3B82F6' }}
           >
             Create free account
           </Link>
@@ -116,7 +116,7 @@ const BlogPost = () => {
 
       <style>{`
         .prose-offerloop h2 {
-          font-family: 'Instrument Serif', Georgia, serif;
+          font-family: 'Lora', Georgia, serif;
           font-size: 28px;
           font-weight: 400;
           color: #0F172A;
@@ -153,7 +153,7 @@ const BlogPost = () => {
           font-weight: 600;
         }
         .prose-offerloop blockquote {
-          border-left: 3px solid #2563EB;
+          border-left: 3px solid #3B82F6;
           padding-left: 16px;
           margin: 24px 0;
           font-style: italic;
@@ -179,7 +179,7 @@ const BlogPost = () => {
           padding: 0;
         }
         .prose-offerloop a {
-          color: #2563EB;
+          color: #3B82F6;
           text-decoration: underline;
         }
         .prose-offerloop hr {

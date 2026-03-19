@@ -66,12 +66,12 @@ function statusLine(c: OutboxThread): string {
 // --- stage-based border color ---
 
 function stageBorderColor(c: OutboxThread, isSelected: boolean): string {
-  if (isSelected) return "border-l-blue-500 bg-blue-50/60";
+  if (isSelected) return "border-l-[#3B82F6] bg-[#FAFBFF]";
   if (c.hasUnreadReply || c.pipelineStage === "replied") return "border-l-red-400 hover:bg-red-50/40";
   if (c.pipelineStage === "new") return "border-l-gray-300 hover:bg-gray-50";
   if (c.pipelineStage === "draft_deleted") return "border-l-red-300 hover:bg-red-50/30";
   if (c.pipelineStage === "draft_created") return "border-l-amber-400 hover:bg-amber-50/30";
-  if (c.pipelineStage === "email_sent" || c.pipelineStage === "waiting_on_reply") return "border-l-blue-300 hover:bg-blue-50/30";
+  if (c.pipelineStage === "email_sent" || c.pipelineStage === "waiting_on_reply") return "border-l-[#3B82F6]/50 hover:bg-[#FAFBFF]";
   if (c.pipelineStage === "meeting_scheduled" || c.pipelineStage === "connected") return "border-l-green-400 hover:bg-green-50/30";
   return "border-l-transparent hover:bg-gray-50";
 }
@@ -87,7 +87,7 @@ function actionChip(c: OutboxThread, bucket: BucketType): Chip | null {
   if (bucket === "done") return null;
   // Replied
   if (c.hasUnreadReply || c.pipelineStage === "replied") {
-    return { label: "View Reply", className: "bg-blue-100 text-blue-700" };
+    return { label: "View Reply", className: "bg-[rgba(59,130,246,0.10)] text-[#2563EB]" };
   }
   // Draft
   if (c.pipelineStage === "draft_deleted") {
@@ -129,7 +129,7 @@ export function ContactCard({ contact, bucket, isSelected, onClick }: ContactCar
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all border-l-[3px] ${stageBorderColor(contact, isSelected)}`}
+      className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-[3px] transition-all border-l-[3px] ${stageBorderColor(contact, isSelected)}`}
     >
       {/* avatar */}
       <div

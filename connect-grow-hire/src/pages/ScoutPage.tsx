@@ -104,8 +104,8 @@ export default function ScoutPage() {
                         />
                       </div>
                       <div className="max-w-[85%]">
-                        <div className="bg-gray-100 rounded-2xl rounded-tl-md px-4 py-3">
-                          <p className="text-[15px] text-gray-900 leading-relaxed">
+                        <div className="bg-[#FAFBFF] rounded-[3px] px-4 py-3">
+                          <p className="text-[15px] text-[#0F172A] leading-relaxed">
                             Ask me anything about Offerloop.
                           </p>
                         </div>
@@ -118,7 +118,7 @@ export default function ScoutPage() {
                         <button
                           key={idx}
                           onClick={() => handleSuggestionClick(question)}
-                          className="text-left px-4 py-3 rounded-xl bg-white border border-gray-200 hover:border-blue-300 hover:bg-blue-50/50 text-sm text-gray-700 transition-colors"
+                          className="text-left px-4 py-3 rounded-[3px] bg-white border border-[#E2E8F0] hover:border-[#3B82F6] hover:bg-[#FAFBFF] text-sm text-[#0F172A] transition-colors"
                         >
                           {question}
                         </button>
@@ -134,7 +134,7 @@ export default function ScoutPage() {
                     <div className="flex justify-end">
                       <button
                         onClick={clearChat}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors text-sm"
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-[#94A3B8] hover:text-[#6B7280] hover:bg-[#FAFBFF] rounded-lg transition-colors text-sm"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         Clear
@@ -161,9 +161,9 @@ export default function ScoutPage() {
                               />
                             </div>
                             <div className="flex flex-col gap-2">
-                              <div className="bg-gray-100 rounded-2xl rounded-tl-md px-4 py-3">
+                              <div className="bg-[#FAFBFF] rounded-[3px] px-4 py-3">
                                 <div
-                                  className="text-[15px] text-gray-900 leading-relaxed"
+                                  className="text-[15px] text-[#0F172A] leading-relaxed"
                                   dangerouslySetInnerHTML={{ __html: formatMessage(message.content) }}
                                 />
                               </div>
@@ -172,7 +172,7 @@ export default function ScoutPage() {
                               {message.navigate_to && (
                                 <button
                                   onClick={() => handleNavigate(message.navigate_to!, message.auto_populate)}
-                                  className="self-start px-4 py-2 rounded-xl bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 transition-colors"
+                                  className="self-start px-4 py-2 rounded-[3px] bg-[#0F172A] text-white text-sm font-medium hover:bg-[#1E293B] transition-colors"
                                 >
                                   Take me there
                                 </button>
@@ -185,7 +185,7 @@ export default function ScoutPage() {
                                     <button
                                       key={idx}
                                       onClick={() => handleNavigate(btn.route)}
-                                      className="px-3 py-1.5 rounded-xl bg-gray-100 text-gray-700 text-sm hover:bg-gray-200 transition-colors"
+                                      className="px-3 py-1.5 rounded-[3px] bg-[#FAFBFF] text-[#0F172A] text-sm hover:bg-[#EEF2F8] transition-colors"
                                     >
                                       {btn.label}
                                     </button>
@@ -197,7 +197,7 @@ export default function ScoutPage() {
                         ) : (
                           // User message - no avatar, right aligned
                           <div className="max-w-[85%]">
-                            <div className="bg-blue-500 text-white rounded-2xl rounded-tr-md px-4 py-3">
+                            <div className="bg-[#0F172A] text-white rounded-[3px] px-4 py-3">
                               <p className="text-[15px] leading-relaxed">
                                 {message.content}
                               </p>
@@ -221,8 +221,8 @@ export default function ScoutPage() {
                             style={{ transform: 'scale(1.05)' }}
                           />
                         </div>
-                        <div className="bg-gray-100 rounded-2xl rounded-tl-md px-4 py-3">
-                          <div className="flex items-center gap-2 text-gray-500">
+                        <div className="bg-[#FAFBFF] rounded-[3px] px-4 py-3">
+                          <div className="flex items-center gap-2 text-[#6B7280]">
                             <Loader2 className="h-4 w-4 animate-spin" />
                             <span className="text-sm">Thinking...</span>
                           </div>
@@ -238,7 +238,7 @@ export default function ScoutPage() {
             </div>
             
             {/* Input area - ChatGPT style */}
-            <div className="border-t border-gray-100 bg-white px-4 py-4">
+            <div className="border-t border-[#EEF2F8] bg-white px-4 py-4">
               <div className="max-w-2xl mx-auto">
                 <div className="relative">
                   <input
@@ -248,13 +248,13 @@ export default function ScoutPage() {
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder="Ask Scout anything..."
-                    className="w-full pl-4 pr-14 py-3.5 rounded-xl border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 text-[15px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full pl-4 pr-14 py-3.5 rounded-[3px] border border-[#E2E8F0] bg-white text-[#0F172A] placeholder:text-[#94A3B8] text-[15px] focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent"
                     disabled={isLoading}
                   />
                   <button
                     onClick={() => sendMessage()}
                     disabled={!input.trim() || isLoading}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2.5 rounded-lg text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2.5 rounded-[3px] text-white bg-[#0F172A] hover:bg-[#1E293B] disabled:bg-[#E2E8F0] disabled:cursor-not-allowed transition-colors"
                     aria-label="Send message"
                   >
                     {isLoading ? (
@@ -266,7 +266,7 @@ export default function ScoutPage() {
                 </div>
                 
                 {/* Credits text - de-emphasized */}
-                <p className="text-xs text-gray-400 text-center mt-3">
+                <p className="text-xs text-[#94A3B8] text-center mt-3">
                   No credits used
                 </p>
               </div>

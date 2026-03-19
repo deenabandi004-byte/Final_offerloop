@@ -173,7 +173,7 @@ const ContactUs = () => {
                 onClick={() => navigate('/signin?mode=signup')}
                 className="btn-primary-lg"
                 style={{
-                  background: '#2563EB',
+                  background: '#3B82F6',
                 }}
               >
                 Create account
@@ -259,7 +259,7 @@ const ContactUs = () => {
                     }}
                     className="btn-primary-lg w-full"
                     style={{
-                      background: '#2563EB',
+                      background: '#3B82F6',
                     }}
                   >
                     Create account
@@ -294,7 +294,7 @@ const ContactUs = () => {
           <div className="relative z-10 text-center max-w-[640px] mx-auto reveal">
             <h1
               style={{
-                fontFamily: "'Instrument Serif', Georgia, serif",
+                fontFamily: "'Lora', Georgia, serif",
                 fontSize: '48px',
                 fontWeight: 400,
                 letterSpacing: '-0.03em',
@@ -303,7 +303,7 @@ const ContactUs = () => {
                 lineHeight: 1.1,
               }}
             >
-              Get in <span style={{ color: '#2563EB' }}>touch</span>
+              Get in <span style={{ color: '#3B82F6' }}>touch</span>
             </h1>
             <p
               style={{
@@ -385,7 +385,7 @@ const ContactUs = () => {
                           outline: 'none',
                         }}
                         onFocus={(e) => {
-                          e.currentTarget.style.borderColor = '#2563EB';
+                          e.currentTarget.style.borderColor = '#3B82F6';
                           e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
                         }}
                         onBlur={(e) => {
@@ -425,7 +425,7 @@ const ContactUs = () => {
                           outline: 'none',
                         }}
                         onFocus={(e) => {
-                          e.currentTarget.style.borderColor = '#2563EB';
+                          e.currentTarget.style.borderColor = '#3B82F6';
                           e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
                         }}
                         onBlur={(e) => {
@@ -472,7 +472,7 @@ const ContactUs = () => {
                           outline: 'none',
                         }}
                         onFocus={(e) => {
-                          e.currentTarget.style.borderColor = '#2563EB';
+                          e.currentTarget.style.borderColor = '#3B82F6';
                           e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
                         }}
                         onBlur={(e) => {
@@ -517,7 +517,7 @@ const ContactUs = () => {
                           background: 'var(--bg-white)',
                         }}
                         onFocus={(e) => {
-                          e.currentTarget.style.borderColor = '#2563EB';
+                          e.currentTarget.style.borderColor = '#3B82F6';
                           e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
                         }}
                         onBlur={(e) => {
@@ -570,7 +570,7 @@ const ContactUs = () => {
                         resize: 'none',
                       }}
                       onFocus={(e) => {
-                        e.currentTarget.style.borderColor = '#2563EB';
+                        e.currentTarget.style.borderColor = '#3B82F6';
                         e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.08)';
                       }}
                       onBlur={(e) => {
@@ -597,7 +597,7 @@ const ContactUs = () => {
                     disabled={isSubmitting || !canSubmit}
                     className="btn-primary-lg w-full"
                     style={{
-                      background: !canSubmit || isSubmitting ? 'var(--border-light)' : '#2563EB',
+                      background: !canSubmit || isSubmitting ? 'var(--border-light)' : '#3B82F6',
                       color: !canSubmit || isSubmitting ? 'var(--text-tertiary)' : 'white',
                       cursor: !canSubmit || isSubmitting ? 'not-allowed' : 'pointer',
                     }}
@@ -663,13 +663,13 @@ const ContactUs = () => {
                         width: 40,
                         height: 40,
                         borderRadius: '10px',
-                        background: 'var(--blue-subtle)',
+                        background: 'rgba(59, 130, 246, 0.08)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                       }}
                     >
-                      <Mail className="w-5 h-5" style={{ color: '#2563EB' }} />
+                      <Mail className="w-5 h-5" style={{ color: '#3B82F6' }} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p
@@ -716,13 +716,13 @@ const ContactUs = () => {
                         width: 40,
                         height: 40,
                         borderRadius: '10px',
-                        background: 'var(--blue-subtle)',
+                        background: 'rgba(59, 130, 246, 0.08)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                       }}
                     >
-                      <Phone className="w-5 h-5" style={{ color: '#2563EB' }} />
+                      <Phone className="w-5 h-5" style={{ color: '#3B82F6' }} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p
@@ -755,13 +755,13 @@ const ContactUs = () => {
                         width: 40,
                         height: 40,
                         borderRadius: '10px',
-                        background: 'var(--blue-subtle)',
+                        background: 'rgba(59, 130, 246, 0.08)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                       }}
                     >
-                      <Clock className="w-5 h-5" style={{ color: '#2563EB' }} />
+                      <Clock className="w-5 h-5" style={{ color: '#3B82F6' }} />
                     </div>
                     <div>
                       <p
@@ -838,8 +838,8 @@ const ContactUs = () => {
                       transition: 'all 0.2s',
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'var(--blue-subtle)';
-                      e.currentTarget.style.color = '#2563EB';
+                      e.currentTarget.style.background = 'rgba(59, 130, 246, 0.08)';
+                      e.currentTarget.style.color = '#3B82F6';
                       e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.18)';
                     }}
                     onMouseLeave={(e) => {
@@ -870,8 +870,8 @@ const ContactUs = () => {
                       transition: 'all 0.2s',
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'var(--blue-subtle)';
-                      e.currentTarget.style.color = '#2563EB';
+                      e.currentTarget.style.background = 'rgba(59, 130, 246, 0.08)';
+                      e.currentTarget.style.color = '#3B82F6';
                       e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.18)';
                     }}
                     onMouseLeave={(e) => {
@@ -902,8 +902,8 @@ const ContactUs = () => {
                       transition: 'all 0.2s',
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'var(--blue-subtle)';
-                      e.currentTarget.style.color = '#2563EB';
+                      e.currentTarget.style.background = 'rgba(59, 130, 246, 0.08)';
+                      e.currentTarget.style.color = '#3B82F6';
                       e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.18)';
                     }}
                     onMouseLeave={(e) => {
@@ -934,8 +934,8 @@ const ContactUs = () => {
                       transition: 'all 0.2s',
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'var(--blue-subtle)';
-                      e.currentTarget.style.color = '#2563EB';
+                      e.currentTarget.style.background = 'rgba(59, 130, 246, 0.08)';
+                      e.currentTarget.style.color = '#3B82F6';
                       e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.18)';
                     }}
                     onMouseLeave={(e) => {
@@ -1263,14 +1263,14 @@ const ContactUs = () => {
                 width: 64,
                 height: 64,
                 borderRadius: '50%',
-                background: 'var(--blue-subtle)',
+                background: 'rgba(59, 130, 246, 0.08)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 margin: '0 auto 20px',
               }}
             >
-              <CheckCircle className="w-10 h-10" style={{ color: '#2563EB' }} />
+              <CheckCircle className="w-10 h-10" style={{ color: '#3B82F6' }} />
             </div>
             
             <h3
@@ -1311,7 +1311,7 @@ const ContactUs = () => {
                 style={{
                   fontFamily: 'var(--font-body)',
                   fontSize: '13px',
-                  color: '#2563EB',
+                  color: '#3B82F6',
                   textAlign: 'center',
                 }}
               >
@@ -1323,7 +1323,7 @@ const ContactUs = () => {
               onClick={() => setFormSubmitted(false)}
               className="btn-primary-lg w-full"
               style={{
-                background: '#2563EB',
+                background: '#3B82F6',
               }}
             >
               Done

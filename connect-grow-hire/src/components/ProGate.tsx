@@ -42,7 +42,7 @@ export function ProGate({ title, description, videoId, children }: ProGateProps)
             {description}
           </p>
 
-          <div className="w-full max-w-sm rounded-lg overflow-hidden" style={{ aspectRatio: "16/9" }}>
+          <div className="w-full max-w-sm rounded-[3px] overflow-hidden" style={{ aspectRatio: "16/9" }}>
             <iframe
               src={`https://www.youtube.com/embed/${videoId}?rel=0`}
               className="w-full h-full"
@@ -57,7 +57,7 @@ export function ProGate({ title, description, videoId, children }: ProGateProps)
             onClick={() => navigate("/pricing")}
             className="inline-flex items-center justify-center gap-2 px-8 py-3 rounded-full font-bold text-base text-white transition-all duration-150 hover:shadow-md hover:scale-[1.02] mt-[30px]"
             style={{
-              background: "linear-gradient(to right, #2563EB, #4F46E5)",
+              background: "linear-gradient(to right, #0F172A, #1E293B)",
             }}
           >
             <Unlock className="h-4 w-4" />

@@ -17,9 +17,10 @@ export default {
 			}
 		},
 		fontFamily: {
-			// Standardize font-family globally - VanquishBold everywhere
-			sans: ['VanquishBold', 'serif'],
-			serif: ['VanquishBold', 'serif'],
+			sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
+			serif: ['Lora', 'Georgia', 'serif'],
+			display: ['Lora', 'Georgia', 'serif'],
+			mono: ['SF Mono', 'Fira Code', 'monospace'],
 		},
 		extend: {
 			colors: {

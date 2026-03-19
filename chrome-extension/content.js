@@ -6,7 +6,6 @@ const OFFERLOOP_ICON = `<img class="offerloop-btn-icon" src="${chrome.runtime.ge
 
 // Track active MutationObservers so we can disconnect them on cleanup
 let profileObserver = null;
-let navigationObserver = null;
 
 // Check if we're on a LinkedIn profile page
 function isLinkedInProfilePage() {
@@ -182,7 +181,8 @@ function init() {
     }
   });
 
-  profileObserver.observe(document.body, {
+  const observeTarget = document.querySelector('.scaffold-layout__main') || document.querySelector('main') || document.body;
+  profileObserver.observe(observeTarget, {
     childList: true,
     subtree: true
   });
@@ -682,8 +682,8 @@ function scrapeJobData() {
     };
   }
 
-  // 4. Return result
-  return {
+  // 4. Build result
+  const result = {
     jobTitle: data?.jobTitle || null,
     company: data?.company || null,
     location: data?.location || null,
@@ -692,6 +692,23 @@ function scrapeJobData() {
     platform: data?.platform || 'unknown',
     scrapedSuccessfully: !!(data?.company && data?.jobTitle)
   };
+
+  // Log scraper health (fire-and-forget)
+  try {
+    const fieldsFound = ['jobTitle', 'company', 'location', 'description']
+      .filter(f => result[f]);
+    chrome.runtime.sendMessage({
+      action: 'logScraperResult',
+      platform: result.platform,
+      success: result.scrapedSuccessfully,
+      fieldsFound: fieldsFound,
+      urlPattern: url.replace(/\/\d+/g, '/:id').replace(/[a-f0-9-]{20,}/g, ':hash'),
+    });
+  } catch (e) {
+    // Ignore — telemetry is best-effort
+  }
+
+  return result;
 }
 
 // Scrape just the job description (for Cover Letter)
@@ -766,13 +783,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   // Handle job scraping request
   if (request.action === 'scrapeJob') {
-    // Add small delay for dynamic content
-    setTimeout(() => {
-      const jobData = scrapeJobData();
-      console.log('[Offerloop] Scraped job data:', jobData);
-      sendResponse(jobData);
-    }, 500);
-    return true; // Keep channel open for async response
+    const jobData = scrapeJobData();
+    console.log('[Offerloop] Scraped job data:', jobData);
+    sendResponse(jobData);
+    return true;
   }
   
   return true;
@@ -785,16 +799,34 @@ if (document.readyState === 'loading') {
   init();
 }
 
-// Also handle SPA navigation
+// Handle SPA navigation — use popstate + polling instead of expensive MutationObserver
 let lastUrl = location.href;
-navigationObserver = new MutationObserver(() => {
+
+function checkUrlChange() {
   if (location.href !== lastUrl) {
     lastUrl = location.href;
     console.log('[Offerloop] URL changed, re-initializing...');
     setTimeout(init, 500);
   }
-});
-navigationObserver.observe(document.body, { subtree: true, childList: true });
+}
+
+// Catch browser back/forward
+window.addEventListener('popstate', checkUrlChange);
+
+// Catch programmatic pushState/replaceState (LinkedIn uses these)
+const _origPushState = history.pushState;
+const _origReplaceState = history.replaceState;
+history.pushState = function(...args) {
+  _origPushState.apply(this, args);
+  checkUrlChange();
+};
+history.replaceState = function(...args) {
+  _origReplaceState.apply(this, args);
+  checkUrlChange();
+};
+
+// Fallback: lightweight poll every 1s (much cheaper than MutationObserver on body)
+const _urlPollInterval = setInterval(checkUrlChange, 1000);
 
 // Cleanup all observers when the page is being unloaded or the extension context
 // is invalidated. This prevents leaked observers from accumulating memory in
@@ -804,9 +836,8 @@ function cleanupObservers() {
     profileObserver.disconnect();
     profileObserver = null;
   }
-  if (navigationObserver) {
-    navigationObserver.disconnect();
-    navigationObserver = null;
+  if (_urlPollInterval) {
+    clearInterval(_urlPollInterval);
   }
   console.log('[Offerloop] Observers cleaned up');
 }
@@ -818,26 +849,17 @@ window.addEventListener('beforeunload', cleanupObservers);
 // the tab becomes visible again.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
-    // Disconnect observers to free resources while tab is hidden
     if (profileObserver) {
       profileObserver.disconnect();
       console.log('[Offerloop] Profile observer paused (tab hidden)');
     }
-    if (navigationObserver) {
-      navigationObserver.disconnect();
-      console.log('[Offerloop] Navigation observer paused (tab hidden)');
-    }
   } else if (document.visibilityState === 'visible') {
-    // Reconnect observers when tab becomes visible again
-    if (navigationObserver) {
-      navigationObserver.observe(document.body, { subtree: true, childList: true });
-      console.log('[Offerloop] Navigation observer resumed (tab visible)');
-    }
-    if (profileObserver) {
-      profileObserver.observe(document.body, { childList: true, subtree: true });
+    if (profileObserver && isLinkedInProfilePage()) {
+      const observeTarget = document.querySelector('.scaffold-layout__main') || document.querySelector('main') || document.body;
+      profileObserver.observe(observeTarget, { childList: true, subtree: true });
       console.log('[Offerloop] Profile observer resumed (tab visible)');
     }
-    // Re-check if we need to inject the button (URL may have changed while hidden)
+    // Re-check if we need to inject the button
     if (isLinkedInProfilePage() && !document.getElementById('offerloop-add-btn')) {
       injectButton();
     }

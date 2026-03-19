@@ -3,6 +3,7 @@ Run routes - prompt-based contact search endpoint
 """
 import json
 import time
+import traceback
 import threading
 from datetime import datetime
 from typing import Dict, Tuple, Optional
@@ -23,7 +24,7 @@ from email_templates import get_template_instructions
 # EMAIL TEMPLATE RESOLUTION (per-request override → user default → none)
 # =============================================================================
 
-def _resolve_email_template(email_template_override, user_id, db):
+def _resolve_email_template(email_template_override, user_id, db, user_data=None):
     """
     Resolve email template: request body override → user's saved default in Firestore → no injection.
     Returns (template_instructions: str, purpose: str|None, subject_line: str|None, signoff_config: dict).
@@ -44,27 +45,29 @@ def _resolve_email_template(email_template_override, user_id, db):
             signoff_phrase = (email_template_override.get("signoffPhrase") or "").strip()[:50] or "Best,"
         if "signatureBlock" in email_template_override:
             signature_block = (email_template_override.get("signatureBlock") or "").strip()[:500]
-    # Fill gaps from Firestore (whether or not we had an override)
-    if user_id and db:
+    # Fill gaps from user data (reuse already-loaded doc, or fetch if not provided)
+    fs_data = user_data
+    if not fs_data and user_id and db:
         try:
             user_doc = db.collection("users").document(user_id).get()
             if user_doc.exists:
-                data = user_doc.to_dict() or {}
-                t = data.get("emailTemplate") or {}
-                if purpose is None:
-                    purpose = t.get("purpose")
-                if style_preset is None:
-                    style_preset = t.get("stylePreset")
-                if not custom_instructions:
-                    custom_instructions = (t.get("customInstructions") or "").strip()[:4000]
-                if subject_line is None:
-                    subject_line = (t.get("subject") or "").strip() or None
-                if signoff_phrase is None:
-                    signoff_phrase = (t.get("signoffPhrase") or "").strip() or "Best,"
-                if signature_block is None:
-                    signature_block = (t.get("signatureBlock") or "").strip()[:500]
+                fs_data = user_doc.to_dict() or {}
         except Exception:
             pass
+    if fs_data:
+        t = fs_data.get("emailTemplate") or {}
+        if purpose is None:
+            purpose = t.get("purpose")
+        if style_preset is None:
+            style_preset = t.get("stylePreset")
+        if not custom_instructions:
+            custom_instructions = (t.get("customInstructions") or "").strip()[:4000]
+        if subject_line is None:
+            subject_line = (t.get("subject") or "").strip() or None
+        if signoff_phrase is None:
+            signoff_phrase = (t.get("signoffPhrase") or "").strip() or "Best,"
+        if signature_block is None:
+            signature_block = (t.get("signatureBlock") or "").strip()[:500]
     if signoff_phrase is None:
         signoff_phrase = "Best,"
     if signature_block is None:
@@ -77,11 +80,15 @@ def _resolve_email_template(email_template_override, user_id, db):
     return instructions, purpose, subject_line, signoff_config
 
 
-def _contact_already_exists(contact, existing_emails_set, existing_name_company_set):
+def _contact_already_exists(contact, existing_emails_set, existing_name_company_set, existing_linkedins_set=None):
     """Check if a contact already exists in the user's saved contacts."""
     email = (contact.get("Email") or contact.get("WorkEmail") or contact.get("PersonalEmail") or contact.get("email") or "").strip().lower()
     if email and email in existing_emails_set:
         return True
+    if existing_linkedins_set:
+        linkedin = (contact.get("LinkedIn") or contact.get("linkedinUrl") or "").strip()
+        if linkedin and linkedin in existing_linkedins_set:
+            return True
     fn = (contact.get("FirstName") or contact.get("firstName") or "").strip().lower()
     ln = (contact.get("LastName") or contact.get("lastName") or "").strip().lower()
     co = (contact.get("Company") or contact.get("company") or "").strip().lower()
@@ -173,7 +180,7 @@ def prompt_search():
                     if seen_contact_set is None:
                         contacts_ref = db.collection("users").document(user_id).collection("contacts")
                         contact_docs = list(contacts_ref.select(
-                            "firstName", "lastName", "email", "linkedinUrl", "company"
+                            ["firstName", "lastName", "email", "linkedinUrl", "company"]
                         ).stream())
                         seen_contact_set = set()
                         for doc in contact_docs:
@@ -187,14 +194,18 @@ def prompt_search():
                             }
                             seen_contact_set.add(get_contact_identity(standardized))
                         _set_cached_exclusion_list(user_id, seen_contact_set)
-                    if credits_available < 15:
-                        return jsonify({
-                            "error": "Insufficient credits",
-                            "credits_needed": 15,
-                            "current_credits": credits_available,
-                        }), 400
-            except Exception:
-                pass
+            except Exception as e:
+                # Fail closed: if we can't load user data, don't allow search
+                print(f"⚠️ Failed to load user profile for {user_id}: {e}")
+                return jsonify({"error": "Could not load user profile. Please try again."}), 500
+
+        # Credit check outside try/except — always enforced
+        if credits_available < 15:
+            return jsonify({
+                "error": "Insufficient credits",
+                "credits_needed": 15,
+                "current_credits": credits_available,
+            }), 400
 
         tier_max = TIER_CONFIGS[user_tier]["max_contacts"]
         try:
@@ -217,13 +228,8 @@ def prompt_search():
             }), 400
 
         # Request extra from PDL to account for dedup filtering (already-contacted users)
-        existing_contact_count = 0
-        if db and user_id:
-            try:
-                contacts_ref = db.collection("users").document(user_id).collection("contacts")
-                existing_contact_count = sum(1 for _ in contacts_ref.stream())
-            except Exception:
-                pass
+        # Use seen_contact_set (already loaded for exclusion) instead of re-streaming Firestore
+        existing_contact_count = len(seen_contact_set) if seen_contact_set else 0
         pdl_fetch_count = max_contacts + existing_contact_count + 2
 
         # Fetch contacts
@@ -239,20 +245,28 @@ def prompt_search():
                     "companies": parsed.get("companies", []),
                     "title_variations": parsed.get("title_variations", []),
                     "locations": parsed.get("locations", []),
+                    "company_context": parsed.get("company_context", ""),
                 },
             })
 
         # Pre-generation dedup: filter out contacts already in Firestore (avoid generating emails for them)
+        # These sets are reused at save time to avoid re-streaming Firestore
+        existing_emails_set = set()
+        existing_linkedins_set = set()
+        existing_name_company_set = set()
         if db and user_id:
             try:
                 contacts_ref = db.collection("users").document(user_id).collection("contacts")
-                existing_emails_set = set()
-                existing_name_company_set = set()
-                for doc in contacts_ref.stream():
+                for doc in contacts_ref.select(
+                    ["firstName", "lastName", "email", "linkedinUrl", "company"]
+                ).stream():
                     cd = doc.to_dict() or {}
                     ex_email = (cd.get("email") or "").strip().lower()
                     if ex_email:
                         existing_emails_set.add(ex_email)
+                    ex_linkedin = (cd.get("linkedinUrl") or "").strip()
+                    if ex_linkedin:
+                        existing_linkedins_set.add(ex_linkedin)
                     fn = (cd.get("firstName") or "").strip().lower()
                     ln = (cd.get("lastName") or "").strip().lower()
                     co = (cd.get("company") or "").strip().lower()
@@ -262,7 +276,7 @@ def prompt_search():
                 before_count = len(contacts)
                 contacts = [
                     c for c in contacts
-                    if not _contact_already_exists(c, existing_emails_set, existing_name_company_set)
+                    if not _contact_already_exists(c, existing_emails_set, existing_name_company_set, existing_linkedins_set)
                 ]
                 skipped_pre = before_count - len(contacts)
                 if skipped_pre:
@@ -279,6 +293,7 @@ def prompt_search():
                             "companies": parsed.get("companies", []),
                             "title_variations": parsed.get("title_variations", []),
                             "locations": parsed.get("locations", []),
+                            "company_context": parsed.get("company_context", ""),
                         },
                         "message": "All found contacts have already been contacted. Try a different search.",
                     }), 200
@@ -311,36 +326,54 @@ def prompt_search():
             user_profile = {"name": "", "email": user_email or ""}
         career_interests = data.get("careerInterests") or (user_data or {}).get("careerInterests", [])
         resume_text = None
-        template_instructions, email_template_purpose, template_subject_line, signoff_config = _resolve_email_template(data.get("emailTemplate"), user_id, db)
+        template_instructions, email_template_purpose, template_subject_line, signoff_config = _resolve_email_template(data.get("emailTemplate"), user_id, db, user_data=user_data)
         # Get resume filename for email body reference
         user_resume_filename = (user_data or {}).get("resumeFileName")
 
         auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
-        try:
-            email_results = batch_generate_emails(
-                contacts, resume_text, user_profile, career_interests,
-                fit_context=None,
-                template_instructions=template_instructions,
-                email_template_purpose=email_template_purpose,
-                resume_filename=user_resume_filename,
-                subject_line=template_subject_line,
-                signoff_config=signoff_config,
-                auth_display_name=auth_display_name,
-            )
-        except Exception as email_gen_error:
-            print(f"[Runs] Email generation failed (prompt-search): {email_gen_error}")
-            email_results = {}
 
-        for i, contact in enumerate(contacts):
-            key = str(i)
-            email_result = email_results.get(i) or email_results.get(key) or email_results.get(f"{i}")
-            if email_result and isinstance(email_result, dict):
-                subject = email_result.get("subject", "")
-                # Prefer plain_body (no HTML entities) over body (HTML-escaped)
-                body = email_result.get("plain_body") or email_result.get("body", "")
-                if subject and body:
-                    contact["emailSubject"] = subject
-                    contact["emailBody"] = body
+        # Run email generation and resume download in parallel (they're independent)
+        from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
+
+        resume_url = (user_data or {}).get("resumeUrl") or (user_data or {}).get("resumeURL")
+        resume_content = None
+        resume_filename = None
+
+        def _generate_emails():
+            try:
+                return batch_generate_emails(
+                    contacts, resume_text, user_profile, career_interests,
+                    fit_context=None,
+                    template_instructions=template_instructions,
+                    email_template_purpose=email_template_purpose,
+                    resume_filename=user_resume_filename,
+                    subject_line=template_subject_line,
+                    signoff_config=signoff_config,
+                    auth_display_name=auth_display_name,
+                )
+            except Exception as e:
+                print(f"[Runs] Email generation failed (prompt-search): {e}")
+                return {}
+
+        def _download_resume():
+            if not resume_url:
+                return None, None
+            try:
+                content, filename = download_resume_from_url(resume_url)
+                stored = (user_data or {}).get("resumeFileName")
+                if stored:
+                    filename = stored
+                print(f"📎 Downloaded resume ({len(content) if content else 0} bytes)", flush=True)
+                return content, filename
+            except Exception:
+                return None, None
+
+        with ThreadPoolExecutor(max_workers=2) as parallel_exec:
+            email_future = parallel_exec.submit(_generate_emails)
+            resume_future = parallel_exec.submit(_download_resume)
+
+            email_results = email_future.result()
+            resume_content, resume_filename = resume_future.result()
 
         contacts_with_emails = []
         for i, contact in enumerate(contacts):
@@ -348,9 +381,10 @@ def prompt_search():
             email_result = email_results.get(i) or email_results.get(key) or email_results.get(f"{i}")
             if email_result and isinstance(email_result, dict):
                 subject = email_result.get("subject", "")
-                # Prefer plain_body (no HTML entities) over body (HTML-escaped)
                 body = email_result.get("plain_body") or email_result.get("body", "")
                 if subject and body:
+                    contact["emailSubject"] = subject
+                    contact["emailBody"] = body
                     attach_resume = (email_template_purpose in PURPOSES_INCLUDE_RESUME) or email_body_mentions_resume(body)
                     contacts_with_emails.append({
                         "index": i,
@@ -359,25 +393,6 @@ def prompt_search():
                         "email_body": body,
                         "attach_resume": attach_resume,
                     })
-
-        # Always fetch user resume if available — attach to every draft
-        resume_url = None
-        resume_content = None
-        resume_filename = None
-        if db and user_id:
-            try:
-                user_doc = db.collection("users").document(user_id).get()
-                if user_doc.exists:
-                    user_data_resume = user_doc.to_dict()
-                    resume_url = user_data_resume.get("resumeUrl")
-                    if resume_url:
-                        resume_content, resume_filename = download_resume_from_url(resume_url)
-                        stored_filename = user_data_resume.get("resumeFileName")
-                        if stored_filename:
-                            resume_filename = stored_filename
-                print(f"DEBUG resume_url: {resume_url}", flush=True)
-            except Exception:
-                pass
 
         successful_drafts = 0
         user_info = {"name": user_profile.get("name", ""), "email": user_profile.get("email", ""), "phone": "", "linkedin": ""}
@@ -409,6 +424,12 @@ def prompt_search():
         except Exception as gmail_error:
             err_str = str(gmail_error).lower()
             if "invalid_grant" in err_str or "token has been expired or revoked" in err_str:
+                # Still deduct credits and save contacts even though drafts failed
+                if db and user_id:
+                    try:
+                        deduct_credits_atomic(user_id, 15 * len(contacts), "prompt_search")
+                    except Exception:
+                        pass
                 return jsonify({
                     "error": "gmail_token_expired",
                     "message": "Your Gmail connection has expired. Please reconnect your Gmail account.",
@@ -419,38 +440,37 @@ def prompt_search():
 
         if not (db and user_id):
             print(f"[Runs] Prompt-search: skipping Firestore save")
+        credits_used = 0
+        credits_remaining = None
         if db and user_id:
             try:
-                deduct_credits_atomic(user_id, 15 * len(contacts), "prompt_search")
-            except Exception:
-                pass
+                credits_amount = 15 * len(contacts)
+                success, remaining = deduct_credits_atomic(user_id, credits_amount, "prompt_search")
+                if success:
+                    credits_used = credits_amount
+                    credits_remaining = remaining
+                else:
+                    print(f"⚠️ Credit deduction failed for {user_id}: insufficient credits (have {remaining}, need {credits_amount})")
+                    credits_remaining = remaining
+            except Exception as credit_error:
+                print(f"⚠️ Credit deduction error for {user_id}: {credit_error}")
+                traceback.print_exc()
             try:
                 print(f"💾 Saving {len(contacts)} contacts to Firestore (prompt-search)...")
                 contacts_ref = db.collection("users").document(user_id).collection("contacts")
-                existing_contacts = list(contacts_ref.stream())
-                existing_contacts_data = [c.to_dict() for c in existing_contacts]
-                existing_emails = {c.get("email", "").lower().strip() for c in existing_contacts_data if c.get("email")}
-                existing_linkedins = {c.get("linkedinUrl", "").strip() for c in existing_contacts_data if c.get("linkedinUrl")}
-                existing_name_company = {
-                    f"{c.get('firstName', '')}_{c.get('lastName', '')}_{c.get('company', '')}".lower().strip()
-                    for c in existing_contacts_data
-                    if c.get("firstName") and c.get("lastName") and c.get("company")
-                }
+                # Reuse pre-gen dedup sets instead of re-streaming Firestore
                 today = datetime.now().strftime("%m/%d/%Y")
                 saved_count = 0
                 skipped_count = 0
                 for contact in contacts:
+                    if _contact_already_exists(contact, existing_emails_set, existing_name_company_set, existing_linkedins_set):
+                        skipped_count += 1
+                        continue
                     first_name = (contact.get("FirstName") or contact.get("firstName") or "").strip()
                     last_name = (contact.get("LastName") or contact.get("lastName") or "").strip()
                     email = (contact.get("Email") or contact.get("WorkEmail") or contact.get("PersonalEmail") or contact.get("email") or "").strip().lower()
                     linkedin = (contact.get("LinkedIn") or contact.get("linkedinUrl") or "").strip()
                     company = (contact.get("Company") or contact.get("company") or "").strip()
-                    if (email and email in existing_emails) or (linkedin and linkedin in existing_linkedins):
-                        skipped_count += 1
-                        continue
-                    if first_name and last_name and company and f"{first_name}_{last_name}_{company}".lower() in existing_name_company:
-                        skipped_count += 1
-                        continue
                     contact_doc = {
                         "firstName": first_name,
                         "lastName": last_name,
@@ -490,34 +510,37 @@ def prompt_search():
                     saved_count += 1
                     # Avoid duplicates within same batch
                     if email:
-                        existing_emails.add(email)
+                        existing_emails_set.add(email)
                     if linkedin:
-                        existing_linkedins.add(linkedin)
+                        existing_linkedins_set.add(linkedin)
                     if first_name and last_name and company:
-                        existing_name_company.add(f"{first_name}_{last_name}_{company}".lower().strip())
+                        existing_name_company_set.add(f"{first_name}_{last_name}_{company}".lower().strip())
                 print(f"✅ Prompt-search: saved {saved_count} new contacts to Firestore, skipped {skipped_count} duplicates")
                 _invalidate_exclusion_cache(user_id)
             except Exception as save_error:
                 print(f"⚠️ Error saving contacts (prompt-search): {save_error}")
-                import traceback
                 traceback.print_exc()
 
-        return jsonify({
+        response_data = {
             "contacts": contacts,
             "successful_drafts": successful_drafts,
             "total_contacts": len(contacts),
             "tier": user_tier,
             "user_email": user_email,
+            "credits_used": credits_used,
             "parsed_query": {
                 "companies": parsed.get("companies", []),
                 "title_variations": parsed.get("title_variations", []),
                 "locations": parsed.get("locations", []),
+                "company_context": parsed.get("company_context", ""),
             },
-        })
+        }
+        if credits_remaining is not None:
+            response_data["credits_remaining"] = credits_remaining
+        return jsonify(response_data)
     except (OfferloopException, InsufficientCreditsError, ExternalAPIError):
         raise
     except Exception as e:
         print(f"Prompt-search error: {e}")
-        import traceback
         traceback.print_exc()
         raise OfferloopException(f"Prompt search failed: {str(e)}", error_code="PROMPT_SEARCH_ERROR")

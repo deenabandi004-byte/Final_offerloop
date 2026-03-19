@@ -59,7 +59,7 @@ export const ProductTour: React.FC = () => {
             
             {/* Video - Right Side */}
             <div className="relative">
-              <div className="aspect-video rounded-2xl overflow-hidden border border-blue-500/20 border-blue-300/60 bg-gradient-to-br from-blue-500/5 to-cyan-500/5 from-blue-50/80 to-cyan-50/80 shadow-lg shadow-blue-100/50">
+              <div className="aspect-video rounded-[3px] overflow-hidden border border-[#3B82F6]/20 border-[#3B82F6]/60 bg-gradient-to-br from-[#3B82F6]/5 to-[#2563EB]/5 from-[#FAFBFF]/80 to-[#FAFBFF]/80 shadow-lg shadow-[#E2E8F0]/50">
                 <video
                   src={dashboardVideo}
                   autoPlay
@@ -69,7 +69,7 @@ export const ProductTour: React.FC = () => {
                   className="w-full h-full object-cover"
                 />
               </div>
-              <div className="absolute -bottom-4 -left-4 w-24 h-24 bg-blue-500/10 bg-blue-200/40 rounded-full blur-3xl"></div>
+              <div className="absolute -bottom-4 -left-4 w-24 h-24 bg-[#3B82F6]/10 bg-[#E2E8F0]/40 rounded-full blur-3xl"></div>
             </div>
           </div>
         </motion.div>
@@ -86,7 +86,7 @@ export const ProductTour: React.FC = () => {
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             {/* Video - Left Side */}
             <div className="relative">
-              <div className="aspect-video rounded-2xl overflow-hidden border border-blue-500/20 border-blue-300/60 bg-gradient-to-br from-blue-500/5 to-blue-500/5 from-blue-50/80 to-blue-50/80 shadow-lg shadow-blue-100/50">
+              <div className="aspect-video rounded-[3px] overflow-hidden border border-[#3B82F6]/20 border-[#3B82F6]/60 bg-gradient-to-br from-[#3B82F6]/5 to-[#3B82F6]/5 from-[#FAFBFF]/80 to-[#FAFBFF]/80 shadow-lg shadow-[#E2E8F0]/50">
                 <video
                   src={contactSearchVideo}
                   autoPlay
@@ -96,7 +96,7 @@ export const ProductTour: React.FC = () => {
                   className="w-full h-full object-cover"
                 />
               </div>
-              <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-blue-500/10 bg-blue-200/40 rounded-full blur-3xl"></div>
+              <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-[#3B82F6]/10 bg-[#E2E8F0]/40 rounded-full blur-3xl"></div>
             </div>
             
             {/* Text - Minimal */}
@@ -129,7 +129,7 @@ export const ProductTour: React.FC = () => {
             
             {/* Video - Right Side */}
             <div className="relative">
-              <div className="aspect-video rounded-2xl overflow-hidden border border-emerald-500/20 border-emerald-300/60 bg-gradient-to-br from-emerald-500/5 to-teal-500/5 from-emerald-50/80 to-teal-50/80 shadow-lg shadow-emerald-100/50">
+              <div className="aspect-video rounded-[3px] overflow-hidden border border-emerald-500/20 border-emerald-300/60 bg-gradient-to-br from-emerald-500/5 to-teal-500/5 from-emerald-50/80 to-teal-50/80 shadow-lg shadow-emerald-100/50">
                 <video
                   src={firmSearchVideo}
                   autoPlay
@@ -156,7 +156,7 @@ export const ProductTour: React.FC = () => {
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             {/* Video - Left Side */}
             <div className="relative">
-              <div className="aspect-video rounded-2xl overflow-hidden border border-blue-500/20 border-blue-300/60 bg-gradient-to-br from-blue-500/5 to-blue-500/5 from-blue-50/80 to-blue-50/80 shadow-lg shadow-blue-100/50">
+              <div className="aspect-video rounded-[3px] overflow-hidden border border-[#3B82F6]/20 border-[#3B82F6]/60 bg-gradient-to-br from-[#3B82F6]/5 to-[#3B82F6]/5 from-[#FAFBFF]/80 to-[#FAFBFF]/80 shadow-lg shadow-[#E2E8F0]/50">
                 <video
                   src={interviewPrepVideo}
                   autoPlay
@@ -199,7 +199,7 @@ export const ProductTour: React.FC = () => {
             
             {/* Video - Right Side */}
             <div className="relative">
-              <div className="aspect-video rounded-2xl overflow-hidden border border-purple-500/20 border-purple-300/50 shadow-lg shadow-purple-100/40">
+              <div className="aspect-video rounded-[3px] overflow-hidden border border-purple-500/20 border-purple-300/50 shadow-lg shadow-purple-100/40">
                 <video
                   src={coffeeChatVideo}
                   autoPlay
@@ -279,7 +279,7 @@ export const ProductTour: React.FC = () => {
                 return (
                 <div 
                   key={name} 
-                  className={`glass-card rounded-2xl p-8 mx-4 w-[420px] h-[380px] flex flex-col justify-between relative overflow-hidden ${color.class}`}
+                  className={`glass-card rounded-[3px] p-8 mx-4 w-[420px] h-[380px] flex flex-col justify-between relative overflow-hidden ${color.class}`}
                   style={{
                     borderColor: color.border,
                   }}
@@ -287,7 +287,7 @@ export const ProductTour: React.FC = () => {
                   {/* Color accent overlay */}
                   {(
                     <div 
-                      className="absolute inset-0 pointer-events-none rounded-2xl"
+                      className="absolute inset-0 pointer-events-none rounded-[3px]"
                       style={{
                         background: `linear-gradient(135deg, ${color.light} 0%, transparent 50%)`,
                       }}
@@ -334,7 +334,7 @@ export const ProductTour: React.FC = () => {
         >
           <div className="flex flex-col md:flex-row items-center md:items-start gap-8 p-8">
             {/* Scout Video - Left side on desktop, top on mobile */}
-            <div className="flex-shrink-0 w-[28rem] h-[32rem] md:w-[32rem] md:h-[36rem] relative overflow-hidden rounded-2xl">
+            <div className="flex-shrink-0 w-[28rem] h-[32rem] md:w-[32rem] md:h-[36rem] relative overflow-hidden rounded-[3px]">
               <video
                 src={scoutWavingWhite}
                 autoPlay
@@ -388,7 +388,7 @@ export const ProductTour: React.FC = () => {
                 
                 {/* Speech bubble content */}
                 <div 
-                  className="relative p-5 rounded-2xl shadow-lg"
+                  className="relative p-5 rounded-[3px] shadow-lg"
                   style={{
                     backgroundColor: 'rgba(255, 255, 255, 0.95)',
                     border: '1px solid rgba(59, 130, 246, 0.2)',

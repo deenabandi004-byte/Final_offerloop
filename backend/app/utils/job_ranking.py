@@ -77,6 +77,82 @@ def infer_preferred_type(profile: dict) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# Category / title exclusions — filter out irrelevant blue-collar jobs
+# ---------------------------------------------------------------------------
+
+EXCLUDED_CATEGORIES = frozenset([
+    "manufacturing", "construction", "healthcare", "retail",
+    "food_service", "transportation", "agriculture",
+])
+
+EXCLUDED_TITLE_KEYWORDS = [
+    "assembly", "manufacturing", "warehouse", "forklift", "cdl",
+    "nursing", "medical assistant", "dental", "hvac", "electrician",
+    "plumber", "truck driver", "cashier", "barista",
+]
+
+SENIOR_TITLE_KEYWORDS = [
+    "senior", "sr.", "sr ", "lead ", "principal", "director",
+    "vp ", "vice president", "head of", "manager", "staff ",
+]
+
+NON_US_LOCATION_KEYWORDS = [
+    "india", "brazil", "canada", "singapore", "london", "uk",
+    "australia", "germany", "france", "netherlands", "china",
+    "japan", "mexico",
+]
+
+
+def _get_grad_year(profile: dict) -> Optional[int]:
+    """Extract graduation year from profile as int, or None."""
+    education = (profile.get("resumeParsed") or {}).get("education", {}) or {}
+    raw = education.get("graduation_year") or profile.get("graduationYear")
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        return None
+
+
+def _is_excluded(job: dict, profile: dict = None) -> bool:
+    """Return True if a job should be excluded from ranking entirely."""
+    if job.get("category") in EXCLUDED_CATEGORIES:
+        return True
+    title_lower = (job.get("title") or "").lower()
+    if any(kw in title_lower for kw in EXCLUDED_TITLE_KEYWORDS):
+        return True
+    # Exclude senior roles for students (grad year >= current_year - 1)
+    if profile is not None:
+        from datetime import datetime
+        grad_year = _get_grad_year(profile)
+        if grad_year is not None and grad_year >= datetime.now().year - 1:
+            if any(kw in title_lower for kw in SENIOR_TITLE_KEYWORDS):
+                return True
+    return False
+
+
+def _normalize_location(loc) -> str:
+    """Coerce location to a string — handles dict, str, or None."""
+    if not loc:
+        return ""
+    if isinstance(loc, str):
+        return loc
+    if isinstance(loc, dict):
+        parts = [loc.get("addressLocality"), loc.get("addressRegion"), loc.get("addressCountry")]
+        return ", ".join(str(p) for p in parts if p)
+    return str(loc)
+
+
+def _is_non_us(job: dict) -> bool:
+    """Return True if job is non-US and non-remote."""
+    if job.get("remote") or job.get("remote_derived"):
+        return False
+    location_lower = _normalize_location(job.get("location")).lower()
+    return any(kw in location_lower for kw in NON_US_LOCATION_KEYWORDS)
+
+
+# ---------------------------------------------------------------------------
 # Deterministic pre-filter
 # ---------------------------------------------------------------------------
 
@@ -116,22 +192,45 @@ def deterministic_score(job: dict, profile: dict) -> float:
     return score
 
 
-def prefilter_candidates(jobs: list[dict], profile: dict, top_n: int = 60) -> list[dict]:
+def prefilter_candidates(jobs: list[dict], profile: dict, top_n: int = 30) -> list[dict]:
+    # Exclude irrelevant categories, titles, senior roles, and non-US jobs
+    eligible = [j for j in jobs if not _is_excluded(j, profile) and not _is_non_us(j)]
+
     scored = sorted(
-        [(job, deterministic_score(job, profile)) for job in jobs],
+        [(job, deterministic_score(job, profile)) for job in eligible],
         key=lambda x: x[1], reverse=True
     )
-    return [job for job, _ in scored[:top_n]]
+
+    # Apply minimum score threshold to avoid sending junk to GPT
+    MIN_RESULTS = 20
+    filtered = [(job, s) for job, s in scored if s >= 15]
+    if len(filtered) < MIN_RESULTS:
+        filtered = [(job, s) for job, s in scored if s >= 10]
+    if len(filtered) < MIN_RESULTS:
+        filtered = scored[:MIN_RESULTS]
+
+    return [job for job, _ in filtered[:top_n]]
 
 
 # ---------------------------------------------------------------------------
 # GPT ranking
 # ---------------------------------------------------------------------------
 
+def _mark_unranked(jobs: list[dict]) -> list[dict]:
+    """Mark all jobs as unranked and return them."""
+    for job in jobs:
+        job["match_score"] = None
+        job["match_reason"] = None
+        job["ranked"] = False
+    return jobs
+
+
 def rank_with_gpt(jobs: list[dict], profile: dict) -> list[dict]:
     from backend.app.services.openai_client import client
+    from openai import RateLimitError
     import json
     import re
+    import time
     import logging
 
     logger = logging.getLogger(__name__)
@@ -176,16 +275,27 @@ Return ONLY a JSON array, no explanation, no markdown:
 [{"job_id": "...", "match_score": 85, "match_reason": "..."}]
 Order by match_score descending. Include every job_id provided."""
 
-    try:
-        response = client.chat.completions.create(
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": profile_str + "\n\n" + jobs_str},
+    ]
+
+    def _call_gpt():
+        return client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": profile_str + "\n\n" + jobs_str},
-            ],
-            max_tokens=2000,
+            messages=messages,
+            max_tokens=4000,
             temperature=0.3,
         )
+
+    try:
+        try:
+            response = _call_gpt()
+        except RateLimitError:
+            logger.warning("GPT ranking hit 429 — retrying in 10s")
+            time.sleep(10)
+            response = _call_gpt()
+
         raw = re.sub(
             r"```(?:json)?", "",
             response.choices[0].message.content.strip()
@@ -210,13 +320,12 @@ Order by match_score descending. Include every job_id provided."""
                 job["ranked"] = False
             ranked.append(job)
         return sorted(ranked, key=lambda j: j.get("match_score") or 0, reverse=True)
+    except RateLimitError:
+        logger.warning("GPT ranking hit 429 twice — returning unranked")
+        return _mark_unranked(jobs)
     except Exception as e:
         logger.warning(f"GPT ranking failed: {e}")
-        for job in jobs:
-            job["match_score"] = None
-            job["match_reason"] = None
-            job["ranked"] = False
-        return jobs
+        return _mark_unranked(jobs)
 
 
 # ---------------------------------------------------------------------------

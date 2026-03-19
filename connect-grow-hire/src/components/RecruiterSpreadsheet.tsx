@@ -374,12 +374,16 @@ const RecruiterSpreadsheet: React.FC = () => {
     }
 
     try {
-      if (currentUser && recruiterId) {
+      if (!currentUser) {
+        toast({ title: 'Error', description: 'Please sign in to delete recruiters.', variant: 'destructive' });
+        return;
+      }
+      if (recruiterId) {
         // Delete from Firestore
         await firebaseApi.deleteRecruiter(currentUser.uid, recruiterId);
       }
-      
-      // Update local state
+
+      // Update local state only after successful Firestore delete
       setRecruiters((prev) => prev.filter((recruiter) => recruiter.id !== recruiterId));
       
       toast({
@@ -573,15 +577,18 @@ const RecruiterSpreadsheet: React.FC = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const clearAllRecruiters = async () => {
+    if (!currentUser) {
+      toast({ title: 'Error', description: 'Please sign in to manage recruiters.', variant: 'destructive' });
+      return;
+    }
     if (window.confirm('Are you sure you want to delete all recruiters? This action cannot be undone.')) {
       try {
-        if (currentUser) {
-          await firebaseApi.clearAllRecruiters(currentUser.uid);
-          setRecruiters([]);
-        }
+        await firebaseApi.clearAllRecruiters(currentUser.uid);
+        setRecruiters([]);
       } catch (err) {
         console.error('Error clearing recruiters:', err);
         setError('Failed to clear recruiters');

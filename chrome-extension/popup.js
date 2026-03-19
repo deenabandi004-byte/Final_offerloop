@@ -4,6 +4,44 @@ console.log('[Offerloop Popup] Loaded');
 // API Configuration
 const API_BASE_URL = 'https://final-offerloop.onrender.com';
 
+// Shared job URL patterns — used by detectMode() and isJobUrl()
+const JOB_URL_PATTERNS = [
+  /linkedin\.com\/jobs\//,
+  /boards\.greenhouse\.io\//,
+  /jobs\.lever\.co\//,
+  /\.myworkdayjobs\.com\//,
+  /indeed\.com\/(viewjob|jobs)/,
+  /handshake\.com\/.*jobs/,
+  /joinhandshake\.com\/.*jobs/,
+  /app\.joinhandshake\.com\/.*jobs/,
+  /glassdoor\.com\/job-listing/,
+  /ziprecruiter\.com\/jobs/,
+  /wellfound\.com\/jobs/,
+  /\/careers\//,
+  /\/jobs\//
+];
+
+// Sanitize a string for use in filenames
+function sanitizeFilename(str) {
+  if (!str) return 'unknown';
+  return str.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+}
+
+// Fetch wrapper with timeout support
+async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') throw new Error(`Request timed out after ${timeoutMs}ms`);
+    throw err;
+  }
+}
+
 // Tab Detection and Switching
 function detectMode(url) {
   // Contact mode - LinkedIn profiles only
@@ -12,24 +50,8 @@ function detectMode(url) {
   }
   
   // Job mode - job posting URLs
-  const jobPatterns = [
-    /linkedin\.com\/jobs\//,
-    /boards\.greenhouse\.io\//,
-    /jobs\.lever\.co\//,
-    /\.myworkdayjobs\.com\//,
-    /indeed\.com\/(viewjob|jobs)/,
-    /handshake\.com\/.*jobs/,
-    /joinhandshake\.com\/.*jobs/,
-    /app\.joinhandshake\.com\/.*jobs/,
-    /glassdoor\.com\/job-listing/,
-    /ziprecruiter\.com\/jobs/,
-    /wellfound\.com\/jobs/,
-    /\/careers\//,
-    /\/jobs\//
-  ];
-  
   if (url) {
-    for (const pattern of jobPatterns) {
+    for (const pattern of JOB_URL_PATTERNS) {
       if (url.match(pattern)) return 'job';
     }
   }
@@ -67,6 +89,11 @@ function initTabSwitcher() {
 
 let currentJobUrl = null;
 let manualInputRequired = false;
+let _actionInProgress = false;
+
+// Credits cache — avoid redundant API calls when popup reopens quickly
+let _creditsCacheTime = 0;
+const CREDITS_CACHE_TTL = 120000; // 2 minutes
 
 // Initialize Job Tab when switched to
 async function initJobTab() {
@@ -103,24 +130,7 @@ async function initJobTab() {
 
 function isJobUrl(url) {
   if (!url) return false;
-  
-  const jobPatterns = [
-    /linkedin\.com\/jobs\//,
-    /boards\.greenhouse\.io\//,
-    /jobs\.lever\.co\//,
-    /\.myworkdayjobs\.com\//,
-    /indeed\.com\/(viewjob|jobs)/,
-    /handshake\.com\/.*jobs/,
-    /joinhandshake\.com\/.*jobs/,
-    /app\.joinhandshake\.com\/.*jobs/,
-    /glassdoor\.com\/job-listing/,
-    /ziprecruiter\.com\/jobs/,
-    /wellfound\.com\/jobs/,
-    /\/careers\//,
-    /\/jobs\//
-  ];
-  
-  return jobPatterns.some(pattern => pattern.test(url));
+  return JOB_URL_PATTERNS.some(pattern => pattern.test(url));
 }
 
 // ============================================
@@ -215,6 +225,21 @@ function showJobError(message) {
   if (errorDiv) errorDiv.classList.remove('hidden');
 }
 
+function showJobErrorWithSignin(message) {
+  const errorDiv = document.getElementById('job-error');
+  const errorMsg = document.getElementById('job-error-message');
+  if (errorMsg) {
+    errorMsg.textContent = message + ' ';
+    const link = document.createElement('a');
+    link.href = '#';
+    link.textContent = 'Sign in';
+    link.style.cssText = 'color:#2563EB;text-decoration:underline;cursor:pointer;';
+    link.addEventListener('click', (e) => { e.preventDefault(); handleLogin(); });
+    errorMsg.appendChild(link);
+  }
+  if (errorDiv) errorDiv.classList.remove('hidden');
+}
+
 function hideJobError() {
   const errorDiv = document.getElementById('job-error');
   if (errorDiv) errorDiv.classList.add('hidden');
@@ -277,22 +302,20 @@ function truncateUrl(url) {
 // ============================================
 
 async function handleFindRecruiters() {
+  if (_actionInProgress) return;
+  _actionInProgress = true;
   const btn = document.getElementById('find-recruiters-btn');
 
   // Get auth token
   const authData = await chrome.storage.local.get(['authToken']);
   if (!authData.authToken) {
-    showJobError('Please sign in to use this feature. <a href="#" id="job-signin-link" style="color:#2563EB;text-decoration:underline;">Sign in</a>');
-    const signinLink = document.getElementById('job-signin-link');
-    if (signinLink) {
-      signinLink.addEventListener('click', (e) => { e.preventDefault(); handleLogin(); });
-    }
+    showJobErrorWithSignin('Please sign in to use this feature.');
     return;
   }
-  
+
   // Build request body
   let requestBody = {};
-  
+
   if (manualInputRequired) {
     // Use manual input
     const data = getManualInputData();
@@ -321,7 +344,7 @@ async function handleFindRecruiters() {
   showJobLoading('Finding recruiters...');
   
   try {
-    const response = await fetch(`${API_BASE_URL}/api/job-board/find-recruiter`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/job-board/find-recruiter`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -345,7 +368,7 @@ async function handleFindRecruiters() {
             associatedJobTitle: jobTitleForSave,
             jobTitle: jobTitleForSave,
           };
-          const saveRes = await fetch(`${API_BASE_URL}/api/job-board/save-recruiters`, {
+          const saveRes = await fetchWithTimeout(`${API_BASE_URL}/api/job-board/save-recruiters`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -364,6 +387,7 @@ async function handleFindRecruiters() {
       showJobResults(result);
       if (result.creditsRemaining !== undefined) {
         updateCredits(result.creditsRemaining);
+        _creditsCacheTime = Date.now();
       }
     } else if (result.needsManualInput || result.error?.includes('extract') || result.error?.includes('company')) {
       // Backend couldn't parse URL - show manual form
@@ -379,6 +403,7 @@ async function handleFindRecruiters() {
     hideJobLoading();
     btn.classList.remove('loading');
     btn.disabled = false;
+    _actionInProgress = false;
   }
 }
 
@@ -392,14 +417,10 @@ async function handleGenerateCoverLetter() {
   // Get auth token
   const authData = await chrome.storage.local.get(['authToken']);
   if (!authData.authToken) {
-    showJobError('Please sign in to use this feature. <a href="#" id="job-signin-link-cl" style="color:#2563EB;text-decoration:underline;">Sign in</a>');
-    const signinLink = document.getElementById('job-signin-link-cl');
-    if (signinLink) {
-      signinLink.addEventListener('click', (e) => { e.preventDefault(); handleLogin(); });
-    }
+    showJobErrorWithSignin('Please sign in to use this feature.');
     return;
   }
-  
+
   // Build request body
   let requestBody = {
     jobUrl: currentJobUrl
@@ -426,7 +447,10 @@ async function handleGenerateCoverLetter() {
     // Try to scrape job description from the page
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      const response = await chrome.tabs.sendMessage(tab.id, { action: 'scrapeJobDescription' });
+      const response = await Promise.race([
+        chrome.tabs.sendMessage(tab.id, { action: 'scrapeJobDescription' }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Content script timeout')), 5000))
+      ]);
       
       if (response && response.description && response.description.length > 100) {
         requestBody = {
@@ -456,7 +480,7 @@ async function handleGenerateCoverLetter() {
   showJobLoading('Generating cover letter...');
   
   try {
-    const response = await fetch(`${API_BASE_URL}/api/job-board/generate-cover-letter`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/job-board/generate-cover-letter`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -474,18 +498,20 @@ async function handleGenerateCoverLetter() {
       hideJobLoading();
       showCoverLetterResults(result, company, jobTitle);
       downloadCoverLetterAsPDF(result.coverLetter, company, jobTitle);
-      
+
       if (result.creditsRemaining !== undefined) {
         updateCredits(result.creditsRemaining);
+        _creditsCacheTime = Date.now();
       }
     } else if (response.ok && result.pdfUrl) {
       // If backend returns PDF URL (future support)
       hideJobLoading();
       showCoverLetterResults(result, company, jobTitle);
       triggerCoverLetterDownload(result.pdfUrl, company, jobTitle);
-      
+
       if (result.creditsRemaining !== undefined) {
         updateCredits(result.creditsRemaining);
+        _creditsCacheTime = Date.now();
       }
     } else if (result.error?.includes('description') || result.error?.includes('required')) {
       // Need job description
@@ -605,7 +631,7 @@ async function downloadCoverLetterAsPDF(coverLetterData, company, jobTitle) {
   
   try {
     // Call backend to generate PDF
-    const response = await fetch(`${API_BASE_URL}/api/job-board/cover-letter-pdf`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/job-board/cover-letter-pdf`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -622,11 +648,7 @@ async function downloadCoverLetterAsPDF(coverLetterData, company, jobTitle) {
     const pdfBlob = await response.blob();
     
     // Create filename: companyname_cover_letter.pdf
-    const sanitize = (str) => {
-      if (!str) return 'unknown';
-      return str.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
-    };
-    const filename = company ? `${sanitize(company)}_cover_letter.pdf` : 'cover_letter.pdf';
+    const filename = company ? `${sanitizeFilename(company)}_cover_letter.pdf` : 'cover_letter.pdf';
     
     // Create object URL and download
     const url = URL.createObjectURL(pdfBlob);
@@ -654,8 +676,7 @@ async function downloadCoverLetterAsPDF(coverLetterData, company, jobTitle) {
   } catch (error) {
     console.error('[Offerloop Popup] Error generating PDF:', error);
     // Fallback: download as text file
-    const sanitize = (str) => (str || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    const filename = `cover-letter-${sanitize(company)}-${sanitize(jobTitle)}.txt`;
+    const filename = `cover-letter-${sanitizeFilename(company)}-${sanitizeFilename(jobTitle)}.txt`;
     const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     chrome.downloads.download({
@@ -669,11 +690,7 @@ async function downloadCoverLetterAsPDF(coverLetterData, company, jobTitle) {
 
 function triggerCoverLetterDownload(pdfUrl, company, jobTitle) {
   // For future PDF support
-  const sanitize = (str) => {
-    if (!str) return 'unknown';
-    return str.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
-  };
-  const filename = company ? `${sanitize(company)}_cover_letter.pdf` : 'cover_letter.pdf';
+  const filename = company ? `${sanitizeFilename(company)}_cover_letter.pdf` : 'cover_letter.pdf';
   
   chrome.downloads.download({
     url: pdfUrl,
@@ -831,7 +848,7 @@ async function handleCoffeeChatPrep() {
     // Step 1: Start the prep
     console.log('[Offerloop Popup] Starting Coffee Chat Prep for:', linkedinUrl);
     
-    const startResponse = await fetch(`${API_BASE_URL}/api/coffee-chat-prep`, {
+    const startResponse = await fetchWithTimeout(`${API_BASE_URL}/api/coffee-chat-prep`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -878,13 +895,16 @@ async function handleCoffeeChatPrep() {
 
 function pollCoffeeChatStatus(prepId, authToken, btn) {
   let attempts = 0;
-  const maxAttempts = 200; // ~6.5 minutes (match website: 200 * 2 seconds)
-  
+  const maxAttempts = 60; // Fewer attempts needed with backoff
+  const maxTotalMs = 10 * 60 * 1000; // 10 minute absolute timeout
+  const startTime = Date.now();
+
   // Clear any existing poll
   if (coffeeChatPollInterval) {
-    clearInterval(coffeeChatPollInterval);
+    clearTimeout(coffeeChatPollInterval);
+    coffeeChatPollInterval = null;
   }
-  
+
   const statusMessages = {
     'processing': 'Initializing...',
     'enriching_profile': 'Enriching profile data...',
@@ -896,12 +916,16 @@ function pollCoffeeChatStatus(prepId, authToken, btn) {
     'completed': 'Coffee Chat Prep ready!',
     'failed': 'Generation failed'
   };
-  
-  coffeeChatPollInterval = setInterval(async () => {
+
+  function getBackoffDelay(attempt) {
+    // Start at 2s, double each time, cap at 15s
+    return Math.min(2000 * Math.pow(1.5, attempt), 15000);
+  }
+
+  async function poll() {
     attempts++;
-    
-    if (attempts > maxAttempts) {
-      clearInterval(coffeeChatPollInterval);
+
+    if (attempts > maxAttempts || (Date.now() - startTime) > maxTotalMs) {
       coffeeChatPollInterval = null;
       hideCoffeeChatLoading();
       showCoffeeChatError('Prep is taking longer than expected. Check the Coffee Chat Library for results.');
@@ -909,37 +933,36 @@ function pollCoffeeChatStatus(prepId, authToken, btn) {
       updateCoffeeChatButtonState();
       return;
     }
-    
+
     try {
-      const statusResponse = await fetch(`${API_BASE_URL}/api/coffee-chat-prep/${prepId}`, {
+      const statusResponse = await fetchWithTimeout(`${API_BASE_URL}/api/coffee-chat-prep/${prepId}`, {
         headers: {
           'Authorization': `Bearer ${authToken}`
         }
       });
-      
+
       if (!statusResponse.ok) {
         throw new Error('Failed to check status');
       }
-      
+
       const statusData = await statusResponse.json();
-      console.log('[Offerloop Popup] Poll status:', statusData.status);
-      
+      console.log('[Offerloop Popup] Poll status:', statusData.status, `(attempt ${attempts})`);
+
       // Update loading message based on status
       const loadingMessage = statusMessages[statusData.status] || 'Processing...';
       updateCoffeeChatLoadingText(loadingMessage);
-      
+
       if (statusData.status === 'completed' && statusData.pdfUrl) {
         // Success!
-        clearInterval(coffeeChatPollInterval);
         coffeeChatPollInterval = null;
-        
+
         hideCoffeeChatLoading();
         showCoffeeChatResults(statusData);
         triggerPdfDownload(statusData.pdfUrl, statusData.contactData);
-        
+
         btn.classList.remove('loading');
         updateCoffeeChatButtonState();
-        
+
         // Refresh credits
         try {
           const creditsResponse = await chrome.runtime.sendMessage({
@@ -948,29 +971,37 @@ function pollCoffeeChatStatus(prepId, authToken, btn) {
           });
           if (creditsResponse.credits !== undefined) {
             updateCredits(creditsResponse.credits);
+            _creditsCacheTime = Date.now();
           }
         } catch (e) {
           console.log('[Offerloop Popup] Could not refresh credits:', e);
         }
-        
+        return;
+
       } else if (statusData.status === 'failed') {
         // Failed
-        clearInterval(coffeeChatPollInterval);
         coffeeChatPollInterval = null;
-        
+
         hideCoffeeChatLoading();
         showCoffeeChatError(statusData.error || 'Coffee Chat Prep failed. Please try again.');
-        
+
         btn.classList.remove('loading');
         updateCoffeeChatButtonState();
+        return;
       }
-      // If still processing, continue polling
-      
+
+      // Still processing — schedule next poll with backoff
+      coffeeChatPollInterval = setTimeout(poll, getBackoffDelay(attempts));
+
     } catch (error) {
       console.error('[Offerloop Popup] Polling error:', error);
-      // Don't stop polling on transient errors, just log
+      // Don't stop polling on transient errors, schedule next with backoff
+      coffeeChatPollInterval = setTimeout(poll, getBackoffDelay(attempts));
     }
-  }, 2000); // Poll every 2 seconds
+  }
+
+  // Start first poll
+  coffeeChatPollInterval = setTimeout(poll, 2000);
 }
 
 function showCoffeeChatLoading(message) {
@@ -1075,7 +1106,7 @@ function triggerPdfDownload(pdfUrl, contactData) {
 // Clean up polling if popup closes
 window.addEventListener('unload', () => {
   if (coffeeChatPollInterval) {
-    clearInterval(coffeeChatPollInterval);
+    clearTimeout(coffeeChatPollInterval);
     coffeeChatPollInterval = null;
   }
 });
@@ -1263,7 +1294,7 @@ async function handleLogin() {
     console.log('[Offerloop Popup] Got Google auth token');
     
     // Send Google token to backend to exchange for Firebase token
-    const response = await fetch(`${API_BASE_URL}/api/auth/google-extension`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/auth/google-extension`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1353,6 +1384,8 @@ async function handleSignOut() {
 
 // Handle Find Email button click
 async function handleFindEmail() {
+  if (_actionInProgress) return;
+  _actionInProgress = true;
   if (!currentState.linkedInUrl) {
     showError('No LinkedIn URL detected. Please navigate to a profile page.');
     return;
@@ -1382,6 +1415,7 @@ async function handleFindEmail() {
     // Update credits
     if (response.credits_remaining !== undefined) {
       updateCredits(response.credits_remaining);
+      _creditsCacheTime = Date.now();
       currentState.credits = response.credits_remaining;
       chrome.storage.local.set({ credits: response.credits_remaining });
     }
@@ -1400,6 +1434,8 @@ async function handleFindEmail() {
   } catch (error) {
     console.error('[Offerloop Popup] Error:', error);
     showError(error.message || 'Failed to find email. Please try again.');
+  } finally {
+    _actionInProgress = false;
   }
 }
 
@@ -1457,21 +1493,28 @@ async function checkAndShowContent() {
     elements.profileUrl.textContent = displayUrl;
   }
   
-  // Fetch credits from backend
+  // Fetch credits from backend (with cache to avoid redundant calls)
   if (currentState.authToken) {
-    try {
-      const creditsResponse = await chrome.runtime.sendMessage({
-        action: 'getCredits',
-        authToken: currentState.authToken,
-      });
-      
-      if (creditsResponse.credits !== undefined) {
-        updateCredits(creditsResponse.credits);
-        currentState.credits = creditsResponse.credits;
-        chrome.storage.local.set({ credits: creditsResponse.credits });
+    const now = Date.now();
+    if (currentState.credits !== null && (now - _creditsCacheTime) < CREDITS_CACHE_TTL) {
+      // Use cached credits
+      updateCredits(currentState.credits);
+    } else {
+      try {
+        const creditsResponse = await chrome.runtime.sendMessage({
+          action: 'getCredits',
+          authToken: currentState.authToken,
+        });
+
+        if (creditsResponse.credits !== undefined) {
+          updateCredits(creditsResponse.credits);
+          currentState.credits = creditsResponse.credits;
+          _creditsCacheTime = now;
+          chrome.storage.local.set({ credits: creditsResponse.credits });
+        }
+      } catch (error) {
+        console.error('[Offerloop Popup] Error fetching credits:', error);
       }
-    } catch (error) {
-      console.error('[Offerloop Popup] Error fetching credits:', error);
     }
   }
 }

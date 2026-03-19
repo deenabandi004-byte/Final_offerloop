@@ -7,8 +7,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
@@ -28,6 +30,8 @@ from app.services.resume_optimizer_v2 import optimize_resume_v2 as run_resume_op
 from app.services.resume_capabilities import get_capabilities
 from app.services.pdf_builder import generate_cover_letter_pdf
 from firebase_admin import firestore
+
+logger = logging.getLogger(__name__)
 
 job_board_bp = Blueprint("job_board", __name__, url_prefix="/api/job-board")
 
@@ -78,36 +82,31 @@ SERPAPI_KEY = os.getenv("SERPAPI_KEY") or os.getenv("SERP_API_KEY")
 # USER PROFILE CACHING (5-minute TTL)
 # =============================================================================
 
-_user_profile_cache: Dict[str, Tuple[dict, float]] = {}
-_USER_PROFILE_CACHE_TTL = 300  # 5 minutes in seconds
+from cachetools import TTLCache
+_user_profile_cache = TTLCache(maxsize=500, ttl=300)  # 500 users max, 5-minute TTL
 
 def _get_cached_user_profile(uid: str) -> Optional[dict]:
     """Get cached user profile if not expired."""
-    if uid in _user_profile_cache:
-        profile, timestamp = _user_profile_cache[uid]
-        if time.time() - timestamp < _USER_PROFILE_CACHE_TTL:
-            print(f"[JobBoard] ✅ Using cached user profile for {uid[:8]}... (age: {time.time() - timestamp:.1f}s)")
-            return profile
-        else:
-            # Cache expired, remove it
-            del _user_profile_cache[uid]
-            print(f"[JobBoard] ⏰ User profile cache expired for {uid[:8]}...")
+    profile = _user_profile_cache.get(uid)
+    if profile is not None:
+        logger.info(f"[JobBoard]  Using cached user profile for {uid[:8]}...")
+        return profile
     return None
 
 def _set_cached_user_profile(uid: str, profile: dict):
     """Cache user profile with current timestamp."""
-    _user_profile_cache[uid] = (profile, time.time())
-    print(f"[JobBoard] 💾 Cached user profile for {uid[:8]}... (TTL: {_USER_PROFILE_CACHE_TTL}s)")
+    _user_profile_cache[uid] = profile
+    logger.info(f"[JobBoard]  Cached user profile for {uid[:8]}... (TTL: 300s, cache_size={len(_user_profile_cache)}/{_user_profile_cache.maxsize})")
 
 def _clear_user_profile_cache(uid: Optional[str] = None):
     """Clear user profile cache. If uid is None, clear all."""
     if uid:
         if uid in _user_profile_cache:
             del _user_profile_cache[uid]
-            print(f"[JobBoard] 🗑️ Cleared cache for {uid[:8]}...")
+            logger.info(f"[JobBoard]  Cleared cache for {uid[:8]}...")
     else:
         _user_profile_cache.clear()
-        print(f"[JobBoard] 🗑️ Cleared all user profile cache")
+        logger.info(f"[JobBoard]  Cleared all user profile cache")
 
 
 # =============================================================================
@@ -164,14 +163,14 @@ def get_cached_jobs(cache_key: str, user_id: Optional[str] = None) -> Optional[L
                             
                             # If cache is older than invalidation, reject it
                             if cache_time < invalidation_time:
-                                print(f"[JobBoard][INVALIDATE] user={user_id[:8] if user_id else 'unknown'}... cache_key={cache_key[:8]}... invalidated (cache_time={cache_time}, invalidation_time={invalidation_time})")
+                                logger.info(f"[JobBoard][INVALIDATE] user={user_id[:8] if user_id else 'unknown'}... cache_key={cache_key[:8]}... invalidated (cache_time={cache_time}, invalidation_time={invalidation_time})")
                                 return None
             
         cache_ref = db.collection("job_cache").document(cache_key)
         cache_doc = cache_ref.get()
         
         if not cache_doc.exists:
-            print(f"[JobBoard Cache] Miss - no cache for key {cache_key[:8]}...")
+            logger.info(f"[JobBoard Cache] Miss - no cache for key {cache_key[:8]}...")
             return None
         
         cache_data = cache_doc.to_dict()
@@ -195,16 +194,89 @@ def get_cached_jobs(cache_key: str, user_id: Optional[str] = None) -> Optional[L
         now = datetime.utcnow()
         
         if now > expiry_time:
-            print(f"[JobBoard Cache] Expired - key {cache_key[:8]}...")
+            logger.info(f"[JobBoard Cache] Expired - key {cache_key[:8]}...")
             return None
         
         jobs = cache_data.get("jobs", [])
-        print(f"[JobBoard Cache] Hit - returning {len(jobs)} cached jobs")
+        logger.info(f"[JobBoard Cache] Hit - returning {len(jobs)} cached jobs")
         return jobs
         
     except Exception as e:
-        print(f"[JobBoard Cache] Error reading cache: {e}")
+        logger.error(f"[JobBoard Cache] Error reading cache: {e}")
         return None
+
+
+def get_cached_jobs_with_stale(cache_key: str, user_id: Optional[str] = None) -> tuple[Optional[List[Dict[str, Any]]], bool]:
+    """
+    Like get_cached_jobs, but returns stale data if cache is expired.
+    Returns (jobs, is_stale) — is_stale=True means data is expired but usable.
+    """
+    try:
+        db = get_db()
+        if not db:
+            return None, False
+
+        # Check for cache invalidation for this user (invalidated = fully stale, don't return)
+        if user_id:
+            invalidation_ref = db.collection("job_cache_invalidations").document(user_id)
+            invalidation_doc = invalidation_ref.get()
+            if invalidation_doc.exists:
+                invalidation_data = invalidation_doc.to_dict()
+                invalidated_at = invalidation_data.get("invalidated_at")
+                if invalidated_at:
+                    cache_ref = db.collection("job_cache").document(cache_key)
+                    cache_doc = cache_ref.get()
+                    if cache_doc.exists:
+                        cache_data = cache_doc.to_dict()
+                        cached_at = cache_data.get("cached_at")
+                        if cached_at:
+                            if hasattr(invalidated_at, 'timestamp'):
+                                invalidation_time = datetime.fromtimestamp(invalidated_at.timestamp(), tz=timezone.utc).replace(tzinfo=None)
+                            else:
+                                invalidation_time = invalidated_at
+                            if hasattr(cached_at, 'timestamp'):
+                                cache_time = datetime.fromtimestamp(cached_at.timestamp(), tz=timezone.utc).replace(tzinfo=None)
+                            else:
+                                cache_time = cached_at
+                            if cache_time < invalidation_time:
+                                # User preferences changed — stale data won't be relevant
+                                logger.info(f"[JobBoard][INVALIDATE] Cache invalidated by preference change, not returning stale data")
+                                return None, False
+
+        cache_ref = db.collection("job_cache").document(cache_key)
+        cache_doc = cache_ref.get()
+
+        if not cache_doc.exists:
+            return None, False
+
+        cache_data = cache_doc.to_dict()
+        cached_at = cache_data.get("cached_at")
+        if not cached_at:
+            return None, False
+
+        if hasattr(cached_at, 'timestamp'):
+            cache_time = datetime.fromtimestamp(cached_at.timestamp(), tz=timezone.utc).replace(tzinfo=None)
+        elif hasattr(cached_at, 'tzinfo') and cached_at.tzinfo is not None:
+            cache_time = cached_at.replace(tzinfo=None)
+        else:
+            cache_time = cached_at
+
+        expiry_time = cache_time + timedelta(hours=CACHE_DURATION_HOURS)
+        now = datetime.utcnow()
+
+        jobs = cache_data.get("jobs", [])
+        is_stale = now > expiry_time
+
+        if is_stale:
+            logger.info(f"[JobBoard Cache] Stale hit - returning {len(jobs)} stale cached jobs (expired {(now - expiry_time).total_seconds():.0f}s ago)")
+        else:
+            logger.info(f"[JobBoard Cache] Fresh hit - returning {len(jobs)} cached jobs")
+
+        return jobs, is_stale
+
+    except Exception as e:
+        logger.error(f"[JobBoard Cache] Error reading cache: {e}")
+        return None, False
 
 
 def set_cached_jobs(
@@ -245,10 +317,10 @@ def set_cached_jobs(
             cache_data["next_page_token"] = next_token
             
         cache_ref.set(cache_data)
-        print(f"[JobBoard Cache] Stored {len(jobs)} jobs for key {cache_key[:8]}...")
+        logger.info(f"[JobBoard Cache] Stored {len(jobs)} jobs for key {cache_key[:8]}...")
         
     except Exception as e:
-        print(f"[JobBoard Cache] Error writing cache: {e}")
+        logger.error(f"[JobBoard Cache] Error writing cache: {e}")
 
 
 def clear_expired_cache() -> int:
@@ -271,13 +343,57 @@ def clear_expired_cache() -> int:
             deleted += 1
         
         if deleted > 0:
-            print(f"[JobBoard Cache] Cleaned up {deleted} expired entries")
+            logger.info(f"[JobBoard Cache] Cleaned up {deleted} expired entries")
         
         return deleted
         
     except Exception as e:
-        print(f"[JobBoard Cache] Error clearing expired cache: {e}")
+        logger.error(f"[JobBoard Cache] Error clearing expired cache: {e}")
         return 0
+
+
+# =============================================================================
+# BACKGROUND CACHE REFRESH
+# =============================================================================
+
+_refresh_in_progress: Dict[str, bool] = {}
+_refresh_lock = threading.Lock()
+
+
+def _trigger_background_refresh(cache_key: str, query: str, location: str, job_type: Optional[str], user_id: Optional[str]):
+    """Trigger a background refresh for a stale cache entry."""
+    with _refresh_lock:
+        if _refresh_in_progress.get(cache_key):
+            logger.info(f"[JobBoard Cache] Background refresh already in progress for {cache_key[:8]}...")
+            return
+        _refresh_in_progress[cache_key] = True
+
+    def _do_refresh():
+        try:
+            logger.info(f"[JobBoard Cache] Background refresh started for {cache_key[:8]}...")
+            # Fetch fresh data (bypass cache)
+            jobs, next_token = fetch_jobs_from_serpapi(
+                query=query,
+                location=location,
+                job_type=job_type,
+                num_results=10,
+                use_cache=False,
+                page_token=None,
+                user_id=user_id,
+            )
+            if jobs:
+                set_cached_jobs(cache_key, (jobs, next_token), query, location, job_type)
+                logger.info(f"[JobBoard Cache] Background refresh complete: {len(jobs)} fresh jobs cached for {cache_key[:8]}...")
+            else:
+                logger.warning(f"[JobBoard Cache] Background refresh returned no jobs for {cache_key[:8]}...")
+        except Exception as e:
+            logger.error(f"[JobBoard Cache] Background refresh failed for {cache_key[:8]}...: {e}")
+        finally:
+            with _refresh_lock:
+                _refresh_in_progress.pop(cache_key, None)
+
+    thread = threading.Thread(target=_do_refresh, daemon=True)
+    thread.start()
 
 
 # =============================================================================
@@ -306,14 +422,14 @@ def get_best_job_link(job: Dict[str, Any]) -> str:
         for option in apply_options:
             link = option.get("link", "")
             if link and "linkedin.com" in link.lower():
-                print(f"[JobBoard] Using LinkedIn link: {link[:80]}...")
+                logger.info(f"[JobBoard] Using LinkedIn link: {link[:80]}...")
                 return link
     
     # Second priority: Use first apply option (company's direct job posting)
     if apply_options and len(apply_options) > 0:
         direct_link = apply_options[0].get("link", "")
         if direct_link:
-            print(f"[JobBoard] Using direct company link: {direct_link[:80]}...")
+            logger.info(f"[JobBoard] Using direct company link: {direct_link[:80]}...")
             return direct_link
     
     # Fallback: Try related_links
@@ -321,16 +437,16 @@ def get_best_job_link(job: Dict[str, Any]) -> str:
     if related_links:
         fallback_link = related_links[0].get("link", "")
         if fallback_link:
-            print(f"[JobBoard] Using related link: {fallback_link[:80]}...")
+            logger.info(f"[JobBoard] Using related link: {fallback_link[:80]}...")
             return fallback_link
     
     # Last resort: share_link or empty
     share_link = job.get("share_link", "")
     if share_link:
-        print(f"[JobBoard] Using share link: {share_link[:80]}...")
+        logger.info(f"[JobBoard] Using share link: {share_link[:80]}...")
         return share_link
     
-    print(f"[JobBoard] WARNING: No valid job link found for job: {job.get('title', 'Unknown')}")
+    logger.warning(f"[JobBoard] WARNING: No valid job link found for job: {job.get('title', 'Unknown')}")
     return ""
 
 
@@ -359,31 +475,36 @@ def fetch_jobs_from_serpapi(
         Tuple of (list of job dictionaries, next_page_token for pagination)
     """
     # Check cache first (but only for single-page requests to avoid stale pagination)
+    # Uses stale-while-revalidate: return stale data immediately, refresh in background
     if use_cache and page_token is None:  # Only cache first page to avoid pagination issues
         cache_key = get_cache_key(query, location, job_type, page_token)
         # PHASE 5: Pass user_id for cache invalidation checking
-        cached_data = get_cached_jobs(cache_key, user_id=user_id)
+        cached_data, is_stale = get_cached_jobs_with_stale(cache_key, user_id=user_id)
         if cached_data is not None:
             # Cache stores tuple of (jobs, next_token) or legacy list format
             if isinstance(cached_data, tuple) and len(cached_data) == 2:
                 cached_jobs, cached_token = cached_data
-                print(f"[JobBoard Cache] Hit - returning {len(cached_jobs)} cached jobs, next_token={'Yes' if cached_token else 'No'}")
+                logger.info(f"[JobBoard Cache] Hit - returning {len(cached_jobs)} cached jobs (stale={is_stale}), next_token={'Yes' if cached_token else 'No'}")
+                if is_stale:
+                    _trigger_background_refresh(cache_key, query, location, job_type, user_id)
                 return cached_jobs, cached_token
             # Legacy cache format (just jobs list) - if we only have 10 jobs and no next_token,
             # it might be incomplete, so bypass cache to get fresh data with pagination tokens
             elif isinstance(cached_data, list):
-                if len(cached_data) <= 10:
+                if len(cached_data) <= 10 and not is_stale:
                     # Legacy cache with 10 or fewer jobs likely doesn't have next_token info
                     # Bypass cache to get fresh data with proper pagination
-                    print(f"[JobBoard Cache] Legacy cache with {len(cached_data)} jobs (likely incomplete), bypassing cache to fetch fresh data")
+                    logger.info(f"[JobBoard Cache] Legacy cache with {len(cached_data)} jobs (likely incomplete), bypassing cache to fetch fresh data")
                     use_cache = False  # Fall through to fetch fresh data
                 else:
-                    # If we have more than 10 jobs in cache, it might be complete
-                    print(f"[JobBoard Cache] Hit - returning {len(cached_data)} cached jobs (legacy format, no next_token)")
+                    # If we have more than 10 jobs in cache, or data is stale (return what we have)
+                    logger.info(f"[JobBoard Cache] Hit - returning {len(cached_data)} cached jobs (stale={is_stale}, legacy format)")
+                    if is_stale:
+                        _trigger_background_refresh(cache_key, query, location, job_type, user_id)
                     return cached_data, None
     
     if not SERPAPI_KEY:
-        print("[JobBoard] WARNING: SERPAPI_KEY not found, using mock data")
+        logger.warning("[JobBoard] WARNING: SERPAPI_KEY not found, using mock data")
         return [], None
     
     try:
@@ -417,25 +538,25 @@ def fetch_jobs_from_serpapi(
                 # Using start parameter for pagination (fallback method)
                 start_offset = int(page_token.replace("start=", ""))
                 params["start"] = start_offset
-                print(f"[JobBoard] Using start parameter for pagination: start={start_offset}")
+                logger.info(f"[JobBoard] Using start parameter for pagination: start={start_offset}")
             else:
                 # Using next_page_token (preferred method)
                 params["next_page_token"] = page_token
         
-        print(f"[JobBoard] Fetching jobs from SerpAPI: {search_query} in {location}")
-        print(f"[JobBoard] Request params (masked): engine={params['engine']}, q={params['q']}, location={params['location']}, num={params['num']}, page_token={'***' if page_token else 'None'}")
+        logger.info(f"[JobBoard] Fetching jobs from SerpAPI: {search_query} in {location}")
+        logger.info(f"[JobBoard] Request params (masked): engine={params['engine']}, q={params['q']}, location={params['location']}, num={params['num']}, page_token={'***' if page_token else 'None'}")
         
         response = requests.get(url, params=params, timeout=30)
         
         # Check for HTTP errors
         if response.status_code != 200:
-            print(f"[JobBoard] SerpAPI HTTP error {response.status_code}: {response.text[:500]}")
+            logger.error(f"[JobBoard] SerpAPI HTTP error {response.status_code}: {response.text[:500]}")
             return [], None
         
         try:
             data = response.json()
         except ValueError as e:
-            print(f"[JobBoard] SerpAPI JSON parse error: {e}, response: {response.text[:500]}")
+            logger.error(f"[JobBoard] SerpAPI JSON parse error: {e}, response: {response.text[:500]}")
             return [], None
         
         if "error" in data:
@@ -444,28 +565,28 @@ def fetch_jobs_from_serpapi(
             if isinstance(error_msg, str):
                 if "hasn't returned any results" in error_msg.lower() or "no results" in error_msg.lower():
                     # This is expected when there are no more results for pagination
-                    print(f"[JobBoard] No more results available for pagination (expected): {error_msg}")
+                    logger.error(f"[JobBoard] No more results available for pagination (expected): {error_msg}")
                     return [], None  # Return empty to stop pagination gracefully
                 elif "invalid" in error_msg.lower() and "token" in error_msg.lower():
                     # Invalid token - might be expired or malformed
-                    print(f"[JobBoard] Invalid pagination token (may be expired): {error_msg}")
+                    logger.error(f"[JobBoard] Invalid pagination token (may be expired): {error_msg}")
                     return [], None
             # For other errors, log as actual errors
-            print(f"[JobBoard] SerpAPI API error: {error_msg}")
+            logger.error(f"[JobBoard] SerpAPI API error: {error_msg}")
             if isinstance(data["error"], dict):
-                print(f"[JobBoard] Error details: {data['error']}")
+                logger.error(f"[JobBoard] Error details: {data['error']}")
             return [], None
         
         jobs_results = data.get("jobs_results", [])
         
         # Debug: Log response structure to understand pagination
-        print(f"[JobBoard] Response keys: {list(data.keys())}")
-        print(f"[JobBoard] Found {len(jobs_results)} jobs from SerpAPI")
+        logger.info(f"[JobBoard] Response keys: {list(data.keys())}")
+        logger.info(f"[JobBoard] Found {len(jobs_results)} jobs from SerpAPI")
         
         # Extract next_page_token from pagination object
         pagination = data.get("pagination", {})
         if pagination:
-            print(f"[JobBoard] Pagination object keys: {list(pagination.keys())}")
+            logger.info(f"[JobBoard] Pagination object keys: {list(pagination.keys())}")
         next_page_token = pagination.get("next_page_token") if pagination else None
         
         # Also check for pagination at root level
@@ -476,7 +597,7 @@ def fetch_jobs_from_serpapi(
         serpapi_pagination = data.get("serpapi_pagination", {})
         if serpapi_pagination and not next_page_token:
             next_page_value = serpapi_pagination.get("next")
-            print(f"[JobBoard] Found next value in serpapi_pagination: {next_page_value[:100] if next_page_value else 'None'}...")
+            logger.info(f"[JobBoard] Found next value in serpapi_pagination: {next_page_value[:100] if next_page_value else 'None'}...")
             if next_page_value:
                 # The value might be a full URL or just a token
                 # If it's a URL, extract the token from the query string
@@ -487,25 +608,25 @@ def fetch_jobs_from_serpapi(
                         params = parse_qs(parsed.query)
                         if "next_page_token" in params:
                             next_page_token = params["next_page_token"][0]
-                            print(f"[JobBoard] Extracted token from URL: {next_page_token[:50]}...")
+                            logger.info(f"[JobBoard] Extracted token from URL: {next_page_token[:50]}...")
                     except Exception as e:
-                        print(f"[JobBoard] Error extracting token from URL: {e}")
+                        logger.error(f"[JobBoard] Error extracting token from URL: {e}")
                         # Fallback: try to extract manually
                         if "next_page_token=" in next_page_value:
                             parts = next_page_value.split("next_page_token=")
                             if len(parts) > 1:
                                 token_part = parts[1].split("&")[0]
                                 next_page_token = token_part
-                                print(f"[JobBoard] Extracted token manually: {next_page_token[:50]}...")
+                                logger.info(f"[JobBoard] Extracted token manually: {next_page_token[:50]}...")
                 elif isinstance(next_page_value, str):
                     # It's already a token
                     next_page_token = next_page_value
-                    print(f"[JobBoard] Using next_page_value as token directly")
+                    logger.info(f"[JobBoard] Using next_page_value as token directly")
         
         if next_page_token:
-            print(f"[JobBoard] Next page token available for pagination: {next_page_token[:50]}...")
+            logger.info(f"[JobBoard] Next page token available for pagination: {next_page_token[:50]}...")
         else:
-            print(f"[JobBoard] No next_page_token found in response. Checking if we can use 'start' parameter for pagination...")
+            logger.info(f"[JobBoard] No next_page_token found in response. Checking if we can use 'start' parameter for pagination...")
         
         # Transform SerpAPI format to our format
         jobs = []
@@ -585,10 +706,10 @@ def fetch_jobs_from_serpapi(
         return jobs, next_page_token
         
     except requests.exceptions.RequestException as e:
-        print(f"[JobBoard] SerpAPI request error: {e}")
+        logger.error(f"[JobBoard] SerpAPI request error: {e}")
         return [], None
     except Exception as e:
-        print(f"[JobBoard] Error fetching jobs: {e}")
+        logger.error(f"[JobBoard] Error fetching jobs: {e}")
         return [], None
 
 
@@ -908,7 +1029,7 @@ def get_user_career_profile(uid: str) -> dict:
         resume_present = bool(user_data.get("resumeParsed")) or bool(user_data.get("resumeUrl"))
         
         # PHASE 1: Log raw intent extraction for observability
-        print(f"[Intent] Raw profile extracted for user {uid[:8]}...: "
+        logger.info(f"[Intent] Raw profile extracted for user {uid[:8]}...: "
               f"preferredLocation={len(preferred_location) if preferred_location else 0} locations, "
               f"careerInterests={len(interests)} interests, "
               f"jobTypes={len(job_types)} types, "
@@ -920,13 +1041,13 @@ def get_user_career_profile(uid: str) -> dict:
         
         # Log warnings for missing critical fields
         if not preferred_location:
-            print(f"[Intent][WARN] Missing preferredLocation for user {uid[:8]}..., using default behavior")
+            logger.warning(f"[Intent][WARN] Missing preferredLocation for user {uid[:8]}..., using default behavior")
         if not interests:
-            print(f"[Intent][WARN] Missing careerInterests for user {uid[:8]}..., will fallback to major-based inference")
+            logger.warning(f"[Intent][WARN] Missing careerInterests for user {uid[:8]}..., will fallback to major-based inference")
         if not job_types:
-            print(f"[Intent][WARN] Missing jobTypes for user {uid[:8]}..., will use default based on graduation year")
+            logger.warning(f"[Intent][WARN] Missing jobTypes for user {uid[:8]}..., will use default based on graduation year")
         if not graduation_year:
-            print(f"[Intent][WARN] Missing graduationYear for user {uid[:8]}..., will assume current year + 1")
+            logger.warning(f"[Intent][WARN] Missing graduationYear for user {uid[:8]}..., will assume current year + 1")
         
         # Convert experience list to expected format
         experiences = []
@@ -962,7 +1083,7 @@ def get_user_career_profile(uid: str) -> dict:
         return result
         
     except Exception as e:
-        print(f"[JobBoard] Error extracting user career profile: {e}")
+        logger.error(f"[JobBoard] Error extracting user career profile: {e}")
         import traceback
         traceback.print_exc()
         return {}
@@ -1223,7 +1344,7 @@ def normalize_intent(user_profile: dict) -> dict:
     }
     
     # PHASE 1: Log normalized intent
-    print(f"[Intent] Normalized intent for user: "
+    logger.info(f"[Intent] Normalized intent for user: "
           f"career_domains={career_domains}, "
           f"preferred_locations={normalized_locations}, "
           f"job_types={normalized_job_types}, "
@@ -1759,7 +1880,7 @@ def build_personalized_queries(user_profile: dict, job_types: List[str]) -> List
     
     # PHASE 3: If no intent contract, fall back to old logic (backwards compatibility)
     if not intent_contract:
-        print("[QueryGen][WARN] No intent_contract found, using legacy query generation")
+        logger.warning("[QueryGen][WARN] No intent_contract found, using legacy query generation")
         return _build_legacy_queries(user_profile, job_types)
     
     # Extract normalized intent
@@ -1778,13 +1899,13 @@ def build_personalized_queries(user_profile: dict, job_types: List[str]) -> List
     primary_domain = career_domains[0] if career_domains else None
     
     if not primary_domain:
-        print("[QueryGen][WARN] No career_domains in intent_contract, using legacy query generation")
+        logger.warning("[QueryGen][WARN] No career_domains in intent_contract, using legacy query generation")
         return _build_legacy_queries(user_profile, job_types)
     
     # Get domain template
     domain_template = DOMAIN_QUERY_TEMPLATES.get(primary_domain)
     if not domain_template:
-        print(f"[QueryGen][WARN] No template for domain={primary_domain}, using legacy query generation")
+        logger.warning(f"[QueryGen][WARN] No template for domain={primary_domain}, using legacy query generation")
         return _build_legacy_queries(user_profile, job_types)
     
     # PHASE 3: Location-first query narrowing
@@ -1935,7 +2056,7 @@ def build_personalized_queries(user_profile: dict, job_types: List[str]) -> List
             deduplicated_queries.append(q)
         else:
             removed_query_count += 1
-            print(f"[QueryGen][REDUCE] removed_duplicate_query=\"{q['query']}\"")
+            logger.info(f"[QueryGen][REDUCE] removed_duplicate_query=\"{q['query']}\"")
     
     queries = deduplicated_queries
     
@@ -1943,11 +2064,11 @@ def build_personalized_queries(user_profile: dict, job_types: List[str]) -> List
     queries = queries[:12]  # Max 12 queries to avoid API overload
     
     if removed_query_count > 0:
-        print(f"[QueryGen][REDUCE] removed {removed_query_count} duplicate queries, {len(queries)} remaining")
+        logger.info(f"[QueryGen][REDUCE] removed {removed_query_count} duplicate queries, {len(queries)} remaining")
     
     # PHASE 3: Safety check - if no queries generated, try fallback expansion
     if not queries:
-        print(f"[QueryGen][WARN] No queries generated for domain={primary_domain}, attempting fallback expansion")
+        logger.warning(f"[QueryGen][WARN] No queries generated for domain={primary_domain}, attempting fallback expansion")
         
         # Expand firms (safety fallback)
         if domain_template.get("top_firms") and len(domain_template["top_firms"]) > 5:
@@ -1996,7 +2117,7 @@ def build_personalized_queries(user_profile: dict, job_types: List[str]) -> List
         
         # Minimal fallback (last resort - but NEVER generic "internship")
         if not queries:
-            print(f"[QueryGen][WARN] All fallback attempts failed for domain={primary_domain}, using minimal specific fallback")
+            logger.error(f"[QueryGen][WARN] All fallback attempts failed for domain={primary_domain}, using minimal specific fallback")
             allowed_roles = domain_template.get("allowed_roles", [])
             fallback_role = allowed_roles[0] if allowed_roles and len(allowed_roles) > 0 else None
             if not fallback_role:
@@ -2029,17 +2150,17 @@ def build_personalized_queries(user_profile: dict, job_types: List[str]) -> List
             # Check if query contains any forbidden keywords
             contains_forbidden = any(forbidden_kw in query_lower for forbidden_kw in forbidden)
             if contains_forbidden:
-                print(f"[QueryGen][WARN] Query contains forbidden keyword for domain={primary_domain}: {q['query']}, skipping")
+                logger.warning(f"[QueryGen][WARN] Query contains forbidden keyword for domain={primary_domain}: {q['query']}, skipping")
                 continue
             validated_queries.append(q)
         
         if len(validated_queries) < len(queries):
-            print(f"[QueryGen][WARN] Filtered out {len(queries) - len(validated_queries)} queries with forbidden keywords")
+            logger.warning(f"[QueryGen][WARN] Filtered out {len(queries) - len(validated_queries)} queries with forbidden keywords")
             queries = validated_queries
         
         # If all queries were filtered, use minimal fallback
         if not queries:
-            print(f"[QueryGen][ERROR] All queries filtered due to forbidden keywords, using minimal fallback")
+            logger.error(f"[QueryGen][ERROR] All queries filtered due to forbidden keywords, using minimal fallback")
             allowed_roles = domain_template.get("allowed_roles", [])
             fallback_role = allowed_roles[0] if allowed_roles and len(allowed_roles) > 0 else job_type_str
             primary_location = location_variants[0] if location_variants else "United States"
@@ -2053,7 +2174,7 @@ def build_personalized_queries(user_profile: dict, job_types: List[str]) -> List
     
     # Log query generation
     query_strings = [q["query"] for q in queries]
-    print(f"[QueryGen] domain={primary_domain} generated_queries={query_strings[:5]}... (total={len(queries)})")
+    logger.info(f"[QueryGen] domain={primary_domain} generated_queries={query_strings[:5]}... (total={len(queries)})")
     
     return queries
 
@@ -2317,6 +2438,8 @@ def expand_skill_terms(skill: str) -> Set[str]:
     return expanded
 
 
+_skill_pattern_cache: Dict[str, re.Pattern] = {}
+
 def semantic_skill_match(skill: str, job_text: str) -> Tuple[bool, float]:
     """
     Check if skill matches job text, considering synonyms.
@@ -2324,18 +2447,20 @@ def semantic_skill_match(skill: str, job_text: str) -> Tuple[bool, float]:
     """
     expanded_skills = expand_skill_terms(skill)
     job_text_lower = job_text.lower()
-    
+
     for term in expanded_skills:
         if len(term) <= 4:
-            pattern = r'\b' + re.escape(term) + r'\b'
-            if re.search(pattern, job_text_lower):
+            # Use cached compiled regex for short terms (word boundary match)
+            if term not in _skill_pattern_cache:
+                _skill_pattern_cache[term] = re.compile(r'\b' + re.escape(term) + r'\b')
+            if _skill_pattern_cache[term].search(job_text_lower):
                 confidence = 1.0 if term == skill.lower() else 0.85
                 return True, confidence
         else:
             if term in job_text_lower:
                 confidence = 1.0 if term == skill.lower() else 0.85
                 return True, confidence
-    
+
     return False, 0.0
 
 
@@ -2857,13 +2982,13 @@ def apply_hard_gate_location(job: dict, intent_contract: dict) -> Tuple[bool, st
             metro_cities = METRO_AREAS[pref_loc]
             # Check if job city is in metro area
             if job_city and job_city in metro_cities:
-                print(f"[Location] job_city={job_city} matched metro={pref_loc}")
+                logger.info(f"[Location] job_city={job_city} matched metro={pref_loc}")
                 return True, f"location_metro_match:job_city={job_city},metro={pref_loc}"
             
             # Check if job location mentions "Greater [Metro] Area"
             metro_name = pref_loc.split(",")[0]  # Extract city name from "City, State"
             if f"greater {metro_name.lower()} area" in job_loc_lower:
-                print(f"[Location] job_location={job_location_raw} matched metro={pref_loc} (Greater Area)")
+                logger.info(f"[Location] job_location={job_location_raw} matched metro={pref_loc} (Greater Area)")
                 return True, f"location_metro_greater_area:metro={pref_loc}"
         
         # Partial match: "New York, NY" matches "New York" or "NYC"
@@ -2891,7 +3016,7 @@ def apply_hard_gate_location(job: dict, intent_contract: dict) -> Tuple[bool, st
     
     # Job location doesn't match any preferred location - REJECT
     if job_city:
-        print(f"[Location][REJECT] job_city={job_city} not in metro/preferred={','.join(preferred_locations)}")
+        logger.warning(f"[Location][REJECT] job_city={job_city} not in metro/preferred={','.join(preferred_locations)}")
     return False, f"location_mismatch:job_location={job_location_raw},preferred={','.join(preferred_locations)}"
 
 
@@ -3035,20 +3160,20 @@ def apply_hard_gate_seniority(job: dict, intent_contract: dict) -> Tuple[bool, s
             # PHASE 7B.1: Hard block keywords force senior classification
             job_seniority = "senior"
             interpreted_level = "senior"
-            print(f"[Seniority][BLOCK] title=\"{job.get('title', '')[:50]}\" reason=explicit_senior_marker keyword=\"{matched_hard_block_keyword}\"")
+            logger.warning(f"[Seniority][BLOCK] title=\"{job.get('title', '')[:50]}\" reason=explicit_senior_marker keyword=\"{matched_hard_block_keyword}\"")
         elif has_student_override:
             # PHASE 7B.2: Student/intern override forces entry-level
             job_seniority = "entry"
             interpreted_level = "entry_level"
-            print(f"[Seniority][STUDENT_OVERRIDE] title=\"{job.get('title', '')[:50]}\" keyword=\"{matched_student_keyword}\"")
+            logger.info(f"[Seniority][STUDENT_OVERRIDE] title=\"{job.get('title', '')[:50]}\" keyword=\"{matched_student_keyword}\"")
         elif finance_override_applied:
             # PHASE 7B.2: Finance override forces entry-level
             job_seniority = "entry"
             interpreted_level = "entry_level"
-            print(f"[Seniority][FINANCE_OVERRIDE] title=\"{job.get('title', '')[:50]}\" keyword=\"{matched_finance_keyword}\"")
+            logger.info(f"[Seniority][FINANCE_OVERRIDE] title=\"{job.get('title', '')[:50]}\" keyword=\"{matched_finance_keyword}\"")
         elif is_entry_level:
             job_seniority = "entry"
-            print(f"[Seniority][OVERRIDE] title=\"{job.get('title', '')[:50]}\" reason=entry_level_keyword keyword=\"{matched_entry_keyword}\"")
+            logger.info(f"[Seniority][OVERRIDE] title=\"{job.get('title', '')[:50]}\" reason=entry_level_keyword keyword=\"{matched_entry_keyword}\"")
         elif is_senior:
             job_seniority = "senior"
         else:
@@ -3136,16 +3261,16 @@ def apply_hard_gate_seniority(job: dict, intent_contract: dict) -> Tuple[bool, s
             # PHASE 7B.1: Hard block keywords force senior classification
             job_seniority = "senior"
             interpreted_level = "senior"
-            print(f"[Seniority][BLOCK] title=\"{job.get('title', '')[:50]}\" reason=explicit_senior_marker keyword=\"{matched_hard_block_keyword}\"")
+            logger.warning(f"[Seniority][BLOCK] title=\"{job.get('title', '')[:50]}\" reason=explicit_senior_marker keyword=\"{matched_hard_block_keyword}\"")
         elif has_student_override_tech:
             # PHASE 7B.2: Student/intern override forces entry-level
             job_seniority = "entry"
             interpreted_level = "entry_level"
-            print(f"[Seniority][STUDENT_OVERRIDE] title=\"{job.get('title', '')[:50]}\" keyword=\"{matched_student_keyword_tech}\"")
+            logger.info(f"[Seniority][STUDENT_OVERRIDE] title=\"{job.get('title', '')[:50]}\" keyword=\"{matched_student_keyword_tech}\"")
         elif has_entry_keywords:
             job_seniority = "entry"
             interpreted_level = "entry_level"
-            print(f"[Seniority][OVERRIDE] title=\"{job.get('title', '')[:50]}\" reason=entry_level_keyword keyword=\"{matched_entry_keyword}\"")
+            logger.info(f"[Seniority][OVERRIDE] title=\"{job.get('title', '')[:50]}\" reason=entry_level_keyword keyword=\"{matched_entry_keyword}\"")
         elif has_senior_keywords:
             # Only classify as senior if explicit senior signals exist AND no entry-level signals
             job_seniority = "senior"
@@ -3159,7 +3284,7 @@ def apply_hard_gate_seniority(job: dict, intent_contract: dict) -> Tuple[bool, s
             return True, f"seniority_ambiguous:domain={job_domain or 'unknown'},title={job_title[:50]}"
     
     # PHASE 4A: Log interpretation decision
-    print(f"[Seniority] domain={job_domain or 'unknown'} title=\"{job.get('title', '')[:50]}\" "
+    logger.info(f"[Seniority] domain={job_domain or 'unknown'} title=\"{job.get('title', '')[:50]}\" "
           f"→ interpreted_level={interpreted_level} job_seniority={job_seniority}")
     
     # Apply gates based on career phase
@@ -3235,7 +3360,7 @@ def apply_all_hard_gates(jobs: List[dict], intent_contract: dict, user_id: str =
             rejection_reason = reason
             rejection_gate = "career_domain"
             rejection_stats["career_domain"] += 1
-            print(f"[HardGate][REJECT] user={user_id[:8] if user_id else 'unknown'}... job={job_id} gate=career_domain reason={reason} job_title=\"{job.get('title', '')[:50]}\"")
+            logger.warning(f"[HardGate][REJECT] user={user_id[:8] if user_id else 'unknown'}... job={job_id} gate=career_domain reason={reason} job_title=\"{job.get('title', '')[:50]}\"")
         
         # Gate 2: Job Type (only check if passed domain gate)
         if not rejected:
@@ -3245,7 +3370,7 @@ def apply_all_hard_gates(jobs: List[dict], intent_contract: dict, user_id: str =
                 rejection_reason = reason
                 rejection_gate = "job_type"
                 rejection_stats["job_type"] += 1
-                print(f"[HardGate][REJECT] user={user_id[:8] if user_id else 'unknown'}... job={job_id} gate=job_type reason={reason} job_title=\"{job.get('title', '')[:50]}\"")
+                logger.warning(f"[HardGate][REJECT] user={user_id[:8] if user_id else 'unknown'}... job={job_id} gate=job_type reason={reason} job_title=\"{job.get('title', '')[:50]}\"")
         
         # Gate 3: Location (only check if passed previous gates)
         if not rejected:
@@ -3255,7 +3380,7 @@ def apply_all_hard_gates(jobs: List[dict], intent_contract: dict, user_id: str =
                 rejection_reason = reason
                 rejection_gate = "location"
                 rejection_stats["location"] += 1
-                print(f"[HardGate][REJECT] user={user_id[:8] if user_id else 'unknown'}... job={job_id} gate=location reason={reason} job_location=\"{job.get('location', '')[:50]}\"")
+                logger.warning(f"[HardGate][REJECT] user={user_id[:8] if user_id else 'unknown'}... job={job_id} gate=location reason={reason} job_location=\"{job.get('location', '')[:50]}\"")
         
         # Gate 4: Seniority (only check if passed previous gates)
         # PHASE 7B: Track entry-level keywords for telemetry
@@ -3339,7 +3464,7 @@ def apply_all_hard_gates(jobs: List[dict], intent_contract: dict, user_id: str =
                     rejection_stats["seniority_entry_keyword_breakdown"][keyword_key] = \
                         rejection_stats["seniority_entry_keyword_breakdown"].get(keyword_key, 0) + 1
                 
-                print(f"[HardGate][REJECT] user={user_id[:8] if user_id else 'unknown'}... job={job_id} gate=seniority reason={reason} job_title=\"{job.get('title', '')[:50]}\"")
+                logger.warning(f"[HardGate][REJECT] user={user_id[:8] if user_id else 'unknown'}... job={job_id} gate=seniority reason={reason} job_title=\"{job.get('title', '')[:50]}\"")
         
         # PHASE 7B: Track entry-level keywords seen (regardless of rejection)
         if has_entry_keyword_for_telemetry:
@@ -3360,29 +3485,29 @@ def apply_all_hard_gates(jobs: List[dict], intent_contract: dict, user_id: str =
     rejected_type = rejection_stats['job_type']
     passed = rejection_stats['total_kept']
     
-    print(f"[GateSummary]")
-    print(f"[GateSummary] total_fetched={total_fetched}")
-    print(f"[GateSummary] rejected_domain={rejected_domain}")
-    print(f"[GateSummary] rejected_location={rejected_location}")
-    print(f"[GateSummary] rejected_seniority={rejected_seniority}")
-    print(f"[GateSummary] rejected_type={rejected_type}")
-    print(f"[GateSummary] passed={passed}")
+    logger.info(f"[GateSummary]")
+    logger.info(f"[GateSummary] total_fetched={total_fetched}")
+    logger.warning(f"[GateSummary] rejected_domain={rejected_domain}")
+    logger.warning(f"[GateSummary] rejected_location={rejected_location}")
+    logger.warning(f"[GateSummary] rejected_seniority={rejected_seniority}")
+    logger.warning(f"[GateSummary] rejected_type={rejected_type}")
+    logger.info(f"[GateSummary] passed={passed}")
     
     # PHASE 7B: Log seniority telemetry (preserved for detailed analysis)
     if rejection_stats["seniority_entry_keywords_seen"] > 0:
-        print(f"[Seniority][STATS] entry_keywords_seen={rejection_stats['seniority_entry_keywords_seen']} "
+        logger.warning(f"[Seniority][STATS] entry_keywords_seen={rejection_stats['seniority_entry_keywords_seen']} "
               f"misclassified={rejection_stats['seniority_entry_keywords_misclassified']} "
               f"breakdown={rejection_stats['seniority_entry_keyword_breakdown']}")
     
     # PHASE 7B.1: Log hard block stats
     if rejection_stats["seniority_overrides_blocked_by_level"] > 0:
-        print(f"[Seniority][STATS] overrides_blocked_by_level={rejection_stats['seniority_overrides_blocked_by_level']}")
+        logger.warning(f"[Seniority][STATS] overrides_blocked_by_level={rejection_stats['seniority_overrides_blocked_by_level']}")
     
     # PHASE 7B.2: Log finance and student override stats
     if rejection_stats["finance_overrides_applied"] > 0:
-        print(f"[Seniority][STATS] finance_overrides_applied={rejection_stats['finance_overrides_applied']}")
+        logger.warning(f"[Seniority][STATS] finance_overrides_applied={rejection_stats['finance_overrides_applied']}")
     if rejection_stats["student_overrides_applied"] > 0:
-        print(f"[Seniority][STATS] student_overrides_applied={rejection_stats['student_overrides_applied']}")
+        logger.warning(f"[Seniority][STATS] student_overrides_applied={rejection_stats['student_overrides_applied']}")
     
     return filtered_jobs, rejection_stats
 
@@ -3800,7 +3925,7 @@ def deduplicate_jobs(jobs: List[dict]) -> Tuple[List[dict], dict]:
         # Log once per duplicate group if there was a promotion
         if promoted and best_loser_source:
             job_title = winner.get("title", "Unknown")
-            print(f"[Dedup][SOURCE] fingerprint={fingerprint[:8]} winner={winner_source} loser={best_loser_source} title=\"{job_title}\"")
+            logger.info(f"[Dedup][SOURCE] fingerprint={fingerprint[:8]} winner={winner_source} loser={best_loser_source} title=\"{job_title}\"")
             source_promotions += 1
         
         # Add winner
@@ -3815,7 +3940,7 @@ def deduplicate_jobs(jobs: List[dict]) -> Tuple[List[dict], dict]:
     stats["source_promotions"] = source_promotions
     
     # Log summary statistics
-    print(f"[Dedup][STATS] before={stats['before']} after={stats['after']} removed={stats['removed']} source_promotions={stats['source_promotions']}")
+    logger.info(f"[Dedup][STATS] before={stats['before']} after={stats['after']} removed={stats['removed']} source_promotions={stats['source_promotions']}")
     
     return deduplicated_jobs, stats
 
@@ -4196,7 +4321,7 @@ def filter_jobs_by_quality(jobs: List[dict], min_quality_score: int = MIN_QUALIT
             removed_count += 1
     
     if removed_count > 0:
-        print(f"[JobBoard] Filtered out {removed_count} low-quality jobs (recency: {removed_for_recency}, quality: {removed_count - removed_for_recency})")
+        logger.info(f"[JobBoard] Filtered out {removed_count} low-quality jobs (recency: {removed_for_recency}, quality: {removed_count - removed_for_recency})")
     
     return filtered
 
@@ -4234,7 +4359,7 @@ def score_jobs_by_resume_match(jobs: List[dict], user_profile: dict, query_weigh
     
     if not has_profile_data:
         # No profile or empty profile, assign neutral match scores but still calculate quality
-        print("[JobBoard] No user profile data found, using neutral scores")
+        logger.info("[JobBoard] No user profile data found, using neutral scores")
         for job in jobs:
             job["matchScore"] = 50
             job["qualityScore"] = calculate_quality_score(job)
@@ -4316,7 +4441,7 @@ def sanitize_firestore_data(obj, depth=0, max_depth=10):
                 return str(obj)
         except Exception as e:
             # Only log actual errors, not normal conversions
-            print(f"[JobBoard] Error converting DocumentReference: {e}")
+            logger.error(f"[JobBoard] Error converting DocumentReference: {e}")
             return None
     
     elif isinstance(obj, dict):
@@ -4486,11 +4611,11 @@ def get_or_cache_sanitized_resume(user_id: str, raw_resume: Dict[str, Any], db) 
         cached_hash = user_data.get("resumeParsedHash")
         
         if cached and cached_hash == resume_hash and isinstance(cached, str):
-            print(f"[JobBoard] ✅ Using cached sanitized resume (hash: {resume_hash[:8]}...)")
+            logger.info(f"[JobBoard]  Using cached sanitized resume (hash: {resume_hash[:8]}...)")
             return cached
         
         # Generate and cache sanitized resume
-        print(f"[JobBoard] Generating new sanitized resume (hash: {resume_hash[:8]}...)")
+        logger.info(f"[JobBoard] Generating new sanitized resume (hash: {resume_hash[:8]}...)")
         sanitized = sanitize_firestore_data(raw_resume, depth=0, max_depth=20)
         
         # Custom JSON encoder that handles DocumentReferences
@@ -4518,15 +4643,15 @@ def get_or_cache_sanitized_resume(user_id: str, raw_resume: Dict[str, Any], db) 
                 "resumeParsedSanitized": resume_json,
                 "resumeParsedHash": resume_hash
             })
-            print(f"[JobBoard] ✅ Cached sanitized resume")
+            logger.info(f"[JobBoard]  Cached sanitized resume")
         except Exception as cache_error:
-            print(f"[JobBoard] ⚠️ Failed to cache sanitized resume: {cache_error}")
+            logger.error(f"[JobBoard]  Failed to cache sanitized resume: {cache_error}")
             # Continue anyway, just return the JSON
         
         return resume_json
         
     except Exception as e:
-        print(f"[JobBoard] Error in get_or_cache_sanitized_resume: {e}")
+        logger.error(f"[JobBoard] Error in get_or_cache_sanitized_resume: {e}")
         return None
 
 
@@ -4588,7 +4713,7 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
                 except (json.JSONDecodeError, AttributeError):
                     continue
         except Exception as e:
-            print(f"[JobBoard] Error extracting JSON-LD data: {e}")
+            logger.error(f"[JobBoard] Error extracting JSON-LD data: {e}")
         
         # Try meta tags (og:title, og:description, etc.) as fallback
         if not job_data.get("title"):
@@ -4601,8 +4726,192 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
             if meta_desc and meta_desc.get('content'):
                 job_data["description"] = meta_desc.get('content')[:5000]
         
+        # Greenhouse parsing (boards.greenhouse.io or jobs.greenhouse.io)
+        if "greenhouse.io" in url:
+            logger.info(f"[JobBoard] Parsing Greenhouse URL: {url}")
+            # Greenhouse has a JSON API: append .json to the job URL
+            # URL pattern: https://boards.greenhouse.io/company/jobs/12345
+            try:
+                gh_match = re.search(r'greenhouse\.io/([^/]+)/jobs/(\d+)', url)
+                if gh_match:
+                    gh_company_slug = gh_match.group(1)
+                    gh_job_id = gh_match.group(2)
+                    json_url = f"https://boards-api.greenhouse.io/v1/boards/{gh_company_slug}/jobs/{gh_job_id}"
+                    logger.info(f"[JobBoard] Fetching Greenhouse JSON API: {json_url}")
+                    gh_resp = requests.get(json_url, headers={"Accept": "application/json"}, timeout=10)
+                    if gh_resp.status_code == 200:
+                        gh_data = gh_resp.json()
+                        if gh_data.get('title'):
+                            job_data["title"] = gh_data['title']
+                        if gh_data.get('location', {}).get('name'):
+                            job_data["location"] = gh_data['location']['name']
+                        # Extract company from departments or metadata
+                        if not job_data.get("company"):
+                            # Use the slug as company name (capitalize)
+                            job_data["company"] = gh_company_slug.replace("-", " ").title()
+                        # Description is HTML in the 'content' field
+                        if gh_data.get('content'):
+                            desc_soup = BeautifulSoup(gh_data['content'], 'html.parser')
+                            job_data["description"] = desc_soup.get_text(strip=True)[:5000]
+                        logger.info(f"[JobBoard] Greenhouse API success: title={job_data.get('title')}, company={job_data.get('company')}")
+            except Exception as gh_err:
+                logger.warning(f"[JobBoard] Greenhouse API fallback failed: {gh_err}")
+            # If API didn't work, try HTML selectors
+            if not job_data.get("title"):
+                title_elem = soup.select_one("h1.app-title, h1[class*='title'], .job__title h1, h1")
+                if title_elem:
+                    job_data["title"] = title_elem.get_text(strip=True)
+            if not job_data.get("description"):
+                desc_elem = soup.select_one("#content, .job__description, [class*='description'], .content")
+                if desc_elem:
+                    desc_text = desc_elem.get_text(strip=True)
+                    if desc_text and len(desc_text) > 50:
+                        job_data["description"] = desc_text[:5000]
+
+        # Lever parsing (jobs.lever.co)
+        elif "lever.co" in url:
+            logger.info(f"[JobBoard] Parsing Lever URL: {url}")
+            # Lever serves server-rendered HTML with predictable selectors
+            title_elem = soup.select_one("h2.posting-headline .posting-title, h2[class*='posting-headline'], .posting-headline h2, h2")
+            if title_elem:
+                job_data["title"] = title_elem.get_text(strip=True)
+
+            # Company name from the page header
+            company_elem = soup.select_one(".main-header-logo img, a.main-header-logo, .posting-categories .posting-category:first-child, .main-header .company-name")
+            if company_elem:
+                # Try alt text from logo image first
+                if company_elem.name == 'img' and company_elem.get('alt'):
+                    job_data["company"] = company_elem['alt'].replace(' Logo', '').replace(' logo', '').strip()
+                else:
+                    job_data["company"] = company_elem.get_text(strip=True)
+
+            # If no company from selectors, extract from URL (jobs.lever.co/company-name/...)
+            if not job_data.get("company"):
+                lever_match = re.search(r'lever\.co/([^/]+)', url)
+                if lever_match:
+                    job_data["company"] = lever_match.group(1).replace("-", " ").title()
+
+            # Location from posting categories
+            location_elem = soup.select_one(".posting-categories .location, .sort-by-commitment, [class*='location']")
+            if location_elem:
+                job_data["location"] = location_elem.get_text(strip=True)
+
+            # Description from posting sections
+            desc_elems = soup.select(".section-wrapper .section .content, .posting-page .content, [class*='description']")
+            if desc_elems:
+                desc_text = "\n".join(elem.get_text(strip=True) for elem in desc_elems)
+                if desc_text and len(desc_text) > 50:
+                    job_data["description"] = desc_text[:5000]
+
+        # Ashby parsing (jobs.ashbyhq.com)
+        elif "ashbyhq.com" in url:
+            logger.info(f"[JobBoard] Parsing Ashby URL: {url}")
+            # Ashby is mostly client-rendered, but has some data in script tags
+            # Try to find __NEXT_DATA__ or similar embedded JSON
+            for script in soup.find_all('script'):
+                script_text = script.string or ''
+                if '__NEXT_DATA__' in script_text or 'jobPosting' in script_text or '"title"' in script_text:
+                    try:
+                        # Try to extract JSON from script content
+                        json_match = re.search(r'\{.*"title".*\}', script_text, re.DOTALL)
+                        if json_match:
+                            script_data = json.loads(json_match.group(0))
+                            # Navigate nested structure
+                            props = script_data.get('props', {}).get('pageProps', {})
+                            job_info = props.get('job', props.get('jobPosting', props))
+                            if job_info.get('title'):
+                                job_data["title"] = job_info['title']
+                            if job_info.get('location'):
+                                loc = job_info['location']
+                                job_data["location"] = loc if isinstance(loc, str) else loc.get('name', '')
+                            if job_info.get('descriptionHtml') or job_info.get('description'):
+                                desc_html = job_info.get('descriptionHtml', job_info.get('description', ''))
+                                job_data["description"] = BeautifulSoup(desc_html, 'html.parser').get_text(strip=True)[:5000]
+                            if job_info.get('organizationName') or job_info.get('companyName'):
+                                job_data["company"] = job_info.get('organizationName', job_info.get('companyName', ''))
+                    except (json.JSONDecodeError, KeyError, AttributeError):
+                        continue
+
+            # Fallback: extract company from URL
+            if not job_data.get("company"):
+                ashby_match = re.search(r'ashbyhq\.com/([^/]+)', url)
+                if ashby_match:
+                    job_data["company"] = ashby_match.group(1).replace("-", " ").title()
+
+            # HTML fallback selectors
+            if not job_data.get("title"):
+                title_elem = soup.select_one("h1, [class*='title']")
+                if title_elem:
+                    job_data["title"] = title_elem.get_text(strip=True)
+            if not job_data.get("description"):
+                desc_elem = soup.select_one("[class*='description'], [class*='content'], article")
+                if desc_elem:
+                    desc_text = desc_elem.get_text(strip=True)
+                    if desc_text and len(desc_text) > 50:
+                        job_data["description"] = desc_text[:5000]
+
+        # Workday parsing (myworkdayjobs.com / wd5.myworkday.com)
+        elif "workday" in url or "myworkdayjobs.com" in url:
+            logger.info(f"[JobBoard] Parsing Workday URL: {url}")
+            # Workday is heavily client-rendered but sometimes embeds data in scripts
+            for script in soup.find_all('script'):
+                script_text = script.string or ''
+                if '"jobPostingInfo"' in script_text or '"title"' in script_text:
+                    try:
+                        json_match = re.search(r'\{.*"title".*\}', script_text, re.DOTALL)
+                        if json_match:
+                            wd_data = json.loads(json_match.group(0))
+                            posting = wd_data.get('jobPostingInfo', wd_data)
+                            if posting.get('title'):
+                                job_data["title"] = posting['title']
+                            if posting.get('location'):
+                                job_data["location"] = posting['location']
+                            if posting.get('jobDescription'):
+                                job_data["description"] = BeautifulSoup(posting['jobDescription'], 'html.parser').get_text(strip=True)[:5000]
+                    except (json.JSONDecodeError, KeyError):
+                        continue
+
+            # Try to extract company from URL
+            if not job_data.get("company"):
+                wd_match = re.search(r'myworkdayjobs\.com/(?:en-US/)?([^/]+)', url)
+                if not wd_match:
+                    wd_match = re.search(r'myworkday\.com/([^/]+)', url)
+                if wd_match:
+                    job_data["company"] = wd_match.group(1).replace("-", " ").title()
+
+            # HTML fallback
+            if not job_data.get("title"):
+                title_elem = soup.select_one("h1, h2[data-automation-id='jobPostingHeader'], [data-automation-id='jobPostingTitle']")
+                if title_elem:
+                    job_data["title"] = title_elem.get_text(strip=True)
+            if not job_data.get("description"):
+                desc_elem = soup.select_one("[data-automation-id='jobPostingDescription'], [class*='description']")
+                if desc_elem:
+                    desc_text = desc_elem.get_text(strip=True)
+                    if desc_text and len(desc_text) > 50:
+                        job_data["description"] = desc_text[:5000]
+
+        # Glassdoor parsing
+        elif "glassdoor.com" in url:
+            logger.info(f"[JobBoard] Parsing Glassdoor URL: {url}")
+            # Try JSON-LD first (already handled above), then selectors
+            if not job_data.get("title"):
+                title_elem = soup.select_one("[class*='JobTitle'], h1, [data-test='job-title']")
+                if title_elem:
+                    job_data["title"] = title_elem.get_text(strip=True)
+            if not job_data.get("company"):
+                company_elem = soup.select_one("[class*='EmployerName'], [data-test='employer-name']")
+                if company_elem:
+                    job_data["company"] = company_elem.get_text(strip=True)
+            if not job_data.get("description"):
+                desc_elem = soup.select_one("[class*='JobDescription'], [class*='jobDescription'], #JobDescriptionContainer")
+                if desc_elem:
+                    desc_text = desc_elem.get_text(strip=True)
+                    if desc_text and len(desc_text) > 50:
+                        job_data["description"] = desc_text[:5000]
+
         # LinkedIn parsing
-        if "linkedin.com" in url:
+        elif "linkedin.com" in url:
             # Try updated LinkedIn selectors first (current structure)
             title_selectors = [
                 "h1.job-details-jobs-unified-top-card__job-title",
@@ -4675,7 +4984,7 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
         
         # beBee parsing
         elif "bebee.com" in url:
-            print(f"[JobBoard] Parsing beBee URL: {url}")
+            logger.info(f"[JobBoard] Parsing beBee URL: {url}")
             # beBee typically has the title in h1
             title_elem = soup.find("h1")
             if title_elem:
@@ -4684,7 +4993,7 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
                 if " - " in title_text:
                     title_text = title_text.split(" - ")[0]
                 job_data["title"] = title_text
-                print(f"[JobBoard] Found beBee title: {job_data['title']}")
+                logger.info(f"[JobBoard] Found beBee title: {job_data['title']}")
             
             # Try to find company - might be in various places
             company_selectors = [
@@ -4700,7 +5009,7 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
                     company_text = elem.get_text(strip=True)
                     if company_text and len(company_text) > 2:
                         job_data["company"] = company_text[:100]
-                        print(f"[JobBoard] Found beBee company: {job_data['company']}")
+                        logger.info(f"[JobBoard] Found beBee company: {job_data['company']}")
                         break
             
             # Try to find job description
@@ -4719,7 +5028,7 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
                     # Skip if it's just Lorem ipsum placeholder text
                     if desc_text and "lorem ipsum" not in desc_text.lower()[:100]:
                         job_data["description"] = desc_text[:5000]
-                        print(f"[JobBoard] Found beBee description: {len(job_data['description'])} chars")
+                        logger.info(f"[JobBoard] Found beBee description: {len(job_data['description'])} chars")
                         break
             
             # If no description found, try to get summary
@@ -4727,7 +5036,7 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
                 summary_elem = soup.find("div", class_=lambda x: x and "summary" in x.lower())
                 if summary_elem:
                     job_data["description"] = summary_elem.get_text(strip=True)[:5000]
-                    print(f"[JobBoard] Found beBee summary: {len(job_data['description'])} chars")
+                    logger.info(f"[JobBoard] Found beBee summary: {len(job_data['description'])} chars")
             
             # Extract location from title if present
             if title_elem:
@@ -4736,11 +5045,11 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
                     location_part = title_full.split(" - ")[-1]
                     if "," in location_part or any(word in location_part.lower() for word in ["ca", "ny", "tx", "fl", "il"]):
                         job_data["location"] = location_part
-                        print(f"[JobBoard] Found beBee location: {job_data['location']}")
+                        logger.info(f"[JobBoard] Found beBee location: {job_data['location']}")
             
         # Apple jobs parsing
         elif "jobs.apple.com" in url:
-            print(f"[JobBoard] Parsing Apple jobs URL: {url}")
+            logger.info(f"[JobBoard] Parsing Apple jobs URL: {url}")
             # Apple typically has the title in h1 or title tag
             title_elem = soup.find("h1") or soup.find("title")
             if title_elem:
@@ -4749,11 +5058,11 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
                 if " - " in title_text:
                     title_text = title_text.split(" - ")[0]
                 job_data["title"] = title_text[:200]
-                print(f"[JobBoard] Found Apple title: {job_data['title']}")
+                logger.info(f"[JobBoard] Found Apple title: {job_data['title']}")
             
             # Company is always Apple for jobs.apple.com
             job_data["company"] = "Apple"
-            print(f"[JobBoard] Set company to Apple")
+            logger.info(f"[JobBoard] Set company to Apple")
             
             # Try to find description
             desc_selectors = [
@@ -4772,12 +5081,12 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
                     if desc_text and len(desc_text) > 50:
                         if "lorem ipsum" not in desc_text.lower()[:200]:
                             job_data["description"] = desc_text[:5000]
-                            print(f"[JobBoard] Found Apple description: {len(job_data['description'])} chars")
+                            logger.info(f"[JobBoard] Found Apple description: {len(job_data['description'])} chars")
                             break
         
         # Generic fallback
         else:
-            print(f"[JobBoard] Using generic fallback parsing for URL: {url}")
+            logger.info(f"[JobBoard] Using generic fallback parsing for URL: {url}")
             # Try multiple title selectors
             title_selectors = [
                 "h1",
@@ -4795,7 +5104,7 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
                         title_text = title_text.split(" - ")[0]
                     if title_text and len(title_text) > 3:
                         job_data["title"] = title_text[:200]
-                        print(f"[JobBoard] Found title: {job_data['title']}")
+                        logger.info(f"[JobBoard] Found title: {job_data['title']}")
                         break
                     
             # Try multiple company selectors
@@ -4812,7 +5121,7 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
                     company_text = elem.get_text(strip=True)
                     if company_text and len(company_text) > 2 and len(company_text) < 100:
                         job_data["company"] = company_text[:100]
-                        print(f"[JobBoard] Found company: {job_data['company']}")
+                        logger.info(f"[JobBoard] Found company: {job_data['company']}")
                         break
             
             # If company not found via selectors, try extracting from title
@@ -4826,7 +5135,7 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
                     company = re.sub(r'\s*(Jobs|Careers|Internships).*$', '', company, flags=re.IGNORECASE)
                     if len(company) > 1 and len(company) < 100:
                         job_data["company"] = company
-                        print(f"[JobBoard] Extracted company from title (pattern 1): {job_data['company']}")
+                        logger.info(f"[JobBoard] Extracted company from title (pattern 1): {job_data['company']}")
                 
                 # Pattern 2: "[Company] Careers" or "[Company] Jobs"
                 if not job_data["company"]:
@@ -4835,7 +5144,7 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
                         company = match.group(1).strip()
                         if len(company) > 1 and len(company) < 100:
                             job_data["company"] = company
-                            print(f"[JobBoard] Extracted company from title (pattern 2): {job_data['company']}")
+                            logger.info(f"[JobBoard] Extracted company from title (pattern 2): {job_data['company']}")
                 
                 # Pattern 3: "Title - Company" (if title ends with company name)
                 if not job_data["company"] and " - " in title:
@@ -4846,7 +5155,7 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
                         # If it doesn't look like a location (no commas, not too long), treat as company
                         if "," not in last_part and len(last_part) < 50 and not any(word in last_part.lower() for word in ["jobs", "careers", "internships", "view", "apply"]):
                             job_data["company"] = last_part
-                            print(f"[JobBoard] Extracted company from title suffix: {job_data['company']}")
+                            logger.info(f"[JobBoard] Extracted company from title suffix: {job_data['company']}")
             
             # If still no company, try extracting from URL domain
             # Only do this for direct company career pages, not job boards
@@ -4878,9 +5187,9 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
                                 # Handle common patterns
                                 company = company.replace(" Com", "").replace(" Inc", "").replace(" Corp", "")
                                 job_data["company"] = company
-                                print(f"[JobBoard] Extracted company from URL domain: {job_data['company']}")
+                                logger.info(f"[JobBoard] Extracted company from URL domain: {job_data['company']}")
                 except Exception as e:
-                    print(f"[JobBoard] Error extracting company from URL: {e}")
+                    logger.error(f"[JobBoard] Error extracting company from URL: {e}")
                     
             # Try multiple description selectors
             desc_selectors = [
@@ -4901,21 +5210,21 @@ def parse_job_url(url: str) -> Optional[Dict[str, Any]]:
                         # Check for Lorem ipsum
                         if "lorem ipsum" not in desc_text.lower()[:200]:
                             job_data["description"] = desc_text[:5000]
-                            print(f"[JobBoard] Found description: {len(job_data['description'])} chars")
+                            logger.info(f"[JobBoard] Found description: {len(job_data['description'])} chars")
                             break
         
         # Return job_data if we have at least title or company (essential fields)
         # Don't require description since some sites may not have it easily accessible
         has_essential_data = job_data.get("title") or job_data.get("company")
         if has_essential_data:
-            print(f"[JobBoard] Successfully parsed job URL: title={bool(job_data.get('title'))}, company={bool(job_data.get('company'))}, location={bool(job_data.get('location'))}, description={bool(job_data.get('description'))}")
+            logger.info(f"[JobBoard] Successfully parsed job URL: title={bool(job_data.get('title'))}, company={bool(job_data.get('company'))}, location={bool(job_data.get('location'))}, description={bool(job_data.get('description'))}")
             return job_data
         else:
-            print(f"[JobBoard] Failed to parse essential fields from URL: {url}")
+            logger.error(f"[JobBoard] Failed to parse essential fields from URL: {url}")
             return None
         
     except Exception as e:
-        print(f"[JobBoard] Error parsing URL {url}: {e}")
+        logger.error(f"[JobBoard] Error parsing URL {url}: {e}")
         return None
 
 
@@ -4954,7 +5263,7 @@ async def optimize_resume_with_ai(
     """
     Use AI to optimize a resume for a specific job posting.
     """
-    print(f"[JobBoard optimize_resume_with_ai] Starting. Resume type: {type(user_resume)}")
+    logger.info(f"[JobBoard optimize_resume_with_ai] Starting. Resume type: {type(user_resume)}")
     # Sanitize user_resume one more time to be absolutely sure
     user_resume = sanitize_firestore_data(user_resume, depth=0, max_depth=20)
     
@@ -4962,7 +5271,7 @@ async def optimize_resume_with_ai(
     def deep_clean_refs(obj, path="root"):
         """Recursively remove all DocumentReferences."""
         if is_document_reference(obj):
-            print(f"[JobBoard] deep_clean_refs: Removing DocumentReference at {path}")
+            logger.info(f"[JobBoard] deep_clean_refs: Removing DocumentReference at {path}")
             return None
         elif isinstance(obj, dict):
             cleaned = {}
@@ -4980,9 +5289,9 @@ async def optimize_resume_with_ai(
             return cleaned
         return obj
     
-    print(f"[JobBoard optimize_resume_with_ai] Running deep_clean_refs...")
+    logger.info(f"[JobBoard optimize_resume_with_ai] Running deep_clean_refs...")
     user_resume = deep_clean_refs(user_resume)
-    print(f"[JobBoard optimize_resume_with_ai] Deep clean complete")
+    logger.info(f"[JobBoard optimize_resume_with_ai] Deep clean complete")
     
     keywords = extract_keywords_from_job(job_description)
     # Ensure all keywords are strings and filter out any None/empty values
@@ -5007,19 +5316,19 @@ async def optimize_resume_with_ai(
             return None
     
     # Safely serialize resume for prompt - with multiple passes to catch all DocumentReferences
-    print(f"[JobBoard] Starting JSON serialization. Resume keys: {list(user_resume.keys()) if isinstance(user_resume, dict) else 'N/A'}")
+    logger.info(f"[JobBoard] Starting JSON serialization. Resume keys: {list(user_resume.keys()) if isinstance(user_resume, dict) else 'N/A'}")
     resume_json = None
     for attempt in range(5):  # Try up to 5 times with increasingly aggressive sanitization
         try:
             # Deep sanitize before each attempt
-            print(f"[JobBoard] Serialization attempt {attempt + 1}: sanitizing...")
+            logger.info(f"[JobBoard] Serialization attempt {attempt + 1}: sanitizing...")
             user_resume = sanitize_firestore_data(user_resume, depth=0, max_depth=20)
             
             # Final check for any remaining DocumentReferences before serialization
             def check_and_remove_refs(obj, path=""):
                 """Recursively check and remove DocumentReferences."""
                 if is_document_reference(obj):
-                    print(f"[JobBoard] Found DocumentReference at {path}, removing...")
+                    logger.info(f"[JobBoard] Found DocumentReference at {path}, removing...")
                     return None
                 elif isinstance(obj, dict):
                     cleaned = {}
@@ -5061,21 +5370,21 @@ async def optimize_resume_with_ai(
             user_resume = force_stringify(user_resume)
             
             # Try to serialize with custom default handler
-            print(f"[JobBoard] Attempting json.dumps...")
+            logger.info(f"[JobBoard] Attempting json.dumps...")
             resume_json = json.dumps(user_resume, indent=2, default=json_default, ensure_ascii=False)
             
             # Verify the JSON doesn't contain any problematic objects by parsing it back
-            print(f"[JobBoard] Verifying JSON by parsing back...")
+            logger.info(f"[JobBoard] Verifying JSON by parsing back...")
             test_parse = json.loads(resume_json)
-            print(f"[JobBoard] ✅ JSON serialization successful!")
+            logger.info(f"[JobBoard]  JSON serialization successful!")
             break  # Success
         except (TypeError, ValueError) as e:
-            print(f"[JobBoard] Serialization attempt {attempt + 1} failed: {e}")
+            logger.error(f"[JobBoard] Serialization attempt {attempt + 1} failed: {e}")
             import traceback
             traceback.print_exc()
             if attempt == 4:  # Last attempt
                 # Final fallback: convert everything to basic types, remove any remaining problematic fields
-                print(f"[JobBoard] Final fallback: aggressive cleanup...")
+                logger.info(f"[JobBoard] Final fallback: aggressive cleanup...")
                 user_resume = sanitize_firestore_data(user_resume, depth=0, max_depth=20)
                 # Remove any fields that might still have issues
                 if isinstance(user_resume, dict):
@@ -5083,15 +5392,15 @@ async def optimize_resume_with_ai(
                 resume_json = json.dumps(user_resume, indent=2, default=json_default, ensure_ascii=False)
     
     # Ensure keywords are all strings - double check for any DocumentReferences
-    print(f"[JobBoard] Processing keywords. Count: {len(keywords)}")
+    logger.info(f"[JobBoard] Processing keywords. Count: {len(keywords)}")
     safe_keywords = []
     for idx, kw in enumerate(keywords):
         if is_document_reference(kw):
-            print(f"[JobBoard] WARNING: DocumentReference found in keywords[{idx}], skipping...")
+            logger.warning(f"[JobBoard] WARNING: DocumentReference found in keywords[{idx}], skipping...")
             continue
         safe_keywords.append(str(kw))
     keywords_str = ', '.join(safe_keywords) if safe_keywords else 'None specified'
-    print(f"[JobBoard] Keywords string created. Length: {len(keywords_str)}")
+    logger.info(f"[JobBoard] Keywords string created. Length: {len(keywords_str)}")
     
     # Ensure all string values are safe
     job_title_safe = str(job_title or 'Not specified')
@@ -5100,10 +5409,10 @@ async def optimize_resume_with_ai(
     
     # Ensure resume_json is actually a string and doesn't contain any issues
     if not isinstance(resume_json, str):
-        print(f"[JobBoard] ERROR: resume_json is not a string! Type: {type(resume_json)}")
+        logger.error(f"[JobBoard] ERROR: resume_json is not a string! Type: {type(resume_json)}")
         raise ValueError(f"resume_json must be a string, got {type(resume_json)}")
     
-    print(f"[JobBoard] Building prompt. resume_json length: {len(resume_json)}")
+    logger.info(f"[JobBoard] Building prompt. resume_json length: {len(resume_json)}")
     
     # Verify resume_json is actually a string and doesn't contain DocumentReferences
     if not isinstance(resume_json, str):
@@ -5113,9 +5422,9 @@ async def optimize_resume_with_ai(
     try:
         # Try to parse it back to ensure it's valid JSON
         json.loads(resume_json)
-        print(f"[JobBoard] ✅ JSON validation passed")
+        logger.info(f"[JobBoard]  JSON validation passed")
     except json.JSONDecodeError as e:
-        print(f"[JobBoard] Invalid JSON in resume_json: {e}")
+        logger.info(f"[JobBoard] Invalid JSON in resume_json: {e}")
         raise
     
     # Build prompt with strict rules to prevent fabrication
@@ -5231,26 +5540,26 @@ Note: "relevance_score" should reflect how well the candidate's actual experienc
             resume_json=resume_json
         )
     except Exception as prompt_error:
-        print(f"[JobBoard] ERROR building prompt f-string: {prompt_error}")
+        logger.error(f"[JobBoard] ERROR building prompt f-string: {prompt_error}")
         import traceback
         traceback.print_exc()
         raise
 
     try:
-        print("[JobBoard] Getting OpenAI client...")
+        logger.info("[JobBoard] Getting OpenAI client...")
         openai_client = get_async_openai_client()
-        print(f"[JobBoard] Got OpenAI client: {openai_client}")
+        logger.info(f"[JobBoard] Got OpenAI client: {openai_client}")
         if not openai_client:
             raise Exception("OpenAI client not available")
         
-        print("[JobBoard] About to call OpenAI API...")
-        print(f"[JobBoard] Prompt length: {len(prompt)}")
-        print(f"[JobBoard] Prompt type: {type(prompt)}")
-        print(f"[JobBoard] Prompt preview: {prompt[:200]}...")
+        logger.info("[JobBoard] About to call OpenAI API...")
+        logger.info(f"[JobBoard] Prompt length: {len(prompt)}")
+        logger.info(f"[JobBoard] Prompt type: {type(prompt)}")
+        logger.info(f"[JobBoard] Prompt preview: {prompt[:200]}...")
         
         # Ensure prompt is a plain string (not containing any DocumentReferences)
         if not isinstance(prompt, str):
-            print(f"[JobBoard] ERROR: Prompt is not a string! Type: {type(prompt)}")
+            logger.error(f"[JobBoard] ERROR: Prompt is not a string! Type: {type(prompt)}")
             prompt = str(prompt)
         
         # Ensure all message content is strings
@@ -5261,16 +5570,16 @@ If you're unsure about something, keep it exactly as-is.
 Return ONLY valid JSON. Do not include explanations or markdown."""
         user_content = str(prompt)  # Force to string
         
-        print(f"[JobBoard] System content type: {type(system_content)}")
-        print(f"[JobBoard] User content type: {type(user_content)}")
+        logger.info(f"[JobBoard] System content type: {type(system_content)}")
+        logger.info(f"[JobBoard] User content type: {type(user_content)}")
         
         messages = [
             {"role": "system", "content": system_content},
             {"role": "user", "content": user_content}
         ]
         
-        print(f"[JobBoard] Messages list created. About to call API...")
-        print(f"[JobBoard] Model: gpt-4o, Max tokens: 3500")
+        logger.info(f"[JobBoard] Messages list created. About to call API...")
+        logger.info(f"[JobBoard] Model: gpt-4o, Max tokens: 3500")
         
         # Retry configuration - increased timeouts for large prompts
         max_retries = 2
@@ -5285,7 +5594,7 @@ Return ONLY valid JSON. Do not include explanations or markdown."""
         last_error = None
         for retry_attempt in range(max_retries):
             timeout = base_timeout + (retry_attempt * 60.0)  # Increase by 60s for retries (was 30s)
-            print(f"[JobBoard] Attempt {retry_attempt + 1}/{max_retries} with {timeout}s timeout...")
+            logger.info(f"[JobBoard] Attempt {retry_attempt + 1}/{max_retries} with {timeout}s timeout...")
             
             try:
                 # Create the API call with increased timeout
@@ -5301,13 +5610,13 @@ Return ONLY valid JSON. Do not include explanations or markdown."""
                 # Wait for response with additional buffer for connection pool
                 # Add extra buffer for connection acquisition and processing
                 response = await asyncio.wait_for(api_call, timeout=timeout + 60.0)  # Increased buffer to 60s for connection pool
-                print(f"[JobBoard] ✅ OpenAI API call completed successfully (attempt {retry_attempt + 1})")
+                logger.info(f"[JobBoard]  OpenAI API call completed successfully (attempt {retry_attempt + 1})")
                 last_error = None
                 break  # Success, exit retry loop
                 
             except asyncio.TimeoutError:
                 last_error = TimeoutError(f"OpenAI API call timed out after {timeout} seconds (attempt {retry_attempt + 1}/{max_retries})")
-                print(f"[JobBoard] ❌ {last_error}")
+                logger.error(f"[JobBoard]  {last_error}")
                 if retry_attempt == max_retries - 1:
                     # Last attempt failed
                     import traceback
@@ -5318,8 +5627,8 @@ Return ONLY valid JSON. Do not include explanations or markdown."""
                 
             except Exception as api_error:
                 last_error = api_error
-                print(f"[JobBoard] ❌ API call failed (attempt {retry_attempt + 1}/{max_retries}): {api_error}")
-                print(f"[JobBoard] Error type: {type(api_error)}")
+                logger.error(f"[JobBoard]  API call failed (attempt {retry_attempt + 1}/{max_retries}): {api_error}")
+                logger.error(f"[JobBoard] Error type: {type(api_error)}")
                 if retry_attempt == max_retries - 1:
                     # Last attempt failed
                     import traceback
@@ -5331,41 +5640,41 @@ Return ONLY valid JSON. Do not include explanations or markdown."""
         # If we exited the loop without success
         if last_error:
             raise last_error
-        print(f"[JobBoard] Response type: {type(response)}")
-        print(f"[JobBoard] Number of choices: {len(response.choices) if hasattr(response, 'choices') else 'N/A'}")
+        logger.info(f"[JobBoard] Response type: {type(response)}")
+        logger.info(f"[JobBoard] Number of choices: {len(response.choices) if hasattr(response, 'choices') else 'N/A'}")
         
         content = response.choices[0].message.content.strip()
-        print(f"[JobBoard] Content length: {len(content)}")
-        print(f"[JobBoard] Content preview: {content[:200]}...")
+        logger.info(f"[JobBoard] Content length: {len(content)}")
+        logger.info(f"[JobBoard] Content preview: {content[:200]}...")
         
         if content.startswith("```"):
             content = re.sub(r"```json?\n?", "", content)
             content = re.sub(r"\n?```", "", content)
         
-        print("[JobBoard] About to parse JSON from content...")
+        logger.info("[JobBoard] About to parse JSON from content...")
         result = json.loads(content)
-        print("[JobBoard] JSON parsed successfully")
+        logger.info("[JobBoard] JSON parsed successfully")
         
-        print("[JobBoard] Building return dictionary...")
+        logger.info("[JobBoard] Building return dictionary...")
         
         # Get AI relevance score (now the only score from AI)
         ai_relevance_score = int(result.get("relevance_score", 75))
-        print(f"[JobBoard] AI relevance score: {ai_relevance_score}")
+        logger.info(f"[JobBoard] AI relevance score: {ai_relevance_score}")
         
         # Get the optimized resume content as text
         optimized_content = str(result.get("optimized_content", ""))
         
         # Calculate programmatic ATS scores
-        print("[JobBoard] Calculating programmatic ATS scores...")
+        logger.info("[JobBoard] Calculating programmatic ATS scores...")
         try:
             ats_result = calculate_ats_score(
                 resume_text=optimized_content,
                 job_description=job_desc_safe,
                 ai_relevance_score=ai_relevance_score
             )
-            print(f"[JobBoard] ✅ ATS scores calculated: overall={ats_result['overall']}, keywords={ats_result['keywords']}, formatting={ats_result['formatting']}, relevance={ats_result['relevance']}")
+            logger.info(f"[JobBoard]  ATS scores calculated: overall={ats_result['overall']}, keywords={ats_result['keywords']}, formatting={ats_result['formatting']}, relevance={ats_result['relevance']}")
         except Exception as ats_error:
-            print(f"[JobBoard] ERROR calculating ATS scores: {ats_error}")
+            logger.error(f"[JobBoard] ERROR calculating ATS scores: {ats_error}")
             import traceback
             traceback.print_exc()
             # Fallback to defaults if calculation fails
@@ -5389,12 +5698,12 @@ Return ONLY valid JSON. Do not include explanations or markdown."""
             safe_items = []
             for item in items:
                 if is_document_reference(item):
-                    print(f"[JobBoard] WARNING: Found DocumentReference in list, skipping...")
+                    logger.warning(f"[JobBoard] WARNING: Found DocumentReference in list, skipping...")
                     continue
                 try:
                     safe_items.append(str(item))
                 except Exception as e:
-                    print(f"[JobBoard] WARNING: Could not convert item to string: {e}")
+                    logger.warning(f"[JobBoard] WARNING: Could not convert item to string: {e}")
                     continue
             return safe_items
         
@@ -5408,7 +5717,7 @@ Return ONLY valid JSON. Do not include explanations or markdown."""
         sections_optimized = []
         for item in sections_optimized_raw:
             if is_document_reference(item):
-                print(f"[JobBoard] WARNING: Found DocumentReference in sections_optimized, skipping...")
+                logger.warning(f"[JobBoard] WARNING: Found DocumentReference in sections_optimized, skipping...")
                 continue
             if isinstance(item, dict):
                 # New format: extract section name from object
@@ -5420,19 +5729,19 @@ Return ONLY valid JSON. Do not include explanations or markdown."""
                 try:
                     sections_optimized.append(str(item))
                 except Exception as e:
-                    print(f"[JobBoard] WARNING: Could not convert section to string: {e}")
+                    logger.warning(f"[JobBoard] WARNING: Could not convert section to string: {e}")
                     continue
         
         confidence_level = result.get("confidence_level", "medium")
         if confidence_level not in ["high", "medium", "low"]:
             confidence_level = "medium"
         
-        print(f"[JobBoard] Suggestions count: {len(suggestions)}")
-        print(f"[JobBoard] Keywords added count: {len(keywords_added)}")
-        print(f"[JobBoard] Important keywords missing count: {len(important_keywords_missing)}")
-        print(f"[JobBoard] Sections optimized count: {len(sections_optimized)}")
-        print(f"[JobBoard] Warnings count: {len(warnings)}")
-        print(f"[JobBoard] Confidence level: {confidence_level}")
+        logger.info(f"[JobBoard] Suggestions count: {len(suggestions)}")
+        logger.info(f"[JobBoard] Keywords added count: {len(keywords_added)}")
+        logger.info(f"[JobBoard] Important keywords missing count: {len(important_keywords_missing)}")
+        logger.info(f"[JobBoard] Sections optimized count: {len(sections_optimized)}")
+        logger.warning(f"[JobBoard] Warnings count: {len(warnings)}")
+        logger.info(f"[JobBoard] Confidence level: {confidence_level}")
         
         # Include structured resume data for PDF generation
         # The optimized resume should maintain the same structure as the original
@@ -5487,25 +5796,25 @@ Return ONLY valid JSON. Do not include explanations or markdown."""
         }
         
         # Final check - ensure return_dict is JSON serializable
-        print("[JobBoard] Verifying return dictionary is JSON serializable...")
+        logger.info("[JobBoard] Verifying return dictionary is JSON serializable...")
         try:
             test_json = json.dumps(return_dict, default=str)
-            print("[JobBoard] ✅ Return dictionary is JSON serializable")
+            logger.info("[JobBoard]  Return dictionary is JSON serializable")
         except Exception as json_error:
-            print(f"[JobBoard] ERROR: Return dictionary is not JSON serializable: {json_error}")
+            logger.error(f"[JobBoard] ERROR: Return dictionary is not JSON serializable: {json_error}")
             import traceback
             traceback.print_exc()
             raise
         
-        print("[JobBoard] Return dictionary built successfully")
+        logger.info("[JobBoard] Return dictionary built successfully")
         return return_dict
         
     except Exception as e:
-        print(f"[JobBoard] AI optimization error: {e}")
-        print(f"[JobBoard] Error type: {type(e)}")
-        print(f"[JobBoard] Error args: {e.args}")
+        logger.error(f"[JobBoard] AI optimization error: {e}")
+        logger.error(f"[JobBoard] Error type: {type(e)}")
+        logger.error(f"[JobBoard] Error args: {e.args}")
         import traceback
-        print("[JobBoard] Full traceback:")
+        logger.info("[JobBoard] Full traceback:")
         traceback.print_exc()
         raise
 
@@ -5605,9 +5914,9 @@ async def generate_cover_letter_with_ai(
         resume_json = json.dumps(relevant_resume, default=json_default, ensure_ascii=False)
         # Verify it's valid JSON
         json.loads(resume_json)
-        print(f"[JobBoard] ✅ Resume serialized successfully (length: {len(resume_json)} chars)")
+        logger.info(f"[JobBoard]  Resume serialized successfully (length: {len(resume_json)} chars)")
     except Exception as e:
-        print(f"[JobBoard] Error serializing resume: {e}")
+        logger.error(f"[JobBoard] Error serializing resume: {e}")
         raise ValueError(f"Failed to serialize resume data: {e}")
     
     # Truncate job description to prevent overly long prompts
@@ -5877,8 +6186,8 @@ Include a proper greeting (Dear [Hiring Manager/Team]) and closing with signatur
     max_retries = 2  # Reduced from 3
     base_timeout = 45.0  # Reduced from 60s
     
-    print(f"[JobBoard] Calling OpenAI API for cover letter generation...")
-    print(f"[JobBoard] Model: {model}, Prompt length: {len(prompt)} chars, max_tokens: 1200")
+    logger.info(f"[JobBoard] Calling OpenAI API for cover letter generation...")
+    logger.info(f"[JobBoard] Model: {model}, Prompt length: {len(prompt)} chars, max_tokens: 1200")
     
     last_error = None
     for retry_attempt in range(max_retries):
@@ -5888,7 +6197,7 @@ Include a proper greeting (Dear [Hiring Manager/Team]) and closing with signatur
             
             if retry_attempt > 0:
                 wait_time = 2 ** retry_attempt  # 2s, 4s
-                print(f"[JobBoard] Retry attempt {retry_attempt + 1}/{max_retries} after {wait_time}s wait...")
+                logger.info(f"[JobBoard] Retry attempt {retry_attempt + 1}/{max_retries} after {wait_time}s wait...")
                 await asyncio.sleep(wait_time)
             
             api_call = openai_client.chat.completions.create(
@@ -5904,7 +6213,7 @@ Include a proper greeting (Dear [Hiring Manager/Team]) and closing with signatur
             
             # Wait for response with slightly longer timeout
             response = await asyncio.wait_for(api_call, timeout=timeout + 10.0)
-            print(f"[JobBoard] ✅ OpenAI API call completed for cover letter (attempt {retry_attempt + 1})")
+            logger.info(f"[JobBoard]  OpenAI API call completed for cover letter (attempt {retry_attempt + 1})")
             
             content = response.choices[0].message.content.strip()
             
@@ -5930,12 +6239,12 @@ Include a proper greeting (Dear [Hiring Manager/Team]) and closing with signatur
             
         except asyncio.TimeoutError:
             last_error = TimeoutError(f"OpenAI API call timed out after {timeout} seconds (attempt {retry_attempt + 1}/{max_retries})")
-            print(f"[JobBoard] ❌ {last_error}")
+            logger.error(f"[JobBoard]  {last_error}")
             if retry_attempt == max_retries - 1:
                 raise last_error
         except Exception as api_err:
             last_error = api_err
-            print(f"[JobBoard] ❌ OpenAI API call error (attempt {retry_attempt + 1}/{max_retries}): {api_err}")
+            logger.error(f"[JobBoard]  OpenAI API call error (attempt {retry_attempt + 1}/{max_retries}): {api_err}")
             if retry_attempt == max_retries - 1:
                 raise
     
@@ -5993,9 +6302,9 @@ def _fetch_jobs_for_query(
             
             if not jobs_batch:
                 if page_num == 0:
-                    print(f"[JobBoard] No jobs found for query '{query}' on first page")
+                    logger.info(f"[JobBoard] No jobs found for query '{query}' on first page")
                 else:
-                    print(f"[JobBoard] Pagination stopped for query '{query}' at page {page_num + 1} (no more results)")
+                    logger.info(f"[JobBoard] Pagination stopped for query '{query}' at page {page_num + 1} (no more results)")
                 break
             
             # Early exit if no new jobs were added (avoid wasting API calls)
@@ -6014,15 +6323,15 @@ def _fetch_jobs_for_query(
             # Early exit if no new jobs were added
             jobs_after = len(query_jobs)
             if jobs_after == jobs_before:
-                print(f"[JobBoard] No new jobs added on page {page_num + 1} for query '{query}', stopping pagination")
+                logger.info(f"[JobBoard] No new jobs added on page {page_num + 1} for query '{query}', stopping pagination")
                 break
             
             if len(query_jobs) >= jobs_per_query:
-                print(f"[JobBoard] Reached target jobs per query ({jobs_per_query}) for '{query}'")
+                logger.info(f"[JobBoard] Reached target jobs per query ({jobs_per_query}) for '{query}'")
                 break
             
             if not next_token:
-                print(f"[JobBoard] No more pages available for query '{query}' (no next_token)")
+                logger.info(f"[JobBoard] No more pages available for query '{query}' (no next_token)")
                 break
             
             current_token = next_token
@@ -6037,7 +6346,7 @@ def _fetch_jobs_for_query(
         return query_jobs, query_metadata
         
     except Exception as e:
-        print(f"[JobBoard] Error fetching for query '{query}': {e}")
+        logger.error(f"[JobBoard] Error fetching for query '{query}': {e}")
         import traceback
         traceback.print_exc()
         return [], {
@@ -6097,7 +6406,7 @@ def fetch_personalized_jobs(
     primary_job_type = job_types[0] if job_types else None
     
     # Execute queries in parallel
-    print(f"[JobBoard] Executing {max_queries} queries in parallel (QUICK WIN: reduced from 6)...")
+    logger.info(f"[JobBoard] Executing {max_queries} queries in parallel (QUICK WIN: reduced from 6)...")
     start_time = datetime.now()
     
     with ThreadPoolExecutor(max_workers=4) as executor:  # Reduced from 6 to match max_queries
@@ -6133,12 +6442,12 @@ def fetch_personalized_jobs(
                 
                 # Stop if we have enough jobs
                 if len(all_jobs) >= max_jobs:
-                    print(f"[JobBoard] Reached max_jobs ({max_jobs}), stopping query execution")
+                    logger.info(f"[JobBoard] Reached max_jobs ({max_jobs}), stopping query execution")
                     # Cancel remaining futures (they'll complete but we won't process results)
                     break
                     
             except Exception as e:
-                print(f"[JobBoard] Query '{query_info.get('query', 'unknown')}' failed: {e}")
+                logger.error(f"[JobBoard] Query '{query_info.get('query', 'unknown')}' failed: {e}")
                 queries_used.append({
                     "query": query_info.get("query", "unknown"),
                     "source": query_info.get("source", "unknown"),
@@ -6147,7 +6456,7 @@ def fetch_personalized_jobs(
                 })
     
     elapsed_time = (datetime.now() - start_time).total_seconds()
-    print(f"[JobBoard] Parallel query execution completed in {elapsed_time:.2f} seconds")
+    logger.info(f"[JobBoard] Parallel query execution completed in {elapsed_time:.2f} seconds")
     
     # Filter out low-quality jobs BEFORE intent gates
     quality_filtered_jobs = filter_jobs_by_quality(all_jobs, min_quality_score=MIN_QUALITY_SCORE)
@@ -6155,7 +6464,7 @@ def fetch_personalized_jobs(
     # PHASE 2: Apply hard intent gates (after quality filter, before scoring)
     intent_contract = user_profile.get("_intent_contract", {})
     if not intent_contract:
-        print(f"[HardGate][WARN] No intent_contract found for user, skipping hard gates (Phase 1 may not have run)")
+        logger.warning(f"[HardGate][WARN] No intent_contract found for user, skipping hard gates (Phase 1 may not have run)")
         filtered_jobs = quality_filtered_jobs
         gate_stats = {"total_rejected": 0, "total_kept": len(quality_filtered_jobs), "career_domain": 0, "job_type": 0, "location": 0, "seniority": 0}
     else:
@@ -6167,7 +6476,7 @@ def fetch_personalized_jobs(
         rejection_rate = (total_rejected / total_after_quality * 100) if total_after_quality > 0 else 0
         primary_domain = intent_contract.get("career_domains", [None])[0] if intent_contract else "unknown"
         
-        print(f"[QueryGen][STATS] domain={primary_domain} "
+        logger.info(f"[QueryGen][STATS] domain={primary_domain} "
               f"fetched={len(all_jobs)} "
               f"after_quality={total_after_quality} "
               f"rejected_by_gates={total_rejected} "
@@ -6176,7 +6485,7 @@ def fetch_personalized_jobs(
         
         # Warn if rejection rate is too high (indicates query generation needs improvement)
         if rejection_rate > 25.0 and total_after_quality > 0:
-            print(f"[QueryGen][WARN] High rejection rate {rejection_rate:.1f}% for domain={primary_domain}, queries may be too broad")
+            logger.warning(f"[QueryGen][WARN] High rejection rate {rejection_rate:.1f}% for domain={primary_domain}, queries may be too broad")
     
     # PHASE 6: Deduplicate jobs (after hard gates, before scoring)
     deduplicated_jobs, dedup_stats = deduplicate_jobs(filtered_jobs)
@@ -6197,10 +6506,10 @@ def fetch_personalized_jobs(
     else:
         score_range = "N/A"
     
-    print(f"[RankingSummary]")
-    print(f"[RankingSummary] top_titles={top_titles}")
-    print(f"[RankingSummary] top_companies={top_companies}")
-    print(f"[RankingSummary] score_range={score_range}")
+    logger.info(f"[RankingSummary]")
+    logger.info(f"[RankingSummary] top_titles={top_titles}")
+    logger.info(f"[RankingSummary] top_companies={top_companies}")
+    logger.info(f"[RankingSummary] score_range={score_range}")
     
     # Return top jobs
     metadata = {
@@ -6250,17 +6559,8 @@ def get_job_listings():
         per_page = data.get("perPage", 20)
         start = (page - 1) * per_page
         
-        # PHASE 5: Check for cache invalidation before fetching profile
-        db = get_db()
-        if db:
-            invalidation_ref = db.collection("job_cache_invalidations").document(user_id)
-            invalidation_doc = invalidation_ref.get()
-            if invalidation_doc.exists:
-                invalidation_data = invalidation_doc.to_dict()
-                reason = invalidation_data.get("reason", "unknown")
-                changed_fields = invalidation_data.get("changed_fields", [])
-                print(f"[JobBoard][RECOMPUTE] user={user_id[:8]}... triggered_by=preference_update reason={reason} changed_fields={changed_fields}")
-        
+        # Cache invalidation is handled inside get_cached_jobs_with_stale() — no extra read needed here
+
         # Get comprehensive user profile
         user_profile = get_user_career_profile(user_id)
         
@@ -6278,17 +6578,17 @@ def get_job_listings():
         preferred_locations = intent_contract.get("preferred_locations", [])
         months_until_graduation = graduation_timing.get("months_until_graduation")
         
-        print(f"[Persona]")
-        print(f"[Persona] degree={degree}")
-        print(f"[Persona] career_phase={career_phase}")
-        print(f"[Persona] job_types={job_types}")
-        print(f"[Persona] domains={domains}")
-        print(f"[Persona] preferred_locations={preferred_locations}")
-        print(f"[Persona] months_until_graduation={months_until_graduation}")
+        logger.info(f"[Persona]")
+        logger.info(f"[Persona] degree={degree}")
+        logger.info(f"[Persona] career_phase={career_phase}")
+        logger.info(f"[Persona] job_types={job_types}")
+        logger.info(f"[Persona] domains={domains}")
+        logger.info(f"[Persona] preferred_locations={preferred_locations}")
+        logger.info(f"[Persona] months_until_graduation={months_until_graduation}")
         
         # Debug: Log profile data (without sensitive info)
         major_value = user_profile.get('major', '')
-        print(f"[JobBoard] User profile summary: major={bool(major_value)} ({major_value}), "
+        logger.info(f"[JobBoard] User profile summary: major={bool(major_value)} ({major_value}), "
               f"skills={len(user_profile.get('skills', []))}, "
               f"extracurriculars={len(user_profile.get('extracurriculars', []))}, "
               f"experiences={len(user_profile.get('experiences', []))}")
@@ -6322,7 +6622,7 @@ def get_job_listings():
         
         # Fallback to mock data if needed
         if not paginated_jobs:
-            print("[JobBoard] Falling back to mock data")
+            logger.info("[JobBoard] Falling back to mock data")
             paginated_jobs = get_mock_jobs(job_types, industries, locations)
             source = "demo"
         else:
@@ -6353,7 +6653,7 @@ def get_job_listings():
         elif len(preferred_locations) == 1:
             location_label = f"Showing jobs in: {preferred_locations[0]}"
         
-        print(f"[JobBoard] Returning {len(paginated_jobs)} jobs, hasMore={has_more}, estimatedTotal={estimated_total}")
+        logger.info(f"[JobBoard] Returning {len(paginated_jobs)} jobs, hasMore={has_more}, estimatedTotal={estimated_total}")
         
         return jsonify({
             "jobs": paginated_jobs,
@@ -6380,7 +6680,7 @@ def get_job_listings():
         }), 200
         
     except Exception as e:
-        print(f"[JobBoard] Error fetching jobs: {e}")
+        logger.error(f"[JobBoard] Error fetching jobs: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -6423,7 +6723,7 @@ def search_jobs():
         }), 200
         
     except Exception as e:
-        print(f"[JobBoard] Search error: {e}")
+        logger.error(f"[JobBoard] Search error: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -6489,7 +6789,7 @@ def optimize_resume():
         
         user_data = user_doc.to_dict()
         # Sanitize user_data before using it - it might contain DocumentReferences
-        print(f"[JobBoard] Sanitizing user_data before credit check...")
+        logger.info(f"[JobBoard] Sanitizing user_data before credit check...")
         user_data = sanitize_firestore_data(user_data, depth=0, max_depth=20)
         current_credits = check_and_reset_credits(user_ref, user_data)
         stages['validate']['end'] = time.time()
@@ -6507,8 +6807,8 @@ def optimize_resume():
         
         # Deduct credits BEFORE doing the expensive optimization
         # This prevents negative balances and ensures we have credits before proceeding
-        print(f"[JobBoard] Deducting credits before optimization...")
-        print(f"[JobBoard] Current credits: {current_credits}, Required: {OPTIMIZATION_CREDIT_COST}")
+        logger.info(f"[JobBoard] Deducting credits before optimization...")
+        logger.info(f"[JobBoard] Current credits: {current_credits}, Required: {OPTIMIZATION_CREDIT_COST}")
         success, new_credits = deduct_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization")
         
         if not success:
@@ -6522,32 +6822,32 @@ def optimize_resume():
                 "credits_refunded": False
             }), get_status_code("credits_insufficient")
         
-        print(f"[JobBoard] Credits deducted successfully. New balance: {new_credits}")
+        logger.info(f"[JobBoard] Credits deducted successfully. New balance: {new_credits}")
         
         # Stage 2: Parse job URL (if provided)
         stages['parse_job'] = {'start': time.time()}
         if job_url:
-            print(f"[JobBoard] Parsing job URL: {job_url}")
+            logger.info(f"[JobBoard] Parsing job URL: {job_url}")
             try:
                 parsed_job = parse_job_url(job_url)
                 if parsed_job:
                     # Parsing succeeded - use title/company from URL if available
                     if parsed_job.get("title"):
                         job_title = parsed_job.get("title")
-                        print(f"[JobBoard] Parsed title from URL: {job_title}")
+                        logger.info(f"[JobBoard] Parsed title from URL: {job_title}")
                     if parsed_job.get("company"):
                         company = parsed_job.get("company")
-                        print(f"[JobBoard] Parsed company from URL: {company}")
+                        logger.info(f"[JobBoard] Parsed company from URL: {company}")
                     # Use description from URL if available and valid, otherwise keep manually pasted one
                     if parsed_job.get("description") and len(parsed_job.get("description", "").strip()) >= 50:
                         job_description = parsed_job.get("description")
-                        print(f"[JobBoard] Using description from URL ({len(job_description)} chars)")
+                        logger.info(f"[JobBoard] Using description from URL ({len(job_description)} chars)")
                     else:
-                        print(f"[JobBoard] URL parsing didn't provide a valid description, will use manually pasted description if available")
+                        logger.info(f"[JobBoard] URL parsing didn't provide a valid description, will use manually pasted description if available")
                 else:
-                    print(f"[JobBoard] URL parsing returned None, will use manually pasted description if available")
+                    logger.info(f"[JobBoard] URL parsing returned None, will use manually pasted description if available")
             except Exception as url_error:
-                print(f"[JobBoard] Error parsing URL (non-fatal): {url_error}")
+                logger.error(f"[JobBoard] Error parsing URL (non-fatal): {url_error}")
                 # Don't fail here - continue to use manually pasted description if available
                 import traceback
                 traceback.print_exc()
@@ -6557,12 +6857,12 @@ def optimize_resume():
         # Validate job description - must have either from URL or manually pasted
         if not job_description or len(job_description.strip()) < 50:
             refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
-            print(f"[JobBoard] Refunded credits due to invalid/missing job description: {refund_success}")
+            logger.info(f"[JobBoard] Refunded credits due to invalid/missing job description: {refund_success}")
             return jsonify({
                 "error": True,
                 "error_code": "invalid_job_description",
                 "message": ERROR_MESSAGES.get("invalid_job_description"),
-                "credits_refunded": True
+                "credits_refunded": refund_success
             }), get_status_code("invalid_job_description")
         
         # Stage 3: Retrieve resume
@@ -6571,19 +6871,19 @@ def optimize_resume():
         if not raw_resume:
             stages['retrieve_resume']['end'] = time.time()
             refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
-            print(f"[JobBoard] Refunded credits due to missing resume: {refund_success}")
+            logger.info(f"[JobBoard] Refunded credits due to missing resume: {refund_success}")
             return jsonify({
                 "error": True,
                 "error_code": "resume_not_found",
                 "message": ERROR_MESSAGES.get("resume_not_found"),
-                "credits_refunded": True
+                "credits_refunded": refund_success
             }), get_status_code("resume_not_found")
         
         # Deep sanitization - run multiple times to catch nested references
-        print(f"[JobBoard] Starting sanitization of resume data. Type: {type(raw_resume)}")
+        logger.info(f"[JobBoard] Starting sanitization of resume data. Type: {type(raw_resume)}")
         user_resume = raw_resume
         for i in range(3):  # Multiple passes
-            print(f"[JobBoard] Sanitization pass {i+1}")
+            logger.info(f"[JobBoard] Sanitization pass {i+1}")
             user_resume = sanitize_firestore_data(user_resume, depth=0, max_depth=20)
         
         # Additional check: manually inspect and clean ALL list fields (handle both old and new formats)
@@ -6643,12 +6943,12 @@ def optimize_resume():
         
         if not user_resume:
             refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
-            print(f"[JobBoard] Refunded credits due to empty resume after sanitization: {refund_success}")
+            logger.info(f"[JobBoard] Refunded credits due to empty resume after sanitization: {refund_success}")
             return jsonify({
                 "error": True,
                 "error_code": "resume_incomplete",
                 "message": ERROR_MESSAGES.get("resume_incomplete"),
-                "credits_refunded": True
+                "credits_refunded": refund_success
             }), get_status_code("resume_incomplete")
         
         # Stage 4: Extract keywords
@@ -6658,60 +6958,60 @@ def optimize_resume():
         
         # Stage 5: AI optimization (longest stage)
         stages['ai_optimization'] = {'start': time.time()}
-        print(f"[JobBoard] Calling optimize_resume_with_ai...")
+        logger.info(f"[JobBoard] Calling optimize_resume_with_ai...")
         try:
             async def optimize_with_timeout():
                 return await optimize_resume_with_ai(user_resume, job_description, job_title, company)
                 
             # Increased outer timeout to match increased API timeouts
             # Base: 180s, Retry: 240s, Buffer: 30s, so max is ~270s, use 300s for safety
-            print(f"[JobBoard] Starting async optimization with 300 second timeout...")
+            logger.info(f"[JobBoard] Starting async optimization with 300 second timeout...")
             optimized = asyncio.run(
                 asyncio.wait_for(optimize_with_timeout(), timeout=300.0)  # Increased from 190s to 300s
             )
-            print(f"[JobBoard] ✅ AI function returned successfully")
+            logger.info(f"[JobBoard]  AI function returned successfully")
             stages['ai_optimization']['end'] = time.time()
                 
             
             # Final sanitization of the optimized result before returning
-            print(f"[JobBoard] Sanitizing optimized result before jsonify...")
+            logger.info(f"[JobBoard] Sanitizing optimized result before jsonify...")
             optimized = sanitize_firestore_data(optimized, depth=0, max_depth=20)
                 
             
             # Verify it's JSON serializable
             try:
                 test_json = json.dumps(optimized, default=str)
-                print(f"[JobBoard] ✅ Optimized result is JSON serializable")
+                logger.info(f"[JobBoard]  Optimized result is JSON serializable")
             except Exception as json_error:
-                print(f"[JobBoard] ERROR: Optimized result is not JSON serializable: {json_error}")
+                logger.error(f"[JobBoard] ERROR: Optimized result is not JSON serializable: {json_error}")
                 import traceback
                 traceback.print_exc()
                 # Refund credits on JSON serialization error
                 refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
-                print(f"[JobBoard] Refunded credits due to JSON serialization error: {refund_success}")
+                logger.error(f"[JobBoard] Refunded credits due to JSON serialization error: {refund_success}")
                 return jsonify({
                     "error": True,
                     "error_code": "json_parse_error",
                     "message": ERROR_MESSAGES.get("json_parse_error"),
-                    "credits_refunded": True
+                    "credits_refunded": refund_success
                 }), get_status_code("json_parse_error")
             
         except asyncio.TimeoutError:
-            print(f"[JobBoard] ❌ Resume optimization timed out after 130 seconds")
+            logger.info(f"[JobBoard]  Resume optimization timed out after 130 seconds")
             import traceback
             traceback.print_exc()
             stages['ai_optimization']['end'] = time.time()
             refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
-            print(f"[JobBoard] Refunded credits due to timeout: {refund_success}")
+            logger.info(f"[JobBoard] Refunded credits due to timeout: {refund_success}")
             return jsonify({
                 "error": True,
                 "error_code": "ai_timeout",
                 "message": ERROR_MESSAGES.get("ai_timeout"),
-                "credits_refunded": True
+                "credits_refunded": refund_success
             }), get_status_code("ai_timeout")
         except Exception as optimization_error:
-            print(f"[JobBoard] ❌ Error in optimization: {optimization_error}")
-            print(f"[JobBoard] Error type: {type(optimization_error)}")
+            logger.error(f"[JobBoard]  Error in optimization: {optimization_error}")
+            logger.error(f"[JobBoard] Error type: {type(optimization_error)}")
             import traceback
             traceback.print_exc()
             stages['ai_optimization']['end'] = time.time()
@@ -6720,33 +7020,33 @@ def optimize_resume():
             error_str = str(optimization_error).lower()
             if 'rate limit' in error_str or '429' in error_str:
                 refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
-                print(f"[JobBoard] Refunded credits due to rate limit: {refund_success}")
+                logger.info(f"[JobBoard] Refunded credits due to rate limit: {refund_success}")
                 return jsonify({
                     "error": True,
                     "error_code": "ai_rate_limit",
                     "message": ERROR_MESSAGES.get("ai_rate_limit"),
-                    "credits_refunded": True
+                    "credits_refunded": refund_success
                 }), get_status_code("ai_rate_limit")
             else:
                 # Generic AI error
                 refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
-                print(f"[JobBoard] Refunded credits due to AI error: {refund_success}")
+                logger.error(f"[JobBoard] Refunded credits due to AI error: {refund_success}")
                 return jsonify({
                     "error": True,
                     "error_code": "ai_error",
                     "message": ERROR_MESSAGES.get("ai_error"),
-                    "credits_refunded": True
+                    "credits_refunded": refund_success
                 }), get_status_code("ai_error")
         
         # Credits were already deducted before the optimization
         # Use the new_credits from the earlier deduction
-        print(f"[JobBoard] Using credits from pre-deduction. Balance: {new_credits}")
+        logger.info(f"[JobBoard] Using credits from pre-deduction. Balance: {new_credits}")
         
         # Calculate processing time
         processing_time_ms = int((time.time() - start_time) * 1000)
         
         # Build response - ensure all values are basic types
-        print(f"[JobBoard] Building final response...")
+        logger.info(f"[JobBoard] Building final response...")
         response_data = {
             "optimizedResume": optimized,
             "creditsUsed": int(OPTIMIZATION_CREDIT_COST),
@@ -6755,64 +7055,65 @@ def optimize_resume():
         }
         
         # Sanitize the entire response one more time
-        print(f"[JobBoard] Sanitizing final response...")
+        logger.info(f"[JobBoard] Sanitizing final response...")
         response_data = sanitize_firestore_data(response_data, depth=0, max_depth=20)
         
         # Final check before jsonify
-        print(f"[JobBoard] Testing final response JSON serialization...")
+        logger.info(f"[JobBoard] Testing final response JSON serialization...")
         try:
             test_response_json = json.dumps(response_data, default=str)
-            print(f"[JobBoard] ✅ Final response is JSON serializable")
+            logger.info(f"[JobBoard]  Final response is JSON serializable")
         except Exception as json_error:
-            print(f"[JobBoard] ERROR: Final response is not JSON serializable: {json_error}")
-            print(f"[JobBoard] Response data: {response_data}")
+            logger.error(f"[JobBoard] ERROR: Final response is not JSON serializable: {json_error}")
+            logger.info(f"[JobBoard] Response data: {response_data}")
             import traceback
             traceback.print_exc()
             # Refund credits if response building fails
             refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
-            print(f"[JobBoard] Refunded credits due to response serialization error: {refund_success}")
+            logger.error(f"[JobBoard] Refunded credits due to response serialization error: {refund_success}")
             return jsonify({
                 "error": True,
                 "error_code": "json_parse_error",
                 "message": ERROR_MESSAGES.get("json_parse_error"),
-                "credits_refunded": True
+                "credits_refunded": refund_success
             }), get_status_code("json_parse_error")
         
-        print(f"[JobBoard] Calling jsonify...")
+        logger.info(f"[JobBoard] Calling jsonify...")
         try:
             result = jsonify(response_data)
-            print(f"[JobBoard] ✅ jsonify successful, returning response...")
-            print(f"[JobBoard] Processing time: {processing_time_ms}ms")
+            logger.info(f"[JobBoard]  jsonify successful, returning response...")
+            logger.info(f"[JobBoard] Processing time: {processing_time_ms}ms")
             return result, 200
         except Exception as jsonify_error:
-            print(f"[JobBoard] ERROR in jsonify: {jsonify_error}")
+            logger.error(f"[JobBoard] ERROR in jsonify: {jsonify_error}")
             import traceback
             traceback.print_exc()
             # Refund credits if jsonify fails
             refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
-            print(f"[JobBoard] Refunded credits due to jsonify error: {refund_success}")
+            logger.error(f"[JobBoard] Refunded credits due to jsonify error: {refund_success}")
             return jsonify({
                 "error": True,
                 "error_code": "json_parse_error",
                 "message": ERROR_MESSAGES.get("json_parse_error"),
-                "credits_refunded": True
+                "credits_refunded": refund_success
             }), get_status_code("json_parse_error")
         
     except Exception as e:
-        print(f"[JobBoard] Unexpected error in resume optimization: {e}")
+        logger.error(f"[JobBoard] Unexpected error in resume optimization: {e}")
         import traceback
         traceback.print_exc()
         # Try to refund credits on unexpected error
+        refund_success = False
         try:
             refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_refund")
-            print(f"[JobBoard] Refunded credits due to unexpected error: {refund_success}")
+            logger.error(f"[JobBoard] Refunded credits due to unexpected error: {refund_success}")
         except Exception as refund_error:
-            print(f"[JobBoard] Failed to refund credits: {refund_error}")
+            logger.error(f"[JobBoard] Failed to refund credits: {refund_error}")
         return jsonify({
             "error": True,
             "error_code": "ai_error",
             "message": ERROR_MESSAGES.get("ai_error"),
-            "credits_refunded": True
+            "credits_refunded": refund_success
         }), get_status_code("ai_error")
 
 
@@ -6883,7 +7184,7 @@ def get_resume_capabilities_endpoint():
         })
         
     except Exception as e:
-        print(f"[ResumeCapabilities] Error: {e}")
+        logger.error(f"[ResumeCapabilities] Error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -6924,12 +7225,12 @@ def optimize_resume_v2():
         company = data.get("company", "")
         mode = data.get("mode")
         
-        print(f"\n[JobBoardV2] ========================================")
-        print(f"[JobBoardV2] Resume Optimization V2 Request")
-        print(f"[JobBoardV2] User: {user_id}")
-        print(f"[JobBoardV2] Mode: {mode}")
-        print(f"[JobBoardV2] Job: {job_title} at {company}")
-        print(f"[JobBoardV2] ========================================\n")
+        logger.info(f"\n[JobBoardV2] ========================================")
+        logger.info(f"[JobBoardV2] Resume Optimization V2 Request")
+        logger.info(f"[JobBoardV2] User: {user_id}")
+        logger.info(f"[JobBoardV2] Mode: {mode}")
+        logger.info(f"[JobBoardV2] Job: {job_title} at {company}")
+        logger.info(f"[JobBoardV2] ========================================\n")
         
         # Parse job URL if provided
         if job_url:
@@ -6943,7 +7244,7 @@ def optimize_resume_v2():
                     if parsed_job.get("description") and len(parsed_job.get("description", "").strip()) >= 50:
                         job_description = parsed_job.get("description")
             except Exception as url_error:
-                print(f"[JobBoardV2] Error parsing URL (non-fatal): {url_error}")
+                logger.error(f"[JobBoardV2] Error parsing URL (non-fatal): {url_error}")
         
         # Validate inputs
         if not job_description or len(job_description.strip()) < 50:
@@ -7002,7 +7303,7 @@ def optimize_resume_v2():
             }), 400
         
         # Deduct credits BEFORE optimization
-        print(f"[JobBoardV2] Deducting {OPTIMIZATION_CREDIT_COST} credits...")
+        logger.info(f"[JobBoardV2] Deducting {OPTIMIZATION_CREDIT_COST} credits...")
         success, new_credits = deduct_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_v2")
         
         if not success:
@@ -7012,10 +7313,10 @@ def optimize_resume_v2():
                 "available": new_credits
             }), 402
         
-        print(f"[JobBoardV2] Credits: {current_credits} → {new_credits}")
+        logger.info(f"[JobBoardV2] Credits: {current_credits} → {new_credits}")
         
         # Download resume to temp file
-        print(f"[JobBoardV2] Downloading resume from {resume_url[:80]}...")
+        logger.info(f"[JobBoardV2] Downloading resume from {resume_url[:80]}...")
         
         resume_response = requests.get(resume_url, timeout=30, headers={"User-Agent": "Offerloop/1.0"})
         resume_response.raise_for_status()
@@ -7026,7 +7327,7 @@ def optimize_resume_v2():
             f.write(resume_response.content)
             file_path = f.name
         
-        print(f"[JobBoardV2] Resume saved to {file_path}")
+        logger.info(f"[JobBoardV2] Resume saved to {file_path}")
         
         try:
             # Get OpenAI client
@@ -7035,7 +7336,7 @@ def optimize_resume_v2():
                 raise Exception("OpenAI client not available")
             
             # Run optimization
-            print(f"[JobBoardV2] Running optimization (mode: {mode})...")
+            logger.info(f"[JobBoardV2] Running optimization (mode: {mode})...")
             
             pdf_bytes, metadata = run_resume_optimization(
                 file_path=file_path,
@@ -7047,19 +7348,19 @@ def optimize_resume_v2():
                 company=company
             )
             
-            print(f"[JobBoardV2] ✅ Optimization complete!")
+            logger.info(f"[JobBoardV2]  Optimization complete!")
             
             # Clean up temp file
             try:
                 if file_path and os.path.exists(file_path):
                     os.unlink(file_path)
             except Exception as e:
-                print(f"[JobBoardV2] Warning: Could not delete temp file: {e}")
+                logger.warning(f"[JobBoardV2] Warning: Could not delete temp file: {e}")
             
             # Return based on mode
             if pdf_bytes:
                 # Direct edit mode - return PDF file
-                print(f"[JobBoardV2] Returning PDF ({len(pdf_bytes)} bytes)")
+                logger.info(f"[JobBoardV2] Returning PDF ({len(pdf_bytes)} bytes)")
                 
                 return Response(
                     pdf_bytes,
@@ -7074,7 +7375,7 @@ def optimize_resume_v2():
                 )
             else:
                 # Suggestions or template rebuild - return JSON
-                print(f"[JobBoardV2] Returning JSON response")
+                logger.info(f"[JobBoardV2] Returning JSON response")
                 
                 return jsonify({
                     **metadata,
@@ -7084,10 +7385,10 @@ def optimize_resume_v2():
                 
         except Exception as e:
             # Refund credits on failure
-            print(f"[JobBoardV2] ❌ Optimization error: {e}")
-            print(f"[JobBoardV2] Refunding {OPTIMIZATION_CREDIT_COST} credits...")
+            logger.error(f"[JobBoardV2]  Optimization error: {e}")
+            logger.info(f"[JobBoardV2] Refunding {OPTIMIZATION_CREDIT_COST} credits...")
             refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_v2_refund")
-            print(f"[JobBoardV2] Refunded: {refund_success}")
+            logger.info(f"[JobBoardV2] Refunded: {refund_success}")
             
             import traceback
             traceback.print_exc()
@@ -7098,7 +7399,7 @@ def optimize_resume_v2():
             }), 500
             
     except Exception as e:
-        print(f"[JobBoardV2] Error: {e}")
+        logger.error(f"[JobBoardV2] Error: {e}")
         import traceback
         traceback.print_exc()
         
@@ -7106,9 +7407,9 @@ def optimize_resume_v2():
         if user_id:
             try:
                 refund_success, _ = refund_credits_atomic(user_id, OPTIMIZATION_CREDIT_COST, "resume_optimization_v2_refund")
-                print(f"[JobBoardV2] Refunded credits: {refund_success}")
+                logger.info(f"[JobBoardV2] Refunded credits: {refund_success}")
             except Exception as refund_error:
-                print(f"[JobBoardV2] Failed to refund: {refund_error}")
+                logger.error(f"[JobBoardV2] Failed to refund: {refund_error}")
         
         return jsonify({"error": str(e)}), 500
         
@@ -7118,7 +7419,7 @@ def optimize_resume_v2():
             try:
                 os.unlink(file_path)
             except Exception as cleanup_error:
-                print(f"[JobBoardV2] Cleanup error: {cleanup_error}")
+                logger.error(f"[JobBoardV2] Cleanup error: {cleanup_error}")
 
 
 def normalize_company_name(company: str) -> str:
@@ -7166,7 +7467,7 @@ def extract_job_details_with_openai(job_description: str) -> Optional[Dict[str, 
     try:
         client = get_openai_client()
         if not client:
-            print("[FindRecruiter] OpenAI client not available")
+            logger.info("[FindRecruiter] OpenAI client not available")
             return None
         
         # Truncate description if too long (keep first 4000 chars for better context)
@@ -7240,11 +7541,11 @@ Return ONLY a valid JSON object in this exact format with no markdown, no code b
         return extracted if extracted else None
         
     except json.JSONDecodeError as e:
-        print(f"[FindRecruiter] Failed to parse OpenAI JSON response: {e}")
-        print(f"[FindRecruiter] Response was: {result_text[:200]}")
+        logger.error(f"[FindRecruiter] Failed to parse OpenAI JSON response: {e}")
+        logger.info(f"[FindRecruiter] Response was: {result_text[:200]}")
         return None
     except Exception as e:
-        print(f"[FindRecruiter] OpenAI extraction error: {e}")
+        logger.error(f"[FindRecruiter] OpenAI extraction error: {e}")
         return None
 
 
@@ -7275,8 +7576,8 @@ def find_recruiter_endpoint():
     """
     try:
         user_id = request.firebase_user.get('uid')
-        data = request.get_json()
-        
+        data = request.get_json(force=True, silent=True) or {}
+
         # Get job information from various sources
         company = data.get('company')
         job_title = data.get('jobTitle', '')
@@ -7284,62 +7585,65 @@ def find_recruiter_endpoint():
         job_type = data.get('jobType')  # Optional
         location = data.get('location')  # Optional
         job_url = data.get('jobUrl')  # Optional - for external job links
-        
+
         # Log initial values for debugging
-        print(f"[FindRecruiter] Initial values - company: '{company}', job_title: '{job_title}', location: '{location}', has_description: {bool(job_description)}, has_url: {bool(job_url)}")
+        logger.info(f"[FindRecruiter] Initial values - company: '{company}', job_title: '{job_title}', location: '{location}', has_description: {bool(job_description)}, has_url: {bool(job_url)}")
         
         # Reject obviously invalid company names from request
         invalid_company_names = {'job type', 'job details', 'job description', 'employer', 'company', 'organization', 'n/a', 'null', 'none', ''}
         if company and company.lower().strip() in invalid_company_names:
-            print(f"[FindRecruiter] Rejecting invalid company name from request: '{company}'")
+            logger.warning(f"[FindRecruiter] Rejecting invalid company name from request: '{company}'")
             company = None
         elif company:
             # Normalize company name from user input
             company = normalize_company_name(company)
         
-        # If no company provided but we have a job URL, try to parse it
-        if not company and job_url:
+        # Parse job URL to fill in missing fields (company, title, location, description)
+        if job_url:
             try:
                 parsed_job = parse_job_url(job_url)
                 if parsed_job:
-                    if parsed_job.get('company'):
+                    if parsed_job.get('company') and not company:
                         company = normalize_company_name(parsed_job.get('company'))
-                    if parsed_job.get('title'):
+                    if parsed_job.get('title') and not job_title:
                         job_title = parsed_job.get('title')
-                    if parsed_job.get('location'):
+                    if parsed_job.get('location') and not location:
                         location = parsed_job.get('location')
-                    if parsed_job.get('description'):
+                    if parsed_job.get('description') and not job_description:
                         job_description = parsed_job.get('description')
+                    logger.info(f"[FindRecruiter] URL parsed: company={bool(parsed_job.get('company'))}, title={bool(parsed_job.get('title'))}, desc={bool(parsed_job.get('description'))}")
+                else:
+                    logger.warning(f"[FindRecruiter] URL parsing returned no data for: {job_url}")
             except Exception as e:
-                print(f"[FindRecruiter] Error parsing job URL: {e}")
-        
+                logger.error(f"[FindRecruiter] Error parsing job URL: {e}")
+
         # Use OpenAI to extract missing information from job description (primary extraction method)
         # Always use OpenAI if we have a description - it's more reliable than URL parsing or user input
         if job_description:
-            print(f"[FindRecruiter] Using OpenAI to extract job details from description (length: {len(job_description)})...")
+            logger.info(f"[FindRecruiter] Using OpenAI to extract job details from description (length: {len(job_description)})...")
             try:
                 extracted = extract_job_details_with_openai(job_description)
                 if extracted:
-                    print(f"[FindRecruiter] OpenAI extraction result: {extracted}")
+                    logger.info(f"[FindRecruiter] OpenAI extraction result: {extracted}")
                     # Always use OpenAI extracted values (they're more reliable than URL parsing or user input)
                     # Override existing values even if they exist, because OpenAI is more accurate
                     if extracted.get('company'):
                         company = extracted['company']  # Already normalized in extract_job_details_with_openai
-                        print(f"[FindRecruiter] ✅ OpenAI extracted company: '{company}'")
+                        logger.info(f"[FindRecruiter]  OpenAI extracted company: '{company}'")
                     if extracted.get('job_title'):
                         job_title = extracted['job_title']
-                        print(f"[FindRecruiter] ✅ OpenAI extracted job_title: '{job_title}'")
+                        logger.info(f"[FindRecruiter]  OpenAI extracted job_title: '{job_title}'")
                     if extracted.get('location'):
                         location = extracted['location']
-                        print(f"[FindRecruiter] ✅ OpenAI extracted location: '{location}'")
+                        logger.info(f"[FindRecruiter]  OpenAI extracted location: '{location}'")
                 else:
-                    print(f"[FindRecruiter] ⚠️ OpenAI extraction returned None or empty result")
+                    logger.info(f"[FindRecruiter]  OpenAI extraction returned None or empty result")
             except Exception as e:
-                print(f"[FindRecruiter] ❌ OpenAI extraction failed: {e}")
+                logger.error(f"[FindRecruiter]  OpenAI extraction failed: {e}")
                 import traceback
                 traceback.print_exc()
         else:
-            print(f"[FindRecruiter] ⚠️ No job description provided, skipping OpenAI extraction")
+            logger.info(f"[FindRecruiter]  No job description provided, skipping OpenAI extraction")
         
         # Final validation - reject invalid company names (common false positives)
         invalid_company_names = {
@@ -7351,10 +7655,10 @@ def find_recruiter_endpoint():
         if company:
             company_lower = company.lower().strip()
             if company_lower in invalid_company_names or len(company_lower) < 2:
-                print(f"[FindRecruiter] ❌ Final validation: Rejecting invalid company name: '{company}'")
+                logger.warning(f"[FindRecruiter]  Final validation: Rejecting invalid company name: '{company}'")
                 company = None
         
-        print(f"[FindRecruiter] Final values before validation - company: '{company}', job_title: '{job_title}', location: '{location}'")
+        logger.info(f"[FindRecruiter] Final values before validation - company: '{company}', job_title: '{job_title}', location: '{location}'")
         
         # Validate required fields
         if not company:
@@ -7386,12 +7690,11 @@ def find_recruiter_endpoint():
             }), 402
         
         # Get user's requested max_results (default: 5, max: 10)
-        max_results_requested = data.get('maxResults', 5)
-        if max_results_requested is not None:
-            max_results_requested = int(max_results_requested)
-            max_results_requested = min(max(max_results_requested, 1), 10)  # Clamp between 1 and 10
-        else:
+        try:
+            max_results_requested = int(data.get('maxResults', 5))
+        except (TypeError, ValueError):
             max_results_requested = 5
+        max_results_requested = min(max(max_results_requested, 1), 10)
         
         # Calculate how many recruiters user can afford (RECRUITER_CREDIT_COST per recruiter)
         max_affordable = current_credits // RECRUITER_CREDIT_COST
@@ -7400,17 +7703,20 @@ def find_recruiter_endpoint():
         
         # Get user's resume and contact info for email generation
         user_resume = user_data.get('resumeParsed', {})
+        resume_text = user_data.get('resumeText', '')
+        resume_phone = user_resume.get('contact', {}).get('phone', '') if isinstance(user_resume.get('contact'), dict) else ''
+        resume_linkedin = user_resume.get('contact', {}).get('linkedin', '') if isinstance(user_resume.get('contact'), dict) else ''
         user_contact = {
             "name": user_resume.get('name', user_data.get('displayName', '')),
             "email": user_data.get('email', ''),
-            "phone": user_resume.get('contact', {}).get('phone', '') if isinstance(user_resume.get('contact'), dict) else '',
-            "linkedin": user_resume.get('contact', {}).get('linkedin', '') if isinstance(user_resume.get('contact'), dict) else ''
+            "phone": resume_phone or user_data.get('phone', ''),
+            "linkedin": resume_linkedin or user_data.get('linkedin', '')
         }
-        
+
         # Check if user wants to generate emails (default to True)
         generate_emails = data.get('generateEmails', True)
         create_drafts = data.get('createDrafts', True)
-        
+
         # Find recruiters - use the requested amount (limited by affordability)
         result = find_recruiters(
             company_name=company,
@@ -7421,7 +7727,8 @@ def find_recruiter_endpoint():
             max_results=max_results_to_fetch,  # Use requested amount (limited by credits)
             generate_emails=generate_emails,
             user_resume=user_resume,
-            user_contact=user_contact
+            user_contact=user_contact,
+            resume_text=resume_text
         )
         
         # Check if we got results
@@ -7459,8 +7766,21 @@ def find_recruiter_endpoint():
         # Check if there are more available but user ran out of credits
         has_more = len(all_recruiters) > max_affordable or total_found > max_affordable
         credits_needed_for_more = (len(all_recruiters) - max_affordable) * RECRUITER_CREDIT_COST if has_more else 0
-        
-        # Create Gmail drafts if requested
+
+        # Deduct credits atomically BEFORE creating Gmail drafts (prevents TOCTOU)
+        credits_charged = RECRUITER_CREDIT_COST * len(affordable_recruiters)
+        if credits_charged > 0:
+            success, new_balance = deduct_credits_atomic(user_id, credits_charged, "find_recruiter")
+            if not success:
+                return jsonify({
+                    "error": "Insufficient credits",
+                    "creditsRequired": credits_charged,
+                    "creditsAvailable": 0
+                }), 402
+        else:
+            new_balance = current_credits
+
+        # Create Gmail drafts if requested (after credits are deducted)
         drafts_created = []
         if create_drafts and affordable_emails:
             from app.services.gmail_client import _load_user_gmail_creds, get_gmail_service_for_user
@@ -7470,11 +7790,11 @@ def find_recruiter_endpoint():
             from email.mime.text import MIMEText
             from email.mime.base import MIMEBase
             from email import encoders
-            
+
             # Check Gmail connection - credentials are stored in integrations/gmail subcollection
             gmail_creds = _load_user_gmail_creds(user_id)
             resume_url = user_data.get('resumeURL') or user_data.get('resumeUrl')
-            
+
             if gmail_creds:
                 # Download resume once for all drafts
                 resume_content = None
@@ -7486,34 +7806,46 @@ def find_recruiter_endpoint():
                         if stored_filename:
                             resume_filename = stored_filename
                         if resume_content:
-                            print(f"[FindRecruiter] Downloaded resume ({len(resume_content)} bytes, filename={resume_filename}) for {len(affordable_emails)} drafts")
+                            logger.info(f"[FindRecruiter] Downloaded resume ({len(resume_content)} bytes, filename={resume_filename}) for {len(affordable_emails)} drafts")
                     except Exception as e:
-                        print(f"[FindRecruiter] Failed to download resume: {e}")
-                
+                        logger.error(f"[FindRecruiter] Failed to download resume: {e}")
+
                 # Get Gmail service
                 gmail_service = get_gmail_service_for_user(user_data.get('email'), user_id=user_id)
-                
+
                 if gmail_service:
+                    import re as _re
+                    _EMAIL_RE = _re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
+
                     for email_data in affordable_emails:
                         try:
                             recruiter = email_data.get("recruiter", {})
                             to_email = email_data.get("to_email")
+                            if not to_email:
+                                continue
+                            # Validate email format before creating draft
+                            if not _EMAIL_RE.match(to_email):
+                                logger.info(f"[FindRecruiter] Skipping invalid email: {to_email[:50]}")
+                                continue
                             to_name = email_data.get("to_name", "")
                             subject = email_data.get("subject", "")
                             body_html = email_data.get("body", "")
                             body_plain = email_data.get("plain_body", "")
-                            
+
+                            # Sanitize to_name to prevent header injection
+                            to_name = to_name.replace('"', '').replace('\n', '').replace('\r', '')
+
                             # Create MIME message (mixed for attachment support)
                             message = MIMEMultipart('mixed')
-                            message['to'] = to_email
+                            message['to'] = f'"{to_name}" <{to_email}>' if to_name else to_email
                             message['subject'] = subject
-                            
+
                             # Add text/html alternative part
                             alt = MIMEMultipart('alternative')
                             alt.attach(MIMEText(body_plain, 'plain'))
                             alt.attach(MIMEText(body_html, 'html'))
                             message.attach(alt)
-                            
+
                             # Add resume attachment if available
                             if resume_content and resume_filename:
                                 part = MIMEBase('application', 'pdf')
@@ -7521,54 +7853,45 @@ def find_recruiter_endpoint():
                                 encoders.encode_base64(part)
                                 part.add_header('Content-Disposition', f'attachment; filename="{resume_filename}"')
                                 message.attach(part)
-                            
+
                             # Encode message
                             raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
-                            
+
                             # Create draft
                             draft_body = {
                                 'message': {
                                     'raw': raw_message
                                 }
                             }
-                            
+
                             draft = gmail_service.users().drafts().create(userId='me', body=draft_body).execute()
                             draft_id = draft['id']
-                            
+
                             # Get Gmail account email for URL
                             try:
                                 profile = gmail_service.users().getProfile(userId='me').execute()
                                 connected_email = profile.get('emailAddress', '')
                             except:
                                 connected_email = user_data.get('email', '')
-                            
+
                             draft_url = f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft_id}" if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
-                            
+
                             drafts_created.append({
                                 "recruiter_email": to_email,
                                 "draft_id": draft_id,
                                 "draft_url": draft_url
                             })
-                            
-                            print(f"[FindRecruiter] Created Gmail draft for {to_email}")
-                            
+
+                            logger.info(f"[FindRecruiter] Created Gmail draft for {to_email}")
+
                         except Exception as e:
-                            print(f"[FindRecruiter] Failed to create draft for {email_data.get('to_email')}: {e}")
+                            logger.error(f"[FindRecruiter] Failed to create draft for {email_data.get('to_email')}: {e}")
                 else:
-                    print(f"[FindRecruiter] Gmail service not available")
+                    logger.info(f"[FindRecruiter] Gmail service not available")
             else:
-                print(f"[FindRecruiter] Gmail not connected (no credentials found in integrations/gmail), skipping draft creation")
-                print(f"[FindRecruiter] User ID: {user_id}")
-        
-        # Deduct credits for what we're returning
-        credits_charged = RECRUITER_CREDIT_COST * len(affordable_recruiters)
-        if credits_charged > 0:
-            user_ref.update({
-                'credits': firestore.Increment(-credits_charged)
-            })
-        
-        new_balance = current_credits - credits_charged
-        
+                logger.info(f"[FindRecruiter] Gmail not connected (no credentials found in integrations/gmail), skipping draft creation")
+                logger.info(f"[FindRecruiter] User ID: {user_id}")
+
         response = {
             "recruiters": affordable_recruiters,
             "emails": affordable_emails,
@@ -7599,7 +7922,7 @@ def find_recruiter_endpoint():
         return jsonify(response)
         
     except Exception as e:
-        print(f"[FindRecruiter] Error: {str(e)}")
+        logger.error(f"[FindRecruiter] Error: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -7638,8 +7961,8 @@ def find_hiring_manager_endpoint():
     """
     try:
         user_id = request.firebase_user.get('uid')
-        data = request.get_json()
-        
+        data = request.get_json(force=True, silent=True) or {}
+
         # Get job information from various sources
         company = data.get('company')
         job_title = data.get('jobTitle', '')
@@ -7647,53 +7970,56 @@ def find_hiring_manager_endpoint():
         job_type = data.get('jobType')  # Optional
         location = data.get('location')  # Optional
         job_url = data.get('jobUrl')  # Optional - for external job links
-        
+
         # Log initial values for debugging
-        print(f"[FindHiringManager] Initial values - company: '{company}', job_title: '{job_title}', location: '{location}', has_description: {bool(job_description)}, has_url: {bool(job_url)}")
+        logger.info(f"[FindHiringManager] Initial values - company: '{company}', job_title: '{job_title}', location: '{location}', has_description: {bool(job_description)}, has_url: {bool(job_url)}")
         
         # Reject obviously invalid company names from request
         invalid_company_names = {'job type', 'job details', 'job description', 'employer', 'company', 'organization', 'n/a', 'null', 'none', ''}
         if company and company.lower().strip() in invalid_company_names:
-            print(f"[FindHiringManager] Rejecting invalid company name from request: '{company}'")
+            logger.warning(f"[FindHiringManager] Rejecting invalid company name from request: '{company}'")
             company = None
         elif company:
             # Normalize company name from user input
             company = normalize_company_name(company)
         
-        # If no company provided but we have a job URL, try to parse it
-        if not company and job_url:
+        # Parse job URL to fill in missing fields (company, title, location, description)
+        if job_url:
             try:
                 parsed_job = parse_job_url(job_url)
                 if parsed_job:
-                    if parsed_job.get('company'):
+                    if parsed_job.get('company') and not company:
                         company = normalize_company_name(parsed_job.get('company'))
-                    if parsed_job.get('title'):
+                    if parsed_job.get('title') and not job_title:
                         job_title = parsed_job.get('title')
-                    if parsed_job.get('location'):
+                    if parsed_job.get('location') and not location:
                         location = parsed_job.get('location')
-                    if parsed_job.get('description'):
+                    if parsed_job.get('description') and not job_description:
                         job_description = parsed_job.get('description')
+                    logger.info(f"[FindHiringManager] URL parsed: company={bool(parsed_job.get('company'))}, title={bool(parsed_job.get('title'))}, desc={bool(parsed_job.get('description'))}")
+                else:
+                    logger.warning(f"[FindHiringManager] URL parsing returned no data for: {job_url}")
             except Exception as e:
-                print(f"[FindHiringManager] Error parsing job URL: {e}")
-        
+                logger.error(f"[FindHiringManager] Error parsing job URL: {e}")
+
         # Use OpenAI to extract missing information from job description (primary extraction method)
         if job_description:
-            print(f"[FindHiringManager] Using OpenAI to extract job details from description (length: {len(job_description)})...")
+            logger.info(f"[FindHiringManager] Using OpenAI to extract job details from description (length: {len(job_description)})...")
             try:
                 extracted = extract_job_details_with_openai(job_description)
                 if extracted:
-                    print(f"[FindHiringManager] OpenAI extraction result: {extracted}")
+                    logger.info(f"[FindHiringManager] OpenAI extraction result: {extracted}")
                     if extracted.get('company'):
                         company = extracted['company']  # Already normalized
-                        print(f"[FindHiringManager] ✅ OpenAI extracted company: '{company}'")
+                        logger.info(f"[FindHiringManager]  OpenAI extracted company: '{company}'")
                     if extracted.get('job_title'):
                         job_title = extracted['job_title']
-                        print(f"[FindHiringManager] ✅ OpenAI extracted job_title: '{job_title}'")
+                        logger.info(f"[FindHiringManager]  OpenAI extracted job_title: '{job_title}'")
                     if extracted.get('location'):
                         location = extracted['location']
-                        print(f"[FindHiringManager] ✅ OpenAI extracted location: '{location}'")
+                        logger.info(f"[FindHiringManager]  OpenAI extracted location: '{location}'")
             except Exception as e:
-                print(f"[FindHiringManager] ❌ OpenAI extraction failed: {e}")
+                logger.error(f"[FindHiringManager]  OpenAI extraction failed: {e}")
         
         # Final validation - reject invalid company names
         invalid_company_names = {
@@ -7705,10 +8031,10 @@ def find_hiring_manager_endpoint():
         if company:
             company_lower = company.lower().strip()
             if company_lower in invalid_company_names or len(company_lower) < 2:
-                print(f"[FindHiringManager] ❌ Final validation: Rejecting invalid company name: '{company}'")
+                logger.warning(f"[FindHiringManager]  Final validation: Rejecting invalid company name: '{company}'")
                 company = None
         
-        print(f"[FindHiringManager] Final values before validation - company: '{company}', job_title: '{job_title}', location: '{location}'")
+        logger.info(f"[FindHiringManager] Final values before validation - company: '{company}', job_title: '{job_title}', location: '{location}'")
         
         # Validate required fields
         if not company:
@@ -7740,12 +8066,11 @@ def find_hiring_manager_endpoint():
             }), 402
         
         # Get user's requested max_results (default: 3, max: 10)
-        max_results_requested = data.get('maxResults', 3)
-        if max_results_requested is not None:
-            max_results_requested = int(max_results_requested)
-            max_results_requested = min(max(max_results_requested, 1), 10)  # Clamp between 1 and 10
-        else:
+        try:
+            max_results_requested = int(data.get('maxResults', 3))
+        except (TypeError, ValueError):
             max_results_requested = 3
+        max_results_requested = min(max(max_results_requested, 1), 10)
         
         # Calculate how many hiring managers user can afford (RECRUITER_CREDIT_COST per manager)
         max_affordable = current_credits // RECRUITER_CREDIT_COST
@@ -7754,17 +8079,20 @@ def find_hiring_manager_endpoint():
         
         # Get user's resume and contact info for email generation
         user_resume = user_data.get('resumeParsed', {})
+        resume_text = user_data.get('resumeText', '')
+        resume_phone = user_resume.get('contact', {}).get('phone', '') if isinstance(user_resume.get('contact'), dict) else ''
+        resume_linkedin = user_resume.get('contact', {}).get('linkedin', '') if isinstance(user_resume.get('contact'), dict) else ''
         user_contact = {
             "name": user_resume.get('name', user_data.get('displayName', '')),
             "email": user_data.get('email', ''),
-            "phone": user_resume.get('contact', {}).get('phone', '') if isinstance(user_resume.get('contact'), dict) else '',
-            "linkedin": user_resume.get('contact', {}).get('linkedin', '') if isinstance(user_resume.get('contact'), dict) else ''
+            "phone": resume_phone or user_data.get('phone', ''),
+            "linkedin": resume_linkedin or user_data.get('linkedin', '')
         }
-        
+
         # Check if user wants to generate emails (default to True)
         generate_emails = data.get('generateEmails', True)
         create_drafts = data.get('createDrafts', True)
-        
+
         # Find hiring managers
         result = find_hiring_manager(
             company_name=company,
@@ -7775,7 +8103,9 @@ def find_hiring_manager_endpoint():
             max_results=max_results_to_fetch,
             generate_emails=generate_emails,
             user_resume=user_resume,
-            user_contact=user_contact
+            user_contact=user_contact,
+            resume_text=resume_text,
+            role_type="hiring_manager"
         )
         
         # Check if we got results
@@ -7806,7 +8136,20 @@ def find_hiring_manager_endpoint():
             
             affordable_emails = [e for e in all_emails if e.get("to_email") in affordable_manager_emails]
         
-        # Create Gmail drafts if requested
+        # Deduct credits atomically BEFORE creating Gmail drafts (prevents TOCTOU)
+        credits_charged = RECRUITER_CREDIT_COST * len(affordable_managers)
+        if credits_charged > 0:
+            success, new_balance = deduct_credits_atomic(user_id, credits_charged, "find_hiring_manager")
+            if not success:
+                return jsonify({
+                    "error": "Insufficient credits",
+                    "creditsRequired": credits_charged,
+                    "creditsAvailable": 0
+                }), 402
+        else:
+            new_balance = current_credits
+
+        # Create Gmail drafts if requested (after credits are deducted)
         drafts_created = []
         if create_drafts and affordable_emails:
             from app.services.gmail_client import _load_user_gmail_creds, get_gmail_service_for_user
@@ -7816,11 +8159,11 @@ def find_hiring_manager_endpoint():
             from email.mime.text import MIMEText
             from email.mime.base import MIMEBase
             from email import encoders
-            
+
             # Check Gmail connection
             gmail_creds = _load_user_gmail_creds(user_id)
             resume_url = user_data.get('resumeURL') or user_data.get('resumeUrl')
-            
+
             if gmail_creds:
                 # Download resume once for all drafts
                 resume_content = None
@@ -7832,34 +8175,46 @@ def find_hiring_manager_endpoint():
                         if stored_filename:
                             resume_filename = stored_filename
                         if resume_content:
-                            print(f"[FindHiringManager] Downloaded resume ({len(resume_content)} bytes, filename={resume_filename}) for {len(affordable_emails)} drafts")
+                            logger.info(f"[FindHiringManager] Downloaded resume ({len(resume_content)} bytes, filename={resume_filename}) for {len(affordable_emails)} drafts")
                     except Exception as e:
-                        print(f"[FindHiringManager] Failed to download resume: {e}")
-                
+                        logger.error(f"[FindHiringManager] Failed to download resume: {e}")
+
                 # Get Gmail service
                 gmail_service = get_gmail_service_for_user(user_data.get('email'), user_id=user_id)
-                
+
                 if gmail_service:
+                    import re as _re2
+                    _EMAIL_RE2 = _re2.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
+
                     for email_data in affordable_emails:
                         try:
                             manager = email_data.get("recruiter", {})
                             to_email = email_data.get("to_email")
+                            if not to_email:
+                                continue
+                            # Validate email format before creating draft
+                            if not _EMAIL_RE2.match(to_email):
+                                logger.info(f"[FindHiringManager] Skipping invalid email: {to_email[:50]}")
+                                continue
                             to_name = email_data.get("to_name", "")
                             subject = email_data.get("subject", "")
                             body_html = email_data.get("body", "")
                             body_plain = email_data.get("plain_body", "")
-                            
+
+                            # Sanitize to_name to prevent header injection
+                            to_name = to_name.replace('"', '').replace('\n', '').replace('\r', '')
+
                             # Create MIME message (mixed for attachment support)
                             message = MIMEMultipart('mixed')
-                            message['to'] = to_email
+                            message['to'] = f'"{to_name}" <{to_email}>' if to_name else to_email
                             message['subject'] = subject
-                            
+
                             # Add text/html alternative part
                             alt = MIMEMultipart('alternative')
                             alt.attach(MIMEText(body_plain, 'plain'))
                             alt.attach(MIMEText(body_html, 'html'))
                             message.attach(alt)
-                            
+
                             # Add resume attachment if available
                             if resume_content and resume_filename:
                                 part = MIMEBase('application', 'pdf')
@@ -7867,79 +8222,67 @@ def find_hiring_manager_endpoint():
                                 encoders.encode_base64(part)
                                 part.add_header('Content-Disposition', f'attachment; filename="{resume_filename}"')
                                 message.attach(part)
-                            
+
                             # Encode message
                             raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
-                            
+
                             # Create draft
                             draft_body = {
                                 'message': {
                                     'raw': raw_message
                                 }
                             }
-                            
+
                             draft = gmail_service.users().drafts().create(userId='me', body=draft_body).execute()
                             draft_id = draft['id']
-                            
+
                             # Extract message ID from draft (more reliable for opening drafts)
                             message_id = draft.get('message', {}).get('id')
                             if not message_id:
-                                # If message ID not in draft response, try to fetch it
                                 try:
                                     draft_message = gmail_service.users().drafts().get(userId='me', id=draft_id, format='full').execute()
                                     message_id = draft_message.get('message', {}).get('id')
                                 except Exception as e:
-                                    print(f"[FindHiringManager] Could not get message ID from draft: {e}")
-                            
+                                    logger.info(f"[FindHiringManager] Could not get message ID from draft: {e}")
+
                             # Get Gmail account email for URL
                             try:
                                 profile = gmail_service.users().getProfile(userId='me').execute()
                                 connected_email = profile.get('emailAddress', '')
                             except:
                                 connected_email = user_data.get('email', '')
-                            
-                            # Use message ID format for more reliable draft URL (preferred)
-                            # Format: https://mail.google.com/mail/u/0/#drafts?compose=<messageId>
+
                             if message_id:
                                 draft_url = (
                                     f"https://mail.google.com/mail/?authuser={connected_email}#drafts?compose={message_id}"
                                     if connected_email else f"https://mail.google.com/mail/u/0/#drafts?compose={message_id}"
                                 )
                             else:
-                                # Fallback to draft ID format if message ID not available
                                 draft_url = f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft_id}" if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
-                            
+
                             drafts_created.append({
                                 "recruiter_email": to_email,
                                 "draft_id": draft_id,
-                                "message_id": message_id,  # Include message_id for more reliable draft opening
+                                "message_id": message_id,
                                 "draft_url": draft_url
                             })
-                            
-                            print(f"[FindHiringManager] Created Gmail draft for {to_email}")
-                            
+
+                            logger.info(f"[FindHiringManager] Created Gmail draft for {to_email}")
+
                         except Exception as e:
-                            print(f"[FindHiringManager] Failed to create draft for {email_data.get('to_email')}: {e}")
+                            logger.error(f"[FindHiringManager] Failed to create draft for {email_data.get('to_email')}: {e}")
                 else:
-                    print(f"[FindHiringManager] Gmail service not available")
+                    logger.info(f"[FindHiringManager] Gmail service not available")
             else:
-                print(f"[FindHiringManager] Gmail not connected, skipping draft creation")
-        
-        # Deduct credits for what we're returning
-        credits_charged = RECRUITER_CREDIT_COST * len(affordable_managers)
-        if credits_charged > 0:
-            user_ref.update({
-                'credits': firestore.Increment(-credits_charged)
-            })
-        
-        new_balance = current_credits - credits_charged
-        
+                logger.info(f"[FindHiringManager] Gmail not connected, skipping draft creation")
+
         response = {
             "hiringManagers": affordable_managers,
             "emails": affordable_emails,
             "draftsCreated": drafts_created,
             "jobTypeDetected": result["job_type_detected"],
             "companyCleaned": result["company_cleaned"],
+            "searchTitles": result.get("search_titles", []),
             "totalFound": total_found,
             "creditsCharged": credits_charged,
             "creditsRemaining": new_balance
@@ -7948,7 +8291,7 @@ def find_hiring_manager_endpoint():
         return jsonify(response)
         
     except Exception as e:
-        print(f"[FindHiringManager] Error: {str(e)}")
+        logger.error(f"[FindHiringManager] Error: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -8065,7 +8408,7 @@ def save_recruiters_to_tracker():
             batch.set(new_ref, doc_data)
         batch.commit()
 
-        print(f"[JobBoard] Saved {len(to_save)} recruiter(s) to Hiring Manager Tracker for user {user_id}")
+        logger.info(f"[JobBoard] Saved {len(to_save)} recruiter(s) to Hiring Manager Tracker for user {user_id}")
         return jsonify({
             "saved": len(to_save),
             "skipped": len(recruiters) - len(to_save),
@@ -8073,7 +8416,7 @@ def save_recruiters_to_tracker():
         }), 200
 
     except Exception as e:
-        print(f"[JobBoard] save-recruiters error: {e}")
+        logger.error(f"[JobBoard] save-recruiters error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -8119,13 +8462,13 @@ def generate_cover_letter():
         # Get job details from URL if provided
         # Always parse URL when provided to ensure we get the latest job info
         if job_url:
-            print(f"[JobBoard] Parsing job URL for cover letter: {job_url}")
+            logger.info(f"[JobBoard] Parsing job URL for cover letter: {job_url}")
             parsed_job = parse_job_url(job_url)
             if parsed_job:
-                print(f"[JobBoard] Successfully parsed job from URL")
-                print(f"[JobBoard] Parsed title: {parsed_job.get('title')}")
-                print(f"[JobBoard] Parsed company: {parsed_job.get('company')}")
-                print(f"[JobBoard] Parsed description length: {len(parsed_job.get('description', '') or '')}")
+                logger.info(f"[JobBoard] Successfully parsed job from URL")
+                logger.info(f"[JobBoard] Parsed title: {parsed_job.get('title')}")
+                logger.info(f"[JobBoard] Parsed company: {parsed_job.get('company')}")
+                logger.info(f"[JobBoard] Parsed description length: {len(parsed_job.get('description', '') or '')}")
                 # URL data takes precedence over existing fields
                 if parsed_job.get("title"):
                     job_title = parsed_job.get("title")
@@ -8134,7 +8477,7 @@ def generate_cover_letter():
                 if parsed_job.get("description"):
                     job_description = parsed_job.get("description")
             else:
-                print(f"[JobBoard] Failed to parse job from URL, using provided fields")
+                logger.error(f"[JobBoard] Failed to parse job from URL, using provided fields")
         
         if not job_description:
             return jsonify({"error": "Job description is required. Please paste the job description or provide a valid URL."}), 400
@@ -8157,8 +8500,8 @@ def generate_cover_letter():
         
         # Deduct credits BEFORE doing the expensive generation
         # This prevents negative balances and ensures we have credits before proceeding
-        print(f"[JobBoard] Deducting credits before cover letter generation...")
-        print(f"[JobBoard] Current credits: {current_credits}, Required: {COVER_LETTER_CREDIT_COST}")
+        logger.info(f"[JobBoard] Deducting credits before cover letter generation...")
+        logger.info(f"[JobBoard] Current credits: {current_credits}, Required: {COVER_LETTER_CREDIT_COST}")
         success, new_credits = deduct_credits_atomic(user_id, COVER_LETTER_CREDIT_COST, "cover_letter_generation")
         
         if not success:
@@ -8169,10 +8512,10 @@ def generate_cover_letter():
                 "required": COVER_LETTER_CREDIT_COST,
             }), 402
         
-        print(f"[JobBoard] Credits deducted successfully. New balance: {new_credits}")
+        logger.info(f"[JobBoard] Credits deducted successfully. New balance: {new_credits}")
         
         # Generate cover letter
-        print(f"[JobBoard] Starting cover letter generation...")
+        logger.info(f"[JobBoard] Starting cover letter generation...")
         # Total timeout: 2 retries * (45s + 15s buffer) + retry delays (2s + 4s) + buffer = ~120s
         total_timeout = 120.0  # Reduced from 200s
         try:
@@ -8181,20 +8524,20 @@ def generate_cover_letter():
             async def generate_with_timeout():
                 return await generate_cover_letter_with_ai(user_resume, job_description, job_title, company)
             
-            print(f"[JobBoard] Starting async cover letter generation with {total_timeout} second timeout...")
+            logger.info(f"[JobBoard] Starting async cover letter generation with {total_timeout} second timeout...")
             cover_letter = asyncio.run(
                 asyncio.wait_for(generate_with_timeout(), timeout=total_timeout)
             )
-            print(f"[JobBoard] ✅ Cover letter generation completed successfully")
+            logger.info(f"[JobBoard]  Cover letter generation completed successfully")
         except asyncio.TimeoutError:
-            print(f"[JobBoard] ❌ Cover letter generation timed out after {total_timeout} seconds")
+            logger.info(f"[JobBoard]  Cover letter generation timed out after {total_timeout} seconds")
             # Refund credits on timeout
-            print(f"[JobBoard] Refunding {COVER_LETTER_CREDIT_COST} credits due to timeout...")
+            logger.info(f"[JobBoard] Refunding {COVER_LETTER_CREDIT_COST} credits due to timeout...")
             refund_success, refunded_credits = refund_credits_atomic(user_id, COVER_LETTER_CREDIT_COST, "cover_letter_timeout_refund")
             if refund_success:
-                print(f"[JobBoard] ✅ Credits refunded successfully. New balance: {refunded_credits}")
+                logger.info(f"[JobBoard]  Credits refunded successfully. New balance: {refunded_credits}")
             else:
-                print(f"[JobBoard] ⚠️ Failed to refund credits (user may need manual refund)")
+                logger.error(f"[JobBoard]  Failed to refund credits (user may need manual refund)")
             import traceback
             traceback.print_exc()
             return jsonify({
@@ -8202,15 +8545,15 @@ def generate_cover_letter():
                 "creditsRefunded": refund_success,
             }), 504
         except Exception as gen_error:
-            print(f"[JobBoard] ❌ Error during cover letter generation: {gen_error}")
-            print(f"[JobBoard] Error type: {type(gen_error)}")
+            logger.error(f"[JobBoard]  Error during cover letter generation: {gen_error}")
+            logger.error(f"[JobBoard] Error type: {type(gen_error)}")
             # Refund credits on error
-            print(f"[JobBoard] Refunding {COVER_LETTER_CREDIT_COST} credits due to error...")
+            logger.error(f"[JobBoard] Refunding {COVER_LETTER_CREDIT_COST} credits due to error...")
             refund_success, refunded_credits = refund_credits_atomic(user_id, COVER_LETTER_CREDIT_COST, "cover_letter_error_refund")
             if refund_success:
-                print(f"[JobBoard] ✅ Credits refunded successfully. New balance: {refunded_credits}")
+                logger.info(f"[JobBoard]  Credits refunded successfully. New balance: {refunded_credits}")
             else:
-                print(f"[JobBoard] ⚠️ Failed to refund credits (user may need manual refund)")
+                logger.error(f"[JobBoard]  Failed to refund credits (user may need manual refund)")
             import traceback
             traceback.print_exc()
             return jsonify({
@@ -8225,7 +8568,7 @@ def generate_cover_letter():
         }), 200
         
     except Exception as e:
-        print(f"[JobBoard] Cover letter generation error: {e}")
+        logger.error(f"[JobBoard] Cover letter generation error: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -8268,7 +8611,7 @@ def generate_cover_letter_pdf_endpoint():
         )
         
     except Exception as e:
-        print(f"[JobBoard] Cover letter PDF generation error: {e}")
+        logger.error(f"[JobBoard] Cover letter PDF generation error: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -8299,12 +8642,12 @@ def parse_job_url_endpoint():
             return jsonify({
                 "error": "Could not parse job details from URL. Please paste the job description instead.",
                 "job": None
-            }), 200
+            }), 422
         
         return jsonify({"job": job_data}), 200
         
     except Exception as e:
-        print(f"[JobBoard] URL parsing error: {e}")
+        logger.error(f"[JobBoard] URL parsing error: {e}")
         return jsonify({"error": str(e)}), 500
 
 

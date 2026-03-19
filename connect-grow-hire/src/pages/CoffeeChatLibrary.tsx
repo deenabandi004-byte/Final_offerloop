@@ -118,7 +118,7 @@ const CoffeeChatLibrary: React.FC = () => {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-gray-900 text-white">
+      <div className="flex min-h-screen w-full bg-[#0F172A] text-white">
         <AppSidebar />
 
         <div className="flex-1">
@@ -129,34 +129,34 @@ const CoffeeChatLibrary: React.FC = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-2xl font-semibold text-white flex items-center gap-2">
-                    <Coffee className="h-5 w-5 text-blue-400" />
+                    <Coffee className="h-5 w-5 text-[#3B82F6]" />
                     Saved Coffee Chat Preps
                   </h2>
                   <p className="text-sm text-gray-400 mt-1">
                     Review, download, or delete the one-pagers you’ve generated.
                   </p>
                 </div>
-                <Button onClick={() => navigate("/home?tab=coffee-chat")} className="text-white hover:opacity-90" style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}>
+                <Button onClick={() => navigate("/home?tab=coffee-chat")} className="text-white hover:opacity-90" style={{ background: '#0F172A' }}>
                   <FileText className="h-4 w-4 mr-2" />
                   Create New Prep
                 </Button>
               </div>
 
               {loading ? (
-                <div className="flex items-center justify-center h-48 rounded-xl border border-gray-800 bg-gray-900/80">
+                <div className="flex items-center justify-center h-48 rounded-[3px] border border-[#E2E8F0] bg-[#0F172A]/80">
                   <div className="flex items-center gap-3 text-gray-300">
-                    <Loader2 className="h-5 w-5 animate-spin text-blue-400" />
+                    <Loader2 className="h-5 w-5 animate-spin text-[#3B82F6]" />
                     Loading your library...
                   </div>
                 </div>
               ) : preps.length === 0 ? (
-                <div className="rounded-xl border border-gray-800 bg-gray-900/80 p-10 text-center space-y-4">
-                  <Coffee className="h-10 w-10 mx-auto text-blue-400" />
+                <div className="rounded-[3px] border border-[#E2E8F0] bg-[#0F172A]/80 p-10 text-center space-y-4">
+                  <Coffee className="h-10 w-10 mx-auto text-[#3B82F6]" />
                   <h3 className="text-lg font-semibold text-white">No preps yet</h3>
                   <p className="text-sm text-gray-400">
                     Generate your first coffee chat prep to see it appear here.
                   </p>
-                  <Button onClick={() => navigate("/home?tab=coffee-chat")} className="text-white hover:opacity-90" style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)' }}>
+                  <Button onClick={() => navigate("/home?tab=coffee-chat")} className="text-white hover:opacity-90" style={{ background: '#0F172A' }}>
                     Create Coffee Chat Prep
                   </Button>
                 </div>
@@ -171,7 +171,7 @@ const CoffeeChatLibrary: React.FC = () => {
                         {groupedPreps.inProgress.map((prep) => (
                           <div
                             key={prep.id}
-                            className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-5 py-4 flex items-center justify-between"
+                            className="rounded-[3px] border border-yellow-500/40 bg-yellow-500/10 px-5 py-4 flex items-center justify-between"
                           >
                             <div>
                               <p className="text-sm text-gray-200 font-medium">{prep.contactName}</p>
@@ -198,11 +198,11 @@ const CoffeeChatLibrary: React.FC = () => {
                         {groupedPreps.completed.map((prep) => (
                           <div
                             key={prep.id}
-                            className="rounded-xl border border-gray-800 bg-gray-900/80 p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4"
+                            className="rounded-[3px] border border-[#E2E8F0] bg-[#0F172A]/80 p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4"
                           >
                             <div className="space-y-2">
                               <div className="flex items-center gap-2 text-sm text-white font-medium">
-                                <BadgeCheck className="h-4 w-4 text-blue-400" />
+                                <BadgeCheck className="h-4 w-4 text-[#3B82F6]" />
                                 {prep.contactName}
                               </div>
                               <div className="text-sm text-gray-300">
@@ -231,7 +231,7 @@ const CoffeeChatLibrary: React.FC = () => {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="border-blue-500/60 text-blue-200 hover:bg-blue-500/10"
+                                className="border-[#3B82F6]/60 text-[#3B82F6] hover:bg-[#3B82F6]/10"
                                 onClick={() => handleDownload(prep)}
                               >
                                 <Download className="h-4 w-4 mr-2" />

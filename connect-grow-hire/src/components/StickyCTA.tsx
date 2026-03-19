@@ -157,10 +157,10 @@ export const StickyAlignedCTA: React.FC<StickyCTAProps> = ({
         disabled={isLoading || disabled}
         className={`
           pointer-events-auto w-full h-11 px-6 rounded-full text-sm font-medium shadow-sm
-          transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500
+          transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#3B82F6]
           ${isLoading || disabled
-            ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
-            : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.98]'
+            ? 'bg-[#FAFBFF] text-[#94A3B8] cursor-not-allowed shadow-none'
+            : 'bg-[#0F172A] text-white hover:bg-[#1E293B] active:scale-[0.98]'
           }
           ${buttonClassName}
         `}
@@ -169,7 +169,7 @@ export const StickyAlignedCTA: React.FC<StickyCTAProps> = ({
       >
         {isLoading ? (
           <div className="flex items-center justify-center gap-2">
-            <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+            <Loader2 className="w-4 h-4 animate-spin text-[#94A3B8]" />
             <span>Searching...</span>
           </div>
         ) : (
