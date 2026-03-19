@@ -37,13 +37,13 @@ import { useToast } from '@/hooks/use-toast';
 type Contact = ContactApi;
 
 const STATUS_OPTIONS = [
-  { value: 'Not Contacted', color: '#999999', label: 'Not Contacted', bg: '#f0f0ee' },
-  { value: 'Contacted', color: '#555555', label: 'Contacted', bg: '#f0f0ee' },
-  { value: 'Followed Up', color: '#555555', label: 'Followed Up', bg: '#f0f0ee' },
-  { value: 'Responded', color: '#2a2a2a', label: 'Responded', bg: '#f0f0ee' },
-  { value: 'Call Scheduled', color: '#2a2a2a', label: 'Call Scheduled', bg: '#f0f0ee' },
-  { value: 'Rejected', color: '#c00000', label: 'Rejected', bg: '#fce8e6' },
-  { value: 'Hired', color: '#2a2a2a', label: 'Hired', bg: '#f0f0ee' }
+  { value: 'Not Contacted', color: '#6B7280', label: 'Not Contacted', bg: '#F3F4F6' },
+  { value: 'Contacted', color: '#2563EB', label: 'Contacted', bg: '#EFF6FF' },
+  { value: 'Followed Up', color: '#7C3AED', label: 'Followed Up', bg: '#F5F3FF' },
+  { value: 'Responded', color: '#059669', label: 'Responded', bg: '#ECFDF5' },
+  { value: 'Call Scheduled', color: '#D97706', label: 'Call Scheduled', bg: '#FFFBEB' },
+  { value: 'Rejected', color: '#DC2626', label: 'Rejected', bg: '#FEF2F2' },
+  { value: 'Hired', color: '#059669', label: 'Hired', bg: '#ECFDF5' }
 ];
 
 const COL_DEFS = [
@@ -1018,15 +1018,15 @@ const SpreadsheetContactDirectory: React.FC = () => {
                 <tr style={{ borderBottom: '2px solid #e5e5e3' }}>
                   {/* Gutter header */}
                   <th style={{
-                    width: GUTTER_W, background: '#ffffff', borderRight: '1px solid #e5e5e3',
-                    fontSize: 10, color: '#999', textAlign: 'center', padding: '11px 0',
+                    width: GUTTER_W, background: '#F8FAFC', borderRight: '1px solid #e5e5e3',
+                    fontSize: 10, color: '#64748B', textAlign: 'center', padding: '11px 0',
                     position: 'sticky', top: 0, zIndex: 10,
                   }}>
                     #
                   </th>
                   {/* Checkbox header */}
                   <th style={{
-                    width: CHECKBOX_W, background: '#ffffff', borderRight: '1px solid #e5e5e3',
+                    width: CHECKBOX_W, background: '#F8FAFC', borderRight: '1px solid #e5e5e3',
                     textAlign: 'center', padding: '11px 4px',
                     position: 'sticky', top: 0, zIndex: 10,
                   }}>
@@ -1045,11 +1045,11 @@ const SpreadsheetContactDirectory: React.FC = () => {
                         style={{
                           padding: '11px 12px',
                           textAlign: 'left',
-                          fontSize: 10, fontWeight: 400,
+                          fontSize: 10, fontWeight: 600,
                           textTransform: 'uppercase',
                           letterSpacing: '0.1em',
-                          color: '#999',
-                          background: isActiveCol ? '#f0f0ee' : '#ffffff',
+                          color: isActiveCol ? '#1E40AF' : '#64748B',
+                          background: isActiveCol ? '#EFF6FF' : '#F8FAFC',
                           whiteSpace: 'nowrap',
                           width: col.width,
                           position: 'sticky', top: 0, zIndex: 10,
@@ -1061,9 +1061,9 @@ const SpreadsheetContactDirectory: React.FC = () => {
                   })}
                   {/* Actions header */}
                   <th style={{
-                    background: '#ffffff', padding: '11px 12px', textAlign: 'right',
-                    fontSize: 10, fontWeight: 400, textTransform: 'uppercase',
-                    letterSpacing: '0.1em', color: '#999', width: 80,
+                    background: '#F8FAFC', padding: '11px 12px', textAlign: 'right',
+                    fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
+                    letterSpacing: '0.1em', color: '#64748B', width: 80,
                     position: 'sticky', top: 0, zIndex: 10,
                   }} />
                 </tr>
@@ -1078,25 +1078,25 @@ const SpreadsheetContactDirectory: React.FC = () => {
                     <tr
                       key={contact.id}
                       style={{
-                        height: 28,
-                        borderBottom: '1px solid #f0f0ee',
-                        background: isSelected ? '#f0f0ee' : 'white',
-                        transition: 'background 0.08s',
+                        height: 32,
+                        borderBottom: '1px solid #F1F5F9',
+                        background: isSelected ? '#EFF6FF' : index % 2 === 1 ? '#F8FAFC' : 'white',
+                        transition: 'background 0.1s',
                       }}
-                      onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = '#f5f5f3'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = isSelected ? '#f0f0ee' : 'white'; }}
+                      onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = '#EFF6FF'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = isSelected ? '#EFF6FF' : index % 2 === 1 ? '#F8FAFC' : 'white'; }}
                     >
                       {/* Row Number Gutter */}
                       <td
                         style={{
                           width: GUTTER_W, textAlign: 'center', fontSize: 10,
                           color: isSelected ? '#fff' : '#999',
-                          background: isSelected ? '#555' : '#ffffff',
+                          background: isSelected ? '#2563EB' : '#ffffff',
                           borderRight: '1px solid #e5e5e3',
                           padding: '0 4px',
                           transition: 'background 0.08s, color 0.08s',
                         }}
-                        onMouseEnter={(e) => { if (!isSelected) { e.currentTarget.style.background = '#f0f0ee'; e.currentTarget.style.color = '#555'; } }}
+                        onMouseEnter={(e) => { if (!isSelected) { e.currentTarget.style.background = '#EFF6FF'; e.currentTarget.style.color = '#2563EB'; } }}
                         onMouseLeave={(e) => { if (!isSelected) { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.color = '#999'; } }}
                       >
                         {index + 1}
@@ -1168,11 +1168,11 @@ const SpreadsheetContactDirectory: React.FC = () => {
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
                             style={{
-                              fontSize: 11, color: '#555', textDecoration: 'none',
-                              borderBottom: '1px solid #e5e5e3', paddingBottom: 1,
+                              fontSize: 11, color: '#2563EB', textDecoration: 'none',
+                              borderBottom: '1px solid #BFDBFE', paddingBottom: 1,
                             }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = '#2a2a2a'; e.currentTarget.style.borderColor = '#2a2a2a'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = '#555'; e.currentTarget.style.borderColor = '#e5e5e3'; }}
+                            onMouseEnter={(e) => { e.currentTarget.style.color = '#1D4ED8'; e.currentTarget.style.borderColor = '#1D4ED8'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.color = '#2563EB'; e.currentTarget.style.borderColor = '#BFDBFE'; }}
                           >
                             ↗ view
                           </a>
@@ -1264,10 +1264,11 @@ const SpreadsheetContactDirectory: React.FC = () => {
                           <span
                             style={{
                               display: 'inline-block',
-                              fontSize: 11, fontFamily: mono,
-                              padding: '2px 8px',
-                              background: statusOption?.bg || '#f0f0ee',
-                              color: statusOption?.color || '#999',
+                              fontSize: 10, fontFamily: mono, fontWeight: 500,
+                              padding: '3px 10px',
+                              borderRadius: 12,
+                              background: statusOption?.bg || '#F3F4F6',
+                              color: statusOption?.color || '#6B7280',
                               cursor: 'pointer',
                               whiteSpace: 'nowrap',
                             }}
@@ -1411,10 +1412,10 @@ const SpreadsheetContactDirectory: React.FC = () => {
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 padding: '0 16px', cursor: 'pointer',
                 fontSize: 11, fontFamily: mono,
-                color: isActive ? '#2a2a2a' : '#999',
-                fontWeight: isActive ? 500 : 400,
-                background: isActive ? '#fff' : 'transparent',
-                borderTop: isActive ? '2px solid #2a2a2a' : '2px solid transparent',
+                color: isActive ? '#1E40AF' : '#64748B',
+                fontWeight: isActive ? 600 : 400,
+                background: isActive ? '#EFF6FF' : 'transparent',
+                borderTop: isActive ? '2px solid #2563EB' : '2px solid transparent',
                 borderRight: '1px solid #e5e5e3',
                 marginTop: -1,
               }}

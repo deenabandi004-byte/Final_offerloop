@@ -94,8 +94,8 @@ def check_credits():
             if user_doc.exists:
                 user_data = user_doc.to_dict()
                 credits = check_and_reset_credits(user_ref, user_data)
-                max_credits = user_data.get('maxCredits', TIER_CONFIGS.get(tier, TIER_CONFIGS['free'])['credits'])
                 tier = user_data.get('tier', 'free')
+                max_credits = user_data.get('maxCredits', TIER_CONFIGS.get(tier, TIER_CONFIGS['free'])['credits'])
                 
                 # Calculate searches remaining
                 searches_remaining = credits // 15

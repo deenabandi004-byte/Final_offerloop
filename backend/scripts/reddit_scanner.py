@@ -114,9 +114,9 @@ KEYWORD_GROUPS = {
     },
 }
 
-MIN_SCORE     = 3
-MIN_COMMENTS  = 2
-MAX_AGE_HOURS = 48
+MIN_SCORE     = 1
+MIN_COMMENTS  = 0
+MAX_AGE_HOURS = 24
 MAX_RESULTS   = 10
 REQUEST_DELAY = 2   # seconds between requests — be polite
 

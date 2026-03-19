@@ -1345,7 +1345,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 <span className="text-xs text-[#94A3B8] min-w-[20px] text-right">{maxBatchSize}</span>
               </div>
             </div>
-            <p className="text-xs text-[#6B7280] mt-2">{getContactCountHelper(batchSize)}</p>
+            <p className="text-xs text-[#6B7280] mt-2">{batchSize} contact{batchSize !== 1 ? 's' : ''}. {getContactCountHelper(batchSize)}</p>
             <div className="mt-2 flex items-center gap-2 text-xs text-[#6B7280]">
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[3px] bg-[#FAFBFF] border border-[#E2E8F0] font-medium text-[#0F172A]">
                 {batchSize * 15} credits

@@ -165,11 +165,11 @@ def handle_checkout_completed(session):
         db = get_db()
         if not db:
             return
-        
+
         user_id = session.get('metadata', {}).get('user_id')
         if not user_id:
             return
-        
+
         # Get subscription to determine tier and actual status (trialing vs active)
         subscription_id = session.get('subscription')
         tier = 'pro'  # Default
@@ -210,6 +210,7 @@ def handle_checkout_completed(session):
             'stripeSubscriptionId': subscription_id,
             'stripeCustomerId': session.get('customer'),
             'subscriptionStatus': sub_status,
+            'lastCreditReset': datetime.now().isoformat(),
             'upgraded_at': datetime.now().isoformat(),
             'updatedAt': datetime.now().isoformat()
         })
@@ -246,6 +247,7 @@ def handle_subscription_deleted(subscription):
                 'credits': min(doc.to_dict().get('credits', 0), tier_config['credits']),  # Cap at free tier limit
                 'subscriptionStatus': None,
                 'stripeSubscriptionId': None,
+                'lastCreditReset': datetime.now().isoformat(),
                 'updatedAt': datetime.now().isoformat()
             })
             print(f"✅ User {doc.id} downgraded to free")
@@ -258,7 +260,11 @@ def handle_subscription_deleted(subscription):
 
 
 def handle_invoice_paid(invoice):
-    """Handle successful invoice payment - reset monthly credits and usage counters"""
+    """Handle successful invoice payment - reset monthly credits and usage counters.
+
+    Idempotent: tracks the Stripe invoice ID to prevent double-resets from
+    webhook retries.
+    """
     try:
         db = get_db()
         if not db:
@@ -266,6 +272,7 @@ def handle_invoice_paid(invoice):
 
         customer_id = invoice.get('customer')
         subscription_id = invoice.get('subscription')
+        invoice_id = invoice.get('id')  # e.g. "in_1Nxxxx..."
 
         if not customer_id or not subscription_id:
             return
@@ -296,9 +303,16 @@ def handle_invoice_paid(invoice):
 
         for doc in docs:
             user_ref = users_ref.document(doc.id)
+            user_data = doc.to_dict()
+
+            # Idempotency check: skip if we already processed this invoice
+            last_invoice = user_data.get('lastProcessedInvoiceId')
+            if invoice_id and last_invoice == invoice_id:
+                print(f"⚠️ Invoice {invoice_id} already processed for user {doc.id}, skipping")
+                return
 
             # Reset credits, usage counters, AND sync Firestore tier from Stripe
-            user_ref.update({
+            update_data = {
                 'subscriptionTier': tier,
                 'tier': tier,
                 'credits': tier_config['credits'],
@@ -308,10 +322,14 @@ def handle_invoice_paid(invoice):
                 'interviewPrepsUsed': 0,
                 'lastCreditReset': datetime.now().isoformat(),
                 'lastUsageReset': datetime.now().isoformat(),
-                'updatedAt': datetime.now().isoformat()
-            })
+                'updatedAt': datetime.now().isoformat(),
+            }
+            if invoice_id:
+                update_data['lastProcessedInvoiceId'] = invoice_id
 
-            print(f"✅ Monthly reset for user {doc.id} → tier={tier} (price_id={price_id}): {tier_config['credits']} credits restored, usage counters reset")
+            user_ref.update(update_data)
+
+            print(f"✅ Monthly reset for user {doc.id} → tier={tier} (price_id={price_id}, invoice={invoice_id}): {tier_config['credits']} credits restored, usage counters reset")
             break
 
     except Exception as e:

@@ -2,17 +2,20 @@
 Authentication services - credit management only
 (require_firebase_auth is in extensions.py to avoid circular dependencies)
 """
+import logging
 from datetime import datetime
 from firebase_admin import firestore
 from app.extensions import get_db
 from app.config import TIER_CONFIGS
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_datetime(date_value):
     """Helper to parse datetime from various formats"""
     if not date_value:
         return None
-    
+
     if hasattr(date_value, 'timestamp'):
         return datetime.fromtimestamp(date_value.timestamp())
     elif isinstance(date_value, str):
@@ -27,60 +30,76 @@ def _parse_datetime(date_value):
     return None
 
 
+def _check_reset_needed(user_data) -> tuple[bool, int, dict]:
+    """
+    Pure check: determine if credits need resetting.
+    Returns (needs_reset, credit_value, update_fields).
+    Does NOT write to Firestore — caller is responsible for applying updates.
+    """
+    now = datetime.now()
+    last_reset = _parse_datetime(user_data.get('lastCreditReset'))
+
+    if not last_reset:
+        # First time — set timestamp, don't reset credits
+        return False, user_data.get('credits', 0), {'lastCreditReset': now.isoformat()}
+
+    is_new_month = (now.year > last_reset.year) or (
+        now.year == last_reset.year and now.month > last_reset.month
+    )
+
+    if is_new_month:
+        tier = user_data.get('subscriptionTier') or user_data.get('tier', 'free')
+        max_credits = TIER_CONFIGS.get(tier, TIER_CONFIGS['free'])['credits']
+        return True, max_credits, {
+            'credits': max_credits,
+            'lastCreditReset': now.isoformat(),
+        }
+
+    return False, user_data.get('credits', 0), {}
+
+
 def check_and_reset_credits(user_ref, user_data):
-    """Check if a new calendar month has started and reset credits if needed."""
+    """Check if a new calendar month has started and reset credits if needed.
+
+    NOTE: For use OUTSIDE transactions only. Inside transactions, use
+    _check_reset_needed() and apply updates via the transaction object.
+    """
     try:
-        last_reset = _parse_datetime(user_data.get('lastCreditReset'))
-        now = datetime.now()
-        if not last_reset:
-            # If no reset date, set it to now
-            user_ref.update({'lastCreditReset': now.isoformat()})
-            return user_data.get('credits', 0)
-
-        # Reset on calendar month boundary (aligned with usage reset)
-        is_new_month = (now.year > last_reset.year) or (now.year == last_reset.year and now.month > last_reset.month)
-
-        if is_new_month:
-            # Reset credits
-            tier = user_data.get('subscriptionTier') or user_data.get('tier', 'free')
-            max_credits = TIER_CONFIGS.get(tier, TIER_CONFIGS['free'])['credits']
-
-            user_ref.update({
-                'credits': max_credits,
-                'lastCreditReset': now.isoformat()
-            })
-
-            print(f"[Auth] Credits reset - {max_credits} credits restored")
-            return max_credits
-
-        return user_data.get('credits', 0)
+        needs_reset, credits, updates = _check_reset_needed(user_data)
+        if updates:
+            user_ref.update(updates)
+        if needs_reset:
+            logger.info("Credits reset - %d credits restored", credits)
+        return credits
 
     except Exception as e:
-        print(f"Error checking credit reset: {e}")
+        logger.error("Error checking credit reset: %s", e)
         return user_data.get('credits', 0)
 
 
 def check_and_reset_usage(user_ref, user_data):
-    """Check if a month has passed and reset usage counters if needed (Pro/Elite only)"""
+    """Check if a new calendar month has started and reset usage counters (Pro/Elite only)."""
     try:
         tier = user_data.get('subscriptionTier') or user_data.get('tier', 'free')
-        
+
         # Free tier limits are LIFETIME - never reset
         if tier == 'free':
             return
-        
+
         last_usage_reset = _parse_datetime(user_data.get('lastUsageReset'))
         now = datetime.now()
-        
+
         # If no reset date, set it to now
         if not last_usage_reset:
             user_ref.update({'lastUsageReset': now.isoformat()})
             return
-        
-        # Check if a month has passed (approximately 30 days)
-        days_since_reset = (now - last_usage_reset).days
-        
-        if days_since_reset >= 30:
+
+        # Use calendar month boundary (consistent with credit reset)
+        is_new_month = (now.year > last_usage_reset.year) or (
+            now.year == last_usage_reset.year and now.month > last_usage_reset.month
+        )
+
+        if is_new_month:
             # Reset usage counters (only for Pro/Elite)
             user_ref.update({
                 'alumniSearchesUsed': 0,
@@ -88,10 +107,10 @@ def check_and_reset_usage(user_ref, user_data):
                 'interviewPrepsUsed': 0,
                 'lastUsageReset': now.isoformat()
             })
-            print(f"[Auth] Usage counters reset ({tier} tier)")
-        
+            logger.info("Usage counters reset (%s tier)", tier)
+
     except Exception as e:
-        print(f"Error checking usage reset: {e}")
+        logger.error("Error checking usage reset: %s", e)
 
 
 def can_access_feature(tier: str, feature: str, user_data: dict, tier_config: dict) -> tuple[bool, str]:
@@ -148,51 +167,58 @@ def deduct_credits_atomic(user_id: str, amount: int, operation_name: str = "oper
     """
     Atomically deduct credits from user account using Firestore transaction.
     Prevents race conditions when multiple requests try to deduct credits simultaneously.
-    
-    Args:
-        user_id: Firebase user ID
-        amount: Number of credits to deduct
-        operation_name: Name of operation for logging
-    
+
     Returns:
         Tuple of (success: bool, remaining_credits: int)
         If success is False, remaining_credits is the current balance
     """
     db = get_db()
     user_ref = db.collection('users').document(user_id)
-    
+
     @firestore.transactional
     def deduct_in_transaction(transaction):
-        """Transaction function to atomically check and deduct credits"""
         user_doc = user_ref.get(transaction=transaction)
-        
+
         if not user_doc.exists:
-            print(f"[Auth] User not found for credit deduction")
+            logger.warning("User not found for credit deduction")
             return False, 0
 
         user_data = user_doc.to_dict()
-        current_credits = check_and_reset_credits(user_ref, user_data)
+
+        # Check reset inside transaction — returns updates to apply atomically
+        needs_reset, current_credits, reset_updates = _check_reset_needed(user_data)
 
         if current_credits < amount:
-            print(f"[Auth] Insufficient credits for {operation_name}: need {amount}, have {current_credits}")
+            # Still apply reset updates (so timestamp gets set) even if insufficient
+            if reset_updates:
+                transaction.update(user_ref, reset_updates)
+            logger.info("Insufficient credits for %s: need %d, have %d", operation_name, amount, current_credits)
             return False, current_credits
 
-        # Deduct credits atomically
+        # Merge reset updates with deduction in a single atomic write
         new_credits = current_credits - amount
-        transaction.update(user_ref, {
+        update_fields = {
             'credits': new_credits,
-            'lastCreditUpdate': datetime.now().isoformat()
-        })
+            'lastCreditUpdate': datetime.now().isoformat(),
+        }
+        # Include any reset fields (lastCreditReset) in same write
+        if reset_updates:
+            update_fields.update(reset_updates)
+            # Override credits if reset happened — deduct from reset amount
+            if needs_reset:
+                update_fields['credits'] = new_credits
 
-        print(f"[Auth] Deducted {amount} credits for {operation_name}: {current_credits} -> {new_credits}")
+        transaction.update(user_ref, update_fields)
+
+        logger.info("Deducted %d credits for %s: %d -> %d", amount, operation_name, current_credits, new_credits)
         return True, new_credits
-    
+
     try:
         transaction = db.transaction()
         success, credits = deduct_in_transaction(transaction)
         return success, credits
     except Exception as e:
-        print(f"[Auth] Error in atomic credit deduction: {e}")
+        logger.error("Error in atomic credit deduction: %s", e)
         # Fallback to non-transactional (less safe but won't crash)
         try:
             user_doc = user_ref.get()
@@ -200,7 +226,7 @@ def deduct_credits_atomic(user_id: str, amount: int, operation_name: str = "oper
                 user_data = user_doc.to_dict()
                 current_credits = check_and_reset_credits(user_ref, user_data)
                 return False, current_credits
-        except:
+        except Exception:
             pass
         return False, 0
 
@@ -208,45 +234,44 @@ def deduct_credits_atomic(user_id: str, amount: int, operation_name: str = "oper
 def refund_credits_atomic(user_id: str, amount: int, operation_name: str = "refund") -> tuple[bool, int]:
     """
     Atomically refund credits to user account using Firestore transaction.
-    Prevents race conditions when multiple requests try to refund credits simultaneously.
-    
-    Args:
-        user_id: Firebase user ID
-        amount: Number of credits to refund
-        operation_name: Name of operation for logging
-    
+
     Returns:
         Tuple of (success: bool, new_credits: int)
     """
     db = get_db()
     user_ref = db.collection('users').document(user_id)
-    
+
     @firestore.transactional
     def refund_in_transaction(transaction):
-        """Transaction function to atomically refund credits"""
         user_doc = user_ref.get(transaction=transaction)
-        
+
         if not user_doc.exists:
-            print(f"[Auth] User not found for credit refund")
+            logger.warning("User not found for credit refund")
             return False, 0
 
         user_data = user_doc.to_dict()
-        current_credits = check_and_reset_credits(user_ref, user_data)
 
-        # Refund credits atomically
+        # Check reset inside transaction — apply atomically
+        _needs_reset, current_credits, reset_updates = _check_reset_needed(user_data)
+
         new_credits = current_credits + amount
-        transaction.update(user_ref, {
+        update_fields = {
             'credits': new_credits,
-            'lastCreditUpdate': datetime.now().isoformat()
-        })
+            'lastCreditUpdate': datetime.now().isoformat(),
+        }
+        if reset_updates:
+            update_fields.update(reset_updates)
+            update_fields['credits'] = new_credits  # our refund takes precedence
 
-        print(f"[Auth] Refunded {amount} credits for {operation_name}: {current_credits} -> {new_credits}")
+        transaction.update(user_ref, update_fields)
+
+        logger.info("Refunded %d credits for %s: %d -> %d", amount, operation_name, current_credits, new_credits)
         return True, new_credits
-    
+
     try:
         transaction = db.transaction()
         success, credits = refund_in_transaction(transaction)
         return success, credits
     except Exception as e:
-        print(f"[Auth] Error in atomic credit refund: {e}")
+        logger.error("Error in atomic credit refund: %s", e)
         return False, 0

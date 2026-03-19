@@ -26,13 +26,13 @@ import type { Recruiter } from '../services/firebaseApi';
 import { toast } from "@/hooks/use-toast";
 
 const STATUS_OPTIONS = [
-  { value: 'Not Contacted', color: '#999999', label: 'Not Contacted', bg: '#f0f0ee' },
-  { value: 'Contacted', color: '#555555', label: 'Contacted', bg: '#f0f0ee' },
-  { value: 'Followed Up', color: '#555555', label: 'Followed Up', bg: '#f0f0ee' },
-  { value: 'Responded', color: '#2a2a2a', label: 'Responded', bg: '#f0f0ee' },
-  { value: 'Call Scheduled', color: '#2a2a2a', label: 'Call Scheduled', bg: '#f0f0ee' },
-  { value: 'Rejected', color: '#c00000', label: 'Rejected', bg: '#fce8e6' },
-  { value: 'Hired', color: '#2a2a2a', label: 'Hired', bg: '#f0f0ee' }
+  { value: 'Not Contacted', color: '#6B7280', label: 'Not Contacted', bg: '#F3F4F6' },
+  { value: 'Contacted', color: '#2563EB', label: 'Contacted', bg: '#EFF6FF' },
+  { value: 'Followed Up', color: '#7C3AED', label: 'Followed Up', bg: '#F5F3FF' },
+  { value: 'Responded', color: '#059669', label: 'Responded', bg: '#ECFDF5' },
+  { value: 'Call Scheduled', color: '#D97706', label: 'Call Scheduled', bg: '#FFFBEB' },
+  { value: 'Rejected', color: '#DC2626', label: 'Rejected', bg: '#FEF2F2' },
+  { value: 'Hired', color: '#059669', label: 'Hired', bg: '#ECFDF5' }
 ];
 
 const REC_COLS = [
@@ -715,16 +715,16 @@ const RecruiterSpreadsheet: React.FC = () => {
 
                 {/* Column Label Row */}
                 <tr style={{ borderBottom: '2px solid #e5e5e3' }}>
-                  <th style={{ width: GUTTER_W, background: '#ffffff', borderRight: '1px solid #e5e5e3', fontSize: 10, color: '#999', textAlign: 'center', padding: '11px 0', position: 'sticky', top: 0, zIndex: 10 }}>#</th>
+                  <th style={{ width: GUTTER_W, background: '#F8FAFC', borderRight: '1px solid #e5e5e3', fontSize: 10, color: '#64748B', textAlign: 'center', padding: '11px 0', position: 'sticky', top: 0, zIndex: 10 }}>#</th>
                   {REC_COLS.map((col) => {
                     const isActive = activeCell?.col === col.key;
                     return (
-                      <th key={col.key} style={{ padding: '11px 12px', textAlign: 'left', fontSize: 10, fontWeight: 400, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#999', background: isActive ? '#f0f0ee' : '#ffffff', whiteSpace: 'nowrap', width: col.width, position: 'sticky', top: 0, zIndex: 10 }}>
+                      <th key={col.key} style={{ padding: '11px 12px', textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', color: isActive ? '#1E40AF' : '#64748B', background: isActive ? '#EFF6FF' : '#F8FAFC', whiteSpace: 'nowrap', width: col.width, position: 'sticky', top: 0, zIndex: 10 }}>
                         {col.label}
                       </th>
                     );
                   })}
-                  <th style={{ background: '#ffffff', padding: '11px 8px', width: 70, position: 'sticky', top: 0, zIndex: 10 }} />
+                  <th style={{ background: '#F8FAFC', padding: '11px 8px', width: 70, position: 'sticky', top: 0, zIndex: 10 }} />
                 </tr>
               </thead>
               <tbody>
@@ -742,13 +742,13 @@ const RecruiterSpreadsheet: React.FC = () => {
                   return (
                     <tr
                       key={recruiter.id}
-                      style={{ height: 28, borderBottom: '1px solid #f0f0ee', background: 'white', transition: 'background 0.08s' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = '#f5f5f3'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'white'; }}
+                      style={{ height: 32, borderBottom: '1px solid #F1F5F9', background: index % 2 === 1 ? '#F8FAFC' : 'white', transition: 'background 0.1s' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = '#EFF6FF'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = index % 2 === 1 ? '#F8FAFC' : 'white'; }}
                     >
                       {/* Row Number */}
                       <td style={{ width: GUTTER_W, textAlign: 'center', fontSize: 10, color: '#999', background: '#ffffff', borderRight: '1px solid #e5e5e3', padding: '0 4px' }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = '#f0f0ee'; e.currentTarget.style.color = '#555'; }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = '#EFF6FF'; e.currentTarget.style.color = '#2563EB'; }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.color = '#999'; }}
                       >{index + 1}</td>
 
@@ -768,8 +768,8 @@ const RecruiterSpreadsheet: React.FC = () => {
                       <td onClick={() => setActiveCell({ rowId: recruiter.id || '', col: 'linkedin' })} style={cellStyle('linkedin')}>
                         {recruiter.linkedinUrl ? (
                           <a href={recruiter.linkedinUrl.startsWith('http') ? recruiter.linkedinUrl : `https://${recruiter.linkedinUrl}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
-                            style={{ fontSize: 11, color: '#555', textDecoration: 'none', borderBottom: '1px solid #e5e5e3', paddingBottom: 1 }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = '#2a2a2a'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#555'; }}
+                            style={{ fontSize: 11, color: '#2563EB', textDecoration: 'none', borderBottom: '1px solid #BFDBFE', paddingBottom: 1 }}
+                            onMouseEnter={(e) => { e.currentTarget.style.color = '#1D4ED8'; e.currentTarget.style.borderColor = '#1D4ED8'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#2563EB'; e.currentTarget.style.borderColor = '#BFDBFE'; }}
                           >↗ view</a>
                         ) : <span style={{ color: '#bbb' }}>—</span>}
                       </td>
@@ -804,8 +804,8 @@ const RecruiterSpreadsheet: React.FC = () => {
                             <span style={{ fontSize: 12, color: '#2a2a2a', fontWeight: 500 }}>{recruiter.associatedJobTitle}</span>
                             {recruiter.associatedJobUrl && (
                               <a href={recruiter.associatedJobUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
-                                style={{ fontSize: 11, color: '#555', textDecoration: 'none', borderBottom: '1px solid #e5e5e3', marginLeft: 6 }}
-                                onMouseEnter={(e) => { e.currentTarget.style.color = '#2a2a2a'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#555'; }}
+                                style={{ fontSize: 11, color: '#2563EB', textDecoration: 'none', borderBottom: '1px solid #BFDBFE', marginLeft: 6 }}
+                                onMouseEnter={(e) => { e.currentTarget.style.color = '#1D4ED8'; e.currentTarget.style.borderColor = '#1D4ED8'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#2563EB'; e.currentTarget.style.borderColor = '#BFDBFE'; }}
                               >↗</a>
                             )}
                           </div>
@@ -815,7 +815,7 @@ const RecruiterSpreadsheet: React.FC = () => {
                       {/* Status */}
                       <td onClick={() => setActiveCell({ rowId: recruiter.id || '', col: 'status' })} style={cellStyle('status')}>
                         <span
-                          style={{ display: 'inline-block', fontSize: 11, fontFamily: mono, padding: '2px 8px', background: statusOption?.bg || '#f0f0ee', color: statusOption?.color || '#999', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          style={{ display: 'inline-block', fontSize: 10, fontFamily: mono, fontWeight: 500, padding: '3px 10px', borderRadius: 12, background: statusOption?.bg || '#F3F4F6', color: statusOption?.color || '#6B7280', cursor: 'pointer', whiteSpace: 'nowrap' }}
                           onClick={(e) => {
                             e.stopPropagation();
                             const idx = STATUS_OPTIONS.findIndex(o => o.value === recruiter.status);
