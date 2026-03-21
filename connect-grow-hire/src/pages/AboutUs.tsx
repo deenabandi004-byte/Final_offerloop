@@ -186,7 +186,7 @@ const AboutUs = () => {
               Built by students, <span style={{ color: '#3B82F6' }}>for students</span>
             </h1>
             <p style={{ fontFamily: 'var(--font-body)', fontSize: '17px', lineHeight: 1.7, color: 'var(--text-secondary)', maxWidth: '640px', margin: '0 auto' }}>
-              Offerloop was founded in 2025 at the University of Southern California by three students who were frustrated with the manual grind of networking for internships. We built the tool we wished we had.
+              Offerloop is a networking and outreach platform — not an email provider. Founded in 2025 at the University of Southern California by three students who were frustrated with the manual grind of networking for internships, we built the tool we wished we had.
             </p>
           </div>
         </div>

@@ -97,7 +97,7 @@ const ColdEmailConsulting = () => {
           Avoid opening with "I hope this email finds you well" or "I'm a student at X interested in consulting." Every student says that. Instead, reference something specific: their practice area, a case study their team published, or their career path from your shared alma mater.
         </p>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569' }}>
-          Offerloop automates the hardest part — finding verified email addresses and generating personalized emails. Search for McKinsey consultants by office location, practice area, or university, and Offerloop's AI drafts a unique email for each person based on their background and yours.
+          Offerloop automates the hardest part — finding verified email addresses and generating personalized emails. Search for McKinsey consultants by office location, practice area, or university, and Offerloop's AI drafts a unique email for each person based on their background and yours. Read our full <Link to="/blog/cold-email-mckinsey-consultant" style={{ color: '#2563EB', textDecoration: 'underline' }}>McKinsey cold email guide</Link> for step-by-step examples.
         </p>
       </section>
 

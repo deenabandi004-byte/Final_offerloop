@@ -266,6 +266,14 @@ const Index = () => {
                 "@type": "Answer",
                 "text": "A strong networking template has four parts: a personalized opening line (shared school, mutual connection, or specific interest in their work), one sentence about you, a clear and low-commitment ask (15-minute call), and a gracious close. Offerloop's AI generates unique emails for each contact by analyzing their professional background — the efficiency of a template with the authenticity of a hand-written message."
               }
+            },
+            {
+              "@type": "Question",
+              "name": "Is offerloop.ai a personal email domain?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "No — offerloop.ai is not a personal email service. Offerloop is an AI-powered networking platform for college students. It helps students find professional contacts, generate personalized outreach emails, and track their networking pipeline for recruiting in consulting, investment banking, and tech."
+              }
             }
           ]
         })}</script>
@@ -617,7 +625,7 @@ const Index = () => {
             className="hero-fade-up hero-fade-up-delay-3 hero-drop-cap"
             style={{ fontFamily: "'Lora', Georgia, serif", fontStyle: 'italic', fontSize: '16px', lineHeight: 1.75, color: '#6B7280', maxWidth: '520px', margin: '0 auto 36px', textAlign: 'left' }}
           >
-            Outreach that used to take hours: finding emails, writing messages, researching companies, done in minutes. So you can focus on the conversations that actually land offers.
+            Outreach that used to take hours: finding emails, writing messages, researching companies, done in minutes. Check out our <Link to="/blog/cold-email-mckinsey-consultant" style={{ color: '#2563EB', textDecoration: 'underline' }}>McKinsey cold email template</Link> to see how it works. Focus on the conversations that actually land offers.
           </p>
 
           {/* CTA Buttons */}
@@ -1035,6 +1043,7 @@ const Index = () => {
             { q: "What's the best strategy for networking to land an internship as a college freshman or sophomore?", a: "Start early by building relationships before recruiting season — reach out to upperclassmen, recent alumni, and professionals in your target industry 3-6 months before application deadlines. Focus on learning rather than asking for referrals in your initial conversations, and aim to build a network of 15-20 meaningful contacts in your target field. Offerloop removes the biggest barriers to networking — finding contacts, writing compelling emails, and staying organized." },
             { q: "Is there a better alternative to LinkedIn for college students trying to network?", a: "LinkedIn is useful for browsing profiles, but it wasn't designed for proactive outreach — students often hit connection request limits, get ignored in DMs, and lack access to direct email addresses. Offerloop is designed as a LinkedIn alternative for students, combining a 2.2 billion contact database with AI-powered email generation and Gmail integration so students can move beyond passive profile browsing into active, measurable networking." },
             { q: "What's a good networking email template for college students?", a: "A strong networking template has four parts: a personalized opening line (shared school, mutual connection, or specific interest in their work), one sentence about you, a clear and low-commitment ask (15-minute call), and a gracious close. Offerloop's AI generates unique emails for each contact by analyzing their professional background — the efficiency of a template with the authenticity of a hand-written message." },
+            { q: "Is offerloop.ai a personal email domain?", a: "No — offerloop.ai is not a personal email service. Offerloop is an AI-powered networking platform for college students. It helps students find professional contacts, generate personalized outreach emails, and track their networking pipeline for recruiting in consulting, investment banking, and tech." },
           ].map((faq, i, arr) => (
             <div key={i} style={{ padding: '20px 24px', borderBottom: i < arr.length - 1 ? '1px solid #EEF2F8' : 'none' }}>
               <h3 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 16, fontWeight: 700, color: '#0F172A', marginBottom: 8 }}>{faq.q}</h3>

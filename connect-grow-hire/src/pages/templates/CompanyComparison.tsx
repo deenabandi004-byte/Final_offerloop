@@ -82,6 +82,128 @@ function getFaqData(a: Company, b: Company) {
   ];
 }
 
+interface CustomContent {
+  sections: { title: string; content: string }[];
+  faqs: { question: string; answer: string }[];
+}
+
+function getCustomComparisonKey(a: string, b: string): string {
+  return [a, b].sort().join('-vs-');
+}
+
+const customComparisonContent: Record<string, CustomContent> = {
+  [getCustomComparisonKey('palantir', 'anduril')]: {
+    sections: [
+      {
+        title: 'Culture Differences: Palantir vs Anduril for Recruiting',
+        content: `Palantir and Anduril are the two most sought-after defense tech companies for college recruiting, but they have very different cultures. Palantir operates with a highly analytical, problem-solving culture rooted in its origins as a data analytics company. Forward Deployed Engineers (FDEs) work directly with government and commercial clients, embedding on-site to solve complex data problems. The culture rewards intellectual curiosity, independent thinking, and comfort with ambiguity. Anduril, by contrast, was founded by Palmer Luckey (Oculus VR) and has a startup-meets-defense culture that moves faster than any traditional defense contractor. Engineers build physical hardware products — drones, autonomous systems, sensor towers — alongside software. The pace is intense, the engineering is hands-on, and the culture skews younger and more entrepreneurial than Palantir. Both companies require candidates who are genuinely passionate about national security, but Palantir leans more analytical/consulting while Anduril leans more engineering/product.`
+      },
+      {
+        title: 'Target Schools and Recruiting Process',
+        content: `Palantir recruits heavily from Stanford, MIT, CMU, Berkeley, and other top CS programs, but also targets semi-target schools with strong technical programs. Their interview process includes a coding assessment, a decomposition interview (breaking down a complex problem), and a behavioral round focused on mission alignment. Anduril recruits from a similar pool but places even more emphasis on hardware and systems engineering backgrounds — schools like Caltech, Georgia Tech, and Purdue are well-represented alongside the usual CS targets. Anduril's interview process is more traditional SWE-style with coding rounds and system design, plus a strong emphasis on why you want to work in defense. Both companies look for candidates who can articulate why defense technology matters to them personally, not just people chasing a brand name.`
+      },
+      {
+        title: 'Which Is Better for Defense Tech Recruiting?',
+        content: `If you want to work at the intersection of data analytics and national security, with more client-facing exposure early in your career, Palantir is the better fit. FDE roles give you consulting-like breadth across problems. If you want to build physical products — drones, autonomous systems, counter-drone technology — and prefer a pure engineering role, Anduril is the better choice. Comp is strong at both firms. Palantir is publicly traded (NYSE: PLTR) so compensation includes RSUs; Anduril is private with potentially significant equity upside. For exit opportunities, Palantir alumni frequently move to top tech companies, consulting firms, or start their own companies. Anduril alumni tend to stay in defense tech or move to other hardware-focused startups. Both are excellent for career trajectory — the choice comes down to whether you prefer data-first or hardware-first work.`
+      },
+    ],
+    faqs: [
+      { question: 'Is Palantir or Anduril harder to get into for new grads?', answer: 'Both are extremely competitive. Palantir receives tens of thousands of applications for its FDE and SDE roles and has an acceptance rate under 2%. Anduril is similarly selective but slightly smaller in headcount, so the absolute number of openings is fewer. Your competitiveness depends on your technical background — strong CS fundamentals for Palantir, plus hardware/systems experience as a bonus for Anduril.' },
+      { question: 'Do Palantir and Anduril recruit from the same schools?', answer: 'There is significant overlap — both recruit from Stanford, MIT, CMU, Berkeley, and other top CS schools. However, Anduril also actively recruits from engineering schools with strong hardware programs (Georgia Tech, Caltech, Purdue) while Palantir is more focused on pure CS and data science programs.' },
+      { question: 'What clearance requirements exist for Palantir vs Anduril?', answer: 'Neither company requires a security clearance to apply or interview. However, many roles at both companies require or prefer candidates who are eligible for a clearance (U.S. citizenship). Some Palantir government-facing roles require an active TS/SCI clearance. Anduril will sponsor clearances for many engineering positions.' },
+      { question: 'How is compensation different between Palantir and Anduril?', answer: 'Both pay competitively with top tech companies. Palantir (publicly traded) offers base salary plus RSUs. New grad total comp typically ranges from $150K-$190K. Anduril (private) offers base plus equity in the form of stock options with significant upside potential. New grad total comp at Anduril is in a similar range, but the equity component carries more risk and potentially more reward.' },
+    ],
+  },
+  [getCustomComparisonKey('vista', 'thoma-bravo')]: {
+    sections: [
+      {
+        title: 'Fund Strategy: Vista Equity vs Thoma Bravo',
+        content: `Vista Equity Partners and Thoma Bravo are the two dominant software-focused private equity firms, but they approach deals differently. Vista is known for its highly operational approach — they acquire software companies and apply a rigorous value creation playbook (the "Vista Consulting Group" methodology) to improve margins, retention, and growth. Vista manages over $100 billion and invests across the full spectrum of enterprise software. Thoma Bravo takes a similar software focus but is known for its buy-and-build strategy — acquiring multiple companies in the same vertical and merging them. Thoma Bravo manages over $130 billion and has completed more software buyouts than any other PE firm. Both firms are intensely analytical and operationally focused, but Vista leans more toward standardized operational improvement while Thoma Bravo leans more toward strategic consolidation.`
+      },
+      {
+        title: 'Internship Programs and Target Schools',
+        content: `Both Vista and Thoma Bravo have small, highly selective internship and analyst programs. Vista recruits primarily from Wharton, Harvard, Stanford GSB feeders, and top undergraduate finance programs. Their analyst program is known for being analytically rigorous with a strong emphasis on operational metrics and software KPIs. Thoma Bravo similarly targets top finance programs but also recruits from strong IB analyst classes — many Thoma Bravo associates come from Goldman Sachs, Morgan Stanley, and other bulge bracket TMT groups. For undergrads, the path into either firm typically goes through investment banking first (especially TMT or tech-focused groups) rather than direct hiring. Networking with current analysts and associates at both firms is essential, as these roles are not always posted publicly.`
+      },
+      {
+        title: 'Which Is Better for PE Recruiting in Software?',
+        content: `If you are passionate about operational improvement and want to learn a systematic approach to value creation in software companies, Vista is the better fit. Their consulting-style operating group gives deal team members more exposure to post-acquisition work. If you are more interested in deal execution, M&A strategy, and building platforms through acquisitions, Thoma Bravo offers that experience at the highest level. Culture-wise, Vista is based in Austin and San Francisco with a more structured, data-driven culture. Thoma Bravo is headquartered in Miami and Chicago with a deal-focused, fast-paced culture. Both firms offer exceptional exit opportunities — alumni frequently start their own software-focused funds, join portfolio companies as executives, or move to other top PE firms. Compensation at both firms is at the top of the PE market.`
+      },
+    ],
+    faqs: [
+      { question: 'Can I recruit directly into Vista or Thoma Bravo out of undergrad?', answer: 'It is very rare. Both firms primarily hire analysts and associates who have 2-3 years of investment banking experience, typically in TMT or technology groups at bulge bracket or elite boutique banks. Some analysts are hired directly from top undergraduate programs, but the vast majority of PE recruiting at these firms happens through the traditional IB-to-PE pipeline.' },
+      { question: 'How does the interview process differ between Vista and Thoma Bravo?', answer: 'Both firms test LBO modeling, deal analysis, and software-specific knowledge. Vista places a heavier emphasis on operational metrics (ARR, net retention, CAC/LTV) and may include case studies on improving a software company post-acquisition. Thoma Bravo focuses more on deal structuring, merger integration, and strategic rationale. Both will test your ability to evaluate software businesses specifically.' },
+      { question: 'Which firm is larger — Vista Equity or Thoma Bravo?', answer: 'Thoma Bravo manages slightly more capital (over $130B vs Vista\'s $100B+), but Vista is known for having a larger operational consulting team. In terms of deal volume, Thoma Bravo has completed more individual software buyouts. Both are at the very top of the software PE landscape.' },
+      { question: 'What investment banking groups best prepare you for Vista or Thoma Bravo?', answer: 'TMT (Technology, Media & Telecom) groups at Goldman Sachs, Morgan Stanley, JPMorgan, and Qatalyst Partners are the most common feeders. Software-focused coverage groups are ideal. Experience with SaaS company valuations, recurring revenue modeling, and enterprise software deal flow will give you the strongest background for either firm.' },
+    ],
+  },
+  [getCustomComparisonKey('blackstone', 'kkr')]: {
+    sections: [
+      {
+        title: 'Recruiting Timelines: Blackstone vs KKR',
+        content: `Blackstone and KKR are two of the most prestigious names in private equity, and their recruiting timelines reflect their selectivity. Both firms participate in on-cycle PE recruiting, which has accelerated significantly — interviews often happen within days of the process opening, typically during the summer before your second year as an IB analyst. Blackstone's analyst program is one of the largest in mega-fund PE, hiring 30-40 analysts per class across its PE, Real Estate, Credit, and Tactical Opportunities groups. KKR's analyst class is smaller but similarly elite. For both firms, the recruiting process effectively begins 12-18 months before your start date, which means you should be networking with current employees at both firms during your first year in banking. Headhunters (primarily HSP, CPI, and Dynamics) run the on-cycle process, and having relationships at the firms beforehand is often what gets you on the headhunter's shortlist.`
+      },
+      {
+        title: 'Target Schools and Culture Comparison',
+        content: `Blackstone and KKR recruit almost exclusively from target schools and top investment banking programs. Analysts at both firms typically come from Goldman Sachs, Morgan Stanley, JPMorgan, and elite boutiques like Evercore and Centerview. Wharton, Harvard, and Stanford undergrads are heavily represented, along with strong finance programs at Georgetown, Michigan, and Duke. Culture-wise, Blackstone is known for being highly structured, institutional, and performance-driven under Steve Schwarzman's leadership. The firm has a clear hierarchy and a polished corporate culture. KKR has a more entrepreneurial feel — the firm prides itself on a collaborative "one firm" culture where junior team members get significant deal exposure. KKR's culture also emphasizes long-term relationship building with management teams, which means analysts often get more direct interaction with portfolio company executives than at some competitors.`
+      },
+      {
+        title: 'Which Is Better for PE, Credit, and Real Estate Recruiting?',
+        content: `Blackstone is the largest alternative asset manager in the world, which means it offers unmatched breadth. If you want optionality across PE, Real Estate, Credit, and infrastructure, Blackstone gives you exposure to the broadest platform. Their Real Estate business is the largest in the world, making it the clear choice if you are interested in real estate investing. KKR is the better choice if you want a more focused PE experience with a collaborative team culture. KKR's private equity business is its flagship, and analysts tend to get deeper deal involvement earlier. For credit, both firms have strong platforms, but Blackstone's GSO Credit (now Blackstone Credit) is larger. Exit opportunities from both are exceptional — you can move to virtually any hedge fund, growth equity firm, or operating role after either name. The choice often comes down to whether you prefer Blackstone's scale and structure or KKR's entrepreneurial, relationship-driven approach.`
+      },
+    ],
+    faqs: [
+      { question: 'How do I get an interview at Blackstone or KKR?', answer: 'The primary path is through on-cycle PE recruiting after 1-2 years as an investment banking analyst at a top bank. Headhunters will reach out to analysts at target banks (Goldman, MS, JPM, Evercore, etc.). Having relationships with current Blackstone or KKR employees is crucial — headhunters often ask candidates which firms they are most interested in, and having done your networking homework signals genuine interest.' },
+      { question: 'What is the internship-to-full-time conversion rate at Blackstone and KKR?', answer: 'Both firms have high conversion rates for their internship programs (typically 70-90%). However, the PE internship programs are small (usually 10-20 interns) and extremely competitive. Performing well during the internship — showing strong analytical skills, deal judgment, and cultural fit — is critical for receiving a return offer.' },
+      { question: 'How does compensation compare between Blackstone and KKR?', answer: 'Compensation at both firms is at the top of the PE market and is very similar. First-year PE associates at mega-funds typically earn $350K-$450K+ in total compensation (base + bonus + co-invest). The difference is often in carried interest, which vests over time and can be worth millions over a career. Both firms offer industry-leading compensation packages.' },
+      { question: 'Can I recruit into Blackstone or KKR from a non-target school?', answer: 'It is extremely difficult but not impossible. Both firms recruit primarily from target schools and top IB programs. The most viable path from a non-target school is to first land a position at a top investment bank (some banks recruit more broadly) and then recruit into PE after demonstrating strong performance. Networking is even more critical for non-target candidates — building relationships with alumni at these firms can help overcome the school name disadvantage.' },
+    ],
+  },
+  [getCustomComparisonKey('citadel', 'two-sigma')]: {
+    sections: [
+      {
+        title: 'Quant vs Fundamental: How Citadel and Two Sigma Differ',
+        content: `Citadel and Two Sigma are both elite quantitative finance firms, but they operate differently. Citadel runs two major businesses: Citadel LLC (the hedge fund) and Citadel Securities (the market maker). The hedge fund employs both quantitative and fundamental strategies across equities, fixed income, commodities, and macro. This means Citadel hires not just quants but also fundamental analysts, PMs, and traders. Two Sigma is a pure quantitative firm — virtually all investment decisions are driven by mathematical models, data science, and machine learning. There is no fundamental analysis team. Two Sigma's culture is more academic and collaborative, often described as "a tech company that happens to trade." Citadel's culture is more intense and competitive, with a strong emphasis on individual performance and P&L accountability. Both firms are among the highest-paying employers for new graduates.`
+      },
+      {
+        title: 'Recruiting Process and Target Schools',
+        content: `Both Citadel and Two Sigma recruit aggressively from top STEM programs. Math, CS, physics, and statistics majors from MIT, Stanford, Princeton, Harvard, Caltech, and CMU are the primary targets. Citadel's recruiting process includes quantitative assessments (probability, statistics, brain teasers), coding interviews for tech roles, and market-based questions for trading roles. Two Sigma's process is more focused on software engineering and data science — expect coding interviews, ML/statistics questions, and system design rounds. Both firms recruit for summer internships (the primary pipeline for full-time offers) as well as full-time roles. Citadel also runs a "Datathon" and other competitive events that serve as recruiting funnels. Two Sigma hosts research challenges and open-source events. For both firms, quantitative competition results (Putnam, IMO, USACO, Kaggle) significantly strengthen your application.`
+      },
+      {
+        title: 'Which Firm Suits Different Backgrounds?',
+        content: `If you come from a math/statistics background and want to work on quantitative trading strategies with direct P&L exposure, Citadel's quant research or trading teams are ideal. If you prefer fundamental investing — analyzing companies, building financial models, making investment theses — Citadel's fundamental teams offer that (Two Sigma does not). If you are a software engineer or data scientist who wants to apply your skills to financial markets in a collaborative, research-oriented environment, Two Sigma is the better cultural fit. Two Sigma's engineering culture is widely considered the best in quantitative finance — they contribute to open source, publish research, and treat engineers as true peers to researchers. Compensation at both firms is exceptional. New grad total comp at both can exceed $200K-$300K depending on the role. Citadel tends to pay slightly higher on average but with more variance, while Two Sigma offers strong, consistent packages. Exit opportunities differ: Citadel alumni often move to other hedge funds or start their own. Two Sigma alumni frequently move to top tech companies (Google, Meta, startups) given the engineering-heavy culture.`
+      },
+    ],
+    faqs: [
+      { question: 'Do I need a PhD to work at Citadel or Two Sigma?', answer: 'Not for most roles. Both firms hire undergraduates and master\'s students for quantitative research, software engineering, and trading roles. PhD candidates are competitive for senior research roles, but many of the most successful hires are undergrads with strong math/CS backgrounds and competition experience. Two Sigma in particular hires many software engineers without PhDs.' },
+      { question: 'How does the interview difficulty compare between Citadel and Two Sigma?', answer: 'Both are extremely challenging. Citadel interviews tend to emphasize probability, mental math, and market intuition for trading roles. Two Sigma interviews focus more on coding, algorithms, and data science/ML for engineering and research roles. Expect 3-5 rounds at both firms. Preparation with probability puzzles (for Citadel) and LeetCode-style problems (for Two Sigma) is essential.' },
+      { question: 'Which firm has better work-life balance — Citadel or Two Sigma?', answer: 'Two Sigma is generally regarded as having a better work-life balance. The culture is more collaborative and less high-pressure on a daily basis, with a tech-company feel. Citadel is known for a more intense, demanding culture, particularly on trading desks and during market events. That said, both firms expect high performance and long hours during critical periods.' },
+      { question: 'Can I recruit into Citadel or Two Sigma without a quantitative background?', answer: 'It is very difficult. Both firms strongly prefer candidates with quantitative majors (math, CS, physics, statistics, engineering). However, Citadel\'s fundamental equity teams do hire candidates with traditional finance backgrounds (IB analysts, equity research). Two Sigma is almost exclusively quantitative/technical in its hiring — a strong coding and math background is effectively required for all roles.' },
+    ],
+  },
+  [getCustomComparisonKey('pwc', 'kpmg')]: {
+    sections: [
+      {
+        title: 'Practice Area Differences: PwC vs KPMG',
+        content: `PwC and KPMG are both Big 4 firms, but their strengths and practice areas differ in ways that matter for recruiting. PwC's Advisory practice (now rebranded as part of its "New Equation" strategy) is the largest professional services advisory business in the world. PwC is particularly strong in deals advisory, risk consulting, and digital transformation. Their Strategy& practice (formerly Booz & Company) gives PwC a dedicated management consulting arm that competes with MBB on strategy work. KPMG's consulting practice is smaller but known for strength in financial services consulting, IT advisory, and government advisory. KPMG's audit practice is considered the strongest among the Big 4 by some measures, particularly in financial services. For students deciding between the two, the key question is which practice area you want to enter. PwC offers more breadth and scale in advisory, while KPMG may be a better fit if you are interested in financial services consulting or plan to start in audit with a move to advisory later.`
+      },
+      {
+        title: 'Big 4 Recruiting Timelines and Target Schools',
+        content: `Both PwC and KPMG recruit broadly from target, semi-target, and non-target schools — this is one of the biggest advantages of Big 4 recruiting compared to MBB or investment banking. Applications typically open in August-September for summer internships, with interviews in October-November. Both firms have "campus champion" or "ambassador" programs that start even earlier, giving students who engage early a significant advantage. PwC recruits from over 200 universities across the U.S. and has dedicated recruiting teams for each campus. KPMG similarly recruits broadly but tends to have particularly strong relationships with accounting and business programs. Both firms offer winter, spring, and summer internships, plus direct full-time hiring. The conversion rate from internship to full-time offer is high at both firms (80-90%+). For advisory/consulting roles specifically, both firms are more selective and may prioritize candidates from stronger academic programs.`
+      },
+      {
+        title: 'Which Is Better for Consulting Recruiting?',
+        content: `For pure consulting/advisory careers, PwC has the edge due to the size and prestige of its advisory practice and the Strategy& brand. If you are targeting strategy consulting specifically, PwC's Strategy& gives you access to MBB-caliber strategy work within a Big 4 platform. For risk consulting, technology consulting, and deals advisory, PwC also has a larger team and more project variety. KPMG is a strong choice if you are interested in financial services consulting (banking, insurance, asset management clients), government consulting, or if you plan to leverage an audit background to transition into advisory. KPMG's consulting practice has been growing rapidly and offers a less competitive hiring process than PwC's advisory roles. For exit opportunities, both firms are well-respected. PwC Advisory/Strategy& alumni frequently move to MBB, top tech companies, or corporate strategy roles. KPMG consulting alumni similarly exit to strong roles, particularly in financial services and government.`
+      },
+    ],
+    faqs: [
+      { question: 'Should I start in audit or advisory at PwC or KPMG?', answer: 'It depends on your long-term goals. If you want to do consulting, apply directly to advisory — internal transfers from audit to advisory are possible but not guaranteed. If you are interested in accounting, financial reporting, or plan to get your CPA, audit is a strong starting point. Both PwC and KPMG allow some internal mobility, but it is easier to start where you want to end up.' },
+      { question: 'How does compensation compare between PwC and KPMG?', answer: 'Compensation is very similar between PwC and KPMG at the same level and practice area. Entry-level audit associates earn $60K-$75K depending on location. Advisory/consulting associates earn $75K-$95K. Senior managers and directors earn $150K-$250K+. The pay gap between Big 4 firms is typically less than 5-10% at any given level. PwC Advisory and Strategy& may pay a slight premium at senior levels.' },
+      { question: 'Which Big 4 firm has better exit opportunities — PwC or KPMG?', answer: 'PwC generally offers slightly better exit opportunities due to its larger advisory practice and the Strategy& brand recognition. PwC alumni are more commonly found at MBB firms and top tech companies. However, KPMG alumni do very well in financial services, government, and industry roles. The difference is marginal — your individual performance, client exposure, and network matter far more than which Big 4 firm name is on your resume.' },
+      { question: 'Do PwC and KPMG recruit from non-target schools?', answer: 'Yes — this is one of the biggest advantages of Big 4 recruiting. Both PwC and KPMG recruit from hundreds of universities, including many non-target schools. Students at non-target schools should focus on getting involved with campus recruiting events, building relationships with campus recruiters, and applying for leadership development programs. GPA cutoffs (typically 3.2-3.5) are important, and accounting majors have an advantage for audit roles.' },
+    ],
+  },
+};
+
 const CompanyComparison = ({ companyA, companyB }: Props) => {
   const a = companyA;
   const b = companyB;
@@ -99,20 +221,24 @@ const CompanyComparison = ({ companyA, companyB }: Props) => {
     { label: 'Prestige Level', valueA: getPrestigeLevel(a), valueB: getPrestigeLevel(b) },
   ];
 
+  const customKey = getCustomComparisonKey(a.slug, b.slug);
+  const custom = customComparisonContent[customKey];
+  const allFaqs = custom ? [...faqData, ...custom.faqs] : faqData;
+
   return (
     <div className="min-h-screen w-full" style={{ fontFamily: "'DM Sans', system-ui, sans-serif", background: '#FFFFFF' }}>
       <Helmet>
-        <title>{a.name} vs {b.name} for Students | Networking and Recruiting Comparison | Offerloop</title>
-        <meta name="description" content={`Compare networking at ${a.name} vs ${b.name}. Recruiting timelines, culture, cold email strategies, and coffee chat tips for college students.`} />
+        <title>{`${a.name} vs ${b.name}: Which Should You Target for Recruiting? (2026)`}</title>
+        <meta name="description" content={`Compare ${a.name} and ${b.name} for college recruiting — culture, target schools, interview process, and which fits your background best.`} />
         <link rel="canonical" href={`https://offerloop.ai/compare/${a.slug}-vs-${b.slug}`} />
-        <meta property="og:title" content={`${a.name} vs ${b.name} for Students | Networking and Recruiting Comparison | Offerloop`} />
-        <meta property="og:description" content={`Compare networking at ${a.name} vs ${b.name}. Recruiting timelines, culture, cold email strategies, and coffee chat tips for college students.`} />
+        <meta property="og:title" content={`${a.name} vs ${b.name}: Which Should You Target for Recruiting? (2026)`} />
+        <meta property="og:description" content={`Compare ${a.name} and ${b.name} for college recruiting — culture, target schools, interview process, and which fits your background best.`} />
         <meta property="og:url" content={`https://offerloop.ai/compare/${a.slug}-vs-${b.slug}`} />
         <meta property="og:type" content="article" />
         <script type="application/ld+json">{JSON.stringify({
           "@context": "https://schema.org",
           "@type": "FAQPage",
-          "mainEntity": faqData.map(f => ({
+          "mainEntity": allFaqs.map(f => ({
             "@type": "Question",
             "name": f.question,
             "acceptedAnswer": { "@type": "Answer", "text": f.answer }
@@ -228,6 +354,18 @@ const CompanyComparison = ({ companyA, companyB }: Props) => {
         </p>
       </section>
 
+      {/* Custom Recruiting Intelligence (for high-traffic comparisons) */}
+      {custom && custom.sections.map((section, i) => (
+        <section key={i} className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
+          <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '16px' }}>
+            {section.title}
+          </h2>
+          <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569' }}>
+            {section.content}
+          </p>
+        </section>
+      ))}
+
       {/* Cold Email Templates for Both */}
       <section className="px-6 py-12" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
         <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: '28px', fontWeight: 400, color: '#0F172A', marginBottom: '20px' }}>
@@ -272,7 +410,7 @@ const CompanyComparison = ({ companyA, companyB }: Props) => {
       {/* FAQ */}
       <section className="px-6 py-16" style={{ maxWidth: '800px', margin: '0 auto', borderTop: '1px solid #F1F5F9' }}>
         <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '24px', color: '#0F172A' }}>Frequently Asked Questions</h2>
-        {faqData.map((faq, i) => (
+        {allFaqs.map((faq, i) => (
           <div key={i} style={{ marginBottom: '20px' }}>
             <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px', color: '#0F172A' }}>{faq.question}</h3>
             <p style={{ fontSize: '14px', lineHeight: 1.6, color: '#4a5568' }}>{faq.answer}</p>
@@ -300,6 +438,12 @@ const CompanyComparison = ({ companyA, companyB }: Props) => {
             <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>{b.name} Coffee Chat Guide</p>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Prep questions and follow-up templates.</p>
           </Link>
+          {(a.slug === 'mckinsey' || b.slug === 'mckinsey') && (
+            <Link to="/blog/cold-email-mckinsey-consultant" style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+              <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>McKinsey Cold Email Template</p>
+              <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Step-by-step guide to cold emailing McKinsey consultants.</p>
+            </Link>
+          )}
         </div>
       </section>
 

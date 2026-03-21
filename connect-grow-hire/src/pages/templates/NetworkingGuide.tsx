@@ -271,6 +271,12 @@ const NetworkingGuide = ({ company }: Props) => {
             <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>Offerloop Blog</p>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Networking strategies, recruiting tips, and career advice.</p>
           </Link>
+          {company.slug === 'mckinsey' && (
+            <Link to="/blog/cold-email-mckinsey-consultant" style={{ display: 'block', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', background: '#fff', textDecoration: 'none', transition: 'border-color 0.15s ease' }} onMouseEnter={e => (e.currentTarget.style.borderColor = '#2563EB')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#E2E8F0')}>
+              <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>McKinsey Cold Email Template</p>
+              <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>Step-by-step guide to cold emailing McKinsey consultants with real examples.</p>
+            </Link>
+          )}
         </div>
       </section>
 
