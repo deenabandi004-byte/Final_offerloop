@@ -1,8 +1,8 @@
 ---
 title: "Alumni Networking Email Templates: How to Reach Out (and Get a Response) in 2025"
 description: "8 copy-paste email templates for reaching out to alumni at your target companies. Includes subject lines, follow-up strategy, and response rate tips for consulting, IB, and tech."
-date: 2026-03-15
-slug: alumni-outreach-email-guide
+date: "2026-03-15"
+slug: "alumni-outreach-email-guide"
 tags: [alumni, networking, email-templates, recruiting, career]
 schema: FAQPage
 canonicalUrl: https://offerloop.ai/blog/alumni-outreach-email-guide

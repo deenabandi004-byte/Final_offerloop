@@ -1,8 +1,8 @@
 ---
 title: "Cold Email for Investment Banking: 10 Templates That Actually Work (2025)"
 description: "How to cold email bankers at Goldman Sachs, JPMorgan, Morgan Stanley and beyond. 10 copy-paste IB networking templates, response rate data, and recruiting season timing."
-date: 2026-03-15
-slug: cold-email-investment-banking
+date: "2026-03-15"
+slug: "cold-email-investment-banking"
 tags: [investment-banking, cold-email, networking, recruiting, templates]
 schema: FAQPage
 canonicalUrl: https://offerloop.ai/blog/cold-email-investment-banking

@@ -1,8 +1,8 @@
 ---
 title: "Cold Email for Consulting Recruiting: 10 Templates That Get Responses (2025)"
 description: "The complete guide to cold emailing consultants at McKinsey, Bain, BCG and beyond. 10 copy-paste templates, response rate data, and the exact strategy that works."
-date: 2026-03-15
-slug: cold-email-consulting-recruiting
+date: "2026-03-15"
+slug: "cold-email-consulting-recruiting"
 tags: [consulting, cold-email, networking, recruiting, templates]
 schema: FAQPage
 canonicalUrl: https://offerloop.ai/blog/cold-email-consulting-recruiting

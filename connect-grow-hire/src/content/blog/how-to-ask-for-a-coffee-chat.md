@@ -1,8 +1,8 @@
 ---
 title: "How to Ask for a Coffee Chat: 8 Email Templates + Scripts (2025)"
 description: "The complete guide to requesting coffee chats with professionals. 8 copy-paste email templates for consulting, banking, and tech — plus what to say when they say yes."
-date: 2026-03-15
-slug: how-to-ask-for-a-coffee-chat
+date: "2026-03-15"
+slug: "how-to-ask-for-a-coffee-chat"
 tags: [coffee-chat, networking, email-templates, informational-interview, recruiting]
 schema: FAQPage
 canonicalUrl: https://offerloop.ai/blog/how-to-ask-for-a-coffee-chat

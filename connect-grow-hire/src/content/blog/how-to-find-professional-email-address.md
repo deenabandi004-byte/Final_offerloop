@@ -1,7 +1,7 @@
 ---
 title: "How to Find Anyone's Professional Email Address: 8 Methods That Work in 2025"
 date: "2026-03-20"
-description: "```json {   \"@context\": \"https://schema.org\",   \"@type\": \"FAQPage\",   \"mainEntity\": [     {       \"@type\": \"Question\",       \"name\": \"Is it legal to cold e"
+description: "Learn 8 proven methods to find anyone's professional email address in 2025, including email permutators, LinkedIn, alumni directories, and more."
 slug: "how-to-find-professional-email-address"
 keywords: "how to find professional email address"
 schema: "HowTo"
