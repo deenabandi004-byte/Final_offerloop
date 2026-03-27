@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import type { SeoUniversity } from '@/data/seo-universities';
 import BeehiivPopup from '@/components/BeehiivPopup';
+import ExitIntentPopup from '@/components/ExitIntentPopup';
 
 interface Props {
   university: SeoUniversity;
@@ -273,6 +274,7 @@ const AlumniGuide = ({ university: uni }: Props) => {
         </div>
       </footer>
       <BeehiivPopup />
+      <ExitIntentPopup />
     </div>
   );
 };

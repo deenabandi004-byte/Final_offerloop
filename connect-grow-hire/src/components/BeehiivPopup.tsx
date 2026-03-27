@@ -1,22 +1,46 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { X } from 'lucide-react';
 
 const STORAGE_KEY = 'beehiiv_popup_shown';
 const DELAY_MS = 20000;
+const SCROLL_THRESHOLD = 0.45;
 
 const BeehiivPopup = () => {
   const [visible, setVisible] = useState(false);
+  const timerElapsed = useRef(false);
+  const scrollMet = useRef(false);
+
+  const show = useCallback(() => {
+    if (timerElapsed.current && scrollMet.current) {
+      sessionStorage.setItem(STORAGE_KEY, '1');
+      setVisible(true);
+    }
+  }, []);
 
   useEffect(() => {
     if (sessionStorage.getItem(STORAGE_KEY)) return;
 
     const timer = setTimeout(() => {
-      sessionStorage.setItem(STORAGE_KEY, '1');
-      setVisible(true);
+      timerElapsed.current = true;
+      show();
     }, DELAY_MS);
 
-    return () => clearTimeout(timer);
-  }, []);
+    const onScroll = () => {
+      const scrollPct =
+        window.scrollY / (document.documentElement.scrollHeight - window.innerHeight);
+      if (scrollPct >= SCROLL_THRESHOLD) {
+        scrollMet.current = true;
+        show();
+      }
+    };
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('scroll', onScroll);
+    };
+  }, [show]);
 
   if (!visible) return null;
 

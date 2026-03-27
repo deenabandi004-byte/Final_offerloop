@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import type { Role } from '@/data/roles';
 import BeehiivPopup from '@/components/BeehiivPopup';
+import ExitIntentPopup from '@/components/ExitIntentPopup';
 
 interface Props {
   role: Role;
@@ -375,6 +376,7 @@ const RoleNetworkingGuide = ({ role }: Props) => {
         </div>
       </footer>
       <BeehiivPopup />
+      <ExitIntentPopup />
     </div>
   );
 };

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import type { Company } from '@/data/companies';
 import BeehiivPopup from '@/components/BeehiivPopup';
+import ExitIntentPopup from '@/components/ExitIntentPopup';
 
 interface Props {
   company: Company;
@@ -359,6 +360,7 @@ const CoffeeChatGuide = ({ company }: Props) => {
         </div>
       </footer>
       <BeehiivPopup />
+      <ExitIntentPopup />
     </div>
   );
 };

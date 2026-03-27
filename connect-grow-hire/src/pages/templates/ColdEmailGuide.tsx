@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import type { Industry } from '@/data/industries';
 import BeehiivPopup from '@/components/BeehiivPopup';
+import ExitIntentPopup from '@/components/ExitIntentPopup';
 
 interface Props {
   industry: Industry;
@@ -365,6 +366,7 @@ const ColdEmailGuide = ({ industry }: Props) => {
         </div>
       </footer>
       <BeehiivPopup />
+      <ExitIntentPopup />
     </div>
   );
 };

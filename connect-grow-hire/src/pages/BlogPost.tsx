@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { getPostBySlug } from '@/lib/blog';
 import BeehiivPopup from '@/components/BeehiivPopup';
+import ExitIntentPopup from '@/components/ExitIntentPopup';
 
 const BlogPost = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -116,6 +117,7 @@ const BlogPost = () => {
       </footer>
 
       <BeehiivPopup />
+      <ExitIntentPopup />
 
       <style>{`
         .prose-offerloop h2 {

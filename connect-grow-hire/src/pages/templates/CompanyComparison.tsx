@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import type { Company } from '@/data/companies';
 import BeehiivPopup from '@/components/BeehiivPopup';
+import ExitIntentPopup from '@/components/ExitIntentPopup';
 
 interface Props {
   companyA: Company;
@@ -484,6 +485,7 @@ const CompanyComparison = ({ companyA, companyB }: Props) => {
         </div>
       </footer>
       <BeehiivPopup />
+      <ExitIntentPopup />
     </div>
   );
 };
