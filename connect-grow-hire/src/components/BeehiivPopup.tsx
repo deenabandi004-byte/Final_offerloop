@@ -11,7 +11,7 @@ const BeehiivPopup = () => {
   const scrollMet = useRef(false);
 
   const show = useCallback(() => {
-    if (timerElapsed.current && scrollMet.current) {
+    if (timerElapsed.current || scrollMet.current) {
       sessionStorage.setItem(STORAGE_KEY, '1');
       setVisible(true);
     }

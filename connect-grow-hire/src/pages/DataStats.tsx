@@ -1,5 +1,6 @@
 import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
+import offerloopLogo from '../assets/offerloop_logo2.png';
 
 const stats = [
   { value: '2.2B', label: 'Verified professional contacts', description: 'Searchable via natural language queries like "McKinsey consultants who went to USC." Sourced through verified data provider partnerships.' },
@@ -50,7 +51,7 @@ const DataStats = () => {
 
       {/* Nav */}
       <nav className="w-full px-6 py-5 flex items-center justify-between" style={{ maxWidth: '1100px', margin: '0 auto' }}>
-        <Link to="/" className="text-xl font-bold" style={{ color: '#0F172A', letterSpacing: '-0.02em' }}>Offerloop</Link>
+        <Link to="/" className="text-xl font-bold" style={{ color: '#0F172A', letterSpacing: '-0.02em' }}><img src={offerloopLogo} alt="Offerloop" style={{ height: '32px', width: 'auto' }} /></Link>
         <Link to="/about" className="text-sm font-medium" style={{ color: '#64748B' }}>About</Link>
       </nav>
 
