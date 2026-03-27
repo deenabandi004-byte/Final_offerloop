@@ -35,7 +35,7 @@ import { auth } from '@/lib/firebase';
 
 const API_BASE = window.location.hostname === 'localhost' 
   ? 'http://localhost:5001' 
-  : 'https://www.offerloop.ai';
+  : 'https://offerloop.ai';
 
 // Our schema fields that can be mapped
 const SCHEMA_FIELDS = [

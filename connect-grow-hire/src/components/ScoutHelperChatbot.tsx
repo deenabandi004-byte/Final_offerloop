@@ -20,7 +20,7 @@ import { ScoutConversationList } from './ScoutConversationList';
 
 const BACKEND_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:5001'
-  : 'https://www.offerloop.ai';
+  : 'https://offerloop.ai';
 
 interface SearchFields {
   job_title?: string;

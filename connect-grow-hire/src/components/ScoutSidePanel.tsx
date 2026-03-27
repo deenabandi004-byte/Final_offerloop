@@ -20,7 +20,7 @@ import ScoutWavingWhite from '@/assets/ScoutWavingWhite.mp4';
 // Backend URL configuration
 const BACKEND_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:5001'
-  : 'https://www.offerloop.ai';
+  : 'https://offerloop.ai';
 
 // Session storage key for auto-populate
 const AUTO_POPULATE_KEY = 'scout_auto_populate';

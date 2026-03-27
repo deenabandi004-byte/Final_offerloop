@@ -19,10 +19,10 @@ const BlogPost = () => {
     "description": post.description,
     "datePublished": post.date,
     "dateModified": post.date,
-    "url": `https://www.offerloop.ai/blog/${post.slug}`,
+    "url": `https://offerloop.ai/blog/${post.slug}`,
     "author": { "@type": "Organization", "name": "Offerloop Team", "url": "https://offerloop.ai" },
     "publisher": { "@type": "Organization", "name": "Offerloop", "url": "https://offerloop.ai" },
-    "mainEntityOfPage": { "@type": "WebPage", "@id": `https://www.offerloop.ai/blog/${post.slug}` }
+    "mainEntityOfPage": { "@type": "WebPage", "@id": `https://offerloop.ai/blog/${post.slug}` }
   };
 
   const faqSchema = post.faqSchema?.length ? {

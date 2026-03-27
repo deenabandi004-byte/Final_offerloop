@@ -38,7 +38,7 @@ export function useSubscription() {
       
       const API_URL = window.location.hostname === 'localhost' 
         ? 'http://localhost:5001' 
-        : 'https://www.offerloop.ai';
+        : 'https://offerloop.ai';
 
       const response = await fetch(`${API_URL}/api/user/subscription`, {
         headers: {
@@ -92,7 +92,7 @@ export function useSubscription() {
       
       const API_URL = window.location.hostname === 'localhost' 
         ? 'http://localhost:5001' 
-        : 'https://www.offerloop.ai';
+        : 'https://offerloop.ai';
 
       const response = await fetch(`${API_URL}/api/user/increment-usage`, {
         method: 'POST',

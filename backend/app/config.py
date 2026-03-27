@@ -50,7 +50,7 @@ def get_oauth_redirect_uri():
     # Auto-detect based on Flask environment
     is_production = os.getenv("FLASK_ENV") == "production" or os.getenv("RENDER")
     return (
-        "https://www.offerloop.ai/api/google/oauth/callback"
+        "https://offerloop.ai/api/google/oauth/callback"
         if is_production
         else "http://localhost:5001/api/google/oauth/callback"
     )
@@ -64,7 +64,7 @@ def get_frontend_redirect_uri():
     """
     is_production = os.getenv("FLASK_ENV") == "production" or os.getenv("RENDER")
     return (
-        "https://www.offerloop.ai/signin"
+        "https://offerloop.ai/signin"
         if is_production
         else "http://localhost:8080/signin"
     )

@@ -425,10 +425,10 @@ def init_app_extensions(app: Flask):
         }
     else:
         # Production: only production domains (set CORS_ORIGINS env var to
-        # "https://www.offerloop.ai,https://offerloop.ai" on Render)
+        # "https://offerloop.ai" on Render)
         prod_origins = [
-            "https://www.offerloop.ai",
             "https://offerloop.ai",
+            "https://www.offerloop.ai",
         ]
         all_origins = list(set(prod_origins + allowed_origins))
         cors_config = {

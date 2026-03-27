@@ -375,7 +375,7 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
                         try {
                           const BACKEND_URL = window.location.hostname === 'localhost'
                             ? 'http://localhost:5001'
-                            : 'https://www.offerloop.ai';
+                            : 'https://offerloop.ai';
                           
                           const firebaseUser = auth.currentUser;
                           const token = firebaseUser ? await firebaseUser.getIdToken() : null;
@@ -470,7 +470,7 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
                         try {
                           const BACKEND_URL = window.location.hostname === 'localhost'
                             ? 'http://localhost:5001'
-                            : 'https://www.offerloop.ai';
+                            : 'https://offerloop.ai';
                           
                           const firebaseUser = auth.currentUser;
                           const token = firebaseUser ? await firebaseUser.getIdToken() : null;
@@ -635,7 +635,7 @@ export const EnhancedFitAnalysisPanel: React.FC<EnhancedFitAnalysisPanelProps> =
                         try {
                           const BACKEND_URL = window.location.hostname === 'localhost'
                             ? 'http://localhost:5001'
-                            : 'https://www.offerloop.ai';
+                            : 'https://offerloop.ai';
                           
                           const firebaseUser = auth.currentUser;
                           const token = firebaseUser ? await firebaseUser.getIdToken() : null;

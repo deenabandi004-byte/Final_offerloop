@@ -6,7 +6,7 @@ import { EnhancedFitAnalysis, CoverLetter, ResumeEdit } from '@/types/scout';
 
 const BACKEND_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:5001'
-  : 'https://www.offerloop.ai';
+  : 'https://offerloop.ai';
 
 export interface JobInput {
   title: string;

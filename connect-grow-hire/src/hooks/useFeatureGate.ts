@@ -43,7 +43,7 @@ export function useFeatureGate(feature: string) {
       
       const API_URL = window.location.hostname === 'localhost' 
         ? 'http://localhost:5001' 
-        : 'https://www.offerloop.ai';
+        : 'https://offerloop.ai';
 
       const response = await fetch(`${API_URL}/api/user/check-feature`, {
         method: 'POST',

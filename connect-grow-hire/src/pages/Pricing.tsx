@@ -146,7 +146,7 @@ const Pricing = () => {
       
       const API_URL = window.location.hostname === 'localhost' 
         ? 'http://localhost:5001' 
-        : 'https://www.offerloop.ai';
+        : 'https://offerloop.ai';
 
       const response = await fetch(`${API_URL}/api/subscription-status`, {
         headers: {
@@ -179,7 +179,7 @@ const Pricing = () => {
       
       const API_URL = window.location.hostname === 'localhost' 
         ? 'http://localhost:5001' 
-        : 'https://www.offerloop.ai';
+        : 'https://offerloop.ai';
 
       const response = await fetch(`${API_URL}/api/create-portal-session`, {
         method: 'POST',
@@ -265,7 +265,7 @@ const Pricing = () => {
 
       const API_URL = window.location.hostname === 'localhost'
         ? 'http://localhost:5001'
-        : 'https://www.offerloop.ai';
+        : 'https://offerloop.ai';
 
       const priceId = newTier === 'elite' ? STRIPE_ELITE_PRICE_ID : STRIPE_PRO_PRICE_ID;
 
@@ -347,7 +347,7 @@ const Pricing = () => {
       
       const API_URL = window.location.hostname === 'localhost' 
        ? 'http://localhost:5001' 
-       : 'https://www.offerloop.ai';
+       : 'https://offerloop.ai';
 
       // Select price ID based on tier
       const priceId = tier === 'elite' ? STRIPE_ELITE_PRICE_ID : STRIPE_PRO_PRICE_ID;

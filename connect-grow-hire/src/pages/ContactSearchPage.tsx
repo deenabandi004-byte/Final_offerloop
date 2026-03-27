@@ -475,7 +475,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
       const firebaseUser = auth.currentUser;
       if (!firebaseUser) return false;
       const token = await firebaseUser.getIdToken(true);
-      const API_BASE_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://www.offerloop.ai';
+      const API_BASE_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://offerloop.ai';
       const response = await fetch(`${API_BASE_URL}/api/google/gmail/status`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -581,7 +581,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
 
       const API_URL = window.location.hostname === 'localhost'
         ? 'http://localhost:5001'
-        : 'https://www.offerloop.ai';
+        : 'https://offerloop.ai';
 
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
 
@@ -746,7 +746,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
       // Get API base URL
       const API_BASE = window.location.hostname === 'localhost'
         ? 'http://localhost:5001'
-        : 'https://www.offerloop.ai';
+        : 'https://offerloop.ai';
 
       const response = await fetch(`${API_BASE}/api/contacts/import-linkedin`, {
         method: 'POST',

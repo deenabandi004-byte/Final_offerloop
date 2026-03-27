@@ -57,15 +57,15 @@ const Glossary = () => {
           "@type": "ItemList",
           "name": "Recruiting & Networking Glossary",
           "description": "25 essential recruiting and networking terms for college students",
-          "url": "https://www.offerloop.ai/glossary",
+          "url": "https://offerloop.ai/glossary",
           "numberOfItems": terms.length,
           "itemListElement": terms.map((t, i) => ({
             "@type": "DefinedTerm",
             "position": i + 1,
             "name": t.term,
             "description": t.definition,
-            "inDefinedTermSet": "https://www.offerloop.ai/glossary",
-            "url": `https://www.offerloop.ai/glossary#${t.id}`
+            "inDefinedTermSet": "https://offerloop.ai/glossary",
+            "url": `https://offerloop.ai/glossary#${t.id}`
           }))
         })}</script>
       </Helmet>

@@ -20,7 +20,7 @@ const Blog = () => {
           "@type": "Blog",
           "name": "Offerloop Blog",
           "description": "Networking and recruiting guides for college students",
-          "url": "https://www.offerloop.ai/blog",
+          "url": "https://offerloop.ai/blog",
           "publisher": {
             "@type": "Organization",
             "name": "Offerloop",
@@ -31,7 +31,7 @@ const Blog = () => {
             "headline": p.title,
             "description": p.description,
             "datePublished": p.date,
-            "url": `https://www.offerloop.ai/blog/${p.slug}`,
+            "url": `https://offerloop.ai/blog/${p.slug}`,
             "author": { "@type": "Organization", "name": "Offerloop Team" }
           }))
         })}</script>

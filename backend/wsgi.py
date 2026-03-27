@@ -209,12 +209,12 @@ def create_app() -> Flask:
             'file_count': len(os.listdir(static_dir)) if exists else 0,
         }
 
-    # --- Redirect apex → www (optional but recommended) ---
+    # --- Redirect www → apex (non-www is canonical) ---
     @app.before_request
-    def force_www():
+    def force_apex():
         host = request.headers.get("Host", "")
-        if host == "offerloop.ai":
-            return redirect("https://www.offerloop.ai" + request.full_path, code=301)
+        if host == "www.offerloop.ai":
+            return redirect("https://offerloop.ai" + request.full_path, code=301)
 
     # --- Serve built asset files (e.g., /assets/*) ---
     @app.route('/assets/<path:filename>')

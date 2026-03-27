@@ -81,7 +81,7 @@ export default function PaymentSuccess() {
           
           const API_URL = window.location.hostname === 'localhost' 
             ? 'http://localhost:5001' 
-            : 'https://www.offerloop.ai';
+            : 'https://offerloop.ai';
 
           // Check subscription status via API
           const statusResponse = await fetch(`${API_URL}/api/subscription-status`, {
@@ -136,7 +136,7 @@ export default function PaymentSuccess() {
         
         const API_URL = window.location.hostname === 'localhost' 
           ? 'http://localhost:5001' 
-          : 'https://www.offerloop.ai';
+          : 'https://offerloop.ai';
 
         console.log('PaymentSuccess: Calling complete-upgrade endpoint...', { API_URL, sessionId });
 

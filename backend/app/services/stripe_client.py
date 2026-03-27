@@ -46,7 +46,7 @@ def create_checkout_session():
         if request.url_root and 'localhost' in request.url_root:
             base_url = 'http://localhost:8080'  # Frontend dev server runs on port 8080
         else:
-            base_url = 'https://www.offerloop.ai'
+            base_url = 'https://offerloop.ai'
         
         # Hardcode URLs with double braces to escape in f-string
         # Stripe recognizes {CHECKOUT_SESSION_ID} as a template variable

@@ -7462,4 +7462,10 @@
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
+  <url>
+    <loc>https://offerloop.ai/blog/offerloop-vs-handshake-vs-linkedin-vs-apollo-comparison</loc>
+    <lastmod>2026-03-27</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
 </urlset>

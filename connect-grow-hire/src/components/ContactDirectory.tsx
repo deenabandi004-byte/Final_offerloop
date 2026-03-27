@@ -480,7 +480,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
         // Non-critical
       }
 
-      const API_BASE_URL = window.location.hostname === "localhost" ? "http://localhost:5001" : "https://www.offerloop.ai";
+      const API_BASE_URL = window.location.hostname === "localhost" ? "http://localhost:5001" : "https://offerloop.ai";
       const res = await fetch(`${API_BASE_URL}/api/emails/generate-and-draft`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },

@@ -63,7 +63,7 @@ export async function generateFirmSearchSummary(
       import.meta.env.VITE_API_BASE_URL ||
       (['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname)
         ? 'http://localhost:5001/api'
-        : 'https://www.offerloop.ai/api');
+        : 'https://offerloop.ai/api');
     
     const headers = await apiService.getAuthHeaders();
     const response = await fetch(`${API_BASE_URL}/firm-search/generate-summary`, {

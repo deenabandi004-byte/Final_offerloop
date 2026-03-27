@@ -41,7 +41,7 @@ const DataStats = () => {
           "@type": "Dataset",
           "name": "Offerloop Platform Statistics",
           "description": "Anonymized, aggregated platform usage data for Offerloop — an AI networking platform for college students.",
-          "url": "https://www.offerloop.ai/data",
+          "url": "https://offerloop.ai/data",
           "creator": { "@type": "Organization", "name": "Offerloop", "url": "https://offerloop.ai" },
           "dateModified": "2026-03-01",
           "license": "https://creativecommons.org/licenses/by/4.0/"

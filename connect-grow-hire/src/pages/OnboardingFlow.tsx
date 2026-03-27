@@ -75,7 +75,7 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
 
             const API_URL = window.location.hostname === 'localhost'
               ? 'http://localhost:5001'
-              : 'https://www.offerloop.ai';
+              : 'https://offerloop.ai';
 
             const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
 

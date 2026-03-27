@@ -334,7 +334,7 @@ export default function AccountSettings() {
 
       const API_URL = window.location.hostname === 'localhost'
         ? 'http://localhost:5001'
-        : 'https://www.offerloop.ai';
+        : 'https://offerloop.ai';
 
       const { auth } = await import('../lib/firebase');
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
@@ -407,7 +407,7 @@ export default function AccountSettings() {
 
       const API_URL = window.location.hostname === 'localhost'
         ? 'http://localhost:5001'
-        : 'https://www.offerloop.ai';
+        : 'https://offerloop.ai';
 
       const response = await fetch(`${API_URL}/api/resume`, {
         method: 'DELETE',
@@ -462,7 +462,7 @@ export default function AccountSettings() {
       
       const API_URL = window.location.hostname === 'localhost'
         ? 'http://localhost:5001'
-        : 'https://www.offerloop.ai';
+        : 'https://offerloop.ai';
       
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
       
@@ -646,7 +646,7 @@ export default function AccountSettings() {
     try {
       const API_URL = window.location.hostname === 'localhost'
         ? 'http://localhost:5001'
-        : 'https://www.offerloop.ai';
+        : 'https://offerloop.ai';
 
       const { auth } = await import('../lib/firebase');
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
