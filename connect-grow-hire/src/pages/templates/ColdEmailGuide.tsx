@@ -2,6 +2,7 @@ import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import type { Industry } from '@/data/industries';
+import BeehiivPopup from '@/components/BeehiivPopup';
 
 interface Props {
   industry: Industry;
@@ -363,6 +364,7 @@ const ColdEmailGuide = ({ industry }: Props) => {
           </div>
         </div>
       </footer>
+      <BeehiivPopup />
     </div>
   );
 };

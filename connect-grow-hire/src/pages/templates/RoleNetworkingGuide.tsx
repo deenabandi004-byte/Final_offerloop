@@ -2,6 +2,7 @@ import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import type { Role } from '@/data/roles';
+import BeehiivPopup from '@/components/BeehiivPopup';
 
 interface Props {
   role: Role;
@@ -373,6 +374,7 @@ const RoleNetworkingGuide = ({ role }: Props) => {
           </div>
         </div>
       </footer>
+      <BeehiivPopup />
     </div>
   );
 };

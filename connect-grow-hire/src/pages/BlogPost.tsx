@@ -3,6 +3,7 @@ import { Link, useParams, Navigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { getPostBySlug } from '@/lib/blog';
+import BeehiivPopup from '@/components/BeehiivPopup';
 
 const BlogPost = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -113,6 +114,8 @@ const BlogPost = () => {
           </div>
         </div>
       </footer>
+
+      <BeehiivPopup />
 
       <style>{`
         .prose-offerloop h2 {

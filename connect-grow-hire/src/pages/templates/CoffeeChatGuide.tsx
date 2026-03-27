@@ -2,6 +2,7 @@ import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import type { Company } from '@/data/companies';
+import BeehiivPopup from '@/components/BeehiivPopup';
 
 interface Props {
   company: Company;
@@ -357,6 +358,7 @@ const CoffeeChatGuide = ({ company }: Props) => {
           </div>
         </div>
       </footer>
+      <BeehiivPopup />
     </div>
   );
 };

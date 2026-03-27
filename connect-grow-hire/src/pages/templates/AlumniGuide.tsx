@@ -2,6 +2,7 @@ import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import type { SeoUniversity } from '@/data/seo-universities';
+import BeehiivPopup from '@/components/BeehiivPopup';
 
 interface Props {
   university: SeoUniversity;
@@ -271,6 +272,7 @@ const AlumniGuide = ({ university: uni }: Props) => {
           </div>
         </div>
       </footer>
+      <BeehiivPopup />
     </div>
   );
 };
