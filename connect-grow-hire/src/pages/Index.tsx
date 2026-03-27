@@ -328,7 +328,7 @@ const Index = () => {
             <img
               src={OfferloopLogo}
               alt="Offerloop"
-              className="h-[44px] cursor-pointer logo-animate"
+              className="h-12 cursor-pointer logo-animate"
               onClick={() => navigate('/')}
             />
           </div>

@@ -327,7 +327,7 @@ const SignIn: React.FC = () => {
             <img
               src={OfferloopLogo}
               alt="Offerloop"
-              className="h-10 mx-auto mb-6"
+              className="h-12 mx-auto mb-6"
             />
             <h1
               style={{
