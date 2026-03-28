@@ -598,21 +598,8 @@ const JobBoardPage: React.FC = () => {
     const initGmailStatus = async () => {
       try {
         setCheckingGmail(true);
-        const { getAuth } = await import('firebase/auth');
-        const auth = getAuth();
-        const firebaseUser = auth.currentUser;
-        if (!firebaseUser) { setGmailConnected(false); return; }
-        const token = await firebaseUser.getIdToken();
-        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
-        const response = await fetch(`${API_BASE_URL}/api/google/gmail/status`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setGmailConnected(data.connected === true);
-        } else {
-          setGmailConnected(false);
-        }
+        const data = await apiService.gmailStatus();
+        setGmailConnected(data.connected === true);
       } catch (error) {
         console.error('Error checking Gmail status:', error);
         setGmailConnected(false);

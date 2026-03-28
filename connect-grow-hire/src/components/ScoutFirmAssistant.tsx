@@ -3,10 +3,7 @@ import { Send, Loader2, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { auth } from '@/lib/firebase';
-
-const BACKEND_URL = window.location.hostname === 'localhost'
-  ? 'http://localhost:5001'
-  : 'https://offerloop.ai';
+import { BACKEND_URL } from '@/services/api';
 
 interface Firm {
   name: string;

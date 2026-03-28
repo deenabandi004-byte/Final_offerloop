@@ -2,10 +2,7 @@
  * Resume Workshop Service - Frontend service for Resume Workshop API
  */
 import { auth } from '@/lib/firebase';
-
-const BACKEND_URL = window.location.hostname === 'localhost'
-  ? 'http://localhost:5001'
-  : 'https://offerloop.ai';
+import { BACKEND_URL } from './api';
 
 // Types for section-by-section suggestions
 export interface SuggestionItem {

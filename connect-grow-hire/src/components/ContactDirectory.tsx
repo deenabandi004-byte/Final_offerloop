@@ -31,7 +31,7 @@ import { firebaseApi } from '../services/firebaseApi';
 import type { Contact as ContactApi } from '../services/firebaseApi';
 import { useFirebaseMigration } from '../hooks/useFirebaseMigration';
 import { NotificationBell } from '../components/NotificationBell';
-import { apiService } from '@/services/api';
+import { apiService, BACKEND_URL } from '@/services/api';
 import { useToast } from '@/hooks/use-toast';
 
 type Contact = ContactApi;
@@ -480,7 +480,7 @@ const SpreadsheetContactDirectory: React.FC = () => {
         // Non-critical
       }
 
-      const API_BASE_URL = window.location.hostname === "localhost" ? "http://localhost:5001" : "https://offerloop.ai";
+      const API_BASE_URL = BACKEND_URL;
       const res = await fetch(`${API_BASE_URL}/api/emails/generate-and-draft`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },

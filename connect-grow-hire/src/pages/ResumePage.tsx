@@ -56,7 +56,7 @@ import { pdf } from '@react-pdf/renderer';
 import { parseResumeToPdfPayload } from '@/utils/resumePDFGenerator';
 import { getResumePdfFilename } from '@/utils/resumeFilename';
 
-const API_BASE_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://offerloop.ai';
+import { BACKEND_URL as API_BASE_URL } from '@/services/api';
 
 /** Extract storage path from Firebase Storage URL for getBlob (avoids CORS with raw fetch). */
 function getStoragePathFromUrl(url: string): string | null {

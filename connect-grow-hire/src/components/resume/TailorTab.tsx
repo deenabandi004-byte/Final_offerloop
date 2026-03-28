@@ -42,7 +42,7 @@ import { generateResumePDF } from '@/utils/resumePDFGenerator';
 import { applyTailorToParsedResume } from '@/utils/applyTailorToResume';
 import { getResumePdfFilename } from '@/utils/resumeFilename';
 
-const API_BASE_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://offerloop.ai';
+import { BACKEND_URL as API_BASE_URL } from '@/services/api';
 
 /** Map JSON skill keys to the actual label text in the PDF (ResumePDF / user-uploaded). */
 const SKILL_KEY_TO_PDF_LABEL: Record<string, string> = {

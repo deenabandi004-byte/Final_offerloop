@@ -16,7 +16,7 @@ import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { apiService } from "@/services/api";
+import { apiService, BACKEND_URL } from "@/services/api";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileTypes";
 
@@ -332,9 +332,7 @@ export default function AccountSettings() {
       const formData = new FormData();
       formData.append('resume', file);
 
-      const API_URL = window.location.hostname === 'localhost'
-        ? 'http://localhost:5001'
-        : 'https://offerloop.ai';
+      const API_URL = BACKEND_URL;
 
       const { auth } = await import('../lib/firebase');
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
@@ -405,9 +403,7 @@ export default function AccountSettings() {
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
       if (!token) throw new Error('Not signed in');
 
-      const API_URL = window.location.hostname === 'localhost'
-        ? 'http://localhost:5001'
-        : 'https://offerloop.ai';
+      const API_URL = BACKEND_URL;
 
       const response = await fetch(`${API_URL}/api/resume`, {
         method: 'DELETE',
@@ -460,9 +456,7 @@ export default function AccountSettings() {
     try {
       const userRef = doc(db, 'users', user.uid);
       
-      const API_URL = window.location.hostname === 'localhost'
-        ? 'http://localhost:5001'
-        : 'https://offerloop.ai';
+      const API_URL = BACKEND_URL;
       
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
       
@@ -644,9 +638,7 @@ export default function AccountSettings() {
 
   const handleManageSubscription = async () => {
     try {
-      const API_URL = window.location.hostname === 'localhost'
-        ? 'http://localhost:5001'
-        : 'https://offerloop.ai';
+      const API_URL = BACKEND_URL;
 
       const { auth } = await import('../lib/firebase');
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;

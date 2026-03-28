@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { loadStripe } from "@stripe/stripe-js";
 import { getAuth } from 'firebase/auth';
+import { BACKEND_URL } from '@/services/api';
 import { trackUpgradeClick } from "../lib/analytics";
 
 const STRIPE_PUBLISHABLE_KEY = "pk_live_51S4BB8ERY2WrVHp1acXrKE6RBG7NBlfHcMZ2kf7XhCX2E5g8Lasedx6ntcaD1H4BsoUMBGYXIcKHcAB4JuohLa2B00j7jtmWnB";
@@ -144,9 +145,7 @@ const Pricing = () => {
 
       const token = await firebaseUser.getIdToken();
       
-      const API_URL = window.location.hostname === 'localhost' 
-        ? 'http://localhost:5001' 
-        : 'https://offerloop.ai';
+      const API_URL = BACKEND_URL;
 
       const response = await fetch(`${API_URL}/api/subscription-status`, {
         headers: {
@@ -177,9 +176,7 @@ const Pricing = () => {
 
       const token = await firebaseUser.getIdToken();
       
-      const API_URL = window.location.hostname === 'localhost' 
-        ? 'http://localhost:5001' 
-        : 'https://offerloop.ai';
+      const API_URL = BACKEND_URL;
 
       const response = await fetch(`${API_URL}/api/create-portal-session`, {
         method: 'POST',
@@ -263,9 +260,7 @@ const Pricing = () => {
 
       const token = await firebaseUser.getIdToken();
 
-      const API_URL = window.location.hostname === 'localhost'
-        ? 'http://localhost:5001'
-        : 'https://offerloop.ai';
+      const API_URL = BACKEND_URL;
 
       const priceId = newTier === 'elite' ? STRIPE_ELITE_PRICE_ID : STRIPE_PRO_PRICE_ID;
 
@@ -345,9 +340,7 @@ const Pricing = () => {
 
       const token = await firebaseUser.getIdToken();
       
-      const API_URL = window.location.hostname === 'localhost' 
-       ? 'http://localhost:5001' 
-       : 'https://offerloop.ai';
+      const API_URL = BACKEND_URL;
 
       // Select price ID based on tier
       const priceId = tier === 'elite' ? STRIPE_ELITE_PRICE_ID : STRIPE_PRO_PRICE_ID;

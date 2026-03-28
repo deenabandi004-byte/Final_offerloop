@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { getAuth } from 'firebase/auth';
 import { Tier } from '@/utils/featureAccess';
+import { BACKEND_URL } from '@/services/api';
 
 export interface SubscriptionData {
   tier: Tier;
@@ -36,9 +37,7 @@ export function useSubscription() {
 
       const token = await firebaseUser.getIdToken();
       
-      const API_URL = window.location.hostname === 'localhost' 
-        ? 'http://localhost:5001' 
-        : 'https://offerloop.ai';
+      const API_URL = BACKEND_URL;
 
       const response = await fetch(`${API_URL}/api/user/subscription`, {
         headers: {
@@ -90,9 +89,7 @@ export function useSubscription() {
 
       const token = await firebaseUser.getIdToken();
       
-      const API_URL = window.location.hostname === 'localhost' 
-        ? 'http://localhost:5001' 
-        : 'https://offerloop.ai';
+      const API_URL = BACKEND_URL;
 
       const response = await fetch(`${API_URL}/api/user/increment-usage`, {
         method: 'POST',

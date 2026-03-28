@@ -6,6 +6,7 @@ import { OnboardingProfile } from "./OnboardingProfile";
 import { OnboardingAcademics } from "./OnboardingAcademics";
 import { User, GraduationCap, MapPin } from "lucide-react";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { BACKEND_URL } from "@/services/api";
 import { toast } from "sonner"; // Make sure you have sonner installed for toast notifications
 import { auth } from '@/lib/firebase';
 
@@ -73,9 +74,7 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
             const formData = new FormData();
             formData.append('resume', file);
 
-            const API_URL = window.location.hostname === 'localhost'
-              ? 'http://localhost:5001'
-              : 'https://offerloop.ai';
+            const API_URL = BACKEND_URL;
 
             const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
 

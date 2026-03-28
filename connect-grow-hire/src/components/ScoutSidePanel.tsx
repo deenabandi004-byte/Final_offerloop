@@ -17,10 +17,7 @@ import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 import { toast } from '@/hooks/use-toast';
 import ScoutWavingWhite from '@/assets/ScoutWavingWhite.mp4';
 
-// Backend URL configuration
-const BACKEND_URL = window.location.hostname === 'localhost'
-  ? 'http://localhost:5001'
-  : 'https://offerloop.ai';
+import { BACKEND_URL } from '@/services/api';
 
 // Session storage key for auto-populate
 const AUTO_POPULATE_KEY = 'scout_auto_populate';

@@ -1,9 +1,11 @@
 // src/services/api.ts
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ||
+export const BACKEND_URL =
+  import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, '') ||
   (['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname)
-    ? 'http://localhost:5001/api'
-    : 'https://offerloop.ai/api');
+    ? 'http://localhost:5001'
+    : 'https://offerloop.ai');
+
+export const API_BASE_URL = `${BACKEND_URL}/api`;
 
 export interface UserProfile {
   name?: string;

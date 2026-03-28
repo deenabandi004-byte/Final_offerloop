@@ -1,6 +1,6 @@
 // Activity logging utility
 import { firebaseApi } from '../services/firebaseApi';
-import { apiService } from '../services/api';
+import { apiService, API_BASE_URL } from '../services/api';
 import { calculateStreak } from './dashboardStats';
 
 interface ActivityMetadata {
@@ -59,12 +59,6 @@ export async function generateFirmSearchSummary(
   numberOfFirms: number
 ): Promise<string> {
   try {
-    const API_BASE_URL =
-      import.meta.env.VITE_API_BASE_URL ||
-      (['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname)
-        ? 'http://localhost:5001/api'
-        : 'https://offerloop.ai/api');
-    
     const headers = await apiService.getAuthHeaders();
     const response = await fetch(`${API_BASE_URL}/firm-search/generate-summary`, {
       method: 'POST',

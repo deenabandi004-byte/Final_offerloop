@@ -4,10 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingBar, InlineLoadingBar } from '@/components/ui/LoadingBar';
 import { auth } from '@/lib/firebase';
-
-const BACKEND_URL = window.location.hostname === 'localhost'
-  ? 'http://localhost:5001'
-  : 'https://offerloop.ai';
+import { BACKEND_URL } from '@/services/api';
 
 interface SearchFields {
   job_title?: string;

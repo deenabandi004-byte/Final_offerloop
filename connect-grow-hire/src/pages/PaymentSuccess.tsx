@@ -5,6 +5,7 @@ import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { useEffect, useState, useRef } from "react";
 import { getAuth } from 'firebase/auth';
 import { trackCheckoutCompleted, trackError } from "../lib/analytics";
+import { BACKEND_URL } from "@/services/api";
 
 export default function PaymentSuccess() {
   const navigate = useNavigate();
@@ -79,9 +80,7 @@ export default function PaymentSuccess() {
 
           const token = await firebaseUser.getIdToken();
           
-          const API_URL = window.location.hostname === 'localhost' 
-            ? 'http://localhost:5001' 
-            : 'https://offerloop.ai';
+          const API_URL = BACKEND_URL;
 
           // Check subscription status via API
           const statusResponse = await fetch(`${API_URL}/api/subscription-status`, {
@@ -134,9 +133,7 @@ export default function PaymentSuccess() {
 
         const token = await firebaseUser.getIdToken();
         
-        const API_URL = window.location.hostname === 'localhost' 
-          ? 'http://localhost:5001' 
-          : 'https://offerloop.ai';
+        const API_URL = BACKEND_URL;
 
         console.log('PaymentSuccess: Calling complete-upgrade endpoint...', { API_URL, sessionId });
 

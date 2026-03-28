@@ -1,5 +1,6 @@
 // src/services/firebaseApi.ts
 import { db } from '../lib/firebase';
+import { API_BASE_URL } from './api';
 import {
   collection,
   doc,
@@ -222,12 +223,6 @@ export const firebaseApi = {
       }
       const idToken = await user.getIdToken();
 
-      // Get API base URL (same pattern as apiService)
-      const API_BASE_URL =
-        import.meta.env.VITE_API_BASE_URL ||
-        (['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname)
-          ? 'http://localhost:5001/api'
-          : 'https://offerloop.ai/api');
 
       // Convert contacts to backend format (camelCase to match backend expectations)
       const backendContacts = contacts.map((c) => ({
@@ -312,12 +307,6 @@ export const firebaseApi = {
       }
       const idToken = await user.getIdToken();
 
-      // Get API base URL (same pattern as bulkCreateContacts)
-      const API_BASE_URL =
-        import.meta.env.VITE_API_BASE_URL ||
-        (['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname)
-          ? 'http://localhost:5001/api'
-          : 'https://offerloop.ai/api');
 
       const response = await fetch(`${API_BASE_URL}/contacts/${contactId}`, {
         method: 'DELETE',

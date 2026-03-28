@@ -12,7 +12,7 @@ import {
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { apiService, isErrorResponse, type EmailTemplate, getEmailTemplateLabel } from "@/services/api";
+import { apiService, BACKEND_URL, isErrorResponse, type EmailTemplate, getEmailTemplateLabel } from "@/services/api";
 import { firebaseApi } from "../services/firebaseApi";
 import type { Contact as ContactApi } from '../services/firebaseApi';
 import { toast } from "@/hooks/use-toast";
@@ -476,16 +476,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
   const checkNeedsGmailConnection = async (): Promise<boolean> => {
     try {
       if (!user) return false;
-      const { auth } = await import('../lib/firebase');
-      const firebaseUser = auth.currentUser;
-      if (!firebaseUser) return false;
-      const token = await firebaseUser.getIdToken(true);
-      const API_BASE_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://offerloop.ai';
-      const response = await fetch(`${API_BASE_URL}/api/google/gmail/status`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!response.ok) return true;
-      const data = await response.json();
+      const data = await apiService.gmailStatus();
       return !data.connected;
     } catch (error) {
       const isDev = import.meta.env.DEV;
@@ -584,9 +575,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
       const formData = new FormData();
       formData.append('resume', file);
 
-      const API_URL = window.location.hostname === 'localhost'
-        ? 'http://localhost:5001'
-        : 'https://offerloop.ai';
+      const API_URL = BACKEND_URL;
 
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
 
@@ -748,10 +737,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
       }
       const idToken = await firebaseUser.getIdToken();
 
-      // Get API base URL
-      const API_BASE = window.location.hostname === 'localhost'
-        ? 'http://localhost:5001'
-        : 'https://offerloop.ai';
+      const API_BASE = BACKEND_URL;
 
       const response = await fetch(`${API_BASE}/api/contacts/import-linkedin`, {
         method: 'POST',

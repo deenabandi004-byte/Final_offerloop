@@ -6,11 +6,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
-
-// Backend URL configuration
-const BACKEND_URL = window.location.hostname === 'localhost'
-  ? 'http://localhost:5001'
-  : 'https://offerloop.ai';
+import { BACKEND_URL } from '@/services/api';
 
 // Session storage key
 const SESSION_STORAGE_KEY = 'scout_chat_messages';

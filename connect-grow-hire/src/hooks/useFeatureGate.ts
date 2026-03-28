@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { getAuth } from 'firebase/auth';
 import { Tier, hasFeatureAccess, canUseFeature, getUpgradeMessage } from '@/utils/featureAccess';
 import { useSubscription } from './useSubscription';
+import { BACKEND_URL } from '@/services/api';
 
 export interface FeatureCheckResult {
   allowed: boolean;
@@ -41,9 +42,7 @@ export function useFeatureGate(feature: string) {
 
       const token = await firebaseUser.getIdToken();
       
-      const API_URL = window.location.hostname === 'localhost' 
-        ? 'http://localhost:5001' 
-        : 'https://offerloop.ai';
+      const API_URL = BACKEND_URL;
 
       const response = await fetch(`${API_URL}/api/user/check-feature`, {
         method: 'POST',

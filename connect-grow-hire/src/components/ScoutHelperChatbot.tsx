@@ -17,10 +17,7 @@ import {
   addMessagePair
 } from '@/services/scoutConversations';
 import { ScoutConversationList } from './ScoutConversationList';
-
-const BACKEND_URL = window.location.hostname === 'localhost'
-  ? 'http://localhost:5001'
-  : 'https://offerloop.ai';
+import { BACKEND_URL } from '@/services/api';
 
 interface SearchFields {
   job_title?: string;

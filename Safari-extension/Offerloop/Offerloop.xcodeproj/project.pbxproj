@@ -1,0 +1,991 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		2544CA582F6D3F4700189827 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2544CA572F6D3F4700189827 /* AppDelegate.swift */; };
+		2544CA5A2F6D3F4700189827 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2544CA592F6D3F4700189827 /* SceneDelegate.swift */; };
+		2544CA5D2F6D3F4700189827 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 2544CA5B2F6D3F4700189827 /* LaunchScreen.storyboard */; };
+		2544CA602F6D3F4700189827 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 2544CA5E2F6D3F4700189827 /* Main.storyboard */; };
+		2544CA692F6D3F4700189827 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2544CA682F6D3F4700189827 /* AppDelegate.swift */; };
+		2544CA6C2F6D3F4700189827 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 2544CA6A2F6D3F4700189827 /* Main.storyboard */; };
+		2544CA742F6D3F4700189827 /* Offerloop Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 2544CA732F6D3F4700189827 /* Offerloop Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		2544CA7E2F6D3F4700189827 /* Offerloop Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 2544CA7D2F6D3F4700189827 /* Offerloop Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		2544CA842F6D3F4700189827 /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 2544CA472F6D3F4500189827 /* Main.html */; };
+		2544CA852F6D3F4700189827 /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 2544CA472F6D3F4500189827 /* Main.html */; };
+		2544CA862F6D3F4700189827 /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 2544CA492F6D3F4500189827 /* Icon.png */; };
+		2544CA872F6D3F4700189827 /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 2544CA492F6D3F4500189827 /* Icon.png */; };
+		2544CA882F6D3F4700189827 /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 2544CA4A2F6D3F4500189827 /* Style.css */; };
+		2544CA892F6D3F4700189827 /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 2544CA4A2F6D3F4500189827 /* Style.css */; };
+		2544CA8A2F6D3F4700189827 /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = 2544CA4B2F6D3F4500189827 /* Script.js */; };
+		2544CA8B2F6D3F4700189827 /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = 2544CA4B2F6D3F4500189827 /* Script.js */; };
+		2544CA8C2F6D3F4700189827 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2544CA4C2F6D3F4500189827 /* ViewController.swift */; };
+		2544CA8D2F6D3F4700189827 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2544CA4C2F6D3F4500189827 /* ViewController.swift */; };
+		2544CA8E2F6D3F4700189827 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2544CA4D2F6D3F4700189827 /* Assets.xcassets */; };
+		2544CA8F2F6D3F4700189827 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2544CA4D2F6D3F4700189827 /* Assets.xcassets */; };
+		2544CA902F6D3F4700189827 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2544CA4F2F6D3F4700189827 /* SafariWebExtensionHandler.swift */; };
+		2544CA912F6D3F4700189827 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2544CA4F2F6D3F4700189827 /* SafariWebExtensionHandler.swift */; };
+		2544CAAE2F6D3F4800189827 /* popup.js in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAA32F6D3F4800189827 /* popup.js */; };
+		2544CAAF2F6D3F4800189827 /* content.css in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAA42F6D3F4800189827 /* content.css */; };
+		2544CAB02F6D3F4800189827 /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAA52F6D3F4800189827 /* background.js */; };
+		2544CAB12F6D3F4800189827 /* popup.html in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAA62F6D3F4800189827 /* popup.html */; };
+		2544CAB22F6D3F4800189827 /* build.js in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAA72F6D3F4800189827 /* build.js */; };
+		2544CAB32F6D3F4800189827 /* tests in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAA82F6D3F4800189827 /* tests */; };
+		2544CAB42F6D3F4800189827 /* Offerloop in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAA92F6D3F4800189827 /* Offerloop */; };
+		2544CAB52F6D3F4800189827 /* icons in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAAA2F6D3F4800189827 /* icons */; };
+		2544CAB62F6D3F4800189827 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAAB2F6D3F4800189827 /* manifest.json */; };
+		2544CAB72F6D3F4800189827 /* popup.css in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAAC2F6D3F4800189827 /* popup.css */; };
+		2544CAB82F6D3F4800189827 /* content.js in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAAD2F6D3F4800189827 /* content.js */; };
+		2544CAB92F6D3F4800189827 /* popup.js in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAA32F6D3F4800189827 /* popup.js */; };
+		2544CABA2F6D3F4800189827 /* content.css in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAA42F6D3F4800189827 /* content.css */; };
+		2544CABB2F6D3F4800189827 /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAA52F6D3F4800189827 /* background.js */; };
+		2544CABC2F6D3F4800189827 /* popup.html in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAA62F6D3F4800189827 /* popup.html */; };
+		2544CABD2F6D3F4800189827 /* build.js in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAA72F6D3F4800189827 /* build.js */; };
+		2544CABE2F6D3F4800189827 /* tests in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAA82F6D3F4800189827 /* tests */; };
+		2544CABF2F6D3F4800189827 /* Offerloop in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAA92F6D3F4800189827 /* Offerloop */; };
+		2544CAC02F6D3F4800189827 /* icons in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAAA2F6D3F4800189827 /* icons */; };
+		2544CAC12F6D3F4800189827 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAAB2F6D3F4800189827 /* manifest.json */; };
+		2544CAC22F6D3F4800189827 /* popup.css in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAAC2F6D3F4800189827 /* popup.css */; };
+		2544CAC32F6D3F4800189827 /* content.js in Resources */ = {isa = PBXBuildFile; fileRef = 2544CAAD2F6D3F4800189827 /* content.js */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		2544CA752F6D3F4700189827 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2544CA412F6D3F4400189827 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2544CA722F6D3F4700189827;
+			remoteInfo = "Offerloop Extension (iOS)";
+		};
+		2544CA7F2F6D3F4700189827 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2544CA412F6D3F4400189827 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2544CA7C2F6D3F4700189827;
+			remoteInfo = "Offerloop Extension (macOS)";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		2544CA972F6D3F4700189827 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				2544CA742F6D3F4700189827 /* Offerloop Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2544CA9E2F6D3F4700189827 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				2544CA7E2F6D3F4700189827 /* Offerloop Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		2544CA482F6D3F4500189827 /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
+		2544CA492F6D3F4500189827 /* Icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Icon.png; sourceTree = "<group>"; };
+		2544CA4A2F6D3F4500189827 /* Style.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = Style.css; sourceTree = "<group>"; };
+		2544CA4B2F6D3F4500189827 /* Script.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = Script.js; sourceTree = "<group>"; };
+		2544CA4C2F6D3F4500189827 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
+		2544CA4D2F6D3F4700189827 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		2544CA4F2F6D3F4700189827 /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
+		2544CA542F6D3F4700189827 /* Offerloop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Offerloop.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2544CA572F6D3F4700189827 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		2544CA592F6D3F4700189827 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
+		2544CA5C2F6D3F4700189827 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		2544CA5F2F6D3F4700189827 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		2544CA612F6D3F4700189827 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		2544CA662F6D3F4700189827 /* Offerloop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Offerloop.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2544CA682F6D3F4700189827 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		2544CA6B2F6D3F4700189827 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		2544CA6D2F6D3F4700189827 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		2544CA6E2F6D3F4700189827 /* Offerloop.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Offerloop.entitlements; sourceTree = "<group>"; };
+		2544CA732F6D3F4700189827 /* Offerloop Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Offerloop Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		2544CA782F6D3F4700189827 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		2544CA7D2F6D3F4700189827 /* Offerloop Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Offerloop Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		2544CA822F6D3F4700189827 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		2544CA832F6D3F4700189827 /* Offerloop.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Offerloop.entitlements; sourceTree = "<group>"; };
+		2544CAA32F6D3F4800189827 /* popup.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = popup.js; path = ../../popup.js; sourceTree = "<group>"; };
+		2544CAA42F6D3F4800189827 /* content.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; name = content.css; path = ../../content.css; sourceTree = "<group>"; };
+		2544CAA52F6D3F4800189827 /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = background.js; path = ../../background.js; sourceTree = "<group>"; };
+		2544CAA62F6D3F4800189827 /* popup.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = popup.html; path = ../../popup.html; sourceTree = "<group>"; };
+		2544CAA72F6D3F4800189827 /* build.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = build.js; path = ../../build.js; sourceTree = "<group>"; };
+		2544CAA82F6D3F4800189827 /* tests */ = {isa = PBXFileReference; lastKnownFileType = folder; name = tests; path = ../../tests; sourceTree = "<group>"; };
+		2544CAA92F6D3F4800189827 /* Offerloop */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Offerloop; sourceTree = SOURCE_ROOT; };
+		2544CAAA2F6D3F4800189827 /* icons */ = {isa = PBXFileReference; lastKnownFileType = folder; name = icons; path = ../../icons; sourceTree = "<group>"; };
+		2544CAAB2F6D3F4800189827 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../../manifest.json; sourceTree = "<group>"; };
+		2544CAAC2F6D3F4800189827 /* popup.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; name = popup.css; path = ../../popup.css; sourceTree = "<group>"; };
+		2544CAAD2F6D3F4800189827 /* content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../../content.js; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		2544CA512F6D3F4700189827 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2544CA632F6D3F4700189827 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2544CA702F6D3F4700189827 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2544CA7A2F6D3F4700189827 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		2544CA402F6D3F4400189827 = {
+			isa = PBXGroup;
+			children = (
+				2544CA452F6D3F4500189827 /* Shared (App) */,
+				2544CA4E2F6D3F4700189827 /* Shared (Extension) */,
+				2544CA562F6D3F4700189827 /* iOS (App) */,
+				2544CA672F6D3F4700189827 /* macOS (App) */,
+				2544CA772F6D3F4700189827 /* iOS (Extension) */,
+				2544CA812F6D3F4700189827 /* macOS (Extension) */,
+				2544CA552F6D3F4700189827 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		2544CA452F6D3F4500189827 /* Shared (App) */ = {
+			isa = PBXGroup;
+			children = (
+				2544CA4C2F6D3F4500189827 /* ViewController.swift */,
+				2544CA4D2F6D3F4700189827 /* Assets.xcassets */,
+				2544CA462F6D3F4500189827 /* Resources */,
+			);
+			path = "Shared (App)";
+			sourceTree = "<group>";
+		};
+		2544CA462F6D3F4500189827 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				2544CA472F6D3F4500189827 /* Main.html */,
+				2544CA492F6D3F4500189827 /* Icon.png */,
+				2544CA4A2F6D3F4500189827 /* Style.css */,
+				2544CA4B2F6D3F4500189827 /* Script.js */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		2544CA4E2F6D3F4700189827 /* Shared (Extension) */ = {
+			isa = PBXGroup;
+			children = (
+				2544CAA22F6D3F4800189827 /* Resources */,
+				2544CA4F2F6D3F4700189827 /* SafariWebExtensionHandler.swift */,
+			);
+			path = "Shared (Extension)";
+			sourceTree = "<group>";
+		};
+		2544CA552F6D3F4700189827 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				2544CA542F6D3F4700189827 /* Offerloop.app */,
+				2544CA662F6D3F4700189827 /* Offerloop.app */,
+				2544CA732F6D3F4700189827 /* Offerloop Extension.appex */,
+				2544CA7D2F6D3F4700189827 /* Offerloop Extension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		2544CA562F6D3F4700189827 /* iOS (App) */ = {
+			isa = PBXGroup;
+			children = (
+				2544CA572F6D3F4700189827 /* AppDelegate.swift */,
+				2544CA592F6D3F4700189827 /* SceneDelegate.swift */,
+				2544CA5B2F6D3F4700189827 /* LaunchScreen.storyboard */,
+				2544CA5E2F6D3F4700189827 /* Main.storyboard */,
+				2544CA612F6D3F4700189827 /* Info.plist */,
+			);
+			path = "iOS (App)";
+			sourceTree = "<group>";
+		};
+		2544CA672F6D3F4700189827 /* macOS (App) */ = {
+			isa = PBXGroup;
+			children = (
+				2544CA682F6D3F4700189827 /* AppDelegate.swift */,
+				2544CA6A2F6D3F4700189827 /* Main.storyboard */,
+				2544CA6D2F6D3F4700189827 /* Info.plist */,
+				2544CA6E2F6D3F4700189827 /* Offerloop.entitlements */,
+			);
+			path = "macOS (App)";
+			sourceTree = "<group>";
+		};
+		2544CA772F6D3F4700189827 /* iOS (Extension) */ = {
+			isa = PBXGroup;
+			children = (
+				2544CA782F6D3F4700189827 /* Info.plist */,
+			);
+			path = "iOS (Extension)";
+			sourceTree = "<group>";
+		};
+		2544CA812F6D3F4700189827 /* macOS (Extension) */ = {
+			isa = PBXGroup;
+			children = (
+				2544CA822F6D3F4700189827 /* Info.plist */,
+				2544CA832F6D3F4700189827 /* Offerloop.entitlements */,
+			);
+			path = "macOS (Extension)";
+			sourceTree = "<group>";
+		};
+		2544CAA22F6D3F4800189827 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				2544CAA32F6D3F4800189827 /* popup.js */,
+				2544CAA42F6D3F4800189827 /* content.css */,
+				2544CAA52F6D3F4800189827 /* background.js */,
+				2544CAA62F6D3F4800189827 /* popup.html */,
+				2544CAA72F6D3F4800189827 /* build.js */,
+				2544CAA82F6D3F4800189827 /* tests */,
+				2544CAA92F6D3F4800189827 /* Offerloop */,
+				2544CAAA2F6D3F4800189827 /* icons */,
+				2544CAAB2F6D3F4800189827 /* manifest.json */,
+				2544CAAC2F6D3F4800189827 /* popup.css */,
+				2544CAAD2F6D3F4800189827 /* content.js */,
+			);
+			name = Resources;
+			path = "Shared (Extension)";
+			sourceTree = SOURCE_ROOT;
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		2544CA532F6D3F4700189827 /* Offerloop (iOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2544CA982F6D3F4700189827 /* Build configuration list for PBXNativeTarget "Offerloop (iOS)" */;
+			buildPhases = (
+				2544CA502F6D3F4700189827 /* Sources */,
+				2544CA512F6D3F4700189827 /* Frameworks */,
+				2544CA522F6D3F4700189827 /* Resources */,
+				2544CA972F6D3F4700189827 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				2544CA762F6D3F4700189827 /* PBXTargetDependency */,
+			);
+			name = "Offerloop (iOS)";
+			packageProductDependencies = (
+			);
+			productName = "Offerloop (iOS)";
+			productReference = 2544CA542F6D3F4700189827 /* Offerloop.app */;
+			productType = "com.apple.product-type.application";
+		};
+		2544CA652F6D3F4700189827 /* Offerloop (macOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2544CA9F2F6D3F4700189827 /* Build configuration list for PBXNativeTarget "Offerloop (macOS)" */;
+			buildPhases = (
+				2544CA622F6D3F4700189827 /* Sources */,
+				2544CA632F6D3F4700189827 /* Frameworks */,
+				2544CA642F6D3F4700189827 /* Resources */,
+				2544CA9E2F6D3F4700189827 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				2544CA802F6D3F4700189827 /* PBXTargetDependency */,
+			);
+			name = "Offerloop (macOS)";
+			packageProductDependencies = (
+			);
+			productName = "Offerloop (macOS)";
+			productReference = 2544CA662F6D3F4700189827 /* Offerloop.app */;
+			productType = "com.apple.product-type.application";
+		};
+		2544CA722F6D3F4700189827 /* Offerloop Extension (iOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2544CA942F6D3F4700189827 /* Build configuration list for PBXNativeTarget "Offerloop Extension (iOS)" */;
+			buildPhases = (
+				2544CA6F2F6D3F4700189827 /* Sources */,
+				2544CA702F6D3F4700189827 /* Frameworks */,
+				2544CA712F6D3F4700189827 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Offerloop Extension (iOS)";
+			packageProductDependencies = (
+			);
+			productName = "Offerloop Extension (iOS)";
+			productReference = 2544CA732F6D3F4700189827 /* Offerloop Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		2544CA7C2F6D3F4700189827 /* Offerloop Extension (macOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2544CA9B2F6D3F4700189827 /* Build configuration list for PBXNativeTarget "Offerloop Extension (macOS)" */;
+			buildPhases = (
+				2544CA792F6D3F4700189827 /* Sources */,
+				2544CA7A2F6D3F4700189827 /* Frameworks */,
+				2544CA7B2F6D3F4700189827 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Offerloop Extension (macOS)";
+			packageProductDependencies = (
+			);
+			productName = "Offerloop Extension (macOS)";
+			productReference = 2544CA7D2F6D3F4700189827 /* Offerloop Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		2544CA412F6D3F4400189827 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1620;
+				LastUpgradeCheck = 1620;
+				TargetAttributes = {
+					2544CA532F6D3F4700189827 = {
+						CreatedOnToolsVersion = 16.2;
+					};
+					2544CA652F6D3F4700189827 = {
+						CreatedOnToolsVersion = 16.2;
+					};
+					2544CA722F6D3F4700189827 = {
+						CreatedOnToolsVersion = 16.2;
+					};
+					2544CA7C2F6D3F4700189827 = {
+						CreatedOnToolsVersion = 16.2;
+					};
+				};
+			};
+			buildConfigurationList = 2544CA442F6D3F4400189827 /* Build configuration list for PBXProject "Offerloop" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 2544CA402F6D3F4400189827;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 2544CA552F6D3F4700189827 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				2544CA532F6D3F4700189827 /* Offerloop (iOS) */,
+				2544CA652F6D3F4700189827 /* Offerloop (macOS) */,
+				2544CA722F6D3F4700189827 /* Offerloop Extension (iOS) */,
+				2544CA7C2F6D3F4700189827 /* Offerloop Extension (macOS) */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		2544CA522F6D3F4700189827 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2544CA862F6D3F4700189827 /* Icon.png in Resources */,
+				2544CA5D2F6D3F4700189827 /* LaunchScreen.storyboard in Resources */,
+				2544CA842F6D3F4700189827 /* Main.html in Resources */,
+				2544CA8A2F6D3F4700189827 /* Script.js in Resources */,
+				2544CA8E2F6D3F4700189827 /* Assets.xcassets in Resources */,
+				2544CA602F6D3F4700189827 /* Main.storyboard in Resources */,
+				2544CA882F6D3F4700189827 /* Style.css in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2544CA642F6D3F4700189827 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2544CA872F6D3F4700189827 /* Icon.png in Resources */,
+				2544CA892F6D3F4700189827 /* Style.css in Resources */,
+				2544CA6C2F6D3F4700189827 /* Main.storyboard in Resources */,
+				2544CA8B2F6D3F4700189827 /* Script.js in Resources */,
+				2544CA8F2F6D3F4700189827 /* Assets.xcassets in Resources */,
+				2544CA852F6D3F4700189827 /* Main.html in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2544CA712F6D3F4700189827 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2544CAC22F6D3F4800189827 /* popup.css in Resources */,
+				2544CAC32F6D3F4800189827 /* content.js in Resources */,
+				2544CABF2F6D3F4800189827 /* Offerloop in Resources */,
+				2544CAC02F6D3F4800189827 /* icons in Resources */,
+				2544CABE2F6D3F4800189827 /* tests in Resources */,
+				2544CABD2F6D3F4800189827 /* build.js in Resources */,
+				2544CAC12F6D3F4800189827 /* manifest.json in Resources */,
+				2544CAB92F6D3F4800189827 /* popup.js in Resources */,
+				2544CABC2F6D3F4800189827 /* popup.html in Resources */,
+				2544CABB2F6D3F4800189827 /* background.js in Resources */,
+				2544CABA2F6D3F4800189827 /* content.css in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2544CA7B2F6D3F4700189827 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2544CAB72F6D3F4800189827 /* popup.css in Resources */,
+				2544CAB82F6D3F4800189827 /* content.js in Resources */,
+				2544CAB42F6D3F4800189827 /* Offerloop in Resources */,
+				2544CAB52F6D3F4800189827 /* icons in Resources */,
+				2544CAB32F6D3F4800189827 /* tests in Resources */,
+				2544CAB22F6D3F4800189827 /* build.js in Resources */,
+				2544CAB62F6D3F4800189827 /* manifest.json in Resources */,
+				2544CAAE2F6D3F4800189827 /* popup.js in Resources */,
+				2544CAB12F6D3F4800189827 /* popup.html in Resources */,
+				2544CAB02F6D3F4800189827 /* background.js in Resources */,
+				2544CAAF2F6D3F4800189827 /* content.css in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		2544CA502F6D3F4700189827 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2544CA8C2F6D3F4700189827 /* ViewController.swift in Sources */,
+				2544CA582F6D3F4700189827 /* AppDelegate.swift in Sources */,
+				2544CA5A2F6D3F4700189827 /* SceneDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2544CA622F6D3F4700189827 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2544CA8D2F6D3F4700189827 /* ViewController.swift in Sources */,
+				2544CA692F6D3F4700189827 /* AppDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2544CA6F2F6D3F4700189827 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2544CA902F6D3F4700189827 /* SafariWebExtensionHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2544CA792F6D3F4700189827 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2544CA912F6D3F4700189827 /* SafariWebExtensionHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		2544CA762F6D3F4700189827 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2544CA722F6D3F4700189827 /* Offerloop Extension (iOS) */;
+			targetProxy = 2544CA752F6D3F4700189827 /* PBXContainerItemProxy */;
+		};
+		2544CA802F6D3F4700189827 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2544CA7C2F6D3F4700189827 /* Offerloop Extension (macOS) */;
+			targetProxy = 2544CA7F2F6D3F4700189827 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		2544CA472F6D3F4500189827 /* Main.html */ = {
+			isa = PBXVariantGroup;
+			children = (
+				2544CA482F6D3F4500189827 /* Base */,
+			);
+			name = Main.html;
+			sourceTree = "<group>";
+		};
+		2544CA5B2F6D3F4700189827 /* LaunchScreen.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				2544CA5C2F6D3F4700189827 /* Base */,
+			);
+			name = LaunchScreen.storyboard;
+			sourceTree = "<group>";
+		};
+		2544CA5E2F6D3F4700189827 /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				2544CA5F2F6D3F4700189827 /* Base */,
+			);
+			name = Main.storyboard;
+			sourceTree = "<group>";
+		};
+		2544CA6A2F6D3F4700189827 /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				2544CA6B2F6D3F4700189827 /* Base */,
+			);
+			name = Main.storyboard;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		2544CA922F6D3F4700189827 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		2544CA932F6D3F4700189827 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		2544CA952F6D3F4700189827 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Offerloop Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.yourCompany.Offerloop.Extension;
+				PRODUCT_NAME = "Offerloop Extension";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		2544CA962F6D3F4700189827 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Offerloop Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.yourCompany.Offerloop.Extension;
+				PRODUCT_NAME = "Offerloop Extension";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		2544CA992F6D3F4700189827 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Offerloop;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.yourCompany.Offerloop;
+				PRODUCT_NAME = Offerloop;
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		2544CA9A2F6D3F4700189827 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Offerloop;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.yourCompany.Offerloop;
+				PRODUCT_NAME = Offerloop;
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		2544CA9C2F6D3F4700189827 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "macOS (Extension)/Offerloop.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Offerloop Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.yourCompany.Offerloop.Extension;
+				PRODUCT_NAME = "Offerloop Extension";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		2544CA9D2F6D3F4700189827 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "macOS (Extension)/Offerloop.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Offerloop Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.yourCompany.Offerloop.Extension;
+				PRODUCT_NAME = "Offerloop Extension";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		2544CAA02F6D3F4700189827 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "macOS (App)/Offerloop.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Offerloop;
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.yourCompany.Offerloop;
+				PRODUCT_NAME = Offerloop;
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		2544CAA12F6D3F4700189827 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "macOS (App)/Offerloop.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Offerloop;
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.yourCompany.Offerloop;
+				PRODUCT_NAME = Offerloop;
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2544CA442F6D3F4400189827 /* Build configuration list for PBXProject "Offerloop" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2544CA922F6D3F4700189827 /* Debug */,
+				2544CA932F6D3F4700189827 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2544CA942F6D3F4700189827 /* Build configuration list for PBXNativeTarget "Offerloop Extension (iOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2544CA952F6D3F4700189827 /* Debug */,
+				2544CA962F6D3F4700189827 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2544CA982F6D3F4700189827 /* Build configuration list for PBXNativeTarget "Offerloop (iOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2544CA992F6D3F4700189827 /* Debug */,
+				2544CA9A2F6D3F4700189827 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2544CA9B2F6D3F4700189827 /* Build configuration list for PBXNativeTarget "Offerloop Extension (macOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2544CA9C2F6D3F4700189827 /* Debug */,
+				2544CA9D2F6D3F4700189827 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2544CA9F2F6D3F4700189827 /* Build configuration list for PBXNativeTarget "Offerloop (macOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2544CAA02F6D3F4700189827 /* Debug */,
+				2544CAA12F6D3F4700189827 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 2544CA412F6D3F4400189827 /* Project object */;
+}

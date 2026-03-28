@@ -3,10 +3,7 @@
  */
 import { auth } from '@/lib/firebase';
 import { EnhancedFitAnalysis, CoverLetter, ResumeEdit } from '@/types/scout';
-
-const BACKEND_URL = window.location.hostname === 'localhost'
-  ? 'http://localhost:5001'
-  : 'https://offerloop.ai';
+import { BACKEND_URL } from './api';
 
 export interface JobInput {
   title: string;

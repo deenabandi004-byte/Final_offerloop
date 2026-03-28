@@ -4,7 +4,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
-import { getAuth } from "firebase/auth";
 import { apiService } from "@/services/api";
 import OfferloopLogo from '@/assets/offerloop_logo2.png';
  
@@ -27,10 +26,6 @@ const SignIn: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const autoCheckGmailRanRef = useRef(false); // Prevent multiple auto-checks
 
-  // === NEW: Backend base URL + Connect Gmail helper ===
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
-  
-
   const forceNavigate = (dest: string) => {
     navigate(dest, { replace: true });
     setTimeout(() => {
@@ -45,15 +40,7 @@ const SignIn: React.FC = () => {
   // Check if Gmail connection is needed using Firebase auth directly
   const checkNeedsGmailConnection = async (): Promise<boolean> => {
     try {
-      const auth = getAuth();
-      const firebaseUser = auth.currentUser;
-      if (!firebaseUser) return false;
-
-      const token = await firebaseUser.getIdToken();
-      const response = await fetch(`${API_BASE_URL}/api/google/gmail/status`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await response.json();
+      const data = await apiService.gmailStatus();
       return !data.connected;
     } catch (error) {
       return true;

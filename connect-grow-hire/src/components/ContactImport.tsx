@@ -33,9 +33,7 @@ import { useFirebaseAuth } from '../contexts/FirebaseAuthContext';
 import { useNavigate } from 'react-router-dom';
 import { auth } from '@/lib/firebase';
 
-const API_BASE = window.location.hostname === 'localhost' 
-  ? 'http://localhost:5001' 
-  : 'https://offerloop.ai';
+import { BACKEND_URL as API_BASE } from '@/services/api';
 
 // Our schema fields that can be mapped
 const SCHEMA_FIELDS = [
