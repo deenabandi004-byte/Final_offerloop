@@ -78,6 +78,7 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
 
   // Search state
   const [query, setQuery] = useState('');
+  const [hoveredChipQuery, setHoveredChipQuery] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [results, setResults] = useState<Firm[]>([]);
   const [parsedFilters, setParsedFilters] = useState<any>(null);
@@ -778,21 +779,22 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
                         <div
                           style={{
                             display: 'flex',
-                            alignItems: 'center',
+                            alignItems: 'flex-start',
                             gap: 10,
-                            padding: '11px 14px',
-                            border: '1.5px solid #E2E8F0',
-                            borderRadius: 3,
-                            background: '#FAFBFF',
+                            padding: '16px 20px',
+                            border: '1.5px solid transparent',
+                            borderRadius: 14,
+                            background: '#F0F7FF',
                             transition: 'all .15s',
+                            minHeight: 110,
                           }}
-                          className="focus-within:border-[#3B82F6] focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(59,130,246,0.10)]"
+                          className="focus-within:border-[#2563EB] focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(37,99,235,0.12)]"
                         >
-                          <Search style={{ width: 15, height: 15, flexShrink: 0, color: '#94A3B8' }} />
+                          <Search style={{ width: 16, height: 16, flexShrink: 0, color: '#3B82F6', marginTop: 1 }} />
                           <input
                             ref={textareaRef as any}
-                            value={query}
-                            onChange={(e) => setQuery(e.target.value)}
+                            value={hoveredChipQuery && !query ? hoveredChipQuery : query}
+                            onChange={(e) => { if (!hoveredChipQuery) setQuery(e.target.value); }}
                             onKeyDown={handleKeyDown}
                             onFocus={() => setSelectedExampleId(null)}
                             placeholder="Fintech startups in NYC, consulting firms in Chicago..."
@@ -802,9 +804,10 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
                               border: 'none',
                               background: 'none',
                               fontSize: 14,
-                              color: '#0F172A',
+                              color: hoveredChipQuery && !query ? '#94A3B8' : '#0F172A',
                               outline: 'none',
                               fontFamily: 'inherit',
+                              lineHeight: 1.5,
                             }}
                           />
                         </div>
@@ -812,7 +815,7 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
 
                       {/* Example chips — hidden when user has typed */}
                       {!query.trim() && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
                           {EXAMPLE_SEARCHES.map((example) => (
                             <button
                               key={example.id}
@@ -822,9 +825,10 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
                               style={{
                                 display: 'inline-flex',
                                 alignItems: 'center',
-                                padding: '5px 12px',
-                                fontSize: 12,
-                                border: `0.5px solid ${selectedExampleId === example.id ? '#3B82F6' : '#E2E8F0'}`,
+                                gap: 6,
+                                padding: '7px 14px',
+                                fontSize: 13,
+                                border: `1px solid ${selectedExampleId === example.id ? '#3B82F6' : '#E2E8F0'}`,
                                 borderRadius: 100,
                                 background: selectedExampleId === example.id ? 'rgba(59,130,246,0.05)' : '#fff',
                                 color: selectedExampleId === example.id ? '#3B82F6' : '#6B7280',
@@ -833,6 +837,7 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
                                 fontFamily: 'inherit',
                               }}
                               onMouseEnter={(e) => {
+                                setHoveredChipQuery(example.query);
                                 if (selectedExampleId !== example.id) {
                                   (e.currentTarget as HTMLButtonElement).style.borderColor = '#3B82F6';
                                   (e.currentTarget as HTMLButtonElement).style.background = 'rgba(59,130,246,0.05)';
@@ -840,6 +845,7 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
                                 }
                               }}
                               onMouseLeave={(e) => {
+                                setHoveredChipQuery(null);
                                 if (selectedExampleId !== example.id) {
                                   (e.currentTarget as HTMLButtonElement).style.borderColor = '#E2E8F0';
                                   (e.currentTarget as HTMLButtonElement).style.background = '#fff';
@@ -919,12 +925,12 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
                         disabled={!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm) || (effectiveUser.credits ?? 0) === 0}
                         style={{
                           width: '100%',
-                          height: 44,
-                          borderRadius: 3,
-                          background: (!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm) || (effectiveUser.credits ?? 0) === 0) ? '#E2E8F0' : '#3B82F6',
+                          height: 52,
+                          borderRadius: 12,
+                          background: (!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm) || (effectiveUser.credits ?? 0) === 0) ? '#E2E8F0' : '#2563EB',
                           color: (!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm) || (effectiveUser.credits ?? 0) === 0) ? '#94A3B8' : '#fff',
                           border: 'none',
-                          fontSize: 14,
+                          fontSize: 15,
                           fontWeight: 600,
                           cursor: (!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm) || (effectiveUser.credits ?? 0) === 0) ? 'not-allowed' : 'pointer',
                           display: 'flex',

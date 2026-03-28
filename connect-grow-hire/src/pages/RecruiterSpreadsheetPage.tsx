@@ -20,7 +20,7 @@ import { StickyCTA } from "@/components/StickyCTA";
 import { firebaseApi, type Recruiter as FirebaseRecruiter } from "../services/firebaseApi";
 import {
   Users, Link, Building2, Briefcase, MapPin, FileText, CheckCircle,
-  Mail, Sparkles, Check, ArrowRight, ClipboardList, Loader2, Upload
+  Mail, Sparkles, Check, ArrowRight, ClipboardList, Loader2, Upload, ChevronDown, ChevronUp
 } from "lucide-react";
 
 const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
@@ -457,7 +457,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded =
 
                   {/* TAB 1: Find Hiring Managers */}
                   <TabsContent value="find-hiring-managers" className="mt-0">
-                    <div style={{ padding: '24px 32px 32px', maxWidth: '860px' }}>
+                    <div style={{ padding: '0 32px 0', maxWidth: '860px' }}>
                       <input
                         type="file"
                         accept={ACCEPTED_RESUME_TYPES.accept}
@@ -472,17 +472,18 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded =
                         <div
                           style={{
                             display: 'flex',
-                            alignItems: 'center',
+                            alignItems: 'flex-start',
                             gap: 10,
-                            padding: '11px 14px',
-                            border: '1.5px solid #E2E8F0',
-                            borderRadius: 3,
-                            background: '#FAFBFF',
+                            padding: '16px 20px',
+                            border: '1.5px solid transparent',
+                            borderRadius: 14,
+                            background: '#F0F7FF',
                             transition: 'all .15s',
+                            minHeight: 110,
                           }}
-                          className="focus-within:border-[#3B82F6] focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(59,130,246,0.10)]"
+                          className="focus-within:border-[#2563EB] focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(37,99,235,0.12)]"
                         >
-                          <Link style={{ width: 15, height: 15, flexShrink: 0, color: '#94A3B8' }} />
+                          <Link style={{ width: 16, height: 16, flexShrink: 0, color: '#3B82F6', marginTop: 1 }} />
                           <input
                             type="url"
                             value={jobPostingUrl}
@@ -502,10 +503,11 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded =
                               color: '#0F172A',
                               outline: 'none',
                               fontFamily: 'inherit',
+                              lineHeight: 1.5,
                             }}
                           />
                           {jobPostingUrl && isValidUrl(jobPostingUrl) && (
-                            <CheckCircle style={{ width: 15, height: 15, flexShrink: 0, color: '#22C55E' }} />
+                            <CheckCircle style={{ width: 15, height: 15, flexShrink: 0, color: '#22C55E', marginTop: 1 }} />
                           )}
                         </div>
                       </div>
@@ -526,18 +528,19 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded =
                           type="button"
                           onClick={() => setShowManualEntry(!showManualEntry)}
                           style={{
-                            fontSize: 11,
-                            color: '#94A3B8',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: '#64748B',
                             background: 'none',
                             border: 'none',
                             cursor: 'pointer',
                             fontFamily: 'inherit',
                             display: 'flex',
                             alignItems: 'center',
-                            gap: 4,
+                            gap: 5,
                           }}
                         >
-                          <FileText style={{ width: 11, height: 11 }} />
+                          {showManualEntry ? <ChevronUp style={{ width: 13, height: 13 }} /> : <ChevronDown style={{ width: 13, height: 13 }} />}
                           {showManualEntry ? 'Hide manual entry' : 'Or enter details manually'}
                         </button>
                       </div>
@@ -644,12 +647,12 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded =
                         disabled={!canSearch}
                         style={{
                           width: '100%',
-                          height: 44,
-                          borderRadius: 3,
-                          background: !canSearch ? '#E2E8F0' : '#3B82F6',
+                          height: 52,
+                          borderRadius: 12,
+                          background: !canSearch ? '#E2E8F0' : '#2563EB',
                           color: !canSearch ? '#94A3B8' : '#fff',
                           border: 'none',
-                          fontSize: 14,
+                          fontSize: 15,
                           fontWeight: 600,
                           cursor: !canSearch ? 'not-allowed' : 'pointer',
                           display: 'flex',

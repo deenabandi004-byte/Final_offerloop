@@ -11,8 +11,6 @@ import {
   PanelLeft,
   Tag,
   FileText,
-  Briefcase,
-  BookOpen,
 } from "lucide-react";
 import CupIcon from "@/assets/sidebaricons/icons8-cup-48.png";
 import MailIcon from "@/assets/sidebaricons/icons8-important-mail-48.png";
@@ -42,48 +40,41 @@ import { cn } from "@/lib/utils";
 
 const IMG_FILTER_ACTIVE =
   "brightness(0) saturate(100%) invert(72%) sepia(30%) saturate(1200%) hue-rotate(190deg) brightness(105%) contrast(95%)";
-const IMG_FILTER_INACTIVE = "brightness(0) saturate(100%) invert(100%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(100%) contrast(100%)";
+const IMG_FILTER_INACTIVE = "brightness(0) saturate(100%) invert(65%) sepia(15%) saturate(600%) hue-rotate(190deg) brightness(95%) contrast(90%)";
 
 type NavItemDef = {
   title: string;
   url: string;
   dataTour?: string;
   newTab?: boolean;
+  iconColor?: string; // per-item color for inactive state
 } & (
   | { iconSrc: string; LucideIcon?: never }
   | { LucideIcon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; iconSrc?: never }
 );
 
+// CSS filter generators — cool blue/indigo family, vivid
+const ICON_FILTERS: Record<string, string> = {
+  blue:      "brightness(0) saturate(100%) invert(60%) sepia(90%) saturate(800%) hue-rotate(190deg) brightness(115%) contrast(95%)",
+  sky:       "brightness(0) saturate(100%) invert(70%) sepia(60%) saturate(700%) hue-rotate(175deg) brightness(115%) contrast(95%)",
+  indigo:    "brightness(0) saturate(100%) invert(55%) sepia(70%) saturate(800%) hue-rotate(210deg) brightness(115%) contrast(95%)",
+  slate:     "brightness(0) saturate(100%) invert(65%) sepia(40%) saturate(600%) hue-rotate(190deg) brightness(120%) contrast(90%)",
+};
+
 // Group 1 — main nav
 const mainNavItems: NavItemDef[] = [
-  { title: "Find", url: "/find", iconSrc: MagnifyingGlassIcon },
-  { title: "Coffee Chat Prep", url: "/coffee-chat-prep", iconSrc: CupIcon, dataTour: "tour-coffee-chat-prep" },
-  { title: "Tracker", url: "/tracker", iconSrc: MailIcon, dataTour: "tour-track-email" },
-  { title: "Job Board", url: "/job-board", iconSrc: BriefcaseIcon },
+  { title: "Find", url: "/find", iconSrc: MagnifyingGlassIcon, iconColor: "blue" },
+  { title: "Coffee Chat Prep", url: "/coffee-chat-prep", iconSrc: CupIcon, dataTour: "tour-coffee-chat-prep", iconColor: "sky" },
+  { title: "Tracker", url: "/tracker", iconSrc: MailIcon, dataTour: "tour-track-email", iconColor: "indigo" },
+  { title: "Job Board", url: "/job-board", iconSrc: BriefcaseIcon, iconColor: "slate" },
 ];
 
-// Group 2 — guides
-const guidesNavItems: NavItemDef[] = [
-  { title: "Networking: Goldman Sachs", url: "/networking/goldman-sachs", LucideIcon: BookOpen, newTab: true },
-  { title: "Networking: McKinsey", url: "/networking/mckinsey", LucideIcon: BookOpen, newTab: true },
-  { title: "Networking: Google", url: "/networking/google", LucideIcon: BookOpen, newTab: true },
-  { title: "Coffee Chat: Bain", url: "/coffee-chat/bain", LucideIcon: BookOpen, newTab: true },
-  { title: "Coffee Chat: Morgan Stanley", url: "/coffee-chat/morgan-stanley", LucideIcon: BookOpen, newTab: true },
-  { title: "Cold Email: IB", url: "/cold-email/investment-banking", LucideIcon: BookOpen, newTab: true },
-  { title: "Cold Email: Tech", url: "/cold-email/tech", LucideIcon: BookOpen, newTab: true },
-];
-
-// Group 2b — compare
-const compareNavItems: NavItemDef[] = [
-  { title: "vs Handshake", url: "/compare/handshake", LucideIcon: BookOpen, newTab: true },
-  { title: "vs LinkedIn", url: "/compare/linkedin", LucideIcon: BookOpen, newTab: true },
-];
-
-// Group 3 — utility nav
+// Utility nav — bottom of sidebar
 const utilityNavItems: NavItemDef[] = [
-  { title: "Pricing", url: "/pricing", LucideIcon: Tag },
-  { title: "Documentation", url: "/documentation", LucideIcon: FileText },
+  { title: "Pricing", url: "/pricing", LucideIcon: Tag, iconColor: "#93C5FD" },
+  { title: "Documentation", url: "/documentation", LucideIcon: FileText, iconColor: "#7DD3FC" },
 ];
+
 
 // User dropdown menu items
 const userMenuItems = [
@@ -104,7 +95,7 @@ const NAV_RADIUS = "8px";
 const ACTIVE_BG = "rgba(59,130,246,.18)";
 const ACTIVE_SHADOW = "none";
 const ACTIVE_COLOR = "#93C5FD";
-const INACTIVE_ICON = "rgba(255,255,255,.40)";
+const INACTIVE_ICON = "rgba(140,170,210,.55)";
 const INACTIVE_LABEL = "rgba(255,255,255,.40)";
 const HOVER_BG = "rgba(255,255,255,.06)";
 const HOVER_LABEL = "rgba(255,255,255,.70)";
@@ -144,20 +135,24 @@ export function AppSidebar() {
   const renderNavItem = (item: NavItemDef) => {
     const active = isActive(item.url);
 
+    const inactiveFilter = item.iconColor && ICON_FILTERS[item.iconColor]
+      ? ICON_FILTERS[item.iconColor]
+      : IMG_FILTER_INACTIVE;
+
     const icon = item.iconSrc ? (
       <img
         src={item.iconSrc}
         alt=""
         className="h-4 w-4 flex-shrink-0"
         style={{
-          filter: active ? IMG_FILTER_ACTIVE : IMG_FILTER_INACTIVE,
-          opacity: active ? 1 : 0.45,
+          filter: active ? IMG_FILTER_ACTIVE : inactiveFilter,
+          opacity: 1,
         }}
       />
     ) : item.LucideIcon ? (
       <item.LucideIcon
         className="h-4 w-4 flex-shrink-0"
-        style={{ color: active ? ACTIVE_COLOR : INACTIVE_ICON }}
+        style={{ color: active ? ACTIVE_COLOR : (item.iconColor && !ICON_FILTERS[item.iconColor] ? item.iconColor : INACTIVE_ICON) }}
       />
     ) : null;
 
@@ -436,64 +431,16 @@ export function AppSidebar() {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 overflow-y-auto px-3 pt-2 pb-3">
+          <nav className="flex-1 overflow-y-auto px-3 pt-2 pb-3 flex flex-col">
             {/* Group 1 — main */}
             <div className="space-y-0.5">
               {mainNavItems.map(renderNavItem)}
             </div>
 
-            {/* Divider */}
-            <div className="my-3" style={{ borderTop: "0.5px solid rgba(255,255,255,.07)" }} />
+            {/* Spacer pushes utility to bottom */}
+            <div className="flex-1" />
 
-            {/* Group 2 — guides */}
-            {!isCollapsed && (
-              <p
-                style={{
-                  fontSize: "11px",
-                  fontWeight: 600,
-                  letterSpacing: "0.06em",
-                  color: "rgba(255,255,255,.2)",
-                  fontFamily: "var(--font-body)",
-                  textTransform: "uppercase" as const,
-                  paddingLeft: "10px",
-                  marginBottom: "4px",
-                }}
-              >
-                Guides
-              </p>
-            )}
-            <div className="space-y-0.5">
-              {guidesNavItems.map(renderNavItem)}
-            </div>
-
-            {/* Divider */}
-            <div className="my-3" style={{ borderTop: "0.5px solid rgba(255,255,255,.07)" }} />
-
-            {/* Group 2b — compare */}
-            {!isCollapsed && (
-              <p
-                style={{
-                  fontSize: "11px",
-                  fontWeight: 600,
-                  letterSpacing: "0.06em",
-                  color: "rgba(255,255,255,.2)",
-                  fontFamily: "var(--font-body)",
-                  textTransform: "uppercase" as const,
-                  paddingLeft: "10px",
-                  marginBottom: "4px",
-                }}
-              >
-                Compare
-              </p>
-            )}
-            <div className="space-y-0.5">
-              {compareNavItems.map(renderNavItem)}
-            </div>
-
-            {/* Divider */}
-            <div className="my-3" style={{ borderTop: "0.5px solid rgba(255,255,255,.07)" }} />
-
-            {/* Group 3 — utility */}
+            {/* Utility nav — bottom */}
             <div className="space-y-0.5">
               {utilityNavItems.map(renderNavItem)}
             </div>
@@ -516,9 +463,9 @@ export function AppSidebar() {
                   <span
                     style={{
                       fontSize: "11px",
-                      fontWeight: 600,
+                      fontWeight: 700,
                       letterSpacing: "0.06em",
-                      color: "rgba(255,255,255,.2)",
+                      color: "rgba(255,255,255,.45)",
                       fontFamily: "var(--font-body)",
                       textTransform: "uppercase" as const,
                     }}
@@ -570,7 +517,7 @@ export function AppSidebar() {
                   e.currentTarget.style.background = "#3B82F6";
                 }}
               >
-                <Zap className="h-4 w-4" />
+                <Zap className="h-4 w-4" style={{ color: "#FACC15", fill: "#FACC15" }} />
                 <span>Upgrade Plan</span>
               </button>
             </div>
@@ -595,7 +542,7 @@ export function AppSidebar() {
                     e.currentTarget.style.background = "#3B82F6";
                   }}
                 >
-                  <Zap className="h-5 w-5" />
+                  <Zap className="h-5 w-5" style={{ color: "#FACC15", fill: "#FACC15" }} />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">

@@ -7,7 +7,7 @@ import { useScout } from "@/contexts/ScoutContext";
 import {
   Search, Linkedin, Send, Loader2, Sparkles, ArrowRight,
   User, Check, CheckCircle,
-  FileText, Upload, Mail, Inbox, AlertCircle, X, ExternalLink
+  FileText, Upload, Mail, Inbox, AlertCircle, X, ExternalLink, ChevronRight
 } from "lucide-react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -167,6 +167,11 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
 
   // Form state (prompt-based search)
   const [searchPrompt, setSearchPrompt] = useState("");
+  const [hoveredChipPrompt, setHoveredChipPrompt] = useState<string | null>(null);
+  const [showTemplateTooltip, setShowTemplateTooltip] = useState(false);
+  const templateTooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showCsvTooltip, setShowCsvTooltip] = useState(false);
+  const csvTooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [savedResumeUrl, setSavedResumeUrl] = useState<string | null>(null);
   const [savedResumeFileName, setSavedResumeFileName] = useState<string | null>(null);
@@ -1182,37 +1187,38 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
           </div>
         )}
 
-        {/* Search input row with Import CSV button */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {/* Hero search bar */}
+        <div style={{ marginTop: 20, marginBottom: 16 }}>
           <div
             style={{
               display: 'flex',
-              alignItems: 'center',
+              alignItems: 'flex-start',
               gap: 10,
-              padding: '11px 14px',
-              border: '1.5px solid #E2E8F0',
-              borderRadius: 3,
-              background: '#FAFBFF',
-              flex: 1,
+              padding: '16px 20px',
+              border: '1.5px solid transparent',
+              borderRadius: 14,
+              background: '#F0F7FF',
               transition: 'all .15s',
+              minHeight: 110,
             }}
-            className="focus-within:border-[#3B82F6] focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(59,130,246,0.10)]"
+            className="focus-within:border-[#2563EB] focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(37,99,235,0.12)]"
           >
-            <Search style={{ width: 15, height: 15, flexShrink: 0, color: '#94A3B8' }} />
+            <Search style={{ width: 16, height: 16, flexShrink: 0, color: '#3B82F6', marginTop: 1 }} />
             <input
-              value={searchPrompt}
-              onChange={(e) => { setSearchPrompt(e.target.value); setLinkedInError(null); setLinkedInSuccess(null); }}
+              value={hoveredChipPrompt && !searchPrompt ? hoveredChipPrompt : searchPrompt}
+              onChange={(e) => { if (!hoveredChipPrompt) { setSearchPrompt(e.target.value); setLinkedInError(null); setLinkedInSuccess(null); } }}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
-              placeholder="USC alumni at Goldman Sachs, or paste a LinkedIn URL..."
+              placeholder="Paste a LinkedIn URL, or try 'USC alumni at Goldman Sachs'..."
               disabled={isSearching || linkedInLoading}
               style={{
                 flex: 1,
                 border: 'none',
                 background: 'none',
                 fontSize: 14,
-                color: '#0F172A',
+                color: hoveredChipPrompt && !searchPrompt ? '#94A3B8' : '#0F172A',
                 outline: 'none',
                 fontFamily: 'inherit',
+                lineHeight: 1.5,
               }}
             />
             {isLinkedInUrl(searchPrompt) && (
@@ -1222,43 +1228,132 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 gap: 4,
                 background: 'rgba(59,130,246,0.10)',
                 color: '#3B82F6',
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: 500,
-                padding: '3px 8px',
+                padding: '4px 10px',
                 borderRadius: 100,
                 whiteSpace: 'nowrap',
+                marginTop: 2,
               }}>
-                <Linkedin className="h-2.5 w-2.5" />
+                <Linkedin className="h-3 w-3" />
                 LinkedIn
               </div>
             )}
           </div>
-          <button
-            type="button"
-            onClick={() => setShowImportDialog(true)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 5,
-              padding: '10px 14px',
-              border: '1.5px solid #E2E8F0',
-              borderRadius: 3,
-              background: '#FAFBFF',
-              color: '#6B7280',
-              fontSize: 12,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              fontFamily: 'inherit',
-            }}
-          >
-            <Upload className="h-3 w-3" />
-            Import CSV
-          </button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => navigate("/find/templates")}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  fontSize: 12,
+                  color: '#6B7280',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  transition: 'color .15s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = '#0F172A';
+                  templateTooltipTimer.current = setTimeout(() => setShowTemplateTooltip(true), 280);
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = '#6B7280';
+                  if (templateTooltipTimer.current) clearTimeout(templateTooltipTimer.current);
+                  setShowTemplateTooltip(false);
+                }}
+              >
+                Email template:&nbsp;<span style={{ fontWeight: 600, color: '#0F172A' }}>{getEmailTemplateLabel(activeEmailTemplate)}</span>
+                <ChevronRight style={{ width: 12, height: 12 }} />
+              </button>
+              <div
+                className="pointer-events-none"
+                style={{
+                  position: 'absolute',
+                  bottom: '100%',
+                  left: 0,
+                  marginBottom: 8,
+                  background: '#1E293B',
+                  color: '#fff',
+                  fontSize: 13,
+                  lineHeight: 1.45,
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  width: 260,
+                  whiteSpace: 'normal',
+                  opacity: showTemplateTooltip ? 1 : 0,
+                  transition: 'opacity .15s',
+                }}
+              >
+                Set the tone, style, and sign-off for every email we draft. Click to customize your template.
+              </div>
+            </div>
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                onClick={() => setShowImportDialog(true)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '6px 12px',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: 6,
+                  background: 'transparent',
+                  color: '#94A3B8',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  fontFamily: 'inherit',
+                  transition: 'all .15s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = '#3B82F6'; e.currentTarget.style.color = '#3B82F6';
+                  csvTooltipTimer.current = setTimeout(() => setShowCsvTooltip(true), 280);
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.color = '#94A3B8';
+                  if (csvTooltipTimer.current) clearTimeout(csvTooltipTimer.current);
+                  setShowCsvTooltip(false);
+                }}
+              >
+                <Upload className="h-3 w-3" />
+                Import CSV
+              </button>
+              <div
+                className="pointer-events-none"
+                style={{
+                  position: 'absolute',
+                  bottom: '100%',
+                  right: 0,
+                  marginBottom: 8,
+                  background: '#1E293B',
+                  color: '#fff',
+                  fontSize: 13,
+                  lineHeight: 1.45,
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  width: 240,
+                  whiteSpace: 'normal',
+                  opacity: showCsvTooltip ? 1 : 0,
+                  transition: 'opacity .15s',
+                }}
+              >
+                Import your own contacts from a spreadsheet or LinkedIn export. We'll match emails and add them to your network.
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Example chips — hidden after user types */}
         {!searchPrompt.trim() && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
             {examplePromptChips.map((chip) => (
               <button
                 key={chip.id}
@@ -1273,9 +1368,9 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 5,
-                  padding: '5px 12px',
-                  fontSize: 12,
-                  border: `0.5px solid ${selectedExampleId === chip.id ? '#3B82F6' : '#E2E8F0'}`,
+                  padding: '5px 11px',
+                  fontSize: 11.5,
+                  border: `1px solid ${selectedExampleId === chip.id ? '#3B82F6' : '#E2E8F0'}`,
                   borderRadius: 100,
                   background: selectedExampleId === chip.id ? 'rgba(59,130,246,0.05)' : '#fff',
                   color: selectedExampleId === chip.id ? '#3B82F6' : '#6B7280',
@@ -1284,6 +1379,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                   fontFamily: 'inherit',
                 }}
                 onMouseEnter={(e) => {
+                  setHoveredChipPrompt(chip.prompt);
                   if (selectedExampleId !== chip.id) {
                     (e.currentTarget as HTMLButtonElement).style.borderColor = '#3B82F6';
                     (e.currentTarget as HTMLButtonElement).style.background = 'rgba(59,130,246,0.05)';
@@ -1291,6 +1387,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                   }
                 }}
                 onMouseLeave={(e) => {
+                  setHoveredChipPrompt(null);
                   if (selectedExampleId !== chip.id) {
                     (e.currentTarget as HTMLButtonElement).style.borderColor = '#E2E8F0';
                     (e.currentTarget as HTMLButtonElement).style.background = '#fff';
@@ -1362,12 +1459,12 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
           disabled={isSearching || linkedInLoading || !searchPrompt.trim() || !user}
           style={{
             width: '100%',
-            height: 44,
-            borderRadius: 3,
-            background: (isSearching || linkedInLoading || !searchPrompt.trim() || !user) ? '#E2E8F0' : '#3B82F6',
+            height: 52,
+            borderRadius: 12,
+            background: (isSearching || linkedInLoading || !searchPrompt.trim() || !user) ? '#E2E8F0' : '#2563EB',
             color: (isSearching || linkedInLoading || !searchPrompt.trim() || !user) ? '#94A3B8' : '#fff',
             border: 'none',
-            fontSize: 14,
+            fontSize: 15,
             fontWeight: 600,
             cursor: (isSearching || linkedInLoading || !searchPrompt.trim() || !user) ? 'not-allowed' : 'pointer',
             display: 'flex',

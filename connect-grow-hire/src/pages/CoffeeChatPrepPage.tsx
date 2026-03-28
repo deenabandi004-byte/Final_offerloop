@@ -603,15 +603,6 @@ const CoffeeChatPrepPage: React.FC = () => {
 
               {/* ── Book-aesthetic page header ── */}
               <div style={{ marginBottom: 32, paddingTop: 44 }}>
-                <span style={{
-                  fontFamily: "'Lora', Georgia, serif",
-                  fontStyle: 'italic',
-                  fontSize: 11,
-                  color: '#93C5FD',
-                  letterSpacing: '.02em',
-                  display: 'block',
-                  marginBottom: 6,
-                }}>Chapter III</span>
                 <h1 style={{
                   fontSize: 28,
                   fontWeight: 700,
@@ -629,11 +620,9 @@ const CoffeeChatPrepPage: React.FC = () => {
                   marginBottom: 10,
                 }} />
                 <p style={{
-                  fontFamily: "'Lora', Georgia, serif",
-                  fontStyle: 'italic',
                   fontSize: 14,
-                  color: '#6B7280',
-                  lineHeight: 1.6,
+                  color: '#94A3B8',
+                  lineHeight: 1.5,
                 }}>
                   Paste a LinkedIn URL and get a personalized prep sheet with company intel, talking points, and smart questions.
                 </p>
@@ -670,7 +659,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                 }}
                 className="focus-within:border-b-[#3B82F6]"
                 >
-                  <Linkedin style={{ width: 16, height: 16, flexShrink: 0, color: '#94A3B8' }} />
+                  <Linkedin style={{ width: 16, height: 16, flexShrink: 0, color: '#0A66C2', strokeWidth: 1.5 }} />
                   <input
                     type="url"
                     value={linkedinUrl}
@@ -906,14 +895,6 @@ const CoffeeChatPrepPage: React.FC = () => {
                                   (e.currentTarget as HTMLDivElement).style.boxShadow = 'none';
                                 }}
                               >
-                                <span style={{
-                                  fontFamily: "'Lora', Georgia, serif",
-                                  fontStyle: 'italic',
-                                  fontSize: 11,
-                                  color: '#93C5FD',
-                                  display: 'block',
-                                  marginBottom: 12,
-                                }}>{item.section}</span>
                                 <div style={{
                                   width: 28, height: 28, borderRadius: 3,
                                   background: item.iconBg,

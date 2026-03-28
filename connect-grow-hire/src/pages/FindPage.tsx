@@ -1,13 +1,13 @@
-import React, { Suspense, useState, useEffect } from "react";
+import React, { Suspense, useState, useEffect, useRef } from "react";
 import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
-import { Search, Building2, UserCheck, FileText, ChevronRight, Coins, Users, Mail } from "lucide-react";
+import { Search, Building2, UserCheck, FileText, ChevronRight, Users, Mail } from "lucide-react";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
-import { apiService, type EmailTemplate, hasEmailTemplateValues, getEmailTemplateLabel } from "@/services/api";
+import { apiService, type EmailTemplate, getEmailTemplateLabel } from "@/services/api";
 import { firebaseApi } from "@/services/firebaseApi";
 import { EliteGateModal } from "@/components/EliteGateModal";
 
@@ -43,7 +43,9 @@ const FindPage: React.FC = () => {
   const activeEmailTemplate = sessionEmailTemplate ?? savedEmailTemplate;
   const [contactsCount, setContactsCount] = useState<number | null>(null);
   const [draftsCount, setDraftsCount] = useState<number | null>(null);
-  const [firmInitialTab, setFirmInitialTab] = useState<string | undefined>(undefined);
+  const [firmInitialTab] = useState<string | undefined>(undefined);
+  const [showHeaderTooltip, setShowHeaderTooltip] = useState(false);
+  const headerTooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load contacts count and outbox stats
   useEffect(() => {
@@ -97,43 +99,6 @@ const FindPage: React.FC = () => {
 
   const templateLabel = getEmailTemplateLabel(activeEmailTemplate);
 
-  const credits = user?.credits ?? 0;
-
-  const tier = (user?.tier as keyof typeof import("@/lib/constants").TIER_CONFIGS) || "free";
-  const tierLabel = tier === "elite" ? "Elite" : tier === "pro" ? "Pro" : "Free";
-  const maxCredits = tier === "elite" ? 3000 : tier === "pro" ? 1800 : 150;
-  const creditPct = maxCredits > 0 ? Math.round((credits / maxCredits) * 100) : 0;
-
-  const STAT_CARDS = [
-    {
-      label: "Credits Available",
-      value: credits.toLocaleString(),
-      icon: Coins,
-      iconBg: "rgba(59,130,246,.10)",
-      iconColor: "#3B82F6",
-      detail: `${tierLabel} plan · ${creditPct}% remaining`,
-      detailColor: creditPct > 30 ? "#6B7280" : "#2563EB",
-    },
-    {
-      label: "Contacts Found",
-      value: contactsCount !== null ? contactsCount.toLocaleString() : "--",
-      icon: Users,
-      iconBg: "rgba(59,130,246,.08)",
-      iconColor: "#2563EB",
-      detail: "total saved",
-      detailColor: "#94A3B8",
-    },
-    {
-      label: "Emails Drafted",
-      value: draftsCount !== null ? draftsCount.toLocaleString() : "--",
-      icon: Mail,
-      iconBg: "rgba(59,130,246,.08)",
-      iconColor: "#2563EB",
-      detail: "in outbox",
-      detailColor: "#94A3B8",
-    },
-  ];
-
   return (
     <>
     <SidebarProvider>
@@ -142,32 +107,50 @@ const FindPage: React.FC = () => {
         <MainContentWrapper>
           <AppHeader
             rightContent={
-              <>
-                <button
-                  onClick={() => navigate("/find/templates")}
-                  className="hidden md:flex items-center gap-1.5 text-xs text-[#6B7280] hover:text-[#0F172A] cursor-pointer transition-colors"
-                >
-                  Template:&nbsp;<span className="font-medium text-[#0F172A]">{templateLabel}</span>
-                  <ChevronRight className="h-3 w-3" />
-                </button>
+              <div style={{ position: 'relative' }}>
                 <button
                   type="button"
                   onClick={() => isElite ? navigate("/find/templates") : setShowEliteGate(true)}
                   className="inline-flex items-center gap-2 rounded-[3px] px-3 py-1.5 text-sm font-medium transition-all duration-150 cursor-pointer focus:outline-none bg-white border border-[#E2E8F0] text-[#0F172A] hover:bg-[#FAFBFF] hover:border-[#3B82F6] shadow-none"
                   data-tour="tour-templates-button"
+                  onMouseEnter={() => { headerTooltipTimer.current = setTimeout(() => setShowHeaderTooltip(true), 280); }}
+                  onMouseLeave={() => { if (headerTooltipTimer.current) clearTimeout(headerTooltipTimer.current); setShowHeaderTooltip(false); }}
                 >
                   <FileText className="h-4 w-4 text-[#6B7280]" />
                   <span className="hidden sm:inline whitespace-nowrap">
                     Email Template
                   </span>
                 </button>
-              </>
+                <div
+                  className="pointer-events-none"
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    right: 0,
+                    marginTop: 8,
+                    background: '#1E293B',
+                    color: '#fff',
+                    fontSize: 13,
+                    lineHeight: 1.45,
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    width: 260,
+                    whiteSpace: 'normal',
+                    opacity: showHeaderTooltip ? 1 : 0,
+                    transition: 'opacity .15s',
+                    zIndex: 50,
+                  }}
+                >
+                  Set the tone, style, and sign-off for every email we draft. Click to customize your template.
+                </div>
+              </div>
             }
           />
 
           {/* Scrollable page body */}
           <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-            {/* Hero banner */}
+            {/* Hero section — clean, focused */}
             <div
               style={{
                 background: "#FFFFFF",
@@ -175,184 +158,64 @@ const FindPage: React.FC = () => {
                 flexShrink: 0,
               }}
             >
-              <div style={{ maxWidth: 720, margin: "0 auto", padding: "44px 40px 0" }}>
-                <h1 style={{ fontSize: 22, fontWeight: 600, color: "#0F172A", letterSpacing: "-.01em", marginBottom: 3, fontFamily: "'Lora', Georgia, serif" }}>
+              <div style={{ maxWidth: 800, margin: "0 auto", padding: "48px 40px 0" }}>
+                {/* Title */}
+                <h1 style={{ fontSize: 26, fontWeight: 600, color: "#0F172A", letterSpacing: "-.02em", marginBottom: 6, fontFamily: "'Lora', Georgia, serif", textAlign: "center" }}>
                   Find
                 </h1>
-                <p style={{ fontSize: 13.5, color: "#6B7280", marginBottom: 22, lineHeight: 1.5 }}>
+                <p style={{ fontSize: 14, color: "#94A3B8", marginBottom: 28, lineHeight: 1.5, textAlign: "center" }}>
                   Search people, companies, or hiring managers — we'll find contact info and draft outreach.
                 </p>
 
-              {/* Stat cards row */}
-              <div style={{ display: "flex", gap: 14, marginBottom: 24 }}>
-                {STAT_CARDS.map((card) => (
-                  <div
-                    key={card.label}
-                    style={{
-                      flex: 1,
-                      background: "#FAFBFF",
-                      borderRadius: 3,
-                      padding: "18px 20px 16px",
-                      border: "1px solid #E2E8F0",
-                      boxShadow: "none",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 0,
-                      transition: "box-shadow .15s, border-color .15s",
-                      cursor: "default",
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLDivElement).style.boxShadow = "0 2px 8px rgba(59,130,246,.10)";
-                      (e.currentTarget as HTMLDivElement).style.borderColor = "#3B82F6";
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLDivElement).style.boxShadow = "none";
-                      (e.currentTarget as HTMLDivElement).style.borderColor = "#E2E8F0";
-                    }}
-                  >
-                    {/* Top row: label + icon */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-                      <span style={{ fontSize: 13, color: "#6B7280", fontWeight: 500 }}>{card.label}</span>
-                      <div
+                {/* Tab row — directly below description, above content */}
+                <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
+                  {TABS.map((tab) => {
+                    const isActive = activeTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
                         style={{
-                          width: 36,
-                          height: 36,
-                          borderRadius: 10,
-                          background: card.iconBg,
                           display: "flex",
                           alignItems: "center",
-                          justifyContent: "center",
-                          flexShrink: 0,
+                          gap: 8,
+                          padding: "11px 24px",
+                          borderRadius: "3px 3px 0 0",
+                          fontSize: 14,
+                          fontWeight: isActive ? 600 : 500,
+                          cursor: "pointer",
+                          border: isActive ? "1px solid #E2E8F0" : "1px solid transparent",
+                          borderBottom: isActive ? "2px solid #2563EB" : "1px solid transparent",
+                          background: isActive ? "#fff" : "transparent",
+                          color: isActive ? "#2563EB" : "#6B7280",
+                          position: "relative",
+                          zIndex: isActive ? 2 : 1,
+                          transition: "all .15s",
+                          marginBottom: -1,
+                          fontFamily: "inherit",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = "#0F172A";
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = "#6B7280";
                         }}
                       >
-                        <card.icon style={{ width: 18, height: 18, color: card.iconColor }} />
-                      </div>
-                    </div>
-                    {/* Value */}
-                    <div style={{ fontSize: 28, fontWeight: 700, color: "#0F172A", letterSpacing: "-.02em", lineHeight: 1, fontFamily: "'Lora', Georgia, serif" }}>
-                      {card.value}
-                    </div>
-                    {/* Bottom row: detail */}
-                    <div style={{ marginTop: 12 }}>
-                      <span style={{ fontSize: 12, color: card.detailColor, fontWeight: 500, display: "flex", alignItems: "center", gap: 3 }}>
-                        {card.detail}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Context-specific tracker shortcut */}
-              {activeTab === "people" && (
-                <button
-                  onClick={() => navigate('/contact-directory')}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 10, width: "100%",
-                    background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 3,
-                    padding: "10px 16px", cursor: "pointer", fontFamily: "inherit",
-                    transition: "all .15s", marginBottom: 16,
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = "#DBEAFE"; e.currentTarget.style.borderColor = "#3B82F6"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "#EFF6FF"; e.currentTarget.style.borderColor = "#BFDBFE"; }}
-                >
-                  <Mail style={{ width: 16, height: 16, color: "#2563EB", flexShrink: 0 }} />
-                  <div style={{ flex: 1, textAlign: "left" }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "#2563EB" }}>Network Tracker</div>
-                    <div style={{ fontSize: 11.5, color: "#6B7280", marginTop: 1 }}>Track emails, replies, and follow-ups with your contacts</div>
-                  </div>
-                  <ChevronRight style={{ width: 14, height: 14, color: "#2563EB", flexShrink: 0 }} />
-                </button>
-              )}
-              {activeTab === "companies" && (
-                <button
-                  onClick={() => navigate('/company-tracker')}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 10, width: "100%",
-                    background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 3,
-                    padding: "10px 16px", cursor: "pointer", fontFamily: "inherit",
-                    transition: "all .15s", marginBottom: 16,
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = "#DBEAFE"; e.currentTarget.style.borderColor = "#3B82F6"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "#EFF6FF"; e.currentTarget.style.borderColor = "#BFDBFE"; }}
-                >
-                  <Building2 style={{ width: 16, height: 16, color: "#2563EB", flexShrink: 0 }} />
-                  <div style={{ flex: 1, textAlign: "left" }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "#2563EB" }}>Company Tracker</div>
-                    <div style={{ fontSize: 11.5, color: "#6B7280", marginTop: 1 }}>View and manage all saved companies from your searches</div>
-                  </div>
-                  <ChevronRight style={{ width: 14, height: 14, color: "#2563EB", flexShrink: 0 }} />
-                </button>
-              )}
-              {activeTab === "hiring-managers" && (
-                <button
-                  onClick={() => navigate('/hiring-manager-tracker')}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 10, width: "100%",
-                    background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 3,
-                    padding: "10px 16px", cursor: "pointer", fontFamily: "inherit",
-                    transition: "all .15s", marginBottom: 16,
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = "#DBEAFE"; e.currentTarget.style.borderColor = "#3B82F6"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "#EFF6FF"; e.currentTarget.style.borderColor = "#BFDBFE"; }}
-                >
-                  <UserCheck style={{ width: 16, height: 16, color: "#2563EB", flexShrink: 0 }} />
-                  <div style={{ flex: 1, textAlign: "left" }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "#2563EB" }}>Hiring Manager Tracker</div>
-                    <div style={{ fontSize: 11.5, color: "#6B7280", marginTop: 1 }}>View all hiring managers you've found, saved, or contacted</div>
-                  </div>
-                  <ChevronRight style={{ width: 14, height: 14, color: "#2563EB", flexShrink: 0 }} />
-                </button>
-              )}
-
-              {/* Tab row */}
-              <div style={{ display: "flex", gap: 2 }}>
-                {TABS.map((tab) => {
-                  const isActive = activeTab === tab.id;
-                  return (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveTab(tab.id)}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 7,
-                        padding: "10px 20px",
-                        borderRadius: "3px 3px 0 0",
-                        fontSize: 13.5,
-                        fontWeight: isActive ? 600 : 500,
-                        cursor: "pointer",
-                        border: isActive ? "1px solid #E2E8F0" : "1px solid transparent",
-                        borderBottom: isActive ? "1px solid #fff" : "1px solid transparent",
-                        background: isActive ? "#fff" : "transparent",
-                        color: isActive ? "#0F172A" : "#6B7280",
-                        position: "relative",
-                        zIndex: isActive ? 2 : 1,
-                        transition: "all .15s",
-                        marginBottom: -1,
-                        fontFamily: "inherit",
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = "#0F172A";
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = "#6B7280";
-                      }}
-                    >
-                      <tab.icon style={{ width: 15, height: 15, flexShrink: 0 }} />
-                      {tab.label}
-                    </button>
-                  );
-                })}
-              </div>
+                        <tab.icon style={{ width: 15, height: 15, flexShrink: 0 }} />
+                        {tab.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
             {/* Tab body */}
             <div style={{ flex: 1, overflowY: "auto", background: "#FFFFFF", borderTop: "none" }}>
-              <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 40px 44px" }}>
+              <div style={{ maxWidth: 800, margin: "0 auto", padding: "0 40px 44px" }}>
               {/* Tab description */}
-              <p style={{ fontSize: 13, color: "#94A3B8", margin: "16px 0 4px", lineHeight: 1.5 }}>
-                {activeTab === "people" && "Search by role, company, school, or LinkedIn URL — we'll find their email and draft outreach."}
+              <p style={{ fontSize: 13, color: "#94A3B8", margin: "8px 0 0", lineHeight: 1.5, textAlign: "center" }}>
+                {activeTab === "people" && "Search by role, company, school, or LinkedIn URL to get personalized email drafts."}
                 {activeTab === "companies" && "Search for companies by industry, size, or location to build your target list."}
                 {activeTab === "hiring-managers" && "Paste a job URL to find the hiring manager and get a personalized email draft."}
               </p>
@@ -373,6 +236,31 @@ const FindPage: React.FC = () => {
                   <RecruiterSpreadsheetPage embedded />
                 </div>
               </Suspense>
+
+              {/* Subtle stats — small text row at bottom of content area */}
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 20,
+                marginTop: 32,
+                paddingTop: 16,
+                borderTop: "1px solid #F1F5F9",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <Users style={{ width: 13, height: 13, color: "#3B82F6" }} />
+                  <span style={{ fontSize: 12, color: "#2563EB", fontWeight: 600 }}>
+                    {contactsCount !== null ? contactsCount.toLocaleString() : "--"} contacts found
+                  </span>
+                </div>
+                <div style={{ width: 1, height: 12, background: "#BFDBFE" }} />
+                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <Mail style={{ width: 13, height: 13, color: "#3B82F6" }} />
+                  <span style={{ fontSize: 12, color: "#2563EB", fontWeight: 600 }}>
+                    {draftsCount !== null ? draftsCount.toLocaleString() : "--"} emails drafted
+                  </span>
+                </div>
+              </div>
               </div>
             </div>
           </div>
