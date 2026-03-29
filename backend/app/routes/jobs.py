@@ -9,6 +9,7 @@ from backend.app.utils.job_ranking import (
     apply_feedback_adjustments,
 )
 from datetime import datetime, timezone, timedelta
+from concurrent.futures import ThreadPoolExecutor
 import logging
 import threading
 
@@ -21,6 +22,7 @@ FILTERS_CACHE_TTL = 3600
 
 _ranking_lock = threading.Lock()
 _ranking_in_progress = set()  # UIDs currently being re-ranked
+_ranking_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="job-rank")
 
 
 # ---------------------------------------------------------------------------
@@ -55,8 +57,6 @@ def get_feed():
     db = get_db()
     now = datetime.now(timezone.utc)
     refresh = request.args.get("refresh", "").lower() == "true"
-    type_filter = request.args.get("type")
-    category_filter = request.args.get("category")
 
     # Load user profile
     user_ref = db.collection("users").document(uid)
@@ -65,7 +65,7 @@ def get_feed():
         return jsonify({"error": "User not found"}), 404
     profile = user_doc.to_dict()
 
-    # Check cache (top_jobs only — new_matches always fresh)
+    # Check cache
     cache = profile.get("jobFeedCache") or {}
     cache_ranked_at = cache.get("ranked_at")
     cache_valid = False
@@ -81,33 +81,25 @@ def get_feed():
     else:
         cache_stale_ok = False
 
-    # Always fetch new_matches fresh (last 24h)
+    # Check new_matches cache (short TTL — 5 min)
+    nm_cache = cache.get("new_matches_cache") or {}
+    nm_cached_at = nm_cache.get("cached_at")
+    nm_valid = False
+    if nm_cached_at and not refresh:
+        if hasattr(nm_cached_at, "timestamp"):
+            nm_age = (now - nm_cached_at.replace(tzinfo=timezone.utc)).total_seconds()
+        elif hasattr(nm_cached_at, "isoformat"):
+            nm_age = (now - nm_cached_at).total_seconds()
+        else:
+            nm_age = float("inf")
+        nm_valid = nm_age < 300  # 5 minutes
+
     twenty_four_hours_ago = now - timedelta(hours=24)
 
-    if cache_valid:
-        # Serve top_jobs from cache, new_matches fresh
-        cached_ids = cache.get("job_ids", [])
-        cached_scores = cache.get("scores", {})
-        cached_reasons = cache.get("reasons", {})
-
-        # Fetch cached top_jobs docs
-        top_jobs = []
-        if cached_ids:
-            for i in range(0, len(cached_ids), 100):
-                chunk = cached_ids[i:i + 100]
-                refs = [db.collection("jobs").document(jid) for jid in chunk]
-                docs = db.get_all(refs)
-                for doc in docs:
-                    if doc.exists:
-                        j = doc.to_dict()
-                        jid = j.get("job_id", doc.id)
-                        j["match_score"] = cached_scores.get(jid)
-                        j["match_reason"] = cached_reasons.get(jid)
-                        j["ranked"] = j["match_score"] is not None
-                        top_jobs.append(j)
-            top_jobs.sort(key=lambda j: j.get("match_score") or 0, reverse=True)
-
-        # Fresh new_matches
+    def _fetch_new_matches(cached_scores=None, cached_reasons=None):
+        """Fetch new_matches from Firestore, or return from cache if fresh."""
+        if nm_valid:
+            return nm_cache.get("jobs", []), True
         new_query = (
             db.collection("jobs")
             .where("posted_at", ">=", twenty_four_hours_ago)
@@ -115,16 +107,58 @@ def get_feed():
             .limit(20)
         )
         new_matches = []
-        for doc in new_query.stream():
-            j = doc.to_dict()
-            jid = j.get("job_id", doc.id)
-            j["match_score"] = cached_scores.get(jid)
-            j["match_reason"] = cached_reasons.get(jid)
-            j["ranked"] = j["match_score"] is not None
+        for d in new_query.stream():
+            j = d.to_dict()
+            jid = j.get("job_id", d.id)
+            if cached_scores:
+                j["match_score"] = cached_scores.get(jid)
+                j["match_reason"] = (cached_reasons or {}).get(jid)
+                j["ranked"] = j["match_score"] is not None
+            else:
+                j["match_score"] = None
+                j["match_reason"] = None
+                j["ranked"] = False
             new_matches.append(j)
+        # Persist new_matches to cache (fire-and-forget)
+        try:
+            user_ref.update({
+                "jobFeedCache.new_matches_cache": {
+                    "jobs": _serialize_jobs(new_matches),
+                    "cached_at": now,
+                }
+            })
+        except Exception:
+            pass
+        return new_matches, False
+
+    def _load_top_jobs_from_cache(cached_ids, cached_scores, cached_reasons):
+        """Hydrate top_jobs from cached job IDs."""
+        top_jobs = []
+        if cached_ids:
+            for i in range(0, len(cached_ids), 100):
+                chunk = cached_ids[i:i + 100]
+                refs = [db.collection("jobs").document(jid) for jid in chunk]
+                docs = db.get_all(refs)
+                for d in docs:
+                    if d.exists:
+                        j = d.to_dict()
+                        jid = j.get("job_id", d.id)
+                        j["match_score"] = cached_scores.get(jid)
+                        j["match_reason"] = cached_reasons.get(jid)
+                        j["ranked"] = j["match_score"] is not None
+                        top_jobs.append(j)
+            top_jobs.sort(key=lambda j: j.get("match_score") or 0, reverse=True)
+        return top_jobs
+
+    if cache_valid:
+        cached_ids = cache.get("job_ids", [])
+        cached_scores = cache.get("scores", {})
+        cached_reasons = cache.get("reasons", {})
+        top_jobs = _load_top_jobs_from_cache(cached_ids, cached_scores, cached_reasons)
+        new_matches, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
 
         return jsonify({
-            "new_matches": _serialize_jobs(new_matches),
+            "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
             "top_jobs": _serialize_jobs(top_jobs),
             "new_matches_count": len(new_matches),
             "top_jobs_count": len(top_jobs),
@@ -134,51 +168,20 @@ def get_feed():
         })
 
     if not cache_valid and cache_stale_ok:
-        # Serve stale cache immediately, refresh in background
         cached_ids = cache.get("job_ids", [])
         cached_scores = cache.get("scores", {})
         cached_reasons = cache.get("reasons", {})
-
-        top_jobs = []
-        if cached_ids:
-            for i in range(0, len(cached_ids), 100):
-                chunk = cached_ids[i:i + 100]
-                refs = [db.collection("jobs").document(jid) for jid in chunk]
-                docs = db.get_all(refs)
-                for doc in docs:
-                    if doc.exists:
-                        j = doc.to_dict()
-                        jid = j.get("job_id", doc.id)
-                        j["match_score"] = cached_scores.get(jid)
-                        j["match_reason"] = cached_reasons.get(jid)
-                        j["ranked"] = j["match_score"] is not None
-                        top_jobs.append(j)
-            top_jobs.sort(key=lambda j: j.get("match_score") or 0, reverse=True)
-
-        new_query = (
-            db.collection("jobs")
-            .where("posted_at", ">=", twenty_four_hours_ago)
-            .order_by("posted_at", direction="DESCENDING")
-            .limit(20)
-        )
-        new_matches = []
-        for doc in new_query.stream():
-            j = doc.to_dict()
-            jid = j.get("job_id", doc.id)
-            j["match_score"] = cached_scores.get(jid)
-            j["match_reason"] = cached_reasons.get(jid)
-            j["ranked"] = j["match_score"] is not None
-            new_matches.append(j)
+        top_jobs = _load_top_jobs_from_cache(cached_ids, cached_scores, cached_reasons)
+        new_matches, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
 
         # Trigger background re-rank if not already in progress
         if uid not in _ranking_in_progress:
             _ranking_in_progress.add(uid)
-            t = threading.Thread(target=_background_rerank, args=(uid,), daemon=True)
-            t.start()
+            _ranking_pool.submit(_background_rerank, uid)
             logger.info(f"Triggered background re-rank for {uid}")
 
         return jsonify({
-            "new_matches": _serialize_jobs(new_matches),
+            "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
             "top_jobs": _serialize_jobs(top_jobs),
             "new_matches_count": len(new_matches),
             "top_jobs_count": len(top_jobs),
@@ -188,34 +191,23 @@ def get_feed():
             "stale": True,
         })
 
-    # No resume path
+    # No resume — return unranked jobs by recency
     has_resume = bool(profile.get("resumeParsed") or profile.get("resumeText"))
     if not has_resume:
-        new_query = (
-            db.collection("jobs")
-            .where("posted_at", ">=", twenty_four_hours_ago)
-            .order_by("posted_at", direction="DESCENDING")
-            .limit(20)
-        )
-        new_matches = [doc.to_dict() for doc in new_query.stream()]
-        for j in new_matches:
-            j["match_score"] = None
-            j["match_reason"] = None
-            j["ranked"] = False
-
+        new_matches, nm_from_cache = _fetch_new_matches()
         top_query = (
             db.collection("jobs")
             .order_by("posted_at", direction="DESCENDING")
             .limit(50)
         )
-        top_jobs = [doc.to_dict() for doc in top_query.stream()]
+        top_jobs = [d.to_dict() for d in top_query.stream()]
         for j in top_jobs:
             j["match_score"] = None
             j["match_reason"] = None
             j["ranked"] = False
 
         return jsonify({
-            "new_matches": _serialize_jobs(new_matches),
+            "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
             "top_jobs": _serialize_jobs(top_jobs),
             "new_matches_count": len(new_matches),
             "top_jobs_count": len(top_jobs),
@@ -224,70 +216,36 @@ def get_feed():
             "cached": False,
         })
 
-    # Full ranking path
-    all_query = (
+    # Has resume but no cache — return unranked jobs immediately, rank in background
+    top_query = (
         db.collection("jobs")
         .order_by("posted_at", direction="DESCENDING")
-        .limit(200)
+        .limit(50)
     )
-    all_jobs = [doc.to_dict() for doc in all_query.stream()]
+    top_jobs = [d.to_dict() for d in top_query.stream()]
+    for j in top_jobs:
+        j["match_score"] = None
+        j["match_reason"] = None
+        j["ranked"] = False
 
-    # Post-fetch filters
-    if type_filter:
-        all_jobs = [j for j in all_jobs if j.get("type") == type_filter]
-    if category_filter:
-        all_jobs = [j for j in all_jobs if j.get("category") == category_filter]
+    new_matches, nm_from_cache = _fetch_new_matches()
 
-    # Split recent jobs for new_matches
-    recent_jobs = [
-        j for j in all_jobs
-        if _is_recent(j.get("posted_at"), twenty_four_hours_ago)
-    ]
-
-    # Load preferences
-    prefs_query = user_ref.collection("jobPreferences").limit(100)
-    preferences = [doc.to_dict() for doc in prefs_query.stream()]
-
-    # Rank
-    candidates = prefilter_candidates(all_jobs, profile, top_n=20)
-    ranked = rank_with_gpt(candidates, profile)
-    adjusted = apply_feedback_adjustments(ranked, preferences)
-
-    # Build score lookup from ranked results
-    score_map = {}
-    reason_map = {}
-    for j in adjusted:
-        if j.get("match_score") is not None:
-            score_map[j["job_id"]] = j["match_score"]
-            reason_map[j["job_id"]] = j.get("match_reason")
-
-    # Cache top 50
-    top_jobs = adjusted[:50]
-    cache_data = {
-        "job_ids": [j["job_id"] for j in top_jobs],
-        "scores": {j["job_id"]: j.get("match_score") for j in top_jobs},
-        "reasons": {j["job_id"]: j.get("match_reason") for j in top_jobs},
-        "ranked_at": now,
-    }
-    user_ref.update({"jobFeedCache": cache_data})
-
-    # new_matches: merge in scores where available
-    for j in recent_jobs:
-        jid = j.get("job_id")
-        j["match_score"] = score_map.get(jid)
-        j["match_reason"] = reason_map.get(jid)
-        j["ranked"] = j["match_score"] is not None
-    recent_jobs.sort(key=lambda j: _get_posted_at_ts(j), reverse=True)
-    new_matches = recent_jobs[:20]
+    # Trigger background ranking so next load is fast
+    if uid not in _ranking_in_progress:
+        _ranking_in_progress.add(uid)
+        t = threading.Thread(target=_background_rerank, args=(uid,), daemon=True)
+        t.start()
+        logger.info(f"Triggered background ranking for {uid} (first visit)")
 
     return jsonify({
-        "new_matches": _serialize_jobs(new_matches),
+        "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
         "top_jobs": _serialize_jobs(top_jobs),
         "new_matches_count": len(new_matches),
         "top_jobs_count": len(top_jobs),
-        "ranked": True,
+        "ranked": False,
         "no_resume": False,
         "cached": False,
+        "ranking_in_progress": True,
     })
 
 

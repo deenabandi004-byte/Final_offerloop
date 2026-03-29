@@ -278,15 +278,48 @@ def normalize_job(raw: dict) -> dict | None:
     return _normalize_jsearch_job(raw)
 
 
+# Countries to exclude for non-remote jobs
+_EXCLUDED_COUNTRIES = {
+    "india", "canada", "united kingdom", "uk", "australia", "germany", "france",
+    "netherlands", "singapore", "brazil", "mexico", "china", "japan", "ireland",
+    "poland", "spain", "italy", "sweden", "denmark", "finland", "norway",
+}
+
+
+def _is_non_us_non_remote(job: dict) -> bool:
+    """Return True if the job is in a non-US country and NOT remote."""
+    if job.get("remote"):
+        return False
+    loc = job.get("location") or ""
+    if isinstance(loc, dict):
+        loc = loc.get("name") or loc.get("city") or str(loc)
+    elif isinstance(loc, list):
+        loc = " ".join(str(x) for x in loc)
+    location = str(loc).lower()
+    if "remote" in location:
+        return False
+    for country in _EXCLUDED_COUNTRIES:
+        if country in location:
+            return True
+    return False
+
+
 def normalize_all(raw_jobs: list[dict]) -> list[dict]:
-    """Normalize a batch of raw jobs. Skips invalid entries."""
+    """Normalize a batch of raw jobs. Skips invalid entries and non-US non-remote jobs."""
     normalized = []
     skipped = 0
+    filtered_location = 0
     for raw in raw_jobs:
         doc = normalize_job(raw)
-        if doc:
-            normalized.append(doc)
-        else:
+        if not doc:
             skipped += 1
-    logger.info("Normalized %d jobs, skipped %d invalid", len(normalized), skipped)
+            continue
+        if _is_non_us_non_remote(doc):
+            filtered_location += 1
+            continue
+        normalized.append(doc)
+    logger.info(
+        "Normalized %d jobs, skipped %d invalid, filtered %d non-US non-remote",
+        len(normalized), skipped, filtered_location,
+    )
     return normalized

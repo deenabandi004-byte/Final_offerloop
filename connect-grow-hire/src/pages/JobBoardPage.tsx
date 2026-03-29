@@ -57,19 +57,21 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { apiService, type GenerateCoverLetterRequest, type Recruiter, type SuggestionsResult, type TemplateRebuildResult, type FeedJob, type JobFeedResponse } from "@/services/api";
-import { ResumeOptimizationModal } from '@/components/ResumeOptimizationModal';
-import { SuggestionsView } from '@/components/SuggestionsView';
 import { firebaseApi, type Recruiter as FirebaseRecruiter } from "../services/firebaseApi";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { JobBoardSkeleton } from "@/components/JobBoardSkeleton";
 import { cn } from "@/lib/utils";
 import { InlineLoadingBar } from "@/components/ui/LoadingBar";
-import { doc, getDoc, collection, getDocs, setDoc, deleteDoc, writeBatch } from "firebase/firestore";
+import { doc, collection, getDocs, setDoc, deleteDoc, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import ResumeRenderer from "@/components/ResumeRenderer";
-import ResumeActions from "@/components/ResumeActions";
-import RecruiterSpreadsheet from "@/components/RecruiterSpreadsheet";
 import "@/components/ResumeRenderer.css";
+
+// Lazy-load heavy components only shown in secondary tabs/flows
+const ResumeOptimizationModal = React.lazy(() => import('@/components/ResumeOptimizationModal').then(m => ({ default: m.ResumeOptimizationModal })));
+const SuggestionsView = React.lazy(() => import('@/components/SuggestionsView').then(m => ({ default: m.SuggestionsView })));
+const ResumeRenderer = React.lazy(() => import('@/components/ResumeRenderer'));
+const ResumeActions = React.lazy(() => import('@/components/ResumeActions'));
+const RecruiterSpreadsheet = React.lazy(() => import('@/components/RecruiterSpreadsheet'));
 import { downloadCoverLetterAsPDF } from "@/utils/pdfGenerator";
 
 // ============================================================================
@@ -96,11 +98,7 @@ interface Job {
   combinedScore?: number;
 }
 
-interface UserPreferences {
-  jobTypes: string[];
-  industries: string[];
-  locations: string[];
-}
+
 
 interface ATSScore {
   overall: number;
@@ -243,6 +241,19 @@ function formatRelativeTime(iso: string): string {
   return weeks === 1 ? "1 week ago" : `${weeks} weeks ago`;
 }
 
+function normalizeLinkedInUrl(url: string): string {
+  if (!url || url.trim() === '') return '';
+  const trimmedUrl = url.trim();
+  if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) return trimmedUrl;
+  if (trimmedUrl.startsWith('linkedin.com') || trimmedUrl.startsWith('www.linkedin.com')) return `https://${trimmedUrl}`;
+  if (trimmedUrl.startsWith('/in/')) return `https://www.linkedin.com${trimmedUrl}`;
+  if (trimmedUrl.includes('linkedin') && trimmedUrl.includes('/in/')) {
+    const match = trimmedUrl.match(/\/in\/[^\/\s]+/);
+    if (match) return `https://www.linkedin.com${match[0]}`;
+  }
+  return `https://www.linkedin.com/in/${trimmedUrl}`;
+}
+
 // ============================================================================
 // SUBCOMPONENTS
 // ============================================================================
@@ -282,7 +293,7 @@ const JobCard: React.FC<{
   onSave: () => void;
   onApply: () => void;
   onFindHiringManager: () => void;
-}> = ({ job, isSelected, isSaved, onSelect, onSave, onApply, onFindHiringManager }) => (
+}> = React.memo(({ job, isSelected, isSaved, onSelect, onSave, onApply, onFindHiringManager }) => (
   <GlassCard
     className={cn(
       "p-5 cursor-pointer transition-all duration-300 hover:scale-[1.02]",
@@ -392,7 +403,7 @@ const JobCard: React.FC<{
       </Button>
     </div>
   </GlassCard>
-);
+));
 
 const ATSScoreDisplay: React.FC<{ score: ATSScore }> = ({ score }) => {
   const getScoreColor = (value: number) => {
@@ -530,7 +541,6 @@ const JobBoardPage: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [sortBy, setSortBy] = useState<"match" | "date" | "company">("match");
   const [savedJobs, setSavedJobs] = useState<Set<string>>(new Set());
-  const [_userPreferences, setUserPreferences] = useState<UserPreferences | null>(null);
 
   // Optimization Tab State
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -551,11 +561,16 @@ const JobBoardPage: React.FC = () => {
   const [maxRecruitersRequested, setMaxRecruitersRequested] = useState<number>(2);
   const [, setLastSearchResult] = useState<{requestedCount: number; foundCount: number; creditsCharged: number; error?: string} | null>(null);
   const [expandedEmail, setExpandedEmail] = useState<number | null>(null);
-  const [, setGmailConnected] = useState<boolean | null>(null);
-  const [, setCheckingGmail] = useState(false);
   const [parsedJobData, _setParsedJobData] = useState<{title?: string; company?: string; location?: string; description?: string} | null>(null);
   const [showJobDetails, setShowJobDetails] = useState(false);
   const resumeRef = useRef<HTMLDivElement>(null);
+
+  // Cache known recruiter emails/linkedins to avoid full collection scans on dedup
+  const knownRecruiterKeys = useRef<{ emails: Set<string>; linkedins: Set<string>; loaded: boolean }>({
+    emails: new Set(),
+    linkedins: new Set(),
+    loaded: false,
+  });
 
   // Resume optimization V2 state
   const [showOptimizationModal, setShowOptimizationModal] = useState(false);
@@ -578,7 +593,6 @@ const JobBoardPage: React.FC = () => {
       // Convert top_jobs to legacy Job format for detail views
       const legacyJobs = response.top_jobs.map(feedJobToLegacy);
       setJobs(legacyJobs);
-      console.log(`[JobBoard] Loaded ${response.new_matches.length} new matches, ${response.top_jobs.length} top jobs (ranked=${response.ranked}, cached=${response.cached})`);
     } catch (error) {
       console.error("Error fetching job feed:", error);
       toast({
@@ -591,76 +605,10 @@ const JobBoardPage: React.FC = () => {
     }
   }, [user?.uid]);
 
-  // Parallel initialization: Gmail status, preferences, and job feed
+  // Load job feed on mount
   useEffect(() => {
     if (!user?.uid) return;
-
-    const initGmailStatus = async () => {
-      try {
-        setCheckingGmail(true);
-        const data = await apiService.gmailStatus();
-        setGmailConnected(data.connected === true);
-      } catch (error) {
-        console.error('Error checking Gmail status:', error);
-        setGmailConnected(false);
-      } finally {
-        setCheckingGmail(false);
-      }
-    };
-
-    const initPreferences = async () => {
-      try {
-        const userRef = doc(db, "users", user.uid);
-        const userSnap = await getDoc(userRef);
-        if (userSnap.exists()) {
-          const userData = userSnap.data();
-          const professionalInfo = userData.professionalInfo || {};
-          const jobTypes = userData.jobTypes || professionalInfo.jobTypes || ["Internship"];
-          const industries = professionalInfo.targetIndustries || userData.targetIndustries || [];
-          const locations = userData.locationPreferences || professionalInfo.locationPreferences || userData.preferredLocation || [];
-          setUserPreferences({
-            jobTypes: Array.isArray(jobTypes) ? jobTypes : [jobTypes].filter(Boolean),
-            industries: Array.isArray(industries) ? industries : [],
-            locations: Array.isArray(locations) ? locations : [],
-          });
-        } else {
-          const professionalInfo = await firebaseApi.getProfessionalInfo(user.uid);
-          if (professionalInfo) {
-            setUserPreferences({
-              jobTypes: ["Internship"],
-              industries: professionalInfo.targetIndustries || [],
-              locations: [],
-            });
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching user preferences:", error);
-        setUserPreferences({ jobTypes: ["Internship"], industries: [], locations: [] });
-      }
-    };
-
-    const initJobFeed = async () => {
-      setLoadingJobs(true);
-      try {
-        const response = await apiService.getJobFeed({});
-        setFeedData(response);
-        const legacyJobs = response.top_jobs.map(feedJobToLegacy);
-        setJobs(legacyJobs);
-        console.log(`[JobBoard] Loaded ${response.new_matches.length} new matches, ${response.top_jobs.length} top jobs (ranked=${response.ranked}, cached=${response.cached})`);
-      } catch (error) {
-        console.error("Error fetching job feed:", error);
-        toast({
-          title: "Error loading jobs",
-          description: "Please try again later.",
-          variant: "destructive",
-        });
-      } finally {
-        setLoadingJobs(false);
-      }
-    };
-
-    // Fire all three in parallel - none depend on each other
-    Promise.all([initGmailStatus(), initPreferences(), initJobFeed()]);
+    fetchJobFeed();
   }, [user?.uid]);
 
   // Load saved jobs from Firestore (with localStorage fallback)
@@ -759,18 +707,34 @@ const JobBoardPage: React.FC = () => {
   // sortedJobs alias used by pagination count in the render
   const _sortedJobs = sortedFeedJobs;
 
-  // Pagination for top_jobs grid
+  // Pagination for top_jobs grid (memoized to avoid re-slicing on unrelated state changes)
   const totalPages = Math.ceil(sortedFeedJobs.length / JOBS_PER_PAGE);
-  const paginatedFeedJobs = sortedFeedJobs.slice(
-    (currentPage - 1) * JOBS_PER_PAGE,
-    currentPage * JOBS_PER_PAGE
+  const paginatedFeedJobs = useMemo(() =>
+    sortedFeedJobs.slice(
+      (currentPage - 1) * JOBS_PER_PAGE,
+      currentPage * JOBS_PER_PAGE
+    ),
+    [sortedFeedJobs, currentPage]
   );
-  const _paginatedJobs = paginatedFeedJobs;
+
+  // Pre-compute legacy job conversions so feedJobToLegacy isn't called in the render body
+  const paginatedLegacyJobs = useMemo(() =>
+    paginatedFeedJobs.map((job) => ({ feed: job, legacy: feedJobToLegacy(job) })),
+    [paginatedFeedJobs]
+  );
+  const newMatchesLegacyJobs = useMemo(() =>
+    filteredNewMatches.map((job) => ({ feed: job, legacy: feedJobToLegacy(job) })),
+    [filteredNewMatches]
+  );
+
+  // Keep a ref to savedJobs so handleSaveJob has stable identity
+  const savedJobsRef = useRef(savedJobs);
+  savedJobsRef.current = savedJobs;
 
   // Handlers
   const handleSaveJob = useCallback(async (jobId: string) => {
-    const isCurrentlySaved = savedJobs.has(jobId);
-    
+    const isCurrentlySaved = savedJobsRef.current.has(jobId);
+
     setSavedJobs((prev) => {
       const newSaved = new Set(prev);
       if (isCurrentlySaved) {
@@ -790,17 +754,12 @@ const JobBoardPage: React.FC = () => {
       try {
         const jobRef = doc(db, 'users', user.uid, 'savedJobs', jobId);
         if (isCurrentlySaved) {
-          // Remove from Firestore
           await deleteDoc(jobRef);
         } else {
-          // Save to Firestore
-          await setDoc(jobRef, {
-            savedAt: new Date().toISOString(),
-          });
+          await setDoc(jobRef, { savedAt: new Date().toISOString() });
         }
       } catch (error) {
         console.error("Error saving job to Firestore:", error);
-        // Revert state on error
         setSavedJobs((prev) => {
           const reverted = new Set(prev);
           if (isCurrentlySaved) {
@@ -812,7 +771,7 @@ const JobBoardPage: React.FC = () => {
         });
       }
     }
-  }, [savedJobs, user?.uid]);
+  }, [user?.uid]);
 
   const handleSelectJobForOptimization = useCallback((job: Job) => {
     setSelectedJob(job);
@@ -857,6 +816,16 @@ const JobBoardPage: React.FC = () => {
     if (!user || !apiRecruiters.length) return;
 
     try {
+      // Lazy-load existing recruiter keys once, then update incrementally
+      if (!knownRecruiterKeys.current.loaded) {
+        const existingRecruiters = await firebaseApi.getRecruiters(user.uid);
+        for (const r of existingRecruiters) {
+          if (r.email) knownRecruiterKeys.current.emails.add(r.email);
+          if (r.linkedinUrl) knownRecruiterKeys.current.linkedins.add(r.linkedinUrl);
+        }
+        knownRecruiterKeys.current.loaded = true;
+      }
+
       // Convert API recruiters to Firebase recruiter format
       const firebaseRecruiters: Omit<FirebaseRecruiter, 'id'>[] = apiRecruiters.map((apiRecruiter) => ({
         firstName: apiRecruiter.FirstName || '',
@@ -876,24 +845,24 @@ const JobBoardPage: React.FC = () => {
         status: 'Not Contacted',
       }));
 
-      // Check for duplicates before saving (by email or LinkedIn)
-      const existingRecruiters = await firebaseApi.getRecruiters(user.uid);
-      const existingEmails = new Set(existingRecruiters.map(r => r.email).filter(Boolean));
-      const existingLinkedIns = new Set(existingRecruiters.map(r => r.linkedinUrl).filter(Boolean));
-
+      // Check for duplicates using cached keys
+      const { emails, linkedins } = knownRecruiterKeys.current;
       const newRecruiters = firebaseRecruiters.filter(r => {
-        const hasEmail = r.email && existingEmails.has(r.email);
-        const hasLinkedIn = r.linkedinUrl && existingLinkedIns.has(r.linkedinUrl);
+        const hasEmail = r.email && emails.has(r.email);
+        const hasLinkedIn = r.linkedinUrl && linkedins.has(r.linkedinUrl);
         return !hasEmail && !hasLinkedIn;
       });
 
       if (newRecruiters.length > 0) {
         await firebaseApi.bulkCreateRecruiters(user.uid, newRecruiters);
-        console.log(`✅ Saved ${newRecruiters.length} recruiter(s) to Recruiter Spreadsheet`);
+        // Update cache incrementally so future calls skip these too
+        for (const r of newRecruiters) {
+          if (r.email) emails.add(r.email);
+          if (r.linkedinUrl) linkedins.add(r.linkedinUrl);
+        }
       }
     } catch (error) {
       console.error('Error saving recruiters to spreadsheet:', error);
-      // Don't show error to user - this is a background operation
     }
   };
 
@@ -924,8 +893,10 @@ const JobBoardPage: React.FC = () => {
       description = jobDescription || selectedJob.description || '';
     }
     
-    // Priority 2: Parse job URL if provided (may have additional/updated info)
-    if (jobUrl && jobUrl.trim()) {
+    // Priority 2: Parse job URL only if we're missing key fields — skip the
+    // expensive backend scrape when selectedJob already has everything we need.
+    const needsUrlParse = !company || !jobTitle;
+    if (needsUrlParse && jobUrl && jobUrl.trim()) {
       try {
         const parseResponse = await apiService.parseJobUrl({ url: jobUrl });
         if (parseResponse.job) {
@@ -1189,39 +1160,6 @@ const JobBoardPage: React.FC = () => {
   };
 
   // Helper to normalize LinkedIn URLs
-  const normalizeLinkedInUrl = (url: string): string => {
-    if (!url || url.trim() === '') return '';
-    
-    const trimmedUrl = url.trim();
-    
-    // If it already starts with http, return as is
-    if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) {
-      return trimmedUrl;
-    }
-    
-    // If it starts with linkedin.com or www.linkedin.com, add https://
-    if (trimmedUrl.startsWith('linkedin.com') || trimmedUrl.startsWith('www.linkedin.com')) {
-      return `https://${trimmedUrl}`;
-    }
-    
-    // If it's just a path like /in/username, add the full domain
-    if (trimmedUrl.startsWith('/in/')) {
-      return `https://www.linkedin.com${trimmedUrl}`;
-    }
-    
-    // If it contains linkedin but is malformed, try to fix it
-    if (trimmedUrl.includes('linkedin') && trimmedUrl.includes('/in/')) {
-      // Extract the /in/username part and rebuild
-      const match = trimmedUrl.match(/\/in\/[^\/\s]+/);
-      if (match) {
-        return `https://www.linkedin.com${match[0]}`;
-      }
-    }
-    
-    // Otherwise, assume it's just a username and add the full path
-    return `https://www.linkedin.com/in/${trimmedUrl}`;
-  };
-
   // Update URL when tab changes
   useEffect(() => {
     setSearchParams({ tab: activeTab });
@@ -1787,9 +1725,7 @@ const JobBoardPage: React.FC = () => {
                     <div>
                       <h2 className="text-lg font-semibold text-foreground mb-3">New Matches</h2>
                       <div className="flex gap-3 overflow-x-auto pb-3 scrollbar-thin">
-                        {filteredNewMatches.map((job) => {
-                          const legacyJob = feedJobToLegacy(job);
-                          return (
+                        {newMatchesLegacyJobs.map(({ feed: job, legacy: legacyJob }) => (
                             <div key={job.job_id} className="flex-shrink-0 w-80">
                               <GlassCard className="p-3 hover:scale-[1.01] transition-transform cursor-pointer">
                                 <div className="flex items-center gap-3">
@@ -1839,8 +1775,7 @@ const JobBoardPage: React.FC = () => {
                                 </Button>
                               </GlassCard>
                             </div>
-                          );
-                        })}
+                          ))}
                       </div>
                     </div>
                   )}
@@ -1872,9 +1807,7 @@ const JobBoardPage: React.FC = () => {
                       </p>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {paginatedFeedJobs.map((job) => {
-                          const legacyJob = feedJobToLegacy(job);
-                          return (
+                        {paginatedLegacyJobs.map(({ feed: job, legacy: legacyJob }) => (
                           <JobCard
                             key={job.job_id}
                             job={{
@@ -1892,8 +1825,7 @@ const JobBoardPage: React.FC = () => {
                             onApply={() => handleApplyToJob(legacyJob)}
                             onFindHiringManager={() => navigate(`/find?tab=hiring-managers${legacyJob.url ? `&jobUrl=${encodeURIComponent(legacyJob.url)}` : ''}`)}
                           />
-                          );
-                        })}
+                        ))}
                       </div>
 
                       {/* Pagination */}
@@ -2307,10 +2239,12 @@ const JobBoardPage: React.FC = () => {
                       <GlassCard className="p-6">
                         <div className="flex items-center justify-between mb-4">
                           <h3 className="text-xl font-bold text-foreground">Optimized Resume</h3>
-                          <ResumeActions
-                            resumeData={optimizedResume}
-                            resumeRef={resumeRef}
-                          />
+                          <React.Suspense fallback={null}>
+                            <ResumeActions
+                              resumeData={optimizedResume}
+                              resumeRef={resumeRef}
+                            />
+                          </React.Suspense>
                                 </div>
                         {optimizedResume.atsScore && (
                           <div className="mb-4">
@@ -2318,7 +2252,9 @@ const JobBoardPage: React.FC = () => {
                               </div>
                         )}
                         <div className="bg-muted/50 rounded-[3px] border border-border p-4 max-h-96 overflow-y-auto">
-                          <ResumeRenderer resume={optimizedResume} />
+                          <React.Suspense fallback={<div className="animate-pulse h-48 bg-muted rounded" />}>
+                            <ResumeRenderer resume={optimizedResume} />
+                          </React.Suspense>
                                   </div>
                       </GlassCard>
                             )}
@@ -2328,7 +2264,9 @@ const JobBoardPage: React.FC = () => {
                 {/* RECRUITERS TAB CONTENT */}
                 {activeTab === "recruiters" && (
                   <div className="w-full">
-                    <RecruiterSpreadsheet />
+                    <React.Suspense fallback={<LoadingSkeleton />}>
+                      <RecruiterSpreadsheet />
+                    </React.Suspense>
                   </div>
                 )}
                       </div>
@@ -2358,6 +2296,7 @@ const JobBoardPage: React.FC = () => {
       </Dialog>
 
       {/* Resume Optimization V2 Modal */}
+      <React.Suspense fallback={null}>
       <ResumeOptimizationModal
         isOpen={showOptimizationModal}
         onClose={() => setShowOptimizationModal(false)}
@@ -2403,16 +2342,19 @@ const JobBoardPage: React.FC = () => {
           }
         }}
       />
+      </React.Suspense>
 
       {/* Suggestions View Modal */}
       {suggestionsResult && (
-        <SuggestionsView
-          result={suggestionsResult}
-          isOpen={showSuggestionsView}
-          onClose={() => {
-            setShowSuggestionsView(false);
-          }}
-        />
+        <React.Suspense fallback={null}>
+          <SuggestionsView
+            result={suggestionsResult}
+            isOpen={showSuggestionsView}
+            onClose={() => {
+              setShowSuggestionsView(false);
+            }}
+          />
+        </React.Suspense>
       )}
     </SidebarProvider>
   );

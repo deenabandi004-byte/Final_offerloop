@@ -74,9 +74,11 @@ export function useSubscription() {
 
   useEffect(() => {
     fetchSubscription();
-    
-    // Refresh subscription data every 30 seconds
-    const interval = setInterval(fetchSubscription, 30000);
+
+    // Refresh subscription data every 2 minutes, only when tab is visible
+    const interval = setInterval(() => {
+      if (!document.hidden) fetchSubscription();
+    }, 120000);
     return () => clearInterval(interval);
   }, []);
 

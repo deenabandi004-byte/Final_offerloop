@@ -270,8 +270,8 @@ const signIn = async (opts?: SignInOptions): Promise<NextRoute> => {
 
   const updateCredits = async (newCredits: number) => {
     if (!user) return;
-    const ref = doc(db, "users", user.uid);
-    await updateDoc(ref, { credits: newCredits });
+    // Only update local state — the backend already wrote the correct value to Firestore.
+    // Skipping the redundant Firestore write saves 50-200ms per credit deduction.
     setUser({ ...user, credits: newCredits });
   };
 

@@ -5,6 +5,7 @@ Outputs a list of pre-normalized job dicts ready for the normalizer/writer.
 import logging
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
@@ -350,6 +351,37 @@ FANTASTICJOBS_BASE_URL = "https://active-jobs-db.p.rapidapi.com/active-ats-7d"
 FANTASTICJOBS_HOST = "active-jobs-db.p.rapidapi.com"
 
 FANTASTICJOBS_COMPANIES = {
+    "big_tech": [
+        "Google",
+        "Meta",
+        "Apple",
+        "Amazon",
+        "Microsoft",
+        "Netflix",
+        "Uber",
+        "Salesforce",
+        "Adobe",
+        "Oracle",
+        "IBM",
+        "Nvidia",
+        "PayPal",
+        "Visa",
+        "Mastercard",
+        "Workday",
+        "ServiceNow",
+        "Palo Alto Networks",
+        "Block",
+        "Intuit",
+        "Snap Inc.",
+        "Pinterest",
+        "Twitter",
+        "LinkedIn",
+        "DoorDash",
+        "Lyft",
+        "Instacart",
+        "Rivian",
+        "Palantir Technologies",
+    ],
     "finance": [
         "JPMorgan Chase & Co.",
         "Goldman Sachs",
@@ -357,15 +389,22 @@ FANTASTICJOBS_COMPANIES = {
         "Bank of America",
         "Citigroup",
         "Wells Fargo",
+        "BlackRock",
+        "Vanguard",
+        "Fidelity Investments",
+        "Charles Schwab",
+        "Capital One",
+        "American Express",
     ],
     "consulting": [
-        "Deloitte",
-        "McKinsey & Company",
+        "Deloitte US",
+        "McKinsey",
         "Boston Consulting Group",
-        "Bain & Company",
+        "Bain",
         "Accenture",
         "PwC",
         "EY",
+        "KPMG",
         "Oliver Wyman",
     ],
     "pe_finance": [
@@ -376,6 +415,23 @@ FANTASTICJOBS_COMPANIES = {
         "Two Sigma",
     ],
 }
+
+# (label, extra_params dict) — merged with _FJ_CATEGORY_BASE_PARAMS at call time
+FANTASTICJOBS_CATEGORIES = [
+    ("product_management", {"title_filter": "product manager"}),
+    ("data_science", {"title_filter": "data scientist OR data analyst OR machine learning"}),
+    ("software_engineering", {"title_filter": "software engineer OR software developer"}),
+    ("marketing", {"title_filter": "marketing manager OR growth marketing OR brand marketing"}),
+    ("finance_analyst", {"title_filter": "financial analyst OR investment analyst"}),
+    ("consulting_analyst", {"title_filter": "consultant OR business analyst OR strategy analyst"}),
+    ("design", {"title_filter": "product designer OR UX designer OR UI designer"}),
+    ("operations", {"title_filter": "operations analyst OR business operations"}),
+    ("entry_level", {"ai_experience_level_filter": "0-2"}),
+    ("internships", {
+        "ai_employment_type_filter": "INTERN",
+        "ai_taxonomies_a_filter": "Technology,Finance & Accounting,Consulting,Data & Analytics,Software,Marketing,Management & Leadership",
+    }),
+]
 
 
 def _fantasticjobs_headers() -> dict:
@@ -426,21 +482,38 @@ def _normalize_fj_job(job: dict) -> dict:
 
 
 def _fetch_fantasticjobs_company(company: str) -> list[dict]:
-    """Fetch jobs for a single company from Fantastic.jobs."""
-    params = {
+    """Fetch jobs for a single company from Fantastic.jobs.
+
+    Tries organization_filter (exact match) first. If 0 results, retries
+    with advanced_organization_filter using a wildcard prefix search.
+    """
+    headers = _fantasticjobs_headers()
+    base_params = {
         "limit": "100",
         "offset": "0",
-        "advanced_organization_filter": f"{company}:*",
         "description_type": "text",
         "location_filter": "United States",
+        "agency": "false",
     }
+
+    # Attempt 1: exact match via organization_filter
+    params = {**base_params, "organization_filter": company}
     try:
         resp = requests.get(
             FANTASTICJOBS_BASE_URL,
-            headers=_fantasticjobs_headers(),
+            headers=headers,
             params=params,
             timeout=REQUEST_TIMEOUT,
         )
+        if resp.status_code == 429:
+            logger.warning("Fantastic.jobs [%s] rate limited, waiting 60s...", company)
+            time.sleep(60)
+            resp = requests.get(
+                FANTASTICJOBS_BASE_URL,
+                headers=headers,
+                params=params,
+                timeout=REQUEST_TIMEOUT,
+            )
         resp.raise_for_status()
         data = resp.json()
     except Exception as exc:
@@ -449,63 +522,130 @@ def _fetch_fantasticjobs_company(company: str) -> list[dict]:
 
     jobs_data = data if isinstance(data, list) else data.get("data", [])
     jobs = [_normalize_fj_job(j) for j in jobs_data if j.get("id") and j.get("title")]
+
+    # Attempt 2: wildcard prefix search if exact match returned nothing
+    if not jobs:
+        logger.info("  Fantastic.jobs [%s] exact match returned 0, trying wildcard", company)
+        time.sleep(1.5)
+        params = {**base_params, "advanced_organization_filter": f"{company}:*"}
+        try:
+            resp = requests.get(
+                FANTASTICJOBS_BASE_URL,
+                headers=headers,
+                params=params,
+                timeout=REQUEST_TIMEOUT,
+            )
+            if resp.status_code == 429:
+                logger.warning("Fantastic.jobs [%s] wildcard rate limited, waiting 60s...", company)
+                time.sleep(60)
+                resp = requests.get(
+                    FANTASTICJOBS_BASE_URL,
+                    headers=headers,
+                    params=params,
+                    timeout=REQUEST_TIMEOUT,
+                )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            logger.warning("Fantastic.jobs [%s] wildcard failed: %s", company, exc)
+            return []
+        jobs_data = data if isinstance(data, list) else data.get("data", [])
+        jobs = [_normalize_fj_job(j) for j in jobs_data if j.get("id") and j.get("title")]
+
     logger.info("  Fantastic.jobs [%s] → %d jobs", company, len(jobs))
     return jobs
 
 
-def _fetch_fantasticjobs_internships() -> list[dict]:
-    """Fetch internship listings across all companies."""
-    params = {
-        "limit": "100",
-        "offset": "0",
-        "ai_employment_type_filter": "INTERN",
-        "description_type": "text",
-        "location_filter": "United States",
-    }
+_FJ_CATEGORY_BASE_PARAMS = {
+    "limit": "100",
+    "offset": "0",
+    "description_type": "text",
+    "location_filter": "United States",
+    "agency": "false",
+    "li_organization_employees_gte": "500",
+}
+
+
+def _fetch_fantasticjobs_category(label: str, extra_params: dict) -> list[dict]:
+    """Fetch jobs for a single category/title-based query from Fantastic.jobs."""
+    params = {**_FJ_CATEGORY_BASE_PARAMS, **extra_params}
+    headers = _fantasticjobs_headers()
     try:
         resp = requests.get(
             FANTASTICJOBS_BASE_URL,
-            headers=_fantasticjobs_headers(),
+            headers=headers,
             params=params,
             timeout=REQUEST_TIMEOUT,
         )
+        if resp.status_code == 429:
+            logger.warning("Fantastic.jobs [category:%s] rate limited, waiting 60s...", label)
+            time.sleep(60)
+            resp = requests.get(
+                FANTASTICJOBS_BASE_URL,
+                headers=headers,
+                params=params,
+                timeout=REQUEST_TIMEOUT,
+            )
         resp.raise_for_status()
         data = resp.json()
     except Exception as exc:
-        logger.warning("Fantastic.jobs [internships] failed: %s", exc)
+        logger.warning("Fantastic.jobs [category:%s] failed: %s", label, exc)
         return []
 
     jobs_data = data if isinstance(data, list) else data.get("data", [])
     jobs = [_normalize_fj_job(j) for j in jobs_data if j.get("id") and j.get("title")]
-    logger.info("  Fantastic.jobs [internships] → %d jobs", len(jobs))
+    logger.info("  Fantastic.jobs [category:%s] → %d jobs", label, len(jobs))
     return jobs
 
 
 def fetch_fantasticjobs() -> list[dict]:
-    """Fetch jobs from Fantastic.jobs API for target companies + internships."""
+    """Fetch jobs from Fantastic.jobs: companies → categories.
+
+    Runs sequentially with 1.5s sleep between requests to stay within the
+    RapidAPI rate limit. Initial 3s delay lets concurrent fetchers finish first.
+    """
     if not os.getenv("RAPIDAPI_KEY"):
         logger.info("Fantastic.jobs: skipped (no API key)")
         return []
+
+    # Let Greenhouse/Lever/Workday/Ashby finish their burst first
+    time.sleep(3)
 
     all_companies = []
     for companies in FANTASTICJOBS_COMPANIES.values():
         all_companies.extend(companies)
 
     results = []
-    companies_with_jobs = 0
+    company_count = 0
+    category_count = 0
+    request_num = 0
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = {pool.submit(_fetch_fantasticjobs_company, c): c for c in all_companies}
-        # TODO: re-enable after upgrading to Pro plan with taxonomy filters
-        # futures[pool.submit(_fetch_fantasticjobs_internships)] = "internships"
+    # Phase 1: Company-specific fetches
+    for company in all_companies:
+        if request_num > 0:
+            time.sleep(1.5)
+        request_num += 1
+        jobs = _fetch_fantasticjobs_company(company)
+        if jobs:
+            company_count += 1
+        results.extend(jobs)
 
-        for future in as_completed(futures):
-            jobs = future.result()
-            if jobs:
-                companies_with_jobs += 1
-            results.extend(jobs)
+    company_jobs_total = len(results)
+    logger.info("Fantastic.jobs companies: %d jobs from %d companies", company_jobs_total, company_count)
 
-    # Deduplicate by job_id (internship call may overlap with company calls)
+    # Phase 2: Category / title-based fetches
+    for label, extra_params in FANTASTICJOBS_CATEGORIES:
+        time.sleep(1.5)
+        request_num += 1
+        jobs = _fetch_fantasticjobs_category(label, extra_params)
+        if jobs:
+            category_count += 1
+        results.extend(jobs)
+
+    category_jobs_total = len(results) - company_jobs_total
+    logger.info("Fantastic.jobs categories: %d jobs from %d categories", category_jobs_total, category_count)
+
+    # Deduplicate by job_id (categories may overlap with company calls)
     seen = set()
     deduped = []
     for job in results:
@@ -513,7 +653,7 @@ def fetch_fantasticjobs() -> list[dict]:
             seen.add(job["job_id"])
             deduped.append(job)
 
-    logger.info("Fantastic.jobs: %d jobs from %d companies", len(deduped), companies_with_jobs)
+    logger.info("Fantastic.jobs total: %d jobs", len(deduped))
     return deduped
 
 

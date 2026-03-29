@@ -358,6 +358,7 @@ def clear_expired_cache() -> int:
 
 _refresh_in_progress: Dict[str, bool] = {}
 _refresh_lock = threading.Lock()
+_refresh_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="jb-refresh")
 
 
 def _trigger_background_refresh(cache_key: str, query: str, location: str, job_type: Optional[str], user_id: Optional[str]):
@@ -392,8 +393,7 @@ def _trigger_background_refresh(cache_key: str, query: str, location: str, job_t
             with _refresh_lock:
                 _refresh_in_progress.pop(cache_key, None)
 
-    thread = threading.Thread(target=_do_refresh, daemon=True)
-    thread.start()
+    _refresh_pool.submit(_do_refresh)
 
 
 # =============================================================================
