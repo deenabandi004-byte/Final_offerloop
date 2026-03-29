@@ -1,7 +1,7 @@
 ---
-title: "Consulting Recruiting Timeline: When to Start (and What to Do Each Semester)"
+title: "Consulting Recruiting Timeline 2025: Every Deadline You Need to Know"
 date: "2026-03-21"
-description: "The complete consulting recruiting timeline for undergrads — from freshman year through offer, covering MBB, Big 4, and boutique deadlines with cold email timing."
+description: "The complete consulting recruiting timeline for undergrads — when to apply, when to network, and when it's too late. MBB and Big 4 included."
 slug: "consulting-recruiting-timeline"
 keywords: "consulting recruiting timeline undergraduate, when to start consulting recruiting, MBB recruiting timeline, consulting OCR timeline"
 faqSchema:

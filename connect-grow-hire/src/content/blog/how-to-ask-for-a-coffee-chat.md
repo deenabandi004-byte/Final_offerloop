@@ -1,6 +1,6 @@
 ---
-title: "How to Ask for a Coffee Chat: 8 Email Templates + Scripts (2025)"
-description: "The complete guide to requesting coffee chats with professionals. 8 copy-paste email templates for consulting, banking, and tech — plus what to say when they say yes."
+title: "How to Ask for a Coffee Chat (Word-for-Word Email Templates)"
+description: "The exact words to use when asking for a coffee chat over email. Templates for alumni, consultants, bankers, and people you've never met."
 date: "2026-03-15"
 slug: "how-to-ask-for-a-coffee-chat"
 tags: [coffee-chat, networking, email-templates, informational-interview, recruiting]

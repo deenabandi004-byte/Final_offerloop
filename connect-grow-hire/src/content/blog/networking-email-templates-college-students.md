@@ -1,7 +1,7 @@
 ---
-title: "27 Networking Email Templates for College Students (Copy-Paste Ready)"
+title: "Networking Email Templates for College Students (Copy + Paste for Any Situation)"
 date: "2026-03-13"
-description: "Proven networking email templates for coffee chats, cold outreach, alumni networking, and career fair follow-ups. Free copy-paste templates for students."
+description: "15 networking email templates for college students — cold outreach, alumni emails, follow-ups, and thank you notes that get responses."
 slug: "networking-email-templates-college-students"
 keywords: "networking email templates college students, cold email templates, coffee chat email"
 faqSchema:

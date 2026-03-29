@@ -1,7 +1,7 @@
 ---
-title: "How to Network in College: The Complete Guide for Students (2026)"
+title: "How to Network in College: The Complete Guide for Students Who Hate Networking"
 date: "2026-03-21"
-description: "A step-by-step networking guide for college students — covering alumni outreach, LinkedIn, cold email, career fairs, and how to actually build relationships that lead to jobs."
+description: "A practical guide to college networking that doesn't feel fake. How to reach out, what to say, and how to turn contacts into opportunities."
 slug: "how-to-network-in-college"
 keywords: "how to network in college, networking tips for college students, how to build a professional network in college, college networking strategy"
 faqSchema:

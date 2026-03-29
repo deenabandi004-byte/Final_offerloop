@@ -1,7 +1,7 @@
 ---
-title: "How to Cold Email a McKinsey Consultant: Templates + Tips"
+title: "How to Cold Email a McKinsey Consultant (Templates That Actually Get Responses)"
 date: "2026-03-13"
-description: "A step-by-step guide to cold emailing McKinsey, BCG, and Bain consultants as a college student. Includes proven templates and subject lines."
+description: "The exact cold email templates used by students who landed coffee chats at McKinsey. Includes subject lines, follow-up scripts, and what NOT to say."
 slug: "cold-email-mckinsey-consultant"
 keywords: "cold email McKinsey, MBB cold email, consulting networking email"
 faqSchema:
@@ -19,11 +19,7 @@ faqSchema:
 
 ## Why Cold Emailing MBB Consultants Actually Works
 
-Cold emailing has a reputation problem. Students assume that consultants at McKinsey, BCG, and Bain are too busy or too important to respond to unsolicited emails from undergrads. The reality is quite different.
-
-Most MBB consultants were in your exact position just a few years ago. They networked their way into their roles, and many of them genuinely enjoy helping students navigate the same process. At firms like McKinsey, there is an internal culture of paying it forward. Consultants are encouraged to engage with prospective candidates, and many firms even track employee involvement in recruiting efforts.
-
-The key insight: **cold emailing works when the email is personalized, concise, and makes a specific ask.** A generic "I'd love to learn about your experience" email gets ignored. An email that references the recipient's specific background, team, or career path gets a response.
+Here's something most students don't realize: McKinsey consultants get fewer cold emails than you think, and they respond to more of them than you'd expect. The ones who don't respond aren't ignoring you because they're too important — they're ignoring you because your email looked like everyone else's. This guide fixes that.
 
 ## Who to Target: Analysts and Associates (1 to 3 Years In)
 
@@ -115,19 +111,14 @@ Keep it simple. Include your full name, university, graduation year, and LinkedI
 
 **Emailing from a personal address.** Always use your university email (.edu). It instantly establishes credibility and makes it easy for the recipient to verify you are a real student.
 
+---
+**Want to skip the manual research?** Offerloop finds verified consultant emails and writes personalized outreach for you in seconds. [Try it free →](https://offerloop.ai)
+
+---
+
 ## How Offerloop Automates This Entire Workflow
 
-Manually researching each consultant, finding their email, writing a personalized message, and tracking who you have contacted is exhausting. During peak recruiting season, this process can eat 15 to 20 hours per week.
-
-Offerloop eliminates the manual work:
-
-1. **Find the right people:** Search "McKinsey consultants who went to USC" or "BCG associates in Chicago" across 2.2 billion verified contacts.
-2. **Get verified emails:** Every contact comes with a deliverable email address. No guessing, no bounced emails.
-3. **AI-personalized messages:** Offerloop's AI reads each contact's background (company, role, education, career trajectory) and generates a genuinely personalized email. Not a template with blanks filled in, but a message that references their specific experience.
-4. **Send through Gmail:** Emails go directly from your university Gmail account. No suspicious third-party sender.
-5. **Track everything:** Every conversation is tracked in your networking pipeline, so you never lose track of who you have emailed, who responded, and who needs a follow-up.
-
-What takes 15 minutes per contact manually takes about 30 seconds with Offerloop.
+The whole process of finding the right consultants, digging up their emails, writing something that doesn't sound copy-pasted, and keeping track of who you've contacted — it's a lot. Offerloop handles all of that for you, from contact research to personalized email drafts to follow-up tracking, so you can spend your time on the conversations that actually matter instead of the logistics around them.
 
 ## Frequently Asked Questions
 

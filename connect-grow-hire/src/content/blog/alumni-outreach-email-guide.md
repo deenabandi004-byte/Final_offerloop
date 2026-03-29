@@ -1,6 +1,6 @@
 ---
-title: "Alumni Networking Email Templates: How to Reach Out (and Get a Response) in 2025"
-description: "8 copy-paste email templates for reaching out to alumni at your target companies. Includes subject lines, follow-up strategy, and response rate tips for consulting, IB, and tech."
+title: "Alumni Outreach Email Templates That Get Responses (Copy + Paste)"
+description: "The exact email templates college students use to reach alumni at top firms. Subject lines, follow-ups, and what to say on the call."
 date: "2026-03-15"
 slug: "alumni-outreach-email-guide"
 tags: [alumni, networking, email-templates, recruiting, career]

@@ -1,6 +1,6 @@
 ---
-title: "Palantir vs Anduril: Which Should You Target for Recruiting? (2026)"
-description: "A complete comparison of Palantir and Anduril for college recruiting — culture, interview process, target schools, compensation, and which fits your background."
+title: "Palantir vs Anduril Recruiting: Which Is Harder to Get Into?"
+description: "A side-by-side breakdown of Palantir and Anduril recruiting — application process, interview style, culture, and which is right for you."
 date: "2026-03-21"
 slug: "palantir-vs-anduril-recruiting"
 tags: [defense-tech, recruiting, palantir, anduril, comparison, software-engineering]

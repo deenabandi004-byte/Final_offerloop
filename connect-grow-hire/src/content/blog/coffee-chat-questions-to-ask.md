@@ -1,7 +1,7 @@
 ---
-title: "30 Coffee Chat Questions That Actually Impress Professionals (2026)"
+title: "40 Coffee Chat Questions That Make You Memorable (Not Annoying)"
 date: "2026-03-21"
-description: "The complete list of coffee chat questions for consulting, banking, and tech — organized by category with tips on what makes each one land."
+description: "The best questions to ask in a coffee chat with consultants, bankers, and tech professionals. Organized by stage and goal."
 slug: "coffee-chat-questions-to-ask"
 keywords: "coffee chat questions to ask, questions to ask in a coffee chat, coffee chat questions consulting, what to say in a coffee chat"
 faqSchema:

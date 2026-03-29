@@ -1,7 +1,7 @@
 ---
-title: "College Networking Statistics 2025: 47 Data Points on Cold Email, Coffee Chats & Internship Outreach"
+title: "College Networking Statistics 2025: What Actually Works (And What Doesn't)"
 date: "2026-03-14"
-description: "## Summary Table  | Statistic | Value | Source | |-----------|-------|--------| | Average cold email reply rate for consulting first-years | **25%** | [Source]("
+description: "The latest data on college networking — response rates, coffee chat conversion, cold email open rates, and what top students do differently."
 slug: "college-networking-statistics-2025"
 keywords: "college networking statistics"
 ---

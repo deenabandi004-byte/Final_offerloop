@@ -1,6 +1,6 @@
 ---
-title: "Investment Banking Recruiting Timeline: When to Start and What to Do (2026)"
-description: "The complete IB recruiting timeline for undergrads — bulge bracket, middle market, and boutique deadlines, with cold email timing and non-target school strategy."
+title: "Investment Banking Recruiting Timeline 2025: Every Deadline That Matters"
+description: "The complete IB recruiting timeline for undergrads — superdays, SA applications, and networking windows at Goldman, JPMorgan, and boutiques."
 date: "2026-03-21"
 slug: "investment-banking-recruiting-timeline"
 keywords: "investment banking recruiting timeline, IB recruiting sophomore, when to start IB recruiting, investment banking OCR timeline"

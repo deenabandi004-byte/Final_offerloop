@@ -1,6 +1,6 @@
 ---
-title: "Cold Email for Tech Internships: 10 Templates for FAANG and Startups (2025)"
-description: "How to cold email engineers and PMs at Google, Meta, Amazon and top startups. 10 copy-paste templates, response rate data, and timing strategy for tech recruiting."
+title: "Cold Email Templates for Tech Internships at Google, Meta, and Startups"
+description: "How to cold email hiring managers and employees at top tech companies. Templates for Google, Meta, and early-stage startups included."
 date: "2026-03-15"
 slug: "cold-email-tech-internships"
 tags: [tech, internships, cold-email, networking, templates, software-engineering]

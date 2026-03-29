@@ -1,7 +1,7 @@
 ---
-title: "How to Network with Alumni: The College Student's Complete Guide"
+title: "How to Network With Alumni (The Cold Email That Actually Gets a Response)"
 date: "2026-03-13"
-description: "Step-by-step guide to finding and emailing alumni at your target companies. Includes email templates, subject lines, and follow-up strategies for consulting, banking, and tech."
+description: "Step-by-step guide to reaching out to alumni for coffee chats, internships, and referrals. Includes email templates that get replies."
 slug: "alumni-networking-guide"
 keywords: "alumni networking, how to reach out to alumni, alumni email template college student"
 faqSchema:

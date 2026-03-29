@@ -1,7 +1,7 @@
 ---
-title: "The Complete Coffee Chat Guide for College Students: Request, Prep, and Follow Up"
+title: "How to Get a Coffee Chat (The Email, The Ask, and What to Say)"
 date: "2026-03-13"
-description: "Everything you need to know about coffee chats -- how to request one, what to say, questions to ask, and how to follow up. Includes templates for consulting, banking, and tech."
+description: "Everything you need to land a coffee chat — who to email, what to say, and how to turn one conversation into a job offer."
 slug: "coffee-chat-guide"
 keywords: "coffee chat guide, how to prepare for a coffee chat, coffee chat questions to ask"
 faqSchema:
