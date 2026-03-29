@@ -135,7 +135,7 @@ const AboutUs = () => {
         }}
       >
         <div className="flex items-center">
-          <img src={OfferloopLogo} alt="Offerloop" className="h-12 cursor-pointer logo-animate" onClick={() => navigate('/')} />
+          <img src={OfferloopLogo} alt="Offerloop" className="h-16 cursor-pointer logo-animate" onClick={() => navigate('/')} />
         </div>
         <nav className="hidden md:flex items-center gap-8">
           <Link to="/pricing" className="nav-link text-sm font-medium relative" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-body)' }}>Pricing</Link>

@@ -110,7 +110,7 @@ const ContactUs = () => {
           <img
             src={OfferloopLogo}
             alt="Offerloop"
-            className="h-12 cursor-pointer logo-animate"
+            className="h-16 cursor-pointer logo-animate"
             onClick={() => navigate('/')}
           />
         </div>
