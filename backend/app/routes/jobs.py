@@ -398,6 +398,26 @@ def _background_rerank(uid: str):
 
 
 # ---------------------------------------------------------------------------
+# GET /api/jobs/<job_id>
+# ---------------------------------------------------------------------------
+
+@jobs_bp.route("/api/jobs/<job_id>", methods=["GET"])
+@require_firebase_auth
+def get_job_detail(job_id: str):
+    db = get_db()
+    doc = db.collection("jobs").document(job_id).get()
+    if not doc.exists:
+        return jsonify({"error": "Job not found"}), 404
+    job = doc.to_dict()
+    # Serialize timestamps
+    for ts_field in ("posted_at", "fetched_at", "expires_at"):
+        val = job.get(ts_field)
+        if val is not None and hasattr(val, "isoformat"):
+            job[ts_field] = val.isoformat()
+    return jsonify(job)
+
+
+# ---------------------------------------------------------------------------
 # POST /api/jobs/feedback
 # ---------------------------------------------------------------------------
 

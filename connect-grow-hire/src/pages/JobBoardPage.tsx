@@ -24,6 +24,7 @@ import {
   Linkedin,
   Mail,
   ArrowRight,
+  X,
 } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -159,6 +160,49 @@ const CATEGORY_OPTIONS = [
   { value: "real_estate", label: "Real Estate" },
 ];
 
+function decodeHtml(html: string): string {
+  const txt = document.createElement('textarea');
+  txt.innerHTML = html;
+  return txt.value;
+}
+
+function cleanDescription(raw: string): string[] {
+  // Decode HTML entities, then strip tags
+  const decoded = decodeHtml(raw);
+  const text = decoded
+    // Block-level tags → double newline
+    .replace(/<\/?(p|div|li|h[1-6]|tr|ul|ol|section|article|blockquote)[^>]*>/gi, '\n\n')
+    // Line breaks → single newline
+    .replace(/<br\s*\/?>/gi, '\n')
+    // Strip remaining tags
+    .replace(/<[^>]*>/g, ' ')
+    // Decode &nbsp; (literal string and unicode)
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\u00A0/g, ' ')
+    // Collapse spaces on each line (but preserve newlines)
+    .replace(/[^\S\n]+/g, ' ')
+    .trim();
+
+  // Split on double newlines
+  let paragraphs = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+
+  // If we got one giant block, try splitting on single newlines
+  if (paragraphs.length <= 1 && text.length > 300) {
+    paragraphs = text.split(/\n/).map((p) => p.trim()).filter(Boolean);
+  }
+
+  // If still one giant block, split on sentence boundaries every ~3 sentences
+  if (paragraphs.length <= 1 && text.length > 300) {
+    const sentences = text.match(/[^.!?]+[.!?]+\s*/g) || [text];
+    paragraphs = [];
+    for (let i = 0; i < sentences.length; i += 3) {
+      paragraphs.push(sentences.slice(i, i + 3).join('').trim());
+    }
+  }
+
+  return paragraphs.filter(Boolean);
+}
+
 const TYPE_DISPLAY: Record<string, string> = {
   INTERNSHIP: "Internship",
   FULLTIME: "Full-Time",
@@ -293,13 +337,15 @@ const JobCard: React.FC<{
   onSave: () => void;
   onApply: () => void;
   onFindHiringManager: () => void;
-}> = React.memo(({ job, isSelected, isSaved, onSelect, onSave, onApply, onFindHiringManager }) => (
+  onCardClick?: () => void;
+}> = React.memo(({ job, isSelected, isSaved, onSelect, onSave, onApply, onFindHiringManager, onCardClick }) => (
   <GlassCard
     className={cn(
       "p-5 cursor-pointer transition-all duration-300 hover:scale-[1.02]",
       isSelected && "ring-2 ring-primary ring-offset-2 ring-offset-background"
     )}
     glow={isSelected}
+    onClick={onCardClick}
   >
     <div className="flex items-start justify-between gap-4">
       <div className="flex-shrink-0">
@@ -530,6 +576,12 @@ const JobBoardPage: React.FC = () => {
   const [showJobDetailView, setShowJobDetailView] = useState(false);
   const [selectedJobForDetail, setSelectedJobForDetail] = useState<Job | null>(null);
   const [jobDetailActiveTab, setJobDetailActiveTab] = useState<string>("job-application");
+
+  // Job Detail Sheet State
+  const [detailSheetOpen, setDetailSheetOpen] = useState(false);
+  const [detailSheetJob, setDetailSheetJob] = useState<FeedJob | null>(null);
+  const [detailDescription, setDetailDescription] = useState<string | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   // Jobs Tab State — fed from /api/jobs/feed
   const [feedData, setFeedData] = useState<JobFeedResponse | null>(null);
@@ -804,6 +856,21 @@ const JobBoardPage: React.FC = () => {
   const handleReturnToJobBoard = useCallback(() => {
     setShowJobDetailView(false);
     setSelectedJobForDetail(null);
+  }, []);
+
+  const openJobDetail = useCallback(async (job: FeedJob) => {
+    setDetailSheetJob(job);
+    setDetailDescription(null);
+    setDetailSheetOpen(true);
+    setDetailLoading(true);
+    try {
+      const detail = await apiService.getJobDetail(job.job_id);
+      setDetailDescription(detail.description_raw || "");
+    } catch {
+      setDetailDescription("");
+    } finally {
+      setDetailLoading(false);
+    }
   }, []);
 
   // Search is now client-side filtering — no API call needed
@@ -1732,9 +1799,10 @@ const JobBoardPage: React.FC = () => {
                       <h2 className="text-lg font-semibold text-foreground mb-3">New Matches</h2>
                       <div className="flex gap-3 overflow-x-auto pb-3 scrollbar-thin">
                         {newMatchesLegacyJobs.map(({ feed: job, legacy: legacyJob }) => (
-                            <div key={job.job_id} className="flex-shrink-0 w-80">
-                              <GlassCard className="p-3 hover:scale-[1.01] transition-transform cursor-pointer">
-                                <div className="flex items-center gap-3">
+                            <div key={job.job_id} className="flex-shrink-0 w-52" onClick={() => openJobDetail(job)}>
+                              <GlassCard className="p-3 hover:scale-[1.02] transition-transform cursor-pointer h-full flex flex-col">
+                                {/* Top row: logo + match score */}
+                                <div className="flex items-start justify-between gap-2 mb-2">
                                   {job.employer_logo ? (
                                     <img src={job.employer_logo} alt={job.company} className="w-8 h-8 rounded-md object-cover bg-muted flex-shrink-0" />
                                   ) : (
@@ -1742,41 +1810,46 @@ const JobBoardPage: React.FC = () => {
                                       <Building2 className="w-4 h-4 text-primary" />
                                     </div>
                                   )}
-                                  <div className="flex-1 min-w-0">
-                                    <h3 className="font-medium text-sm text-foreground truncate">{job.title}</h3>
-                                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                      <span className="truncate">{job.company}</span>
-                                      <span>·</span>
-                                      <span className="flex items-center gap-0.5 flex-shrink-0">
-                                        <MapPin className="w-3 h-3" />
-                                        {normalizeLocation(job.location)}
-                                      </span>
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                                    {feedData?.ranked && job.match_score != null && (
-                                      <MatchScoreBadge score={job.match_score} />
-                                    )}
-                                    <Badge variant={job.type === "INTERNSHIP" ? "default" : "outline"} className="text-[10px] px-1.5 py-0.5">
-                                      {TYPE_DISPLAY[job.type] || job.type}
-                                    </Badge>
-                                  </div>
+                                  {feedData?.ranked && job.match_score != null && (
+                                    <span className={cn(
+                                      "text-[10px] font-semibold px-1.5 py-0.5 rounded-full",
+                                      job.match_score >= 80 ? "text-green-700 bg-green-100" :
+                                      job.match_score >= 60 ? "text-blue-700 bg-blue-100" :
+                                      job.match_score >= 40 ? "text-yellow-700 bg-yellow-100" :
+                                      "text-gray-600 bg-gray-100"
+                                    )}>
+                                      {Math.round(job.match_score)}%
+                                    </span>
+                                  )}
                                 </div>
-                                <div className="flex gap-2 mt-2">
-                                  <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => {
-                                    const role = simplifyTitle(job.title);
-                                    navigate(`/find?company=${encodeURIComponent(job.company)}&role=${encodeURIComponent(role)}`);
-                                  }}>
-                                    <Users className="w-3 h-3 mr-1" />
-                                    Find Contact
+
+                                {/* Title + company + location */}
+                                <h3 className="font-semibold text-sm text-foreground truncate leading-snug">{job.title}</h3>
+                                <p className="text-xs text-muted-foreground truncate mt-0.5">{job.company}</p>
+                                <p className="text-[11px] text-muted-foreground/70 truncate mt-0.5 flex items-center gap-0.5">
+                                  <MapPin className="w-2.5 h-2.5 flex-shrink-0" />
+                                  {normalizeLocation(job.location)}
+                                </p>
+
+                                {/* Type badge */}
+                                <div className="mt-2">
+                                  <Badge variant={job.type === "INTERNSHIP" ? "default" : "outline"} className="text-[10px] px-1.5 py-0">
+                                    {TYPE_DISPLAY[job.type] || job.type}
+                                  </Badge>
+                                </div>
+
+                                {/* Buttons */}
+                                <div className="flex gap-1.5 mt-auto pt-2.5">
+                                  <Button variant="outline" size="sm" className="flex-1 h-7 text-[11px] px-1" onClick={(e) => { e.stopPropagation(); const role = simplifyTitle(job.title); navigate(`/find?company=${encodeURIComponent(job.company)}&role=${encodeURIComponent(role)}`); }}>
+                                    <Users className="w-3 h-3 mr-0.5" />
+                                    Contact
                                   </Button>
-                                  <Button variant="gradient" size="sm" className="flex-1 h-7 text-xs" onClick={() => handleApplyToJob(legacyJob)}>
-                                    <ExternalLink className="w-3 h-3 mr-1" />
+                                  <Button variant="gradient" size="sm" className="flex-1 h-7 text-[11px] px-1" onClick={(e) => { e.stopPropagation(); handleApplyToJob(legacyJob); }}>
                                     Apply
                                   </Button>
                                 </div>
-                                <Button variant="outline" size="sm" className="w-full h-7 text-xs mt-1.5" onClick={() => navigate(`/find?tab=hiring-managers${job.apply_url ? `&jobUrl=${encodeURIComponent(job.apply_url)}` : ''}`)}>
-                                  <Users className="w-3 h-3 mr-1" />
+                                <Button variant="outline" size="sm" className="w-full h-6 text-[10px] mt-1.5 px-1" onClick={(e) => { e.stopPropagation(); navigate(`/find?tab=hiring-managers${job.apply_url ? `&jobUrl=${encodeURIComponent(job.apply_url)}` : ''}`); }}>
+                                  <Users className="w-2.5 h-2.5 mr-0.5" />
                                   Find Hiring Manager
                                 </Button>
                               </GlassCard>
@@ -1823,6 +1896,7 @@ const JobBoardPage: React.FC = () => {
                             }}
                             isSelected={selectedJob?.id === job.job_id}
                             isSaved={savedJobs.has(job.job_id)}
+                            onCardClick={() => openJobDetail(job)}
                             onSelect={() => {
                               const role = simplifyTitle(legacyJob.title);
                               navigate(`/find?company=${encodeURIComponent(legacyJob.company)}&role=${encodeURIComponent(role)}`);
@@ -2362,6 +2436,154 @@ const JobBoardPage: React.FC = () => {
           />
         </React.Suspense>
       )}
+      {/* Job Detail Modal — full-screen takeover */}
+      {detailSheetOpen && detailSheetJob && (() => {
+        const job = detailSheetJob;
+        const legacyJob = feedJobToLegacy(job);
+        const scoreColor = (s: number) => s >= 80 ? "text-green-600" : s >= 60 ? "text-blue-600" : s >= 40 ? "text-yellow-600" : "text-muted-foreground";
+        const barColor = (s: number) => s >= 80 ? "bg-green-500" : s >= 60 ? "bg-blue-500" : s >= 40 ? "bg-yellow-500" : "bg-gray-400";
+        return (
+          <div className="fixed inset-0 z-50 bg-background overflow-y-auto">
+            {/* Content column */}
+            <div className="px-6 py-8 sm:px-10 sm:py-10">
+
+              {/* Back button */}
+              <button
+                onClick={() => setDetailSheetOpen(false)}
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-10 -ml-1"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Back to Jobs
+              </button>
+
+              {/* Company logo + name */}
+              <div className="flex items-center gap-3 mb-5">
+                {job.employer_logo ? (
+                  <img src={job.employer_logo} alt={job.company} className="w-12 h-12 rounded-lg object-cover bg-muted flex-shrink-0" />
+                ) : (
+                  <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-primary/10 to-accent/10 flex items-center justify-center flex-shrink-0">
+                    <Building2 className="w-6 h-6 text-primary/60" />
+                  </div>
+                )}
+                <span className="text-sm text-muted-foreground font-medium">{job.company}</span>
+              </div>
+
+              {/* Job title */}
+              <h1 className="text-2xl sm:text-[28px] font-bold text-foreground leading-tight mb-5">{job.title}</h1>
+
+              {/* Badges row */}
+              <div className="flex flex-wrap items-center gap-2 mb-6">
+                <Badge variant="secondary" className="text-xs px-2.5 py-1">
+                  <MapPin className="w-3 h-3 mr-1.5" />
+                  {normalizeLocation(job.location)}
+                </Badge>
+                <Badge variant={job.type === "INTERNSHIP" ? "default" : "outline"} className="text-xs px-2.5 py-1">
+                  {TYPE_DISPLAY[job.type] || job.type}
+                </Badge>
+                {job.remote && (
+                  <Badge variant="outline" className="text-xs px-2.5 py-1 text-green-600 border-green-200">Remote</Badge>
+                )}
+                {job.salary_display && (
+                  <Badge variant="outline" className="text-xs px-2.5 py-1">
+                    <DollarSign className="w-3 h-3 mr-1" />
+                    {job.salary_display}
+                  </Badge>
+                )}
+              </div>
+
+              {/* Match score */}
+              {feedData?.ranked && job.match_score != null && (
+                <div className="mb-6">
+                  <div className="flex items-center gap-3 mb-1.5">
+                    <div className="h-2.5 w-48 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className={cn("h-full rounded-full", barColor(job.match_score))}
+                        style={{ width: `${Math.min(job.match_score, 100)}%` }}
+                      />
+                    </div>
+                    <span className={cn("text-sm font-semibold", scoreColor(job.match_score))}>
+                      {Math.round(job.match_score)}% Match
+                    </span>
+                  </div>
+                  {job.match_reason && (
+                    <p className="text-sm italic text-muted-foreground">{job.match_reason}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Posted date */}
+              <p className="text-sm text-muted-foreground mb-8">
+                <Clock className="w-3.5 h-3.5 inline mr-1.5 -translate-y-px" />
+                Posted {formatRelativeTime(job.posted_at)}
+              </p>
+
+              {/* Divider */}
+              <div className="border-t border-border/60 mb-8" />
+
+              {/* Action buttons */}
+              <div className="flex flex-col sm:flex-row gap-3 mb-10">
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="flex-1 h-11"
+                  onClick={() => {
+                    setDetailSheetOpen(false);
+                    const role = simplifyTitle(job.title);
+                    navigate(`/find?company=${encodeURIComponent(job.company)}&role=${encodeURIComponent(role)}`);
+                  }}
+                >
+                  <Users className="w-4 h-4 mr-2" />
+                  Find Contact
+                </Button>
+                <Button
+                  variant="gradient"
+                  size="lg"
+                  className="flex-1 h-11"
+                  onClick={() => {
+                    setDetailSheetOpen(false);
+                    handleApplyToJob(legacyJob);
+                  }}
+                >
+                  Apply
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="flex-1 h-11"
+                  onClick={() => {
+                    setDetailSheetOpen(false);
+                    navigate(`/find?tab=hiring-managers${job.apply_url ? `&jobUrl=${encodeURIComponent(job.apply_url)}` : ''}`);
+                  }}
+                >
+                  <Users className="w-4 h-4 mr-2" />
+                  Find Hiring Manager
+                </Button>
+              </div>
+
+              {/* Description */}
+              {detailLoading ? (
+                <div className="space-y-4">
+                  {[...Array(8)].map((_, i) => (
+                    <div key={i} className="h-4 bg-muted rounded animate-pulse" style={{ width: `${90 - i * 7}%` }} />
+                  ))}
+                </div>
+              ) : detailDescription ? (
+                <div className="pb-16">
+                  <h2 className="text-lg font-semibold text-foreground mb-5">About this role</h2>
+                  <div className="text-[15px] text-muted-foreground" style={{ lineHeight: 1.75 }}>
+                    {cleanDescription(detailDescription).map((paragraph, i) => (
+                      <p key={i} className="mb-4">{paragraph}</p>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground italic">No description available.</p>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </SidebarProvider>
   );
 };

@@ -1745,6 +1745,11 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
     return this.makeRequest<JobFeedResponse>(url, { method: 'GET', headers });
   }
 
+  async getJobDetail(jobId: string): Promise<Record<string, any>> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<Record<string, any>>(`/jobs/${encodeURIComponent(jobId)}`, { method: 'GET', headers });
+  }
+
   async postJobFeedback(params: JobFeedbackRequest): Promise<{ success: boolean }> {
     return this.makeRequest<{ success: boolean }>('/jobs/feedback', {
       method: 'POST',
