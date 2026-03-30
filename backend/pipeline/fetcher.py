@@ -20,14 +20,13 @@ REQUEST_TIMEOUT = 15
 # ---------------------------------------------------------------------------
 
 GREENHOUSE_SLUGS = [
-    "stripe", "figma", "airbnb", "doordash", "lyft", "coinbase", "robinhood",
-    "palantir", "snap", "pinterest", "reddit", "dropbox", "twilio", "brex",
-    "plaid", "airtable", "carta", "chime", "scaleai", "verkada", "benchling",
+    "stripe", "figma", "airbnb", "doordashusa", "lyft", "coinbase", "robinhood",
+    "pinterest", "reddit", "dropbox", "twilio", "brex",
+    "airtable", "carta", "chime", "scaleai", "verkada",
     "discord", "duolingo", "gitlab", "grammarly", "intercom", "webflow",
-    "gusto", "lattice", "mercury", "faire", "canva", "shopify-1",
-    "squarespace", "hubspot", "zendesk-inc", "boxinc", "cloudflare",
-    "hashicorp-inc", "mongodb", "databricks", "snowflake-computing",
-    "confluent-inc",
+    "gusto", "lattice", "mercury", "faire",
+    "squarespace", "hubspot", "boxinc", "cloudflare",
+    "mongodb", "databricks", "spacex", "instacart",
 ]
 
 LEVER_SLUGS = [
@@ -481,16 +480,59 @@ def _normalize_fj_job(job: dict) -> dict:
     }
 
 
-def _fetch_fantasticjobs_company(company: str) -> list[dict]:
-    """Fetch jobs for a single company from Fantastic.jobs.
+def _fj_fetch_page(params: dict, label: str) -> list[dict]:
+    """Fetch a single page from Fantastic.jobs with 429 retry. Returns raw job dicts."""
+    headers = _fantasticjobs_headers()
+    try:
+        resp = requests.get(
+            FANTASTICJOBS_BASE_URL,
+            headers=headers,
+            params=params,
+            timeout=REQUEST_TIMEOUT,
+        )
+        if resp.status_code == 429:
+            logger.warning("Fantastic.jobs [%s] rate limited, waiting 60s...", label)
+            time.sleep(60)
+            resp = requests.get(
+                FANTASTICJOBS_BASE_URL,
+                headers=headers,
+                params=params,
+                timeout=REQUEST_TIMEOUT,
+            )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        logger.warning("Fantastic.jobs [%s] failed: %s", label, exc)
+        return []
+    jobs_data = data if isinstance(data, list) else data.get("data", [])
+    return [j for j in jobs_data if j.get("id") and j.get("title")]
+
+
+def _fj_paginate(base_params: dict, label: str, max_pages: int) -> tuple[list[dict], int]:
+    """Fetch up to max_pages from Fantastic.jobs. Returns (jobs, pages_fetched)."""
+    all_jobs: list[dict] = []
+    pages = 0
+    for page in range(max_pages):
+        params = {**base_params, "offset": str(page * 100)}
+        raw = _fj_fetch_page(params, label)
+        pages += 1
+        normalized = [_normalize_fj_job(j) for j in raw]
+        all_jobs.extend(normalized)
+        if len(raw) < 100:
+            break  # No more pages
+        if page < max_pages - 1:
+            time.sleep(1.5)
+    return all_jobs, pages
+
+
+def _fetch_fantasticjobs_company(company: str) -> tuple[list[dict], int]:
+    """Fetch jobs for a single company from Fantastic.jobs (up to 3 pages).
 
     Tries organization_filter (exact match) first. If 0 results, retries
     with advanced_organization_filter using a wildcard prefix search.
     """
-    headers = _fantasticjobs_headers()
     base_params = {
         "limit": "100",
-        "offset": "0",
         "description_type": "text",
         "location_filter": "United States",
         "agency": "false",
@@ -498,67 +540,21 @@ def _fetch_fantasticjobs_company(company: str) -> list[dict]:
 
     # Attempt 1: exact match via organization_filter
     params = {**base_params, "organization_filter": company}
-    try:
-        resp = requests.get(
-            FANTASTICJOBS_BASE_URL,
-            headers=headers,
-            params=params,
-            timeout=REQUEST_TIMEOUT,
-        )
-        if resp.status_code == 429:
-            logger.warning("Fantastic.jobs [%s] rate limited, waiting 60s...", company)
-            time.sleep(60)
-            resp = requests.get(
-                FANTASTICJOBS_BASE_URL,
-                headers=headers,
-                params=params,
-                timeout=REQUEST_TIMEOUT,
-            )
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as exc:
-        logger.warning("Fantastic.jobs [%s] failed: %s", company, exc)
-        return []
-
-    jobs_data = data if isinstance(data, list) else data.get("data", [])
-    jobs = [_normalize_fj_job(j) for j in jobs_data if j.get("id") and j.get("title")]
+    jobs, pages = _fj_paginate(params, company, max_pages=3)
 
     # Attempt 2: wildcard prefix search if exact match returned nothing
     if not jobs:
         logger.info("  Fantastic.jobs [%s] exact match returned 0, trying wildcard", company)
         time.sleep(1.5)
         params = {**base_params, "advanced_organization_filter": f"{company}:*"}
-        try:
-            resp = requests.get(
-                FANTASTICJOBS_BASE_URL,
-                headers=headers,
-                params=params,
-                timeout=REQUEST_TIMEOUT,
-            )
-            if resp.status_code == 429:
-                logger.warning("Fantastic.jobs [%s] wildcard rate limited, waiting 60s...", company)
-                time.sleep(60)
-                resp = requests.get(
-                    FANTASTICJOBS_BASE_URL,
-                    headers=headers,
-                    params=params,
-                    timeout=REQUEST_TIMEOUT,
-                )
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as exc:
-            logger.warning("Fantastic.jobs [%s] wildcard failed: %s", company, exc)
-            return []
-        jobs_data = data if isinstance(data, list) else data.get("data", [])
-        jobs = [_normalize_fj_job(j) for j in jobs_data if j.get("id") and j.get("title")]
+        jobs, pages = _fj_paginate(params, f"{company}:wildcard", max_pages=3)
 
-    logger.info("  Fantastic.jobs [%s] → %d jobs", company, len(jobs))
-    return jobs
+    logger.info("  Fantastic.jobs [%s] → %d jobs (%d pages)", company, len(jobs), pages)
+    return jobs, pages
 
 
 _FJ_CATEGORY_BASE_PARAMS = {
     "limit": "100",
-    "offset": "0",
     "description_type": "text",
     "location_filter": "United States",
     "agency": "false",
@@ -566,36 +562,12 @@ _FJ_CATEGORY_BASE_PARAMS = {
 }
 
 
-def _fetch_fantasticjobs_category(label: str, extra_params: dict) -> list[dict]:
-    """Fetch jobs for a single category/title-based query from Fantastic.jobs."""
+def _fetch_fantasticjobs_category(label: str, extra_params: dict) -> tuple[list[dict], int]:
+    """Fetch jobs for a single category/title-based query (up to 2 pages)."""
     params = {**_FJ_CATEGORY_BASE_PARAMS, **extra_params}
-    headers = _fantasticjobs_headers()
-    try:
-        resp = requests.get(
-            FANTASTICJOBS_BASE_URL,
-            headers=headers,
-            params=params,
-            timeout=REQUEST_TIMEOUT,
-        )
-        if resp.status_code == 429:
-            logger.warning("Fantastic.jobs [category:%s] rate limited, waiting 60s...", label)
-            time.sleep(60)
-            resp = requests.get(
-                FANTASTICJOBS_BASE_URL,
-                headers=headers,
-                params=params,
-                timeout=REQUEST_TIMEOUT,
-            )
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as exc:
-        logger.warning("Fantastic.jobs [category:%s] failed: %s", label, exc)
-        return []
-
-    jobs_data = data if isinstance(data, list) else data.get("data", [])
-    jobs = [_normalize_fj_job(j) for j in jobs_data if j.get("id") and j.get("title")]
-    logger.info("  Fantastic.jobs [category:%s] → %d jobs", label, len(jobs))
-    return jobs
+    jobs, pages = _fj_paginate(params, f"category:{label}", max_pages=2)
+    logger.info("  Fantastic.jobs [category:%s] → %d jobs (%d pages)", label, len(jobs), pages)
+    return jobs, pages
 
 
 def fetch_fantasticjobs() -> list[dict]:
@@ -618,32 +590,37 @@ def fetch_fantasticjobs() -> list[dict]:
     results = []
     company_count = 0
     category_count = 0
+    total_pages = 0
     request_num = 0
 
-    # Phase 1: Company-specific fetches
+    # Phase 1: Company-specific fetches (up to 3 pages each)
     for company in all_companies:
         if request_num > 0:
             time.sleep(1.5)
         request_num += 1
-        jobs = _fetch_fantasticjobs_company(company)
+        jobs, pages = _fetch_fantasticjobs_company(company)
+        total_pages += pages
         if jobs:
             company_count += 1
         results.extend(jobs)
 
     company_jobs_total = len(results)
-    logger.info("Fantastic.jobs companies: %d jobs from %d companies", company_jobs_total, company_count)
+    logger.info("Fantastic.jobs companies: %d jobs from %d companies (%d pages)", company_jobs_total, company_count, total_pages)
 
-    # Phase 2: Category / title-based fetches
+    # Phase 2: Category / title-based fetches (up to 2 pages each)
+    category_pages = 0
     for label, extra_params in FANTASTICJOBS_CATEGORIES:
         time.sleep(1.5)
         request_num += 1
-        jobs = _fetch_fantasticjobs_category(label, extra_params)
+        jobs, pages = _fetch_fantasticjobs_category(label, extra_params)
+        category_pages += pages
+        total_pages += pages
         if jobs:
             category_count += 1
         results.extend(jobs)
 
     category_jobs_total = len(results) - company_jobs_total
-    logger.info("Fantastic.jobs categories: %d jobs from %d categories", category_jobs_total, category_count)
+    logger.info("Fantastic.jobs categories: %d jobs from %d categories (%d pages)", category_jobs_total, category_count, category_pages)
 
     # Deduplicate by job_id (categories may overlap with company calls)
     seen = set()
@@ -653,7 +630,7 @@ def fetch_fantasticjobs() -> list[dict]:
             seen.add(job["job_id"])
             deduped.append(job)
 
-    logger.info("Fantastic.jobs total: %d jobs", len(deduped))
+    logger.info("Fantastic.jobs total: %d unique jobs (%d pages fetched)", len(deduped), total_pages)
     return deduped
 
 
