@@ -278,7 +278,8 @@ def normalize_job(raw: dict) -> dict | None:
     return _normalize_jsearch_job(raw)
 
 
-# Countries to exclude for non-remote jobs
+# Countries to exclude — jobs with these in location are filtered out even if remote,
+# since "Remote, Singapore" means the job is based internationally.
 _EXCLUDED_COUNTRIES = {
     "india", "canada", "united kingdom", "uk", "australia", "germany", "france",
     "netherlands", "singapore", "brazil", "mexico", "china", "japan", "ireland",
@@ -287,17 +288,17 @@ _EXCLUDED_COUNTRIES = {
 
 
 def _is_non_us_non_remote(job: dict) -> bool:
-    """Return True if the job is in a non-US country and NOT remote."""
-    if job.get("remote"):
-        return False
+    """Return True if the job is based in a non-US country.
+
+    Excludes jobs like "Remote, Singapore" where the primary location is
+    international. Keeps purely "Remote" or US-based locations.
+    """
     loc = job.get("location") or ""
     if isinstance(loc, dict):
         loc = loc.get("name") or loc.get("city") or str(loc)
     elif isinstance(loc, list):
         loc = " ".join(str(x) for x in loc)
     location = str(loc).lower()
-    if "remote" in location:
-        return False
     for country in _EXCLUDED_COUNTRIES:
         if country in location:
             return True

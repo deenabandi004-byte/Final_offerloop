@@ -91,15 +91,21 @@ EXCLUDED_TITLE_KEYWORDS = [
     "plumber", "truck driver", "cashier", "barista",
 ]
 
+# Always excluded — clearly not entry-level regardless of graduation year
 SENIOR_TITLE_KEYWORDS = [
-    "senior", "sr.", "sr ", "lead ", "principal", "director",
-    "vp ", "vice president", "head of", "manager", "staff ",
+    "sr. ", "sr ", "senior ", "lead ", "principal ", "staff ",
+    "director", "vp ", "vice president", "head of",
+    "managing director", "partner,",
 ]
+
+# "Manager" is excluded UNLESS preceded by "product" or "program"
+_MANAGER_EXCEPTIONS = ("product manager", "program manager")
 
 NON_US_LOCATION_KEYWORDS = [
     "india", "brazil", "canada", "singapore", "london", "uk",
-    "australia", "germany", "france", "netherlands", "china",
-    "japan", "mexico",
+    "united kingdom", "australia", "germany", "france", "netherlands",
+    "china", "japan", "mexico", "ireland", "poland", "spain",
+    "italy", "sweden", "denmark", "finland", "norway",
 ]
 
 
@@ -122,13 +128,12 @@ def _is_excluded(job: dict, profile: dict = None) -> bool:
     title_lower = (job.get("title") or "").lower()
     if any(kw in title_lower for kw in EXCLUDED_TITLE_KEYWORDS):
         return True
-    # Exclude senior roles for students (grad year >= current_year - 1)
-    if profile is not None:
-        from datetime import datetime
-        grad_year = _get_grad_year(profile)
-        if grad_year is not None and grad_year >= datetime.now().year - 1:
-            if any(kw in title_lower for kw in SENIOR_TITLE_KEYWORDS):
-                return True
+    # Always exclude senior-level titles (not entry-level)
+    if any(kw in title_lower for kw in SENIOR_TITLE_KEYWORDS):
+        return True
+    # Exclude "manager" unless it's "product manager" or "program manager"
+    if "manager" in title_lower and not any(exc in title_lower for exc in _MANAGER_EXCEPTIONS):
+        return True
     return False
 
 
@@ -145,11 +150,19 @@ def _normalize_location(loc) -> str:
 
 
 def _is_non_us(job: dict) -> bool:
-    """Return True if job is non-US and non-remote."""
-    if job.get("remote") or job.get("remote_derived"):
-        return False
+    """Return True if job is based in a non-US location.
+
+    Keeps jobs where location is purely "Remote" or "Remote - USA" etc.
+    Excludes jobs like "Remote, Singapore" where the primary location is international.
+    """
     location_lower = _normalize_location(job.get("location")).lower()
-    return any(kw in location_lower for kw in NON_US_LOCATION_KEYWORDS)
+    has_international = any(kw in location_lower for kw in NON_US_LOCATION_KEYWORDS)
+    if not has_international:
+        return False
+    # Location mentions a non-US country — only keep if location is purely remote
+    # with no international country (e.g. "Remote" or "Remote - US" are fine,
+    # but "Remote, Singapore" or "Singapore - Remote" are not)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -193,8 +206,21 @@ def deterministic_score(job: dict, profile: dict) -> float:
 
 
 def prefilter_candidates(jobs: list[dict], profile: dict, top_n: int = 30) -> list[dict]:
+    import logging
+    _logger = logging.getLogger(__name__)
+
     # Exclude irrelevant categories, titles, senior roles, and non-US jobs
-    eligible = [j for j in jobs if not _is_excluded(j, profile) and not _is_non_us(j)]
+    excluded_count = 0
+    non_us_count = 0
+    eligible = []
+    for j in jobs:
+        if _is_excluded(j, profile):
+            excluded_count += 1
+        elif _is_non_us(j):
+            non_us_count += 1
+        else:
+            eligible.append(j)
+    _logger.info("Excluded %d senior/irrelevant jobs, %d non-US jobs from %d total", excluded_count, non_us_count, len(jobs))
 
     scored = sorted(
         [(job, deterministic_score(job, profile)) for job in eligible],
@@ -225,6 +251,9 @@ def _mark_unranked(jobs: list[dict]) -> list[dict]:
     return jobs
 
 
+GPT_RANK_COUNT = 20  # Send only top N to GPT; rest get deterministic scores
+
+
 def rank_with_gpt(jobs: list[dict], profile: dict) -> list[dict]:
     from backend.app.services.openai_client import client
     from openai import RateLimitError
@@ -234,6 +263,10 @@ def rank_with_gpt(jobs: list[dict], profile: dict) -> list[dict]:
     import logging
 
     logger = logging.getLogger(__name__)
+
+    # Split: top 20 go to GPT, remainder get deterministic scores
+    gpt_jobs = jobs[:GPT_RANK_COUNT]
+    fallback_jobs = jobs[GPT_RANK_COUNT:]
 
     education = (profile.get("resumeParsed") or {}).get("education", {}) or {}
     skills = flatten_skills((profile.get("resumeParsed") or {}).get("skills", []))
@@ -252,28 +285,22 @@ def rank_with_gpt(jobs: list[dict], profile: dict) -> list[dict]:
 - Skills: {", ".join(skills[:15]) or "None listed"}
 - Experience: {exp_lines}"""
 
-    jobs_str = "JOBS TO RANK:\n"
-    for job in jobs:
+    jobs_str = "JOBS:\n"
+    for job in gpt_jobs:
+        title = (job.get("title") or "")[:60]
+        company = (job.get("company") or "")[:30]
+        location = (_normalize_location(job.get("location")) or "")[:30]
+        desc = (job.get("description_raw") or "")[:100]
         jobs_str += (
-            f'[{job["job_id"]}] {job["title"]} at {job["company"]}\n'
-            f'  Type: {job.get("type")} | Category: {job.get("category")} | Salary: {job.get("salary_display") or "Not listed"}\n'
-            f'  {job.get("description_raw", "")[:250]}\n---\n'
+            f'[{job["job_id"]}] {title} @ {company} | {location}\n'
+            f'  {job.get("type")} | {desc}\n'
         )
 
     system_prompt = """You are a job matching assistant for college students.
-Rank jobs by fit using this EXACT priority order:
-1. FIELD ALIGNMENT (most important) — job field matches their major/career interest
-2. JOB TYPE FIT — internship/full-time matches their graduation timeline
-3. SKILLS MATCH — their listed skills appear in job requirements
-4. SENIORITY FIT — role is appropriate for their year in school
-
-match_reason rules: max 12 words, specific and personal, mention their actual major OR a specific skill.
-GOOD: "Strong fit for your Finance major and Excel skills"
-BAD: "This job matches your profile"
-
-Return ONLY a JSON array, no explanation, no markdown:
-[{"job_id": "...", "match_score": 85, "match_reason": "..."}]
-Order by match_score descending. Include every job_id provided."""
+Rank jobs by fit: 1) Field alignment with major 2) Job type fit 3) Skills match 4) Seniority fit.
+match_reason: max 12 words, mention their major OR a specific skill.
+Return ONLY JSON array: [{"job_id":"...","match_score":85,"match_reason":"..."}]
+Include every job_id. Order by match_score descending."""
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -284,7 +311,7 @@ Order by match_score descending. Include every job_id provided."""
         return client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
-            max_tokens=4000,
+            max_tokens=8000,
             temperature=0.3,
         )
 
@@ -308,8 +335,9 @@ Order by match_score descending. Include every job_id provided."""
             for item in json.loads(raw) if "job_id" in item
         }
 
+        # Apply GPT scores to top 20
         ranked = []
-        for job in jobs:
+        for job in gpt_jobs:
             if job["job_id"] in ranking_map:
                 job["match_score"] = ranking_map[job["job_id"]]["match_score"]
                 job["match_reason"] = ranking_map[job["job_id"]]["match_reason"]
@@ -319,6 +347,18 @@ Order by match_score descending. Include every job_id provided."""
                 job["match_reason"] = None
                 job["ranked"] = False
             ranked.append(job)
+
+        # Apply deterministic scores (scaled to 0-100) for jobs 21-50
+        if fallback_jobs:
+            det_scored = [(j, deterministic_score(j, profile)) for j in fallback_jobs]
+            max_det = max((s for _, s in det_scored), default=1) or 1
+            for job, det_s in det_scored:
+                # Scale deterministic score to 0-49 range (always below GPT-ranked)
+                job["match_score"] = int((det_s / max_det) * 49)
+                job["match_reason"] = "Matched by skills and profile"
+                job["ranked"] = True
+                ranked.append(job)
+
         return sorted(ranked, key=lambda j: j.get("match_score") or 0, reverse=True)
     except RateLimitError:
         logger.warning("GPT ranking hit 429 twice — returning unranked")
@@ -360,3 +400,16 @@ def apply_feedback_adjustments(ranked_jobs: list[dict], preferences: list[dict])
         adjusted.append(job)
 
     return sorted(adjusted, key=lambda j: j.get("match_score") or 0, reverse=True)
+
+
+def cap_per_company(jobs: list[dict], max_per_company: int = 3) -> list[dict]:
+    """Limit results to max N jobs per company, keeping highest-scored."""
+    from collections import defaultdict
+    counts: dict[str, int] = defaultdict(int)
+    result = []
+    for job in jobs:
+        company_key = (job.get("company") or "").lower().strip()
+        if counts[company_key] < max_per_company:
+            result.append(job)
+            counts[company_key] += 1
+    return result

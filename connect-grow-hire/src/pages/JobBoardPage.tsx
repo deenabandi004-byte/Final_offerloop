@@ -605,10 +605,16 @@ const JobBoardPage: React.FC = () => {
     }
   }, [user?.uid]);
 
-  // Load job feed on mount
+  // Load job feed on mount — honour ?refresh=true URL param
   useEffect(() => {
     if (!user?.uid) return;
-    fetchJobFeed();
+    const shouldRefresh = searchParams.get("refresh") === "true";
+    fetchJobFeed(shouldRefresh);
+    if (shouldRefresh) {
+      // Remove refresh param from URL so a browser reload doesn't re-trigger
+      searchParams.delete("refresh");
+      setSearchParams(searchParams, { replace: true });
+    }
   }, [user?.uid]);
 
   // Load saved jobs from Firestore (with localStorage fallback)

@@ -7,6 +7,7 @@ from backend.app.utils.job_ranking import (
     prefilter_candidates,
     rank_with_gpt,
     apply_feedback_adjustments,
+    cap_per_company,
 )
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor
@@ -28,6 +29,72 @@ _ranking_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="job-rank")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+_EXCLUDED_COUNTRIES = {
+    "brazil", "canada", "india", "uk", "united kingdom", "singapore",
+    "australia", "germany", "france", "netherlands", "china", "japan",
+    "ireland", "poland", "spain", "italy", "sweden", "denmark",
+    "finland", "norway", "mexico",
+}
+
+
+_SENIOR_TITLE_KEYWORDS = [
+    "sr. ", "sr ", "senior ", "lead ", "principal ", "staff ",
+    "director", "vp ", "vice president", "head of",
+    "managing director", "partner,",
+]
+_MANAGER_EXCEPTIONS = ("product manager", "program manager")
+_EXCLUDED_TITLE_KEYWORDS = [
+    "assembly", "manufacturing", "warehouse", "forklift", "cdl",
+    "nursing", "medical assistant", "dental", "hvac", "electrician",
+    "plumber", "truck driver", "cashier", "barista",
+]
+_EXCLUDED_CATEGORIES = frozenset([
+    "manufacturing", "construction", "healthcare", "retail",
+    "food_service", "transportation", "agriculture",
+])
+
+
+def _is_excluded_job(job: dict) -> bool:
+    """Return True if job should be excluded from feed (senior, irrelevant, etc.)."""
+    if job.get("category") in _EXCLUDED_CATEGORIES:
+        return True
+    title_lower = (job.get("title") or "").lower()
+    if any(kw in title_lower for kw in _EXCLUDED_TITLE_KEYWORDS):
+        return True
+    if any(kw in title_lower for kw in _SENIOR_TITLE_KEYWORDS):
+        return True
+    if "manager" in title_lower and not any(exc in title_lower for exc in _MANAGER_EXCEPTIONS):
+        return True
+    return False
+
+
+def _is_international_job(job: dict) -> bool:
+    """Return True if job is based in a non-US location.
+
+    Excludes jobs like "Remote, Singapore" where the primary location is
+    international, even if tagged remote. Keeps purely "Remote" or "Remote - US".
+    """
+    loc = job.get("location") or ""
+    if isinstance(loc, dict):
+        loc = loc.get("name") or loc.get("city") or str(loc)
+    elif isinstance(loc, list):
+        loc = " ".join(str(x) for x in loc)
+    location = str(loc).lower()
+    # If location mentions a non-US country, exclude regardless of remote flag
+    return any(c in location for c in _EXCLUDED_COUNTRIES)
+
+
+def _dedup_by_title_company(jobs: list[dict]) -> list[dict]:
+    """Deduplicate jobs by (title, company), keeping the higher-scored one."""
+    seen = {}
+    for job in jobs:
+        key = ((job.get("title") or "").lower().strip(), (job.get("company") or "").lower().strip())
+        existing = seen.get(key)
+        if existing is None or (job.get("match_score") or 0) > (existing.get("match_score") or 0):
+            seen[key] = job
+    return sorted(seen.values(), key=lambda j: j.get("match_score") or 0, reverse=True)
+
 
 def _serialize_jobs(jobs: list[dict]) -> list[dict]:
     """Convert Firestore timestamps to ISO strings and strip description_raw."""
@@ -63,6 +130,11 @@ def get_feed():
     user_doc = user_ref.get()
     if not user_doc.exists:
         return jsonify({"error": "User not found"}), 404
+
+    # Clear cache on explicit refresh
+    if refresh:
+        user_ref.update({"jobFeedCache": None})
+
     profile = user_doc.to_dict()
 
     # Check cache
@@ -109,6 +181,8 @@ def get_feed():
         new_matches = []
         for d in new_query.stream():
             j = d.to_dict()
+            if _is_international_job(j) or _is_excluded_job(j):
+                continue
             jid = j.get("job_id", d.id)
             if cached_scores:
                 j["match_score"] = cached_scores.get(jid)
@@ -198,9 +272,11 @@ def get_feed():
         top_query = (
             db.collection("jobs")
             .order_by("posted_at", direction="DESCENDING")
-            .limit(50)
+            .limit(80)
         )
         top_jobs = [d.to_dict() for d in top_query.stream()]
+        top_jobs = [j for j in top_jobs if not _is_international_job(j) and not _is_excluded_job(j)]
+        top_jobs = cap_per_company(top_jobs, max_per_company=3)[:50]
         for j in top_jobs:
             j["match_score"] = None
             j["match_reason"] = None
@@ -220,9 +296,11 @@ def get_feed():
     top_query = (
         db.collection("jobs")
         .order_by("posted_at", direction="DESCENDING")
-        .limit(50)
+        .limit(80)
     )
     top_jobs = [d.to_dict() for d in top_query.stream()]
+    top_jobs = [j for j in top_jobs if not _is_international_job(j) and not _is_excluded_job(j)]
+    top_jobs = cap_per_company(top_jobs, max_per_company=3)[:50]
     for j in top_jobs:
         j["match_score"] = None
         j["match_reason"] = None
@@ -288,18 +366,23 @@ def _background_rerank(uid: str):
         all_query = (
             db.collection("jobs")
             .order_by("posted_at", direction="DESCENDING")
-            .limit(200)
+            .limit(500)
         )
         all_jobs = [doc.to_dict() for doc in all_query.stream()]
+
+        # Filter out international and senior/irrelevant jobs
+        all_jobs = [j for j in all_jobs if not _is_international_job(j) and not _is_excluded_job(j)]
 
         prefs_query = user_ref.collection("jobPreferences").limit(100)
         preferences = [doc.to_dict() for doc in prefs_query.stream()]
 
-        candidates = prefilter_candidates(all_jobs, profile, top_n=20)
+        candidates = prefilter_candidates(all_jobs, profile, top_n=50)
         ranked = rank_with_gpt(candidates, profile)
         adjusted = apply_feedback_adjustments(ranked, preferences)
 
-        top_jobs = adjusted[:50]
+        # Deduplicate by title + company, cap per company, then take top 50
+        deduped = _dedup_by_title_company(adjusted)
+        top_jobs = cap_per_company(deduped, max_per_company=3)[:50]
         cache_data = {
             "job_ids": [j["job_id"] for j in top_jobs],
             "scores": {j["job_id"]: j.get("match_score") for j in top_jobs},

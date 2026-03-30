@@ -3,9 +3,10 @@
 Offerloop Job Pipeline — entry point.
 
 Usage:
-    python pipeline/main.py              # Full pipeline: fetch → normalize → write
-    python pipeline/main.py --cleanup    # Delete expired jobs only
-    python pipeline/main.py --fix-salaries  # Recalculate WEEK salaries
+    python pipeline/main.py                  # Full pipeline: fetch → normalize → write
+    python pipeline/main.py --fantastic-only  # Fantastic.jobs only (finance/consulting/big tech)
+    python pipeline/main.py --cleanup        # Delete expired jobs only
+    python pipeline/main.py --fix-salaries   # Recalculate WEEK salaries
 """
 from dotenv import load_dotenv
 load_dotenv()
@@ -51,6 +52,28 @@ def run_pipeline():
 
     print()
     print("Pipeline complete.")
+    print(f"  New jobs written:     {result['written']}")
+    print(f"  Duplicates skipped:   {result['skipped_duplicates']}")
+    print(f"  Total processed:      {result['total']}")
+    return result
+
+
+def run_fantastic_only():
+    from backend.pipeline.fetcher import fetch_fantasticjobs
+    from backend.pipeline.normalizer import normalize_all
+    from backend.pipeline.writer import write_jobs
+
+    logger.info("Fetching jobs from Fantastic.jobs only...")
+    raw = fetch_fantasticjobs()
+
+    logger.info("Normalizing %d raw results...", len(raw))
+    normalized = normalize_all(raw)
+
+    logger.info("Writing %d normalized jobs to Firestore...", len(normalized))
+    result = write_jobs(normalized)
+
+    print()
+    print("Fantastic.jobs pipeline complete.")
     print(f"  New jobs written:     {result['written']}")
     print(f"  Duplicates skipped:   {result['skipped_duplicates']}")
     print(f"  Total processed:      {result['total']}")
@@ -111,5 +134,7 @@ if __name__ == "__main__":
             run_cleanup()
         elif "--fix-salaries" in sys.argv:
             run_fix_salaries()
+        elif "--fantastic-only" in sys.argv:
+            run_fantastic_only()
         else:
             run_pipeline()
