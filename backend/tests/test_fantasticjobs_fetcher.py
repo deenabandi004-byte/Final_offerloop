@@ -35,44 +35,54 @@ class TestFantasticjobsGating:
         assert isinstance(result, list)
 
 
-class TestFantasticjobsCompanyConfig:
-    """Target companies must be configured correctly."""
+class TestFantasticjobsCallConfig:
+    """Category calls must be configured correctly."""
 
-    def test_finance_companies_present(self):
-        from pipeline.fetcher import FANTASTICJOBS_COMPANIES
-        finance = FANTASTICJOBS_COMPANIES["finance"]
-        assert "JPMorgan Chase & Co." in finance
-        assert "Goldman Sachs" in finance
-        assert "Morgan Stanley" in finance
-        assert "Bank of America" in finance
-        assert "Citigroup" in finance
-        assert "Wells Fargo" in finance
+    def test_has_10_calls(self):
+        from pipeline.fetcher import FANTASTICJOBS_CALLS
+        assert len(FANTASTICJOBS_CALLS) == 10
 
-    def test_consulting_companies_present(self):
-        from pipeline.fetcher import FANTASTICJOBS_COMPANIES
-        consulting = FANTASTICJOBS_COMPANIES["consulting"]
-        assert "Deloitte" in consulting
-        assert "McKinsey & Company" in consulting
-        assert "Boston Consulting Group" in consulting
-        assert "Bain & Company" in consulting
-        assert "Accenture" in consulting
-        assert "PwC" in consulting
-        assert "EY" in consulting
-        assert "Oliver Wyman" in consulting
+    def test_call_labels_unique(self):
+        from pipeline.fetcher import FANTASTICJOBS_CALLS
+        labels = [label for label, _ in FANTASTICJOBS_CALLS]
+        assert len(labels) == len(set(labels))
 
-    def test_pe_finance_companies_present(self):
-        from pipeline.fetcher import FANTASTICJOBS_COMPANIES
-        pe = FANTASTICJOBS_COMPANIES["pe_finance"]
-        assert "Blackstone" in pe
-        assert "KKR" in pe
-        assert "Citadel" in pe
-        assert "Bridgewater Associates" in pe
-        assert "Two Sigma" in pe
+    def test_big_tech_companies_call(self):
+        from pipeline.fetcher import FANTASTICJOBS_CALLS
+        calls = {label: params for label, params in FANTASTICJOBS_CALLS}
+        orgs = calls["big_tech_companies"]["organization_filter"]
+        assert "Google" in orgs
+        assert "Meta" in orgs
+        assert "Apple" in orgs
+        assert "Amazon" in orgs
+        assert "Microsoft" in orgs
 
-    def test_total_company_count(self):
-        from pipeline.fetcher import FANTASTICJOBS_COMPANIES
-        total = sum(len(v) for v in FANTASTICJOBS_COMPANIES.values())
-        assert total == 19
+    def test_finance_companies_call(self):
+        from pipeline.fetcher import FANTASTICJOBS_CALLS
+        calls = {label: params for label, params in FANTASTICJOBS_CALLS}
+        orgs = calls["finance_companies"]["organization_filter"]
+        assert "Goldman Sachs" in orgs
+        assert "JPMorgan Chase & Co." in orgs
+        assert "Morgan Stanley" in orgs
+
+    def test_consulting_companies_call(self):
+        from pipeline.fetcher import FANTASTICJOBS_CALLS
+        calls = {label: params for label, params in FANTASTICJOBS_CALLS}
+        orgs = calls["consulting_companies"]["organization_filter"]
+        assert "McKinsey" in orgs
+        assert "Boston Consulting Group" in orgs
+        assert "Deloitte" in orgs
+
+    def test_internships_call(self):
+        from pipeline.fetcher import FANTASTICJOBS_CALLS
+        calls = {label: params for label, params in FANTASTICJOBS_CALLS}
+        params = calls["internships_us"]
+        assert params["ai_employment_type_filter"] == "INTERN"
+        assert "location_filter" in params
+
+    def test_uses_24h_endpoint(self):
+        from pipeline.fetcher import FANTASTICJOBS_BASE_URL
+        assert "active-ats-24h" in FANTASTICJOBS_BASE_URL
 
 
 class TestFantasticjobsNormalization:
@@ -160,57 +170,15 @@ class TestFantasticjobsHeaders:
         assert headers["x-rapidapi-host"] == "active-jobs-db.p.rapidapi.com"
 
 
-class TestFantasticjobsAPIParams:
-    """Request parameters must match spec."""
-
-    def test_company_call_params(self):
-        """Company fetch uses correct params."""
-        from pipeline.fetcher import _fetch_fantasticjobs_company
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = []
-
-        with patch.dict(os.environ, {"RAPIDAPI_KEY": "test"}):
-            with patch("pipeline.fetcher.requests.get", return_value=mock_resp) as mock_get:
-                _fetch_fantasticjobs_company("Goldman Sachs")
-
-        call_kwargs = mock_get.call_args
-        params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params")
-        assert params["limit"] == "100"
-        assert params["offset"] == "0"
-        assert params["advanced_organization_filter"] == "Goldman Sachs:*"
-        assert params["description_type"] == "text"
-        assert params["location_filter"] == "United States"
-
-    def test_internship_call_params(self):
-        """Internship fetch uses ai_employment_type_filter=INTERN."""
-        from pipeline.fetcher import _fetch_fantasticjobs_internships
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = []
-
-        with patch.dict(os.environ, {"RAPIDAPI_KEY": "test"}):
-            with patch("pipeline.fetcher.requests.get", return_value=mock_resp) as mock_get:
-                _fetch_fantasticjobs_internships()
-
-        call_kwargs = mock_get.call_args
-        params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params")
-        assert params["ai_employment_type_filter"] == "INTERN"
-        assert params["limit"] == "100"
-        assert params["location_filter"] == "United States"
-
-
 class TestFantasticjobsDedup:
-    """Deduplication of overlapping company + internship results."""
+    """Deduplication of overlapping category results."""
 
     def test_dedup_removes_duplicates(self):
         from pipeline.fetcher import fetch_fantasticjobs
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.raise_for_status = MagicMock()
-        # Return same job from both company and internship calls
+        # Return same job from multiple category calls
         mock_resp.json.return_value = [
             {"id": "dup1", "title": "Intern", "organization": "Goldman Sachs", "url": ""},
         ]
@@ -227,26 +195,19 @@ class TestFantasticjobsDedup:
 class TestFantasticjobsErrorHandling:
     """API errors should be handled gracefully."""
 
-    def test_company_fetch_handles_http_error(self):
-        from pipeline.fetcher import _fetch_fantasticjobs_company
+    def test_fetch_page_handles_http_error(self):
+        from pipeline.fetcher import _fj_fetch_page
         mock_resp = MagicMock()
-        mock_resp.raise_for_status.side_effect = Exception("429 Too Many Requests")
+        mock_resp.status_code = 500
+        mock_resp.raise_for_status.side_effect = Exception("500 Server Error")
 
-        with patch.dict(os.environ, {"RAPIDAPI_KEY": "test"}):
-            with patch("pipeline.fetcher.requests.get", return_value=mock_resp):
-                result = _fetch_fantasticjobs_company("Goldman Sachs")
-        assert result == []
-
-    def test_internship_fetch_handles_error(self):
-        from pipeline.fetcher import _fetch_fantasticjobs_internships
-        with patch.dict(os.environ, {"RAPIDAPI_KEY": "test"}):
-            with patch("pipeline.fetcher.requests.get", side_effect=Exception("timeout")):
-                result = _fetch_fantasticjobs_internships()
+        with patch("pipeline.fetcher.requests.get", return_value=mock_resp):
+            result = _fj_fetch_page({"limit": "100"}, "test")
         assert result == []
 
     def test_skips_jobs_without_id(self):
         """Jobs missing 'id' field should be skipped."""
-        from pipeline.fetcher import _fetch_fantasticjobs_company
+        from pipeline.fetcher import _fj_fetch_page
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.raise_for_status = MagicMock()
@@ -256,9 +217,8 @@ class TestFantasticjobsErrorHandling:
             {"id": "valid2", "title": "Analyst", "organization": "Acme", "url": ""},
         ]
 
-        with patch.dict(os.environ, {"RAPIDAPI_KEY": "test"}):
-            with patch("pipeline.fetcher.requests.get", return_value=mock_resp):
-                result = _fetch_fantasticjobs_company("Acme")
+        with patch("pipeline.fetcher.requests.get", return_value=mock_resp):
+            result = _fj_fetch_page({"limit": "100"}, "test")
         assert len(result) == 2
 
 
@@ -272,12 +232,12 @@ class TestFetchJobsIntegration:
         source = inspect.getsource(fetch_jobs)
         assert "fetch_fantasticjobs" in source
 
-    def test_fetch_jobs_has_5_workers(self):
-        """ThreadPoolExecutor should have 5 workers (was 4)."""
+    def test_fetch_jobs_has_4_workers(self):
+        """ThreadPoolExecutor should have 4 workers (Greenhouse, Lever, Ashby, Fantastic.jobs)."""
         import inspect
         from pipeline.fetcher import fetch_jobs
         source = inspect.getsource(fetch_jobs)
-        assert "max_workers=5" in source
+        assert "max_workers=4" in source
 
 
 class TestNormalizerRecognizesSource:

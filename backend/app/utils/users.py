@@ -617,14 +617,46 @@ def extract_user_info_from_resume_priority(resume_text, profile):
     This is the main function used by email generation.
     Now includes: experiences, skills, achievements, interests from resume.
     """
+    print(f"[UserInfo] Called extract_user_info_from_resume_priority: "
+          f"resume_text={'present (' + str(len(resume_text)) + ' chars)' if resume_text else 'None'}, "
+          f"profile keys={list(profile.keys()) if profile else None}")
+    if profile:
+        print(f"[UserInfo] Profile: name={profile.get('name')!r}, "
+              f"university={profile.get('university')!r}, "
+              f"major={profile.get('major')!r}, "
+              f"year={profile.get('year')!r}, "
+              f"graduationYear={profile.get('graduationYear')!r}")
     user_info = {}
-    
+
     # Priority 1: Try to extract comprehensive info from resume if available
     if resume_text and len(resume_text.strip()) > 50:
         try:
             parsed = parse_resume_info(resume_text)
             if parsed:
+                edu = parsed.get('education', {})
+                print(f"[UserInfo] Raw parsed keys: {list(parsed.keys())}")
+                print(f"[UserInfo] Raw parsed name={parsed.get('name')!r}, "
+                      f"education.university={edu.get('university') if isinstance(edu, dict) else None!r}, "
+                      f"education.major={edu.get('major') if isinstance(edu, dict) else None!r}, "
+                      f"education.graduation={edu.get('graduation') if isinstance(edu, dict) else None!r}")
+                print(f"[UserInfo] Raw parsed top-level major={parsed.get('major')!r}, "
+                      f"university={parsed.get('university')!r}, year={parsed.get('year')!r}")
+                print(f"[UserInfo] Raw parsed experience={len(parsed.get('experience', []))} entries, "
+                      f"projects={len(parsed.get('projects', []))} entries, "
+                      f"skills type={type(parsed.get('skills')).__name__}")
                 user_info.update(parsed)
+
+                # Promote nested education fields to top level
+                if isinstance(edu, dict):
+                    if edu.get('university') and not user_info.get('university'):
+                        user_info['university'] = edu['university']
+                    if edu.get('major') and not user_info.get('major'):
+                        user_info['major'] = edu['major']
+                    if edu.get('graduation') and not user_info.get('year'):
+                        grad_date = edu['graduation']
+                        year_match = re.search(r'20\d{2}', grad_date)
+                        user_info['year'] = year_match.group() if year_match else grad_date
+
                 # Ensure list fields are properly set (using new format)
                 for key in ['experience', 'projects', 'skills', 'extracurriculars', 'certifications']:
                     if key not in user_info or not isinstance(user_info[key], (list, dict)):
@@ -634,49 +666,21 @@ def extract_user_info_from_resume_priority(resume_text, profile):
                             user_info[key] = []
         except Exception as e:
             print(f"Resume parsing failed: {e}")
-    
+
     # Priority 2: Fallback to profile if resume didn't provide enough info
     if profile:
         if not user_info.get('name'):
             user_info['name'] = profile.get('name') or f"{profile.get('firstName', '')} {profile.get('lastName', '')}".strip()
-        # Extract year from education if available
         if not user_info.get('year'):
-            edu = user_info.get('education', {})
-            if isinstance(edu, dict) and edu.get('graduation'):
-                # Try to extract year from graduation date
-                import re
-                grad_date = edu.get('graduation', '')
-                year_match = re.search(r'20\d{2}', grad_date)
-                if year_match:
-                    user_info['year'] = year_match.group()
-            if not user_info.get('year'):
-                user_info['year'] = profile.get('year') or profile.get('graduationYear') or ""
-        # Extract major from education if available
+            user_info['year'] = profile.get('year') or profile.get('graduationYear') or ""
         if not user_info.get('major'):
-            edu = user_info.get('education', {})
-            if isinstance(edu, dict) and edu.get('major'):
-                user_info['major'] = edu.get('major')
-            if not user_info.get('major'):
-                user_info['major'] = profile.get('major') or profile.get('fieldOfStudy') or ""
-        # Extract university from education if available
+            user_info['major'] = profile.get('major') or profile.get('fieldOfStudy') or ""
         if not user_info.get('university'):
-            edu = user_info.get('education', {})
-            if isinstance(edu, dict) and edu.get('university'):
-                user_info['university'] = edu.get('university')
-            if not user_info.get('university'):
-                user_info['university'] = profile.get('university') or ""
-    
-    # Debug logging and additional fallback for major
-    print(f"[UserInfo] Extracted user info (name={'set' if user_info.get('name') else 'empty'}, major={'set' if user_info.get('major') else 'empty'}, university={'set' if user_info.get('university') else 'empty'})")
-    
-    # Check if major is empty and try fallbacks
-    if not user_info.get('major'):
-        # Try from user_profile
-        if profile and profile.get('major'):
-            user_info['major'] = profile['major']
-        # Try from education dict
-        elif user_info.get('education', {}).get('major'):
-            user_info['major'] = user_info['education']['major']
-    
+            user_info['university'] = profile.get('university') or ""
+
+    print(f"[UserInfo] Final user info: name={'set' if user_info.get('name') else 'empty'}, "
+          f"major={user_info.get('major')!r}, university={user_info.get('university')!r}, "
+          f"year={user_info.get('year')!r}")
+
     return user_info
 

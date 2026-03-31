@@ -14,6 +14,7 @@ from flask import Blueprint, request, jsonify
 from app.extensions import require_firebase_auth, get_db
 from app.services.reply_generation import batch_generate_emails, PURPOSES_INCLUDE_RESUME, email_body_mentions_resume
 from app.services.gmail_client import _load_user_gmail_creds, download_resume_from_url, clear_user_gmail_integration
+from app.services.interview_prep.resume_parser import extract_text_from_pdf_bytes
 from app.routes.gmail_oauth import build_gmail_oauth_url_for_user
 from app.services.auth import check_and_reset_credits, deduct_credits_atomic
 from app.config import TIER_CONFIGS
@@ -233,7 +234,8 @@ def prompt_search():
         pdl_fetch_count = max_contacts + existing_contact_count + 2
 
         # Fetch contacts
-        contacts = search_contacts_from_prompt(parsed, pdl_fetch_count, exclude_keys=seen_contact_set)
+        contacts, retry_level_used = search_contacts_from_prompt(parsed, pdl_fetch_count, exclude_keys=seen_contact_set)
+        search_broadened = retry_level_used >= 2  # Title/industry filters were dropped
         if not contacts:
             return jsonify({
                 "contacts": [],
@@ -325,55 +327,50 @@ def prompt_search():
         if not user_profile:
             user_profile = {"name": "", "email": user_email or ""}
         career_interests = data.get("careerInterests") or (user_data or {}).get("careerInterests", [])
-        resume_text = None
         template_instructions, email_template_purpose, template_subject_line, signoff_config = _resolve_email_template(data.get("emailTemplate"), user_id, db, user_data=user_data)
         # Get resume filename for email body reference
         user_resume_filename = (user_data or {}).get("resumeFileName")
 
         auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
 
-        # Run email generation and resume download in parallel (they're independent)
-        from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
-
+        # Download resume PDF and extract text for email personalization
         resume_url = (user_data or {}).get("resumeUrl") or (user_data or {}).get("resumeURL")
+        resume_text = None
         resume_content = None
         resume_filename = None
-
-        def _generate_emails():
+        if resume_url:
             try:
-                return batch_generate_emails(
-                    contacts, resume_text, user_profile, career_interests,
-                    fit_context=None,
-                    template_instructions=template_instructions,
-                    email_template_purpose=email_template_purpose,
-                    resume_filename=user_resume_filename,
-                    subject_line=template_subject_line,
-                    signoff_config=signoff_config,
-                    auth_display_name=auth_display_name,
-                )
+                print(f"[Runs] Downloading resume for text extraction: {resume_url[:80]}...")
+                _content, _fname = download_resume_from_url(resume_url)
+                if _content:
+                    resume_content = _content
+                    resume_filename = _fname
+                    resume_text = extract_text_from_pdf_bytes(_content)
+                    if resume_text and len(resume_text.strip()) > 50:
+                        print(f"[Runs] Extracted {len(resume_text)} chars from resume PDF")
+                    else:
+                        print(f"[Runs] Resume text extraction too short ({len(resume_text or '')} chars)")
+                        resume_text = None
+                else:
+                    print("[Runs] Resume download returned no content")
             except Exception as e:
-                print(f"[Runs] Email generation failed (prompt-search): {e}")
-                return {}
+                print(f"[Runs] Could not download/extract resume: {e}")
 
-        def _download_resume():
-            if not resume_url:
-                return None, None
-            try:
-                content, filename = download_resume_from_url(resume_url)
-                stored = (user_data or {}).get("resumeFileName")
-                if stored:
-                    filename = stored
-                print(f"📎 Downloaded resume ({len(content) if content else 0} bytes)", flush=True)
-                return content, filename
-            except Exception:
-                return None, None
-
-        with ThreadPoolExecutor(max_workers=2) as parallel_exec:
-            email_future = parallel_exec.submit(_generate_emails)
-            resume_future = parallel_exec.submit(_download_resume)
-
-            email_results = email_future.result()
-            resume_content, resume_filename = resume_future.result()
+        # Generate emails with resume text
+        try:
+            email_results = batch_generate_emails(
+                contacts, resume_text, user_profile, career_interests,
+                fit_context=None,
+                template_instructions=template_instructions,
+                email_template_purpose=email_template_purpose,
+                resume_filename=user_resume_filename,
+                subject_line=template_subject_line,
+                signoff_config=signoff_config,
+                auth_display_name=auth_display_name,
+            )
+        except Exception as e:
+            print(f"[Runs] Email generation failed (prompt-search): {e}")
+            email_results = {}
 
         contacts_with_emails = []
         for i, contact in enumerate(contacts):
@@ -534,6 +531,7 @@ def prompt_search():
                 "locations": parsed.get("locations", []),
                 "company_context": parsed.get("company_context", ""),
             },
+            "search_broadened": search_broadened,
         }
         if credits_remaining is not None:
             response_data["credits_remaining"] = credits_remaining

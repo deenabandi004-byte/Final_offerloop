@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Callable, Tuple
 from io import BytesIO
 
 import httpx
-import PyPDF2
+import pdfplumber
 
 from app.services.scout_service import (
     scout_service,
@@ -482,17 +482,15 @@ class ApplicationLabService:
                 response.raise_for_status()
                 pdf_bytes = response.content
             
-            # Extract text using PyPDF2 (same as resume_parser)
+            # Extract text using pdfplumber (same as resume_parser)
             with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
                 temp_file.write(pdf_bytes)
                 temp_path = temp_file.name
-            
+
             try:
-                with open(temp_path, 'rb') as file:
-                    pdf_reader = PyPDF2.PdfReader(file)
-                    text = ""
-                    
-                    for page in pdf_reader.pages:
+                text = ""
+                with pdfplumber.open(temp_path) as pdf:
+                    for page in pdf.pages:
                         page_text = page.extract_text()
                         if page_text:
                             cleaned_text = ''.join(char for char in page_text if char.isprintable() or char.isspace())

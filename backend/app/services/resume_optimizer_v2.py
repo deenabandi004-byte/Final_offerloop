@@ -13,7 +13,7 @@ import shutil
 import tempfile
 from typing import Dict, List, Tuple, Any, Optional
 from docx import Document
-import PyPDF2
+import pdfplumber
 
 from app.services.libreoffice_service import convert_docx_to_pdf
 from app.services.docx_service import extract_text_from_docx, find_replace_in_docx
@@ -34,10 +34,9 @@ def check_conversion_quality(original_pdf: str, converted_docx: str) -> Tuple[bo
     
     try:
         # Get original stats from PDF
-        with open(original_pdf, 'rb') as file:
-            reader = PyPDF2.PdfReader(file)
+        with pdfplumber.open(original_pdf) as pdf:
             original_text = ""
-            for page in reader.pages:
+            for page in pdf.pages:
                 page_text = page.extract_text()
                 if page_text:
                     original_text += page_text + "\n"
@@ -587,21 +586,20 @@ def optimize_suggestions(
     
     # Extract text based on file type
     if file_type == "pdf":
-        with open(file_path, 'rb') as file:
-            reader = PyPDF2.PdfReader(file)
+        with pdfplumber.open(file_path) as pdf:
             resume_text = ""
-            for page in reader.pages:
+            for page in pdf.pages:
                 page_text = page.extract_text()
                 if page_text:
                     resume_text += page_text + "\n"
     else:
         resume_text = extract_text_from_docx(file_path)
-    
+
     if not resume_text or len(resume_text) < 50:
         raise ValueError("Could not extract text from resume")
-    
+
     print(f"[OptimizeV2] Extracted {len(resume_text)} characters")
-    
+
     # Get suggestions from AI
     print("[OptimizeV2] Getting optimization suggestions...")
     suggestions = get_optimization_suggestions(
@@ -653,16 +651,15 @@ def optimize_template_rebuild(
     
     # Extract text based on file type
     if file_type == "pdf":
-        with open(file_path, 'rb') as file:
-            reader = PyPDF2.PdfReader(file)
+        with pdfplumber.open(file_path) as pdf:
             resume_text = ""
-            for page in reader.pages:
+            for page in pdf.pages:
                 page_text = page.extract_text()
                 if page_text:
                     resume_text += page_text + "\n"
     else:
         resume_text = extract_text_from_docx(file_path)
-    
+
     if not resume_text or len(resume_text) < 50:
         raise ValueError("Could not extract text from resume")
     

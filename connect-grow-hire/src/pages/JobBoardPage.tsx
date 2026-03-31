@@ -390,7 +390,7 @@ const JobCard: React.FC<{
             <MapPin className="w-3 h-3 mr-1" />
             {job.location}
           </Badge>
-          <Badge variant={job.type === "Internship" ? "default" : "outline"} className="text-xs">
+          <Badge variant={(job.type || "").toUpperCase() === "INTERNSHIP" ? "default" : "outline"} className="text-xs">
             {job.type}
           </Badge>
           {job.remote && (
@@ -720,7 +720,7 @@ const JobBoardPage: React.FC = () => {
   const filteredFeedJobs = useMemo(() => {
     if (!feedData) return [];
     return feedData.top_jobs.filter((job) => {
-      if (selectedJobType !== "all" && job.type !== selectedJobType) return false;
+      if (selectedJobType !== "all" && (job.type || "").toUpperCase() !== selectedJobType.toUpperCase()) return false;
       if (selectedCategory !== "all" && job.category !== selectedCategory) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -734,7 +734,7 @@ const JobBoardPage: React.FC = () => {
   const filteredNewMatches = useMemo(() => {
     if (!feedData) return [];
     return feedData.new_matches.filter((job) => {
-      if (selectedJobType !== "all" && job.type !== selectedJobType) return false;
+      if (selectedJobType !== "all" && (job.type || "").toUpperCase() !== selectedJobType.toUpperCase()) return false;
       if (selectedCategory !== "all" && job.category !== selectedCategory) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();

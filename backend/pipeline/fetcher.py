@@ -1,5 +1,5 @@
 """
-Fetch job listings from Greenhouse, Lever, Workday, Ashby, and Fantastic.jobs APIs.
+Fetch job listings from Greenhouse, Lever, Ashby, and Fantastic.jobs APIs.
 Outputs a list of pre-normalized job dicts ready for the normalizer/writer.
 """
 import logging
@@ -20,6 +20,7 @@ REQUEST_TIMEOUT = 15
 # ---------------------------------------------------------------------------
 
 GREENHOUSE_SLUGS = [
+    # Big tech / consumer
     "stripe", "figma", "airbnb", "doordashusa", "lyft", "coinbase", "robinhood",
     "pinterest", "reddit", "dropbox", "twilio", "brex",
     "airtable", "carta", "chime", "scaleai", "verkada",
@@ -27,40 +28,96 @@ GREENHOUSE_SLUGS = [
     "gusto", "lattice", "mercury", "faire",
     "squarespace", "hubspot", "boxinc", "cloudflare",
     "mongodb", "databricks", "spacex", "instacart",
+    # FAANG / big tech
+    "metacareers", "google", "microsoft", "amazon", "apple", "nvidia",
+    # AI
+    "anthropic",
+    # Infrastructure / security / observability
+    "greenhouse", "datadog", "elastic", "okta", "zscaler",
+    "newrelic", "sumologic", "samsara", "toast",
+    # Consulting / Big 4
+    "deloitte", "pwc", "kpmg", "ey",
+    # Finance / quant
+    "goldmansachs", "jpmorgan", "blackrock", "citadel", "twosigma",
+    "janestreet", "hudsonrivertrading", "drw", "akunacapital",
+    "imctrading", "optiver", "sig", "flowtraders",
+    # Fintech
+    "gemini", "adyen", "marqeta", "affirm",
+    # Data / analytics
+    "fivetran", "hightouch", "mixpanel", "cultureamp",
+    # HR / remote / fintech
+    "remote", "rippling", "justworks", "oysterhr", "papayaglobal",
+    "bamboohr", "personio", "hibob", "leapsome", "15five", "betterworks",
+    # Biotech
+    "benchling", "ginkgobioworks", "recursionpharma", "insitro",
+    "10xgenomics", "virbio",
+    # Defense tech
+    "shieldai",
+    # Aviation / space
+    "jobyaviation", "archeraircraft", "boomsupersonic", "hermeus",
+    "zeroavia", "lilium", "wisk",
+    # Semiconductors
+    "amd", "qualcomm", "texasinstruments", "appliedmaterials",
+    "lamresearch", "kla", "asml", "micron",
+    # Developer tools / infra
+    "palantirtech", "cockroachlabs", "netlify", "fastly",
+    # Databases
+    "yugabyte", "timescale", "influxdata", "datastax", "couchbase", "scylladb",
+    # Entertainment / media
+    "hulu", "a24", "soundcloud",
 ]
 
 LEVER_SLUGS = [
-    "uber", "netflix", "spotify", "anthropic", "openai", "anduril",
+    # Mobility / health / AI
+    "uber", "netflix", "spotify", "anduril",
     "rivian", "waymo", "aurora", "recursion", "asana", "calm", "hims",
     "ro", "oscar-health", "devoted-health", "cityblock", "quartet",
     "scale-ai", "nuro",
-]
-
-# (display_name, workday_id, career_site)
-WORKDAY_COMPANIES = [
-    ("Goldman Sachs", "goldmansachs", "External_Career_Site"),
-    ("JP Morgan", "jpmorgan", "jpmorgan-External"),
-    ("Morgan Stanley", "morganstanley", "Careers"),
-    ("McKinsey", "mckinsey", "McKinsey"),
-    ("BCG", "bcg", "BCG"),
-    ("Bain", "bain", "BAC"),
-    ("Deloitte", "deloitte", "DeloitteCareers"),
-    ("Accenture", "accenture", "Accenture-Careers"),
-    ("Blackstone", "blackstone", "campus"),
-    ("KKR", "kkr", "KKR"),
-    ("Citadel", "citadel", "Citadel"),
-    ("PwC", "pwc", "PWCCampus"),
-    ("EY", "ey", "EYJobSearch"),
-    ("Bank of America", "bofa", "en-US"),
-    ("Bridgewater", "bridgewater", "Bridgewater"),
+    # Design / productivity / dev tools
+    "figma", "canva", "shopify", "twitch", "reddit", "duolingo",
+    "notion", "airtable", "webflow", "zapier",
+    "hubspot", "intercom", "zendesk", "freshworks", "atlassian",
+    "monday", "clickup", "linear", "loom", "miro",
+    "framer", "pitch", "superhuman", "fastmail", "hey",
+    "basecamp", "doist", "buffer",
+    # Publishing / newsletters
+    "ghost", "substack", "beehiiv", "convertkit", "mailchimp",
+    # Email infrastructure
+    "sendgrid", "postmark", "resend", "loops", "customerio",
+    "braze", "iterable", "klaviyo",
+    # Data / CDP
+    "segment", "rudderstack", "mparticle",
+    # Analytics / product
+    "amplitude", "mixpanel", "posthog", "heap", "fullstory", "hotjar",
+    "contentsquare", "quantum-metric", "glassbox",
+    # Feedback / surveys
+    "medallia", "qualtrics", "surveymonkey", "typeform", "tally", "jotform",
 ]
 
 ASHBY_SLUGS = [
-    "linear", "vercel", "loom", "descript", "notion",
-    "retool", "mercury", "ramp", "rippling", "deel",
-    "brex", "runway", "replit", "supabase", "planetscale",
-    "ashby", "coda", "superhuman", "figma", "clerk",
-    "resend", "cal", "raycast", "Screen", "turso",
+    # Core (verified with jobs)
+    "linear", "notion", "ramp", "deel",
+    "runway", "replit", "supabase", "ashby", "clerk", "resend", "raycast",
+    # AI / ML
+    "openai", "cohere", "perplexity", "cursor", "anysphere",
+    "mistralai", "togetherai", "modal", "replicate", "huggingface",
+    "wandb", "langchain", "pinecone", "weaviate", "trychroma", "qdrant",
+    # Infrastructure / data
+    "neon", "railway", "airbyte", "posthog", "inngest", "plain", "helpscout",
+    "fly", "render", "netlify",
+    # Productivity / dev tools
+    "zapier", "doist", "buffer", "front", "intercom", "liveblocks",
+    # Publishing / email
+    "ghost", "beehiiv", "loops",
+    # Serverless / triggers
+    "calcom", "trigger",
+    # CMS
+    "sanity", "contentful", "storyblok", "prismic", "hygraph",
+    "payload", "strapi", "directus",
+    # Backend-as-a-service / databases
+    "appwrite", "pocketbase", "nhost", "hasura", "fauna", "convex",
+    "xata", "turso", "planetscale",
+    "cockroachdb", "yugabyte", "timescale", "questdb", "scylladb", "datastax",
 ]
 
 # ---------------------------------------------------------------------------
@@ -203,83 +260,6 @@ def _fetch_all_lever() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Workday fetcher
-# ---------------------------------------------------------------------------
-
-def _fetch_workday(name: str, workday_id: str, career_site: str) -> list[dict]:
-    url = f"https://{workday_id}.wd1.myworkdayjobs.com/wday/cxs/{workday_id}/{career_site}/jobs"
-    body = {
-        "appliedFacets": {},
-        "limit": 20,
-        "offset": 0,
-        "searchText": "",
-    }
-    headers = {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-    }
-    try:
-        resp = requests.post(url, json=body, headers=headers, timeout=20)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as exc:
-        logger.warning("Workday [%s] failed: %s", name, exc)
-        return []
-
-    postings = data.get("jobPostings", [])
-    jobs = []
-    for posting in postings:
-        title = posting.get("title", "")
-        bullet_fields = posting.get("bulletFields", [])
-        if bullet_fields and not title:
-            title = bullet_fields[0]
-
-        location = posting.get("locationsText", "") or "United States"
-        external_path = posting.get("externalPath", "")
-        apply_url = f"https://{workday_id}.wd1.myworkdayjobs.com{external_path}" if external_path else ""
-
-        # Build a stable job_id from workday_id + external_path slug
-        path_slug = external_path.rstrip("/").rsplit("/", 1)[-1][:40] if external_path else title[:30].replace(" ", "_")
-        job_id = f"workday_{workday_id}_{path_slug}"
-
-        jobs.append({
-            "job_id": job_id,
-            "source": "workday",
-            "title": title,
-            "company": name,
-            "employer_logo": None,
-            "location": location,
-            "remote": "remote" in location.lower(),
-            "description_raw": "",
-            "apply_url": apply_url,
-            "posted_at": None,
-            "salary_min": None,
-            "salary_max": None,
-            "salary_period": None,
-        })
-
-    logger.info("  Workday [%s] → %d jobs", name, len(jobs))
-    return jobs
-
-
-def _fetch_all_workday() -> list[dict]:
-    results = []
-    companies_with_jobs = 0
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = {
-            pool.submit(_fetch_workday, name, wid, site): name
-            for name, wid, site in WORKDAY_COMPANIES
-        }
-        for future in as_completed(futures):
-            jobs = future.result()
-            if jobs:
-                companies_with_jobs += 1
-            results.extend(jobs)
-    logger.info("Workday: %d jobs from %d companies", len(results), companies_with_jobs)
-    return results
-
-
-# ---------------------------------------------------------------------------
 # Ashby fetcher
 # ---------------------------------------------------------------------------
 
@@ -343,92 +323,55 @@ def _fetch_all_ashby() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Fantastic.jobs (RapidAPI active-jobs-db) fetcher
+# Fantastic.jobs (RapidAPI active-jobs-db) fetcher — category-based strategy
 # ---------------------------------------------------------------------------
 
-FANTASTICJOBS_BASE_URL = "https://active-jobs-db.p.rapidapi.com/active-ats-7d"
+FANTASTICJOBS_BASE_URL = "https://active-jobs-db.p.rapidapi.com/active-ats-24h"
 FANTASTICJOBS_HOST = "active-jobs-db.p.rapidapi.com"
 
-FANTASTICJOBS_COMPANIES = {
-    "big_tech": [
-        "Google",
-        "Meta",
-        "Apple",
-        "Amazon",
-        "Microsoft",
-        "Netflix",
-        "Uber",
-        "Salesforce",
-        "Adobe",
-        "Oracle",
-        "IBM",
-        "Nvidia",
-        "PayPal",
-        "Visa",
-        "Mastercard",
-        "Workday",
-        "ServiceNow",
-        "Palo Alto Networks",
-        "Block",
-        "Intuit",
-        "Snap Inc.",
-        "Pinterest",
-        "Twitter",
-        "LinkedIn",
-        "DoorDash",
-        "Lyft",
-        "Instacart",
-        "Rivian",
-        "Palantir Technologies",
-    ],
-    "finance": [
-        "JPMorgan Chase & Co.",
-        "Goldman Sachs",
-        "Morgan Stanley",
-        "Bank of America",
-        "Citigroup",
-        "Wells Fargo",
-        "BlackRock",
-        "Vanguard",
-        "Fidelity Investments",
-        "Charles Schwab",
-        "Capital One",
-        "American Express",
-    ],
-    "consulting": [
-        "Deloitte US",
-        "McKinsey",
-        "Boston Consulting Group",
-        "Bain",
-        "Accenture",
-        "PwC",
-        "EY",
-        "KPMG",
-        "Oliver Wyman",
-    ],
-    "pe_finance": [
-        "Blackstone",
-        "KKR",
-        "Citadel",
-        "Bridgewater Associates",
-        "Two Sigma",
-    ],
-}
-
-# (label, extra_params dict) — merged with _FJ_CATEGORY_BASE_PARAMS at call time
-FANTASTICJOBS_CATEGORIES = [
-    ("product_management", {"title_filter": "product manager"}),
-    ("data_science", {"title_filter": "data scientist OR data analyst OR machine learning"}),
-    ("software_engineering", {"title_filter": "software engineer OR software developer"}),
-    ("marketing", {"title_filter": "marketing manager OR growth marketing OR brand marketing"}),
-    ("finance_analyst", {"title_filter": "financial analyst OR investment analyst"}),
-    ("consulting_analyst", {"title_filter": "consultant OR business analyst OR strategy analyst"}),
-    ("design", {"title_filter": "product designer OR UX designer OR UI designer"}),
-    ("operations", {"title_filter": "operations analyst OR business operations"}),
-    ("entry_level", {"ai_experience_level_filter": "0-2"}),
-    ("internships", {
+# Each call: (label, extra_params). All share agency=false, limit=100.
+FANTASTICJOBS_CALLS = [
+    ("tech_roles_us", {
+        "title_filter": "software engineer OR data scientist OR product manager OR data analyst OR machine learning",
+        "location_filter": "United States",
+    }),
+    ("finance_roles_us", {
+        "title_filter": "financial analyst OR investment analyst OR banking OR finance OR accounting",
+        "location_filter": "United States",
+    }),
+    ("consulting_roles_us", {
+        "title_filter": "consultant OR strategy OR business analyst OR management consulting",
+        "location_filter": "United States",
+    }),
+    ("big_tech_companies", {
+        "organization_filter": "Google,Meta,Apple,Amazon,Microsoft,Netflix,Salesforce,Adobe,Oracle,Nvidia,LinkedIn,Uber,Airbnb",
+        "location_filter": "United States",
+    }),
+    ("finance_companies", {
+        "organization_filter": "Goldman Sachs,JPMorgan Chase & Co.,Morgan Stanley,Bank of America,Wells Fargo,BlackRock,Vanguard,Fidelity Investments,Capital One,American Express",
+        "location_filter": "United States",
+    }),
+    ("consulting_companies", {
+        "organization_filter": "McKinsey,Boston Consulting Group,Bain,Accenture,PwC,EY,KPMG,Deloitte",
+        "location_filter": "United States",
+    }),
+    ("internships_us", {
         "ai_employment_type_filter": "INTERN",
-        "ai_taxonomies_a_filter": "Technology,Finance & Accounting,Consulting,Data & Analytics,Software,Marketing,Management & Leadership",
+        "ai_taxonomies_a_filter": "Technology,Finance & Accounting,Consulting,Data & Analytics,Software,Marketing",
+        "location_filter": "United States",
+    }),
+    ("entry_level_us", {
+        "ai_experience_level_filter": "0-2",
+        "ai_taxonomies_a_filter": "Technology,Finance & Accounting,Consulting,Data & Analytics,Software",
+        "location_filter": "United States",
+    }),
+    ("marketing_design_ops", {
+        "title_filter": "marketing OR designer OR UX OR growth OR operations analyst OR product designer",
+        "location_filter": "United States",
+    }),
+    ("remote_jobs", {
+        "title_filter": "software engineer OR data analyst OR product manager OR financial analyst OR consultant",
+        "remote": "true",
     }),
 ]
 
@@ -508,121 +451,36 @@ def _fj_fetch_page(params: dict, label: str) -> list[dict]:
     return [j for j in jobs_data if j.get("id") and j.get("title")]
 
 
-def _fj_paginate(base_params: dict, label: str, max_pages: int) -> tuple[list[dict], int]:
-    """Fetch up to max_pages from Fantastic.jobs. Returns (jobs, pages_fetched)."""
-    all_jobs: list[dict] = []
-    pages = 0
-    for page in range(max_pages):
-        params = {**base_params, "offset": str(page * 100)}
-        raw = _fj_fetch_page(params, label)
-        pages += 1
-        normalized = [_normalize_fj_job(j) for j in raw]
-        all_jobs.extend(normalized)
-        if len(raw) < 100:
-            break  # No more pages
-        if page < max_pages - 1:
-            time.sleep(1.5)
-    return all_jobs, pages
-
-
-def _fetch_fantasticjobs_company(company: str) -> tuple[list[dict], int]:
-    """Fetch jobs for a single company from Fantastic.jobs (up to 3 pages).
-
-    Tries organization_filter (exact match) first. If 0 results, retries
-    with advanced_organization_filter using a wildcard prefix search.
-    """
-    base_params = {
-        "limit": "100",
-        "description_type": "text",
-        "location_filter": "United States",
-        "agency": "false",
-    }
-
-    # Attempt 1: exact match via organization_filter
-    params = {**base_params, "organization_filter": company}
-    jobs, pages = _fj_paginate(params, company, max_pages=3)
-
-    # Attempt 2: wildcard prefix search if exact match returned nothing
-    if not jobs:
-        logger.info("  Fantastic.jobs [%s] exact match returned 0, trying wildcard", company)
-        time.sleep(1.5)
-        params = {**base_params, "advanced_organization_filter": f"{company}:*"}
-        jobs, pages = _fj_paginate(params, f"{company}:wildcard", max_pages=3)
-
-    logger.info("  Fantastic.jobs [%s] → %d jobs (%d pages)", company, len(jobs), pages)
-    return jobs, pages
-
-
-_FJ_CATEGORY_BASE_PARAMS = {
-    "limit": "100",
-    "description_type": "text",
-    "location_filter": "United States",
-    "agency": "false",
-    "li_organization_employees_gte": "500",
-}
-
-
-def _fetch_fantasticjobs_category(label: str, extra_params: dict) -> tuple[list[dict], int]:
-    """Fetch jobs for a single category/title-based query (up to 2 pages)."""
-    params = {**_FJ_CATEGORY_BASE_PARAMS, **extra_params}
-    jobs, pages = _fj_paginate(params, f"category:{label}", max_pages=2)
-    logger.info("  Fantastic.jobs [category:%s] → %d jobs (%d pages)", label, len(jobs), pages)
-    return jobs, pages
-
-
 def fetch_fantasticjobs() -> list[dict]:
-    """Fetch jobs from Fantastic.jobs: companies → categories.
+    """Fetch jobs from Fantastic.jobs using 10 targeted category calls.
 
-    Runs sequentially with 1.5s sleep between requests to stay within the
-    RapidAPI rate limit. Initial 3s delay lets concurrent fetchers finish first.
+    Uses the 24h endpoint with broad filters instead of company-by-company
+    fetching. Runs sequentially with 1.5s sleep between requests.
     """
     if not os.getenv("RAPIDAPI_KEY"):
         logger.info("Fantastic.jobs: skipped (no API key)")
         return []
 
-    # Let Greenhouse/Lever/Workday/Ashby finish their burst first
+    # Let Greenhouse/Lever/Ashby finish their burst first
     time.sleep(3)
 
-    all_companies = []
-    for companies in FANTASTICJOBS_COMPANIES.values():
-        all_companies.extend(companies)
-
     results = []
-    company_count = 0
-    category_count = 0
-    total_pages = 0
-    request_num = 0
+    calls_with_results = 0
 
-    # Phase 1: Company-specific fetches (up to 3 pages each)
-    for company in all_companies:
-        if request_num > 0:
+    for i, (label, extra_params) in enumerate(FANTASTICJOBS_CALLS):
+        if i > 0:
             time.sleep(1.5)
-        request_num += 1
-        jobs, pages = _fetch_fantasticjobs_company(company)
-        total_pages += pages
+
+        params = {"limit": "100", "agency": "false", **extra_params}
+        raw = _fj_fetch_page(params, label)
+        jobs = [_normalize_fj_job(j) for j in raw]
+
         if jobs:
-            company_count += 1
+            calls_with_results += 1
         results.extend(jobs)
+        logger.info("  Fantastic.jobs [%s] → %d jobs", label, len(jobs))
 
-    company_jobs_total = len(results)
-    logger.info("Fantastic.jobs companies: %d jobs from %d companies (%d pages)", company_jobs_total, company_count, total_pages)
-
-    # Phase 2: Category / title-based fetches (up to 2 pages each)
-    category_pages = 0
-    for label, extra_params in FANTASTICJOBS_CATEGORIES:
-        time.sleep(1.5)
-        request_num += 1
-        jobs, pages = _fetch_fantasticjobs_category(label, extra_params)
-        category_pages += pages
-        total_pages += pages
-        if jobs:
-            category_count += 1
-        results.extend(jobs)
-
-    category_jobs_total = len(results) - company_jobs_total
-    logger.info("Fantastic.jobs categories: %d jobs from %d categories (%d pages)", category_jobs_total, category_count, category_pages)
-
-    # Deduplicate by job_id (categories may overlap with company calls)
+    # Deduplicate by job_id (categories overlap)
     seen = set()
     deduped = []
     for job in results:
@@ -630,30 +488,166 @@ def fetch_fantasticjobs() -> list[dict]:
             seen.add(job["job_id"])
             deduped.append(job)
 
-    logger.info("Fantastic.jobs total: %d unique jobs (%d pages fetched)", len(deduped), total_pages)
+    logger.info(
+        "Fantastic.jobs: %d unique jobs from %d category calls (%d raw before dedup)",
+        len(deduped), calls_with_results, len(results),
+    )
     return deduped
+
+
+# ---------------------------------------------------------------------------
+# Simplify (GitHub-hosted internship listings)
+# ---------------------------------------------------------------------------
+
+SIMPLIFY_LISTINGS_URL = (
+    "https://raw.githubusercontent.com/SimplifyJobs/Summer2025-Internships"
+    "/dev/.github/scripts/listings.json"
+)
+
+
+_SIMPLIFY_SEARCH_FILTERS = [
+    "software",
+    "finance",
+    "data",
+    "marketing",
+    "consulting",
+    "product manager",
+    "research",
+]
+
+
+def _simplify_item_to_job(item: dict) -> dict | None:
+    """Convert a single Simplify listing to our pre-normalized format."""
+    if not item.get("active") or not item.get("is_visible"):
+        return None
+
+    title = (item.get("title") or "").strip()
+    company = (item.get("company_name") or "").strip()
+    if not title or not company:
+        return None
+
+    locations = item.get("locations") or []
+    location_str = ", ".join(locations) if locations else ""
+
+    return {
+        "job_id": f"simplify_{item['id']}",
+        "source": "simplify",
+        "title": title,
+        "company": company,
+        "employer_logo": None,
+        "location": location_str,
+        "remote": "remote" in location_str.lower(),
+        "description_raw": "",
+        "apply_url": item.get("url") or "",
+        "posted_at": item.get("date_posted"),
+        "job_employment_type": "INTERNSHIP",
+        "_category": _simplify_category(item.get("category", "")),
+        "_terms": item.get("terms", []),
+        "_sponsorship": item.get("sponsorship", ""),
+    }
+
+
+def fetch_simplify() -> list[dict]:
+    """Fetch active internship listings from the Simplify GitHub repo.
+
+    Downloads the full JSON once, then applies keyword filters to surface
+    targeted subsets (software, finance, data, etc.). Deduplicates by job_id.
+    """
+    try:
+        resp = requests.get(SIMPLIFY_LISTINGS_URL, timeout=30)
+        resp.raise_for_status()
+        raw = resp.json()
+    except Exception as e:
+        logger.warning("Simplify: fetch failed: %s", e)
+        return []
+
+    # Convert all active/visible items
+    all_valid: list[dict] = []
+    for item in raw:
+        job = _simplify_item_to_job(item)
+        if job:
+            all_valid.append(job)
+
+    # Phase 1: Take up to 2,000 from the full list (equivalent to 20 pages × 100)
+    main_batch = all_valid[:2000]
+    logger.info("  Simplify [main] → %d jobs (of %d active)", len(main_batch), len(all_valid))
+
+    seen: set[str] = {j["job_id"] for j in main_batch}
+    results = list(main_batch)
+    total_pages = len(main_batch) // 100 + (1 if len(main_batch) % 100 else 0)
+
+    # Phase 2: Keyword-filtered passes to surface relevant jobs beyond the top 2,000
+    for search_term in _SIMPLIFY_SEARCH_FILTERS:
+        matched = []
+        for job in all_valid:
+            if job["job_id"] in seen:
+                continue
+            title_lower = job["title"].lower()
+            company_lower = job["company"].lower()
+            cat_lower = job.get("_category", "").lower()
+            if search_term in title_lower or search_term in company_lower or search_term in cat_lower:
+                matched.append(job)
+                if len(matched) >= 300:  # 3 pages × 100
+                    break
+
+        for job in matched:
+            seen.add(job["job_id"])
+        results.extend(matched)
+        pages = len(matched) // 100 + (1 if len(matched) % 100 else 0)
+        total_pages += pages
+        logger.info("  Simplify [search=%s] → %d jobs (%d pages)", search_term, len(matched), pages)
+        time.sleep(1)
+
+    logger.info("Simplify: %d internship jobs fetched (%d pages)", len(results), total_pages)
+    return results
+
+
+def _simplify_category(raw_cat: str) -> str:
+    """Map Simplify category strings to our internal categories."""
+    cat = raw_cat.lower()
+    if "software" in cat:
+        return "engineering"
+    if "data" in cat:
+        return "data"
+    if "design" in cat:
+        return "design"
+    if "product" in cat or "pm" in cat:
+        return "product"
+    if "marketing" in cat:
+        return "marketing"
+    if "finance" in cat or "accounting" in cat:
+        return "finance"
+    if "hardware" in cat or "electrical" in cat or "mechanical" in cat:
+        return "engineering"
+    if "research" in cat or "science" in cat:
+        return "research"
+    if "sales" in cat or "business" in cat:
+        return "business"
+    return "other"
 
 
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def fetch_jobs() -> list[dict]:
-    """Fetch jobs from Greenhouse, Lever, Workday, Ashby, and Fantastic.jobs concurrently.
+def fetch_jobs(skip_fantastic: bool = False) -> list[dict]:
+    """Fetch jobs from all sources concurrently.
     Returns a list of pre-normalized job dicts."""
     with ThreadPoolExecutor(max_workers=5) as pool:
         gh_future = pool.submit(_fetch_all_greenhouse)
         lv_future = pool.submit(_fetch_all_lever)
-        wd_future = pool.submit(_fetch_all_workday)
         ab_future = pool.submit(_fetch_all_ashby)
-        fj_future = pool.submit(fetch_fantasticjobs)
+        fj_future = None if skip_fantastic else pool.submit(fetch_fantasticjobs)
+        si_future = pool.submit(fetch_simplify)
 
         greenhouse_jobs = gh_future.result()
         lever_jobs = lv_future.result()
-        workday_jobs = wd_future.result()
         ashby_jobs = ab_future.result()
-        fantasticjobs = fj_future.result()
+        fantasticjobs = [] if fj_future is None else fj_future.result()
+        simplify_jobs = si_future.result()
 
-    all_jobs = greenhouse_jobs + lever_jobs + workday_jobs + ashby_jobs + fantasticjobs
+    if skip_fantastic:
+        logger.info("Skipped Fantastic.jobs (--skip-fantastic)")
+    all_jobs = greenhouse_jobs + lever_jobs + ashby_jobs + fantasticjobs + simplify_jobs
     logger.info("Total: %d jobs fetched", len(all_jobs))
     return all_jobs

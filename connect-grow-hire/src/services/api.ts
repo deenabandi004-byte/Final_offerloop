@@ -231,6 +231,7 @@ export interface SearchResponse {
     locations?: string[];
     company_context?: string;
   };
+  search_broadened?: boolean;
 }
 
 // Error response type

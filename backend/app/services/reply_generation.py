@@ -342,7 +342,7 @@ def fix_apostrophes_and_formatting(text: str) -> str:
 PURPOSES_INCLUDE_RESUME = (None, "networking", "referral")
 
 # Phrases that indicate the email says a resume is attached (used for actually attaching the file when creating drafts).
-RESUME_MENTIONS = ["attached my resume", "attached resume", "resume below", "resume attached"]
+RESUME_MENTIONS = ["attached my resume", "attached resume", "resume below", "resume attached", "included my resume"]
 
 # Sign-off phrases that indicate the email has a proper closing (must be followed by sender name).
 SIGN_OFF_PHRASES = ("Best,", "Best regards,", "Thank you,", "Thanks,", "Sincerely,", "Kind regards,", "Warm regards,", "Looking forward to connecting,")
@@ -383,27 +383,16 @@ def _build_signature_block_for_prompt(signoff_config, user_info):
         block = (signoff_config.get("signatureBlock") or "").strip()
     if block:
         return f"{phrase}\n{block}"
-    # Build signature from user_info, omitting empty fields
+    # Build signature from user_info
     name = ""
-    university = ""
-    grad_year = ""
     if user_info and isinstance(user_info, dict):
         name = (user_info.get("name") or "").strip()
-        university = (user_info.get("university") or "").strip()
-        grad_year = (user_info.get("graduation_year") or user_info.get("gradYear") or "").strip()
     sig_lines = [phrase]
     if name:
         sig_lines.append(name)
     else:
         sig_lines.append("[Full Name]")
-    # Only add university/year line if we have at least one value
-    if university and grad_year:
-        sig_lines.append(f"{university} | Class of {grad_year}")
-    elif university:
-        sig_lines.append(university)
-    elif grad_year:
-        sig_lines.append(f"Class of {grad_year}")
-    # If neither university nor grad_year, omit the line entirely
+    # University is already mentioned in the email body — don't repeat in signature
     return "\n".join(sig_lines)
 
 
@@ -1096,6 +1085,27 @@ Return ONLY valid JSON:
                 filtered_lines = [line for line in lines if not any(m in line.lower() for m in RESUME_MENTIONS)]
                 body = '\n'.join(filtered_lines)
                 
+            # Strip bare university name lines the AI sometimes outputs in the signoff area
+            university_name = (user_info.get('university') or '').strip()
+            # Also check education dict as fallback
+            if not university_name:
+                edu = user_info.get('education', {})
+                if isinstance(edu, dict):
+                    university_name = (edu.get('university') or '').strip()
+            if university_name:
+                lines = body.split('\n')
+                cleaned = []
+                for line in lines:
+                    stripped = line.strip()
+                    # Remove lines that are just the university name (with optional punctuation)
+                    if stripped.lower().rstrip('.,;') == university_name.lower():
+                        continue
+                    # Also catch "University | Class of 2025" style lines
+                    if stripped.lower().startswith(university_name.lower()) and ('class of' in stripped.lower() or '|' in stripped):
+                        continue
+                    cleaned.append(line)
+                body = '\n'.join(cleaned)
+
             # Validate email body - check for common malformed patterns
             malformed_patterns = [
                 'studying at .',  # Missing university

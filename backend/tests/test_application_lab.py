@@ -169,13 +169,15 @@ async def test_backfill_resume_text_from_url_success():
         mock_client.get = AsyncMock(return_value=mock_response)
         mock_client_class.return_value = mock_client
         
-        # Mock PyPDF2
-        with patch('PyPDF2.PdfReader') as mock_pdf_reader:
-            mock_reader = Mock()
+        # Mock pdfplumber
+        with patch('pdfplumber.open') as mock_pdf_open:
             mock_page = Mock()
             mock_page.extract_text.return_value = "Extracted resume text with sufficient length " * 20  # > 500 chars
-            mock_reader.pages = [mock_page]
-            mock_pdf_reader.return_value = mock_reader
+            mock_pdf = Mock()
+            mock_pdf.pages = [mock_page]
+            mock_pdf.__enter__ = Mock(return_value=mock_pdf)
+            mock_pdf.__exit__ = Mock(return_value=False)
+            mock_pdf_open.return_value = mock_pdf
             
             # Mock Firestore update
             with patch('app.services.application_lab_service.get_db') as mock_get_db:
@@ -213,13 +215,15 @@ async def test_backfill_resume_text_scanned_pdf():
         mock_client.get = AsyncMock(return_value=mock_response)
         mock_client_class.return_value = mock_client
         
-        # Mock PyPDF2 - return empty text (scanned PDF)
-        with patch('PyPDF2.PdfReader') as mock_pdf_reader:
-            mock_reader = Mock()
+        # Mock pdfplumber - return empty text (scanned PDF)
+        with patch('pdfplumber.open') as mock_pdf_open:
             mock_page = Mock()
             mock_page.extract_text.return_value = ""  # Empty - scanned PDF
-            mock_reader.pages = [mock_page]
-            mock_pdf_reader.return_value = mock_reader
+            mock_pdf = Mock()
+            mock_pdf.pages = [mock_page]
+            mock_pdf.__enter__ = Mock(return_value=mock_pdf)
+            mock_pdf.__exit__ = Mock(return_value=False)
+            mock_pdf_open.return_value = mock_pdf
             
             # Mock Firestore update
             with patch('app.services.application_lab_service.get_db') as mock_get_db:

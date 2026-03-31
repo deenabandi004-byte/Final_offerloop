@@ -5,7 +5,7 @@ import json
 from typing import Dict, Optional
 from firebase_admin import storage, firestore
 from app.services.openai_client import get_openai_client
-import PyPDF2
+import pdfplumber
 from io import BytesIO
 import logging
 
@@ -43,19 +43,18 @@ def get_user_resume_text(user_id: str) -> Optional[str]:
 
 
 def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
-    """Extract text from PDF bytes using PyPDF2."""
+    """Extract text from PDF bytes using pdfplumber."""
     try:
-        pdf_reader = PyPDF2.PdfReader(BytesIO(pdf_bytes))
         text = ""
-        
-        for page in pdf_reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                # Clean and encode properly
-                cleaned_text = ''.join(char for char in page_text if char.isprintable() or char.isspace())
-                cleaned_text = cleaned_text.encode('utf-8', errors='ignore').decode('utf-8')
-                text += cleaned_text + "\n"
-        
+        with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    # Clean and encode properly
+                    cleaned_text = ''.join(char for char in page_text if char.isprintable() or char.isspace())
+                    cleaned_text = cleaned_text.encode('utf-8', errors='ignore').decode('utf-8')
+                    text += cleaned_text + "\n"
+
         # Final cleanup
         text = ' '.join(text.split())
         return text.strip() if text.strip() else ""

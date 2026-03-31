@@ -289,6 +289,74 @@ COMPANY_DOMAIN_MAP = {
     "hbo": "hbo.com",
     "hulu": "hulu.com",
     
+    # Telecom
+    "t-mobile": "t-mobile.com",
+    "t mobile": "t-mobile.com",
+    "tmobile": "t-mobile.com",
+    "at&t": "att.com",
+    "att": "att.com",
+    "at & t": "att.com",
+    "verizon": "verizon.com",
+    "sprint": "t-mobile.com",  # Sprint merged into T-Mobile (2020)
+    "comcast": "comcast.com",
+    "xfinity": "comcast.com",
+    "charter communications": "charter.com",
+    "spectrum": "charter.com",
+
+    # Tech - Hardware/Infra
+    "samsung": "samsung.com",
+    "qualcomm": "qualcomm.com",
+    "cisco": "cisco.com",
+    "cisco systems": "cisco.com",
+    "dell": "dell.com",
+    "dell technologies": "dell.com",
+    "hp": "hp.com",
+    "hewlett packard": "hp.com",
+    "hewlett-packard": "hp.com",
+    "hpe": "hpe.com",
+    "hewlett packard enterprise": "hpe.com",
+    "vmware": "vmware.com",
+    "broadcom": "broadcom.com",
+    "amd": "amd.com",
+    "advanced micro devices": "amd.com",
+
+    # Tech - SaaS/Cloud
+    "servicenow": "servicenow.com",
+    "workday": "workday.com",
+    "snowflake": "snowflake.com",
+    "databricks": "databricks.com",
+    "palantir": "palantir.com",
+    "palantir technologies": "palantir.com",
+    "datadog": "datadoghq.com",
+    "twilio": "twilio.com",
+    "slack": "slack-corp.com",
+    "zoom": "zoom.us",
+    "zoom video": "zoom.us",
+    "dropbox": "dropbox.com",
+    "atlassian": "atlassian.com",
+    "hubspot": "hubspot.com",
+    "splunk": "splunk.com",
+    "crowdstrike": "crowdstrike.com",
+    "palo alto networks": "paloaltonetworks.com",
+    "okta": "okta.com",
+    "cloudflare": "cloudflare.com",
+    "mongodb": "mongodb.com",
+    "elastic": "elastic.co",
+    "confluent": "confluent.io",
+
+    # Tech - Consumer/Social
+    "pinterest": "pinterest.com",
+    "reddit": "reddit.com",
+    "coinbase": "coinbase.com",
+    "robinhood": "robinhood.com",
+    "doordash": "doordash.com",
+    "instacart": "instacart.com",
+    "discord": "discord.com",
+    "figma": "figma.com",
+    "notion": "notion.so",
+    "openai": "openai.com",
+    "anthropic": "anthropic.com",
+
     # Other Major Companies
     "3m": "mmm.com",
     "ge": "ge.com",
@@ -1578,12 +1646,18 @@ def batch_verify_emails_for_contacts(contacts: list, target_company: str = None)
             results[i] = {'email': generated_email, 'verified': False, 'source': 'pattern'}
             continue
         
-        # Strategy 3: Fall back to PDL email (even if domain doesn't match)
+        # Strategy 3: Generate email from domain with common pattern (first.last@domain)
+        if domain and first_name and last_name:
+            fallback_email = f"{first_name.lower()}.{last_name.lower()}@{domain}"
+            results[i] = {'email': fallback_email, 'verified': False, 'source': 'domain_generated'}
+            continue
+
+        # Strategy 4: Fall back to PDL email only if no target domain available
         if pdl_email and pdl_email != "Not available":
             results[i] = {'email': pdl_email, 'verified': False, 'source': 'pdl_fallback'}
             continue
-        
-        # Strategy 4: No email found
+
+        # Strategy 5: No email found
         results[i] = {'email': None, 'verified': False, 'source': None}
     
     batch_time = time.time() - batch_start

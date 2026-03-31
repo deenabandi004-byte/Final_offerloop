@@ -1745,18 +1745,22 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
         person_to_batch_index = {}  # Map unique_persons index -> contacts_for_batch index
 
         # ⚡ Short-circuit: skip batch verification if all contacts already have valid PDL work emails
+        # BUT: never short-circuit when there's a target company — PDL emails may be from old jobs
         _PERSONAL_DOMAINS = {'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com', 'protonmail.com', 'me.com', 'live.com', 'msn.com', 'aol.com'}
         _all_have_pdl_email = True
         _pdl_emails_by_idx = {}
-        for _sc_idx, _sc_person in enumerate(unique_persons):
-            _sc_emails = _sc_person.get('emails') or []
-            _sc_recommended = _sc_person.get('recommended_personal_email') or ''
-            _sc_email = _choose_best_email(_sc_emails, _sc_recommended) if _sc_emails or _sc_recommended else None
-            if (not _sc_email or _sc_email == "Not available" or '@' not in _sc_email
-                    or _sc_email.split('@')[1].lower().strip() in _PERSONAL_DOMAINS):
-                _all_have_pdl_email = False
-                break
-            _pdl_emails_by_idx[_sc_idx] = _sc_email
+        if not target_company:
+            for _sc_idx, _sc_person in enumerate(unique_persons):
+                _sc_emails = _sc_person.get('emails') or []
+                _sc_recommended = _sc_person.get('recommended_personal_email') or ''
+                _sc_email = _choose_best_email(_sc_emails, _sc_recommended) if _sc_emails or _sc_recommended else None
+                if (not _sc_email or _sc_email == "Not available" or '@' not in _sc_email
+                        or _sc_email.split('@')[1].lower().strip() in _PERSONAL_DOMAINS):
+                    _all_have_pdl_email = False
+                    break
+                _pdl_emails_by_idx[_sc_idx] = _sc_email
+        else:
+            _all_have_pdl_email = False  # Force batch verification for target company searches
 
         if _all_have_pdl_email and _pdl_emails_by_idx:
             print(f"[BatchEmailVerification] ⚡ Skipped — all {len(_pdl_emails_by_idx)} contacts have valid PDL emails")
@@ -2680,7 +2684,7 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
     Uses same patterns as es_title_block, try_metro_search_optimized (location, company, schools).
     Returns query_obj ready for execute_pdl_search.
 
-    retry_level: 0=full query; 1=simplify title to single broad match on core role; 2=drop title; 3=drop title and location.
+    retry_level: 0=full query; 1=simplify title; 2=drop title+industry; 3=drop title+industry+location.
     Company and school filters are never dropped (user's core intent).
     """
     must = []
@@ -2796,14 +2800,17 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
             must.append({"bool": {"should": education_clauses}})
 
     # P3 FIX: Add industry filter when specified (e.g. "consulting", "financial services")
-    industries = parsed_prompt.get("industries") or []
-    if industries:
-        industry_clauses = [{"match": {"industry": ind.lower().strip()}} for ind in industries if ind and ind.strip()]
-        if industry_clauses:
-            if len(industry_clauses) == 1:
-                must.append(industry_clauses[0])
-            else:
-                must.append({"bool": {"should": industry_clauses}})
+    # Drop industry at retry_level >= 2 — PDL taxonomy often doesn't match
+    # the prompt parser's industry guesses (e.g. "media" vs "entertainment")
+    if retry_level < 2:
+        industries = parsed_prompt.get("industries") or []
+        if industries:
+            industry_clauses = [{"match": {"industry": ind.lower().strip()}} for ind in industries if ind and ind.strip()]
+            if industry_clauses:
+                if len(industry_clauses) == 1:
+                    must.append(industry_clauses[0])
+                else:
+                    must.append({"bool": {"should": industry_clauses}})
 
     # P0 FIX: Only return contacts that have email addresses
     must.append({"exists": {"field": "emails"}})
@@ -2912,14 +2919,15 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
 
     raw_contacts = []
     status_code = 200
+    retry_level_used = 0
     for attempt in range(4):
         if attempt >= 1:
             if attempt == 1:
-                print(f"[PDL Retry] Attempt 1: simplify titles only (single broad match on core role); keep company + school + location")
+                print(f"[PDL Retry] Attempt 1: simplify titles only (single broad match on core role); keep company + school + industry + location")
             elif attempt == 2:
-                print(f"[PDL Retry] Attempt 2: drop title filter (keep company + school + location)")
+                print(f"[PDL Retry] Attempt 2: drop title + industry filters (keep company + school + location)")
             else:
-                print(f"[PDL Retry] Attempt 3: drop location filter (keep company + school only)")
+                print(f"[PDL Retry] Attempt 3: drop title + industry + location (keep company + school only)")
         query_obj = build_query_from_prompt(parsed_prompt, retry_level=attempt)
         raw_contacts, status_code = execute_pdl_search(
             headers=headers,
@@ -2932,11 +2940,12 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
             target_company=target_company,
         )
         if raw_contacts:
+            retry_level_used = attempt
             break
         # No results for this query; try next relaxation
 
     if not raw_contacts:
-        return []
+        return [], 0
 
     companies_from_prompt = parsed_prompt.get("companies") or []
     schools_from_prompt = parsed_prompt.get("schools") or []
@@ -2960,7 +2969,7 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
     # Sort: contacts with LinkedIn URL first (stable sort). Never drop contacts for missing LinkedIn.
     linkedin_val = lambda c: (c.get("LinkedIn") or c.get("linkedin_url") or "").strip()
     filtered.sort(key=lambda c: (0 if linkedin_val(c) else 1))
-    return filtered[:max_contacts]
+    return filtered[:max_contacts], retry_level_used
 
 
 def build_coffee_chat_data(pdl_person: dict, best_email: str) -> dict:

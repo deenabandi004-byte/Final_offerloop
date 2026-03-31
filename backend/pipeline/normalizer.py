@@ -23,9 +23,17 @@ _TYPE_MAP = {
 }
 
 
+_INTERNSHIP_KEYWORDS = (
+    "intern", "internship", "co-op", "coop",
+    "fellowship", "apprentice",
+    "summer analyst", "summer associate",
+    "winter analyst", "spring analyst",
+)
+
+
 def normalize_type(raw_type: str | None, title: str) -> str:
     title_lower = (title or "").lower()
-    if any(kw in title_lower for kw in ("intern", "internship", "co-op")):
+    if any(kw in title_lower for kw in _INTERNSHIP_KEYWORDS):
         return "INTERNSHIP"
     if any(kw in title_lower for kw in ("part time", "part-time")):
         return "PARTTIME"
@@ -152,7 +160,7 @@ def _normalize_location(job: dict) -> tuple[str, bool]:
 # ---------------------------------------------------------------------------
 
 def _normalize_board_job(raw: dict) -> dict | None:
-    """Normalize a pre-structured job from Greenhouse/Lever/Workday."""
+    """Normalize a pre-structured job from Greenhouse/Lever/Ashby/Fantastic.jobs."""
     job_id = raw.get("job_id")
     title = raw.get("title")
     company = raw.get("company")
@@ -273,7 +281,7 @@ def _normalize_jsearch_job(raw: dict) -> dict | None:
 
 def normalize_job(raw: dict) -> dict | None:
     """Normalize a raw job dict from any source. Auto-detects format."""
-    if raw.get("source") in ("greenhouse", "lever", "workday", "ashby", "fantasticjobs"):
+    if raw.get("source") in ("greenhouse", "lever", "workday", "ashby", "fantasticjobs", "simplify"):
         return _normalize_board_job(raw)
     return _normalize_jsearch_job(raw)
 

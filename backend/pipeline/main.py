@@ -4,6 +4,7 @@ Offerloop Job Pipeline — entry point.
 
 Usage:
     python pipeline/main.py                  # Full pipeline: fetch → normalize → write
+    python pipeline/main.py --skip-fantastic  # Full pipeline, skip Fantastic.jobs
     python pipeline/main.py --fantastic-only  # Fantastic.jobs only (finance/consulting/big tech)
     python pipeline/main.py --cleanup        # Delete expired jobs only
     python pipeline/main.py --fix-salaries   # Recalculate WEEK salaries
@@ -36,13 +37,14 @@ def _bootstrap_app():
     return app
 
 
-def run_pipeline():
+def run_pipeline(skip_fantastic: bool = False):
     from backend.pipeline.fetcher import fetch_jobs
     from backend.pipeline.normalizer import normalize_all
     from backend.pipeline.writer import write_jobs
 
-    logger.info("Fetching jobs from Greenhouse, Lever, and Workday...")
-    raw = fetch_jobs()
+    sources = "Greenhouse, Lever, Ashby, Simplify" + ("" if skip_fantastic else ", Fantastic.jobs")
+    logger.info("Fetching jobs from %s...", sources)
+    raw = fetch_jobs(skip_fantastic=skip_fantastic)
 
     logger.info("Normalizing %d raw results...", len(raw))
     normalized = normalize_all(raw)
@@ -136,5 +138,7 @@ if __name__ == "__main__":
             run_fix_salaries()
         elif "--fantastic-only" in sys.argv:
             run_fantastic_only()
+        elif "--skip-fantastic" in sys.argv:
+            run_pipeline(skip_fantastic=True)
         else:
             run_pipeline()

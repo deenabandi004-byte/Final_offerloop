@@ -17,6 +17,7 @@ from app.config import GMAIL_SCOPES
 from ..extensions import require_firebase_auth
 from app.services.reply_generation import batch_generate_emails
 from app.services.gmail_client import get_gmail_service_for_user
+from app.services.interview_prep.resume_parser import extract_text_from_pdf_bytes
 from ..extensions import get_db
 from email_templates import get_template_instructions
 
@@ -75,6 +76,43 @@ def generate_and_draft():
     career_interest = payload.get("careerInterests")
     fit_context = payload.get("fitContext")  # NEW: Job fit analysis context
 
+    # If frontend didn't send resume text, download PDF from resume URL and extract
+    print(f"[EmailGen] resume_text from payload: {repr(resume_text)[:100] if resume_text else 'None/empty'} "
+          f"(len={len(resume_text) if resume_text else 0})")
+    if not resume_text or len(resume_text.strip()) < 50:
+        print("[EmailGen] resume_text missing or too short, attempting backfill from URL...")
+        _resume_url = payload.get("resumeUrl")
+        _url_source = "payload" if _resume_url else None
+        if not _resume_url:
+            _resume_url = user_profile.get("resumeUrl")
+            _url_source = "userProfile" if _resume_url else None
+        if not _resume_url:
+            _user_doc = db.collection("users").document(uid).get()
+            _user_data = _user_doc.to_dict() or {}
+            _resume_url = _user_data.get("resumeUrl")
+            _url_source = "firestore" if _resume_url else None
+        print(f"[EmailGen] Resume URL resolved: {_resume_url[:100] if _resume_url else 'None'} "
+              f"(source={_url_source})")
+        if _resume_url:
+            _resume_url = _normalize_drive_url(_resume_url)
+            try:
+                _res = requests.get(_resume_url, timeout=15, headers={"User-Agent": "Offerloop/1.0"})
+                _res.raise_for_status()
+                _pdf_bytes = _res.content
+                print(f"[EmailGen] Resume download: {_res.status_code}, {len(_pdf_bytes)} bytes, "
+                      f"content-type={_res.headers.get('content-type', 'unknown')}")
+                if len(_pdf_bytes) >= 1024 and b"<html" not in _pdf_bytes[:2048].lower():
+                    resume_text = extract_text_from_pdf_bytes(_pdf_bytes)
+                    print(f"[EmailGen] Text extraction result: {len(resume_text)} chars, "
+                          f"preview={repr(resume_text[:120])}")
+                else:
+                    print(f"[EmailGen] Resume download unusable: size={len(_pdf_bytes)}, "
+                          f"looks_like_html={b'<html' in _pdf_bytes[:2048].lower()}")
+            except Exception as e:
+                print(f"[EmailGen] Resume download/extraction failed: {e}")
+        else:
+            print("[EmailGen] No resume URL found in payload, userProfile, or Firestore")
+
     # Get Gmail service using user's OAuth credentials (falls back to shared account if not connected)
     user_email = request.firebase_user.get("email")
     gmail_service = get_gmail_service_for_user(user_email, user_id=uid)
@@ -132,6 +170,8 @@ def generate_and_draft():
         
         # 1) Generate emails with fit context and user's template/signoff
         auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
+        print(f"[EmailGen] Calling batch_generate_emails: resume_text={'present (' + str(len(resume_text)) + ' chars)' if resume_text else 'None/empty'}, "
+              f"contacts={len(contacts_to_generate)}")
         generated_results = batch_generate_emails(
             contacts_to_generate,
             resume_text,

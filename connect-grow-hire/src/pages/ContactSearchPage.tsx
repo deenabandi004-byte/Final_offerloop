@@ -892,6 +892,13 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
       setLastResults(result.contacts);
       setCompanyContext((result as any)?.parsed_query?.company_context || "");
 
+      if ((result as any)?.search_broadened && result.contacts.length > 0) {
+        toast({
+          title: "Broadened search",
+          description: "We couldn't find an exact role match, so we showed other people at the same company.",
+        });
+      }
+
       if (result.contacts.length === 0) {
         triggerScoutForNoResults();
         setSearchComplete(true);

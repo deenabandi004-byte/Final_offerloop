@@ -111,7 +111,7 @@ def init_firebase(app):
 def get_db():
     """Returns the Firestore client instance."""
     global db
-    print(f"🔍 get_db() called, current db value: {db}, id: {id(db) if db else 'None'}")
+    # Verbose debug log removed — fires on every request
     # If db is None but Firebase Admin is initialized, create the client on demand
     if db is None:
         if firebase_admin._apps:
