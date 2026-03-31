@@ -7,15 +7,30 @@ import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import OfferloopLogo from '@/assets/offerloop_logo2.png';
 import ChromeExtensionPic from '@/assets/Chrome_extensionpic.png';
 import GoogleLogo from '@/assets/Googlelogo.png';
-import HowItWorksVideo from '@/assets/ChatGPT of Email Outreach.mp4';
+import HowItWorksVideo from '@/assets/Find People Insta Highlight part 1.mp4';
 import FindCompanyImg from '@/assets/findcompanylandingpage.png';
 import FindHiringManagerImg from '@/assets/findhiringmanagerlandingpage.png';
 import EmailOutreachImg from '@/assets/emailoutreach.png.png';
 import CoffeeChatImg from '@/assets/coffeechatlandingpage.png';
+import FeatureShowcase from '@/components/FeatureShowcase';
+import ChromeIcon from '@/assets/Google_Chrome_icon.png';
+import LinkedInLogo from '@/assets/LinkedIn_Logo.png';
+import uscLogo from '@/assets/USC-Logo.png';
+import uclaLogo from '@/assets/UCLA logo.png';
+import berkeleyLogo from '@/assets/UC Berkeley logo.png';
+import stanfordLogo from '@/assets/Stanford logo.avif';
+import uwLogo from '@/assets/UW Logo.png';
+import nyuLogo from '@/assets/NYU Logo.png';
+import georgetownLogo from '@/assets/Georgetown logo.png';
+import michiganLogo from '@/assets/Michigan logo.png';
+import whartonLogo from '@/assets/Wharton Logo .png';
+import notreDameLogo from '@/assets/Notre Dame logo.png';
+import dartmouthLogo from '@/assets/Dartmouth logo.png';
+import TimeComparison from '@/components/TimeComparison';
+import BulletinBoard from '@/components/BulletinBoard';
 
 const CHROME_EXTENSION_URL = 'https://chromewebstore.google.com/detail/offerloop/aabnjgecmobcnnhkilbeocggbmgilpcl';
 
-const RULED_LINES = 'repeating-linear-gradient(to bottom, transparent, transparent 27px, rgba(37,99,235,.04) 27px, rgba(37,99,235,.04) 28px)';
 
 const Index = () => {
   const navigate = useNavigate();
@@ -26,12 +41,8 @@ const Index = () => {
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [konamiActivated, setKonamiActivated] = useState(false);
   const [resourcesOpen, setResourcesOpen] = useState(false);
-  const [currentChapter, setCurrentChapter] = useState('Preface');
   const heroRef = useRef<HTMLDivElement>(null);
   const dashboardRef = useRef<HTMLDivElement>(null);
-  const statsRef = useRef<HTMLDivElement>(null);
-  const statsAnimated = useRef(false);
-  const [animatedStats, setAnimatedStats] = useState({ contacts: 0, rate: 0, students: 0, prep: 0 });
 
   // Navbar scroll behavior, scroll progress, back to top, and chapter tracking
   useEffect(() => {
@@ -43,22 +54,6 @@ const Index = () => {
       const progress = (window.scrollY / totalHeight) * 100;
       setScrollProgress(progress);
 
-      // Chapter tracking
-      const sections = [
-        { id: 'how-it-works', label: 'Chapter I \u00b7 How It Works' },
-        { id: 'comparison', label: 'Chapter II \u00b7 The Difference' },
-        { id: 'features', label: 'Chapter III \u00b7 Five Tools' },
-        { id: 'testimonials', label: 'Chapter IV \u00b7 Reviews' },
-      ];
-      let chapter = 'Preface';
-      for (const s of sections) {
-        const el = document.getElementById(s.id);
-        if (el) {
-          const rect = el.getBoundingClientRect();
-          if (rect.top <= 120) chapter = s.label;
-        }
-      }
-      setCurrentChapter(chapter);
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
@@ -144,36 +139,6 @@ const Index = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Stats counter animation
-  useEffect(() => {
-    if (!statsRef.current) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && !statsAnimated.current) {
-          statsAnimated.current = true;
-          const duration = 1600;
-          const targets = { contacts: 2.2, rate: 38, students: 2400, prep: 30 };
-          const start = performance.now();
-          const ease = (t: number) => 1 - Math.pow(1 - t, 3);
-          const tick = (now: number) => {
-            const elapsed = Math.min((now - start) / duration, 1);
-            const e = ease(elapsed);
-            setAnimatedStats({
-              contacts: parseFloat((e * targets.contacts).toFixed(1)),
-              rate: Math.round(e * targets.rate),
-              students: Math.round(e * targets.students),
-              prep: Math.round(e * targets.prep),
-            });
-            if (elapsed < 1) requestAnimationFrame(tick);
-          };
-          requestAnimationFrame(tick);
-        }
-      },
-      { threshold: 0.3 }
-    );
-    observer.observe(statsRef.current);
-    return () => observer.disconnect();
-  }, []);
 
   const scrollToFeatures = () => {
     const element = document.getElementById('features');
@@ -198,89 +163,9 @@ const Index = () => {
         <meta property="og:url" content="https://offerloop.ai/" />
         <meta property="og:type" content="website" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-        <script type="application/ld+json">{JSON.stringify({
-          "@context": "https://schema.org",
-          "@type": "FAQPage",
-          "mainEntity": [
-            {
-              "@type": "Question",
-              "name": "How do I write a coffee chat email to someone I've never met?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "A strong coffee chat email should be concise (3-5 sentences), mention a specific reason you're reaching out to that person, and propose a clear ask like a 15-minute virtual call. Personalization is critical — reference their career path, a recent project, or a shared alma mater. Offerloop uses AI to draft personalized coffee chat requests by pulling context from a contact's background, saving hours of manual research and writing."
-              }
-            },
-            {
-              "@type": "Question",
-              "name": "What should I include in a cold email to a consultant at McKinsey, BCG, or Bain?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "Your cold email to an MBB consultant should include a brief introduction (school, year, relevant interest), one specific reason you're reaching out to them personally, and a low-commitment ask such as a 15-minute call. Avoid generic flattery and instead reference something concrete like their office location, practice area, or a published insight. Offerloop's AI email writer generates personalized consulting outreach emails by analyzing each contact's firm, role, and background from its 2.2 billion contact database."
-              }
-            },
-            {
-              "@type": "Question",
-              "name": "How do I cold email investment banking analysts and associates for networking?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "When cold emailing IB professionals, keep your message under 100 words, lead with a shared connection point (alma mater, hometown, or mutual contact), and ask for a brief phone call rather than an in-person meeting. A subject line like 'Fellow [University] Student — Quick Question on [Group Name]' tends to perform well. Offerloop helps students find verified emails of bankers across bulge brackets and elite boutiques while generating tailored outreach."
-              }
-            },
-            {
-              "@type": "Question",
-              "name": "How can I find the professional email address of someone I want to network with?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "Professional email addresses can often be found through company email pattern recognition, LinkedIn profile clues, or dedicated lookup tools. Offerloop provides access to a database of over 2.2 billion verified contacts, allowing college students to instantly find professional email addresses for alumni, recruiters, and industry professionals without needing multiple free tools."
-              }
-            },
-            {
-              "@type": "Question",
-              "name": "How do I reach out to alumni from my university for career advice?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "Start by identifying alumni in your target industry through your university's alumni directory, LinkedIn, or a networking platform. Your outreach should mention your shared school, express genuine curiosity about their career path, and request a specific time commitment like a 15-minute call. Offerloop lets students search for alumni by university, company, and role, then auto-generates personalized emails sent directly through Gmail with conversation tracking built in."
-              }
-            },
-            {
-              "@type": "Question",
-              "name": "What's the best strategy for networking to land an internship as a college freshman or sophomore?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "Start early by building relationships before recruiting season — reach out to upperclassmen, recent alumni, and professionals in your target industry 3-6 months before application deadlines. Focus on learning rather than asking for referrals in your initial conversations, and aim to build a network of 15-20 meaningful contacts in your target field. Offerloop removes the biggest barriers to networking — finding contacts, writing compelling emails, and staying organized."
-              }
-            },
-            {
-              "@type": "Question",
-              "name": "Is there a better alternative to LinkedIn for college students trying to network?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "LinkedIn is useful for browsing profiles, but it wasn't designed for proactive outreach — students often hit connection request limits, get ignored in DMs, and lack access to direct email addresses. Offerloop is designed as a LinkedIn alternative for students, combining a 2.2 billion contact database with AI-powered email generation and Gmail integration so students can move beyond passive profile browsing into active, measurable networking."
-              }
-            },
-            {
-              "@type": "Question",
-              "name": "What's a good networking email template for college students?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "A strong networking template has four parts: a personalized opening line (shared school, mutual connection, or specific interest in their work), one sentence about you, a clear and low-commitment ask (15-minute call), and a gracious close. Offerloop's AI generates unique emails for each contact by analyzing their professional background — the efficiency of a template with the authenticity of a hand-written message."
-              }
-            },
-            {
-              "@type": "Question",
-              "name": "Is offerloop.ai a personal email domain?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "No — offerloop.ai is not a personal email service. Offerloop is an AI-powered networking platform for college students. It helps students find professional contacts, generate personalized outreach emails, and track their networking pipeline for recruiting in consulting, investment banking, and tech."
-              }
-            }
-          ]
-        })}</script>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet" />
       </Helmet>
 
-      {/* Book spine */}
-      <div style={{ position: 'fixed', left: 0, top: 0, bottom: 0, width: 4, background: 'linear-gradient(to bottom, #2563EB, #60A5FA, #2563EB)', zIndex: 200, opacity: 0.35, pointerEvents: 'none' }} />
 
       {/* Reading progress bar */}
       <div style={{ position: 'fixed', top: 64, left: 0, right: 0, height: 2, background: '#EEF2F8', zIndex: 101 }}>
@@ -335,17 +220,17 @@ const Index = () => {
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-5" style={{ flexShrink: 1, minWidth: 0 }}>
-            <button onClick={scrollToFeatures} className="nav-link text-sm relative" style={{ color: '#4A5E80', fontFamily: "'Lora', Georgia, serif", fontStyle: 'italic', fontWeight: 600 }}>
+            <button onClick={scrollToFeatures} className="nav-link text-sm relative" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif", fontWeight: 600 }}>
               Features
             </button>
-            <button onClick={() => scrollToSection('extension')} className="nav-link text-sm relative" style={{ color: '#4A5E80', fontFamily: "'Lora', Georgia, serif", fontStyle: 'italic', fontWeight: 600 }}>
+            <button onClick={() => scrollToSection('extension')} className="nav-link text-sm relative" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif", fontWeight: 600 }}>
               Extension
             </button>
-            <button onClick={() => scrollToSection('testimonials')} className="nav-link text-sm relative" style={{ color: '#4A5E80', fontFamily: "'Lora', Georgia, serif", fontStyle: 'italic', fontWeight: 600 }}>
+            <button onClick={() => scrollToSection('testimonials')} className="nav-link text-sm relative" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif", fontWeight: 600 }}>
               Reviews
             </button>
             <div className="relative" onMouseEnter={() => setResourcesOpen(true)} onMouseLeave={() => setResourcesOpen(false)}>
-              <button className="nav-link text-sm relative flex items-center gap-1" style={{ color: '#4A5E80', fontFamily: "'Lora', Georgia, serif", fontStyle: 'italic', fontWeight: 600 }}>
+              <button className="nav-link text-sm relative flex items-center gap-1" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif", fontWeight: 600 }}>
                 Resources <ChevronDown className="h-3.5 w-3.5" style={{ opacity: 0.6 }} />
               </button>
               {resourcesOpen && (
@@ -362,7 +247,7 @@ const Index = () => {
                       { to: '/cold-email/investment-banking', label: 'Cold Email: Investment Banking' },
                       { to: '/cold-email/tech', label: 'Cold Email: Tech' },
                     ].map((item) => (
-                      <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" className="px-4 py-1.5 text-sm font-medium hover:bg-gray-50 transition-colors" style={{ color: '#4A5E80', fontFamily: "'Lora', Georgia, serif", fontStyle: 'italic', textDecoration: 'none' }}>
+                      <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" className="px-4 py-1.5 text-sm font-medium hover:bg-gray-50 transition-colors" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif", textDecoration: 'none' }}>
                         {item.label}
                       </a>
                     ))}
@@ -391,7 +276,7 @@ const Index = () => {
                       { to: '/alumni/duke', label: 'Duke' },
                       { to: '/alumni/northwestern', label: 'Northwestern' },
                     ].map((item) => (
-                      <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" className="px-4 py-1.5 text-sm font-medium hover:bg-gray-50 transition-colors" style={{ color: '#4A5E80', fontFamily: "'Lora', Georgia, serif", fontStyle: 'italic', textDecoration: 'none' }}>
+                      <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" className="px-4 py-1.5 text-sm font-medium hover:bg-gray-50 transition-colors" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif", textDecoration: 'none' }}>
                         {item.label}
                       </a>
                     ))}
@@ -403,7 +288,7 @@ const Index = () => {
                       { to: '/compare/handshake', label: 'Compare: vs Handshake' },
                       { to: '/compare/linkedin', label: 'Compare: vs LinkedIn' },
                     ].map((item) => (
-                      <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" className="px-4 py-1.5 text-sm font-medium hover:bg-gray-50 transition-colors" style={{ color: '#4A5E80', fontFamily: "'Lora', Georgia, serif", fontStyle: 'italic', textDecoration: 'none' }}>
+                      <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" className="px-4 py-1.5 text-sm font-medium hover:bg-gray-50 transition-colors" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif", textDecoration: 'none' }}>
                         {item.label}
                       </a>
                     ))}
@@ -423,7 +308,7 @@ const Index = () => {
               <>
                 <button
                   onClick={() => navigate('/signin?mode=signin')}
-                  style={{ background: 'transparent', color: '#0F172A', fontSize: '13px', fontWeight: 600, fontFamily: "'Lora', serif", fontStyle: 'italic', padding: '8px 20px', borderRadius: '100px', border: '1px solid rgba(37,99,235,0.2)', cursor: 'pointer', transition: 'all 0.15s ease' }}
+                  style={{ background: 'transparent', color: '#0F172A', fontSize: '13px', fontWeight: 600, fontFamily: "'Libre Baskerville', Georgia, serif", padding: '8px 20px', borderRadius: '100px', border: '1px solid rgba(37,99,235,0.2)', cursor: 'pointer', transition: 'all 0.15s ease' }}
                   onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(0,0,0,0.03)'; e.currentTarget.style.borderColor = 'rgba(37,99,235,0.35)'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'rgba(37,99,235,0.2)'; }}
                 >
@@ -431,7 +316,7 @@ const Index = () => {
                 </button>
                 <button
                   onClick={() => navigate('/signin?mode=signup')}
-                  style={{ background: '#2563EB', color: '#fff', fontSize: '13px', fontWeight: 600, fontFamily: "'Lora', serif", fontStyle: 'italic', padding: '8px 20px', borderRadius: '3px', border: 'none', cursor: 'pointer', transition: 'background 0.15s ease', flexShrink: 0, whiteSpace: 'nowrap' }}
+                  style={{ background: '#2563EB', color: '#fff', fontSize: '13px', fontWeight: 600, fontFamily: "'Libre Baskerville', Georgia, serif", padding: '8px 20px', borderRadius: '3px', border: 'none', cursor: 'pointer', transition: 'background 0.15s ease', flexShrink: 0, whiteSpace: 'nowrap' }}
                   onMouseEnter={(e) => { e.currentTarget.style.background = '#1D4ED8'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = '#2563EB'; }}
                 >
@@ -452,9 +337,9 @@ const Index = () => {
       {mobileMenuOpen && (
         <div className="fixed top-[72px] left-4 right-4 md:hidden z-40" style={{ background: 'rgba(255,255,255,0.98)', border: '1px solid rgba(37,99,235,0.1)', borderRadius: '16px', boxShadow: '0 4px 24px rgba(37,99,235,0.08)', backdropFilter: 'blur(16px)' }}>
           <nav className="flex flex-col p-3 gap-1">
-            <button onClick={() => { scrollToFeatures(); setMobileMenuOpen(false); }} className="text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Lora', serif", fontStyle: 'italic' }}>Features</button>
-            <button onClick={() => { scrollToSection('extension'); setMobileMenuOpen(false); }} className="text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Lora', serif", fontStyle: 'italic' }}>Extension</button>
-            <button onClick={() => { scrollToSection('testimonials'); setMobileMenuOpen(false); }} className="text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Lora', serif", fontStyle: 'italic' }}>Reviews</button>
+            <button onClick={() => { scrollToFeatures(); setMobileMenuOpen(false); }} className="text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif" }}>Features</button>
+            <button onClick={() => { scrollToSection('extension'); setMobileMenuOpen(false); }} className="text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif" }}>Extension</button>
+            <button onClick={() => { scrollToSection('testimonials'); setMobileMenuOpen(false); }} className="text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif" }}>Reviews</button>
             <div className="border-t mt-1 pt-1" style={{ borderColor: 'rgba(37,99,235,0.08)' }}>
               {/* Guides */}
               <p className="px-4 py-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#94A3B8' }}>Guides</p>
@@ -467,7 +352,7 @@ const Index = () => {
                 { to: '/cold-email/investment-banking', label: 'Cold Email: Investment Banking' },
                 { to: '/cold-email/tech', label: 'Cold Email: Tech' },
               ].map((item) => (
-                <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" className="block text-left px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Lora', serif", fontStyle: 'italic', textDecoration: 'none' }}>
+                <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" className="block text-left px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif", textDecoration: 'none' }}>
                   {item.label}
                 </a>
               ))}
@@ -496,7 +381,7 @@ const Index = () => {
                 { to: '/alumni/duke', label: 'Duke' },
                 { to: '/alumni/northwestern', label: 'Northwestern' },
               ].map((item) => (
-                <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" className="block text-left px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Lora', serif", fontStyle: 'italic', textDecoration: 'none' }}>
+                <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" className="block text-left px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif", textDecoration: 'none' }}>
                   {item.label}
                 </a>
               ))}
@@ -508,17 +393,17 @@ const Index = () => {
                 { to: '/compare/handshake', label: 'Compare: vs Handshake' },
                 { to: '/compare/linkedin', label: 'Compare: vs LinkedIn' },
               ].map((item) => (
-                <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" className="block text-left px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Lora', serif", fontStyle: 'italic', textDecoration: 'none' }}>
+                <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" className="block text-left px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif", textDecoration: 'none' }}>
                   {item.label}
                 </a>
               ))}
             </div>
-            <button onClick={() => { navigate('/signin?mode=signup'); setMobileMenuOpen(false); }} className="text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Lora', serif", fontStyle: 'italic' }}>Get started</button>
+            <button onClick={() => { navigate('/signin?mode=signup'); setMobileMenuOpen(false); }} className="text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif" }}>Get started</button>
             <div className="border-t mt-2 pt-2" style={{ borderColor: 'rgba(37,99,235,0.08)' }}>
               {user ? (
                 <button onClick={() => { navigate('/find'); setMobileMenuOpen(false); }} className="btn-primary-lg w-full" style={{ borderRadius: '3px' }}>Find people</button>
               ) : (
-                <button onClick={() => { navigate('/signin?mode=signup'); setMobileMenuOpen(false); }} className="w-full text-center py-3 text-sm font-semibold" style={{ background: '#2563EB', color: '#fff', borderRadius: '3px', fontFamily: "'Lora', serif", fontStyle: 'italic' }}>Create account</button>
+                <button onClick={() => { navigate('/signin?mode=signup'); setMobileMenuOpen(false); }} className="w-full text-center py-3 text-sm font-semibold" style={{ background: '#2563EB', color: '#fff', borderRadius: '3px', fontFamily: "'Libre Baskerville', Georgia, serif" }}>Create account</button>
               )}
             </div>
           </nav>
@@ -535,233 +420,148 @@ const Index = () => {
         style={{
           paddingTop: '120px',
           paddingBottom: '80px',
-          background: '#FFFFFF',
-          backgroundImage: RULED_LINES,
+          background: '#E8F1FB',
         }}
       >
-        {/* Ink splatter — hero */}
-        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 0 }}>
-          <svg width="100%" height="100%" viewBox="0 0 1200 700" fill="none" preserveAspectRatio="xMidYMid slice" style={{ position: 'absolute', inset: 0 }}>
-            <path d="M 20 15 Q 90 -8 145 28 Q 192 58 185 112 Q 178 162 130 172 Q 78 182 38 148 Q 2 118 8 68 Q 12 35 20 15 Z" fill="#1D4ED8" opacity="0.11"/>
-            <path d="M 55 168 Q 95 155 118 178 Q 138 198 122 222 Q 104 244 74 234 Q 46 224 44 198 Q 42 175 55 168 Z" fill="#2563EB" opacity="0.09"/>
-            <circle cx="168" cy="18" r="11" fill="#1D4ED8" opacity="0.11"/>
-            <circle cx="188" cy="36" r="6" fill="#2563EB" opacity="0.09"/>
-            <circle cx="152" cy="8" r="5" fill="#1D4ED8" opacity="0.10"/>
-            <circle cx="200" cy="54" r="4" fill="#3B82F6" opacity="0.08"/>
-            <circle cx="22" cy="200" r="8" fill="#1D4ED8" opacity="0.09"/>
-            <circle cx="8" cy="218" r="5" fill="#2563EB" opacity="0.08"/>
-            <circle cx="38" cy="226" r="4" fill="#3B82F6" opacity="0.08"/>
-            <circle cx="12" cy="236" r="3" fill="#60A5FA" opacity="0.07"/>
-            <path d="M 1098 18 Q 1148 2 1188 34 Q 1220 62 1206 106 Q 1190 146 1148 150 Q 1102 154 1078 116 Q 1058 82 1074 46 Q 1084 24 1098 18 Z" fill="#1D4ED8" opacity="0.10"/>
-            <path d="M 1158 148 Q 1188 138 1206 158 Q 1220 176 1208 196 Q 1194 214 1172 208 Q 1150 202 1148 180 Q 1146 160 1158 148 Z" fill="#2563EB" opacity="0.08"/>
-            <circle cx="1192" cy="8" r="8" fill="#1D4ED8" opacity="0.10"/>
-            <circle cx="1208" cy="24" r="5" fill="#2563EB" opacity="0.09"/>
-            <circle cx="1200" cy="42" r="3.5" fill="#3B82F6" opacity="0.08"/>
-            <circle cx="1060" cy="156" r="6" fill="#1D4ED8" opacity="0.09"/>
-            <circle cx="1046" cy="168" r="3.5" fill="#2563EB" opacity="0.07"/>
-            <circle cx="1068" cy="172" r="2.5" fill="#3B82F6" opacity="0.07"/>
-            <circle cx="620" cy="32" r="4" fill="#2563EB" opacity="0.08"/>
-            <circle cx="638" cy="44" r="2.5" fill="#3B82F6" opacity="0.07"/>
-            <circle cx="608" cy="52" r="3" fill="#2563EB" opacity="0.07"/>
-            <circle cx="840" cy="598" r="4" fill="#3B82F6" opacity="0.08"/>
-            <circle cx="856" cy="612" r="2.5" fill="#60A5FA" opacity="0.07"/>
-          </svg>
-        </div>
 
-        {/* Ghost page number */}
-        <span style={{ position: 'absolute', right: 32, top: '50%', transform: 'translateY(-50%)', fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 11, color: '#CBD5E1', zIndex: 1 }}>p. i</span>
-
-        {/* Subtle radial glow */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[600px] rounded-full pointer-events-none" style={{ background: 'radial-gradient(ellipse at center, rgba(37,99,235,0.06) 0%, transparent 70%)', zIndex: 1 }} />
-
-        <div className="relative max-w-3xl mx-auto text-center" style={{ zIndex: 1 }}>
-          {/* Table of Contents */}
-          <div style={{ display: 'flex', border: '1px solid #E2E8F0', borderRadius: 3, overflow: 'hidden', background: '#fff', maxWidth: 560, margin: '0 auto 44px' }}>
-            {[
-              { ch: 'Ch. I', title: 'How It Works', target: 'how-it-works' },
-              { ch: 'Ch. II', title: 'The Difference', target: 'comparison' },
-              { ch: 'Ch. III', title: 'Five Tools', target: 'features' },
-              { ch: 'Ch. IV', title: 'Reviews', target: 'testimonials' },
-            ].map((item, idx) => (
-              <button
-                key={item.ch}
-                onClick={() => scrollToSection(item.target)}
-                style={{
-                  flex: 1,
-                  padding: '10px 14px',
-                  borderRight: idx < 3 ? '1px solid #E2E8F0' : 'none',
-                  cursor: 'pointer',
-                  background: 'transparent',
-                  border: 'none',
-                  borderRight: idx < 3 ? '1px solid #E2E8F0' : 'none',
-                  textAlign: 'left',
-                  transition: 'background .15s',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = '#FAFBFF'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-              >
-                <div style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 9, color: '#93C5FD', textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 2 }}>{item.ch}</div>
-                <div style={{ fontFamily: "'Lora', serif", fontSize: 11.5, fontWeight: 600, color: '#4A5E80' }}>{item.title}</div>
-              </button>
-            ))}
-          </div>
-
-          {/* Section eyebrow */}
-          <div className="hero-fade-up hero-fade-up-delay-1" style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 13, color: '#93C5FD', letterSpacing: '.08em', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-            The Career Networking Tool
-            <div style={{ flex: 1, height: 1, maxWidth: 120, background: 'linear-gradient(90deg, #DBEAFE, transparent)' }} />
-          </div>
+        <div className="relative mx-auto text-center" style={{ zIndex: 1, maxWidth: 820 }}>
 
           <h1
             className="hero-fade-up hero-fade-up-delay-1 hero-headline"
-            style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(42px, 6vw, 68px)', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.025em', color: '#0F172A', marginBottom: 0 }}
+            style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 'clamp(44px, 6.5vw, 72px)', fontWeight: 400, lineHeight: 1.15, letterSpacing: '-0.02em', color: '#0f2545', marginBottom: 0 }}
           >
-            Recruiting takes long enough. <span style={{ color: '#2563EB', fontStyle: 'italic' }}>Stop wasting time on the busywork.</span>
+            Outreach is hard enough.<br /><span style={{ color: '#2563EB' }}>Eliminate the busywork.</span>
           </h1>
 
-          <div style={{ height: 1.5, background: 'linear-gradient(90deg, #2563EB, #60A5FA, transparent)', maxWidth: 320, margin: '12px auto 20px' }} />
-
-          <p
-            className="hero-fade-up hero-fade-up-delay-3 hero-drop-cap"
-            style={{ fontFamily: "'Lora', Georgia, serif", fontStyle: 'italic', fontSize: '16px', lineHeight: 1.75, color: '#6B7280', maxWidth: '520px', margin: '0 auto 36px', textAlign: 'left' }}
-          >
-            Outreach that used to take hours: finding emails, writing messages, researching companies, done in minutes. Check out our <Link to="/blog/cold-email-mckinsey-consultant" style={{ color: '#2563EB', textDecoration: 'underline' }}>McKinsey cold email template</Link> to see how it works. Focus on the conversations that actually land offers.
+          <p className="hero-fade-up hero-fade-up-delay-3" style={{ fontFamily: "'Inter', sans-serif", fontSize: 18, lineHeight: 1.6, color: '#6B7280', maxWidth: 560, margin: '24px auto 32px' }}>
+            Find verified emails, generate personalized outreach, and track every conversation — all in one place.
           </p>
 
           {/* CTA Buttons */}
-          <div className="hero-fade-up hero-fade-up-delay-4 flex flex-col sm:flex-row gap-3 justify-center">
+          <div className="hero-fade-up hero-fade-up-delay-4 flex justify-center">
             <button
               onClick={() => navigate('/signin?mode=signup')}
-              style={{ background: '#2563EB', color: '#fff', fontFamily: "'Lora', serif", fontStyle: 'italic', fontWeight: 600, borderRadius: '3px', padding: '13px 28px', boxShadow: '0 2px 12px rgba(37,99,235,.25)', border: 'none', cursor: 'pointer', fontSize: '14px', transition: 'background 0.15s ease' }}
+              style={{ background: '#2563EB', color: '#fff', fontFamily: "'Libre Baskerville', Georgia, serif", fontWeight: 600, borderRadius: '3px', padding: '13px 28px', boxShadow: '0 2px 12px rgba(37,99,235,.25)', border: 'none', cursor: 'pointer', fontSize: '14px', transition: 'background 0.15s ease' }}
               onMouseEnter={(e) => { e.currentTarget.style.background = '#1D4ED8'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = '#2563EB'; }}
             >
               Create account
             </button>
-            <a
-              href={CHROME_EXTENSION_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center gap-2"
-              style={{ padding: '13px 24px', fontSize: '14px', fontWeight: 600, fontFamily: "'Lora', serif", fontStyle: 'italic', textDecoration: 'none', border: '1px solid #CBD5E1', borderRadius: '3px', color: '#4A5E80', cursor: 'pointer', transition: 'all 0.15s ease', background: 'transparent' }}
-              onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#93C5FD'; e.currentTarget.style.color = '#0F172A'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#CBD5E1'; e.currentTarget.style.color = '#4A5E80'; }}
-            >
-              <img src={GoogleLogo} alt="" style={{ width: 16, height: 16, objectFit: 'contain' }} />
-              Download browser extension
-            </a>
           </div>
 
-          {/* Stats section */}
-          <div ref={statsRef} style={{ position: 'relative', padding: '52px 0 48px', textAlign: 'center', maxWidth: 680, margin: '48px auto 0' }}>
-            {/* Faint ruled lines */}
-            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', backgroundImage: 'repeating-linear-gradient(to bottom, transparent, transparent 27px, rgba(37,99,235,.04) 27px, rgba(37,99,235,.04) 28px)' }} />
+          <div style={{ marginTop: 48 }}>
+            <FeatureShowcase />
+          </div>
 
-            {/* Top rule with label */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 40, position: 'relative' }}>
-              <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg, transparent, #DBEAFE)' }} />
-              <div style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 10, color: '#93C5FD', letterSpacing: '.14em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>By the numbers</div>
-              <div style={{ flex: 1, height: 1, background: 'linear-gradient(270deg, transparent, #DBEAFE)' }} />
-            </div>
+        </div>
+      </section>
 
-            {/* Four stats */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', position: 'relative', marginBottom: 40 }}>
-              {/* Vertical separators */}
-              {[25, 50, 75].map(pct => (
-                <div key={pct} style={{ position: 'absolute', top: '10%', bottom: '10%', left: `${pct}%`, width: 1, background: 'linear-gradient(to bottom, transparent, #E2E8F0 30%, #E2E8F0 70%, transparent)' }} />
-              ))}
-
-              {[
-                { num: `${animatedStats.contacts}B`, accent: true, label: 'verified professional\ncontacts indexed' },
-                { num: `${animatedStats.rate}%`, accent: false, label: 'average open rate\non AI outreach' },
-                { num: `${animatedStats.students.toLocaleString()}+`, accent: true, label: 'students across\ntop universities' },
-                { num: `~${animatedStats.prep}s`, accent: false, label: 'to generate a full\ncoffee chat prep sheet' },
-              ].map((stat) => (
-                <div key={stat.num} style={{ padding: '0 16px', textAlign: 'center' }}>
-                  <div style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(32px, 3.5vw, 48px)', fontWeight: 700, color: stat.accent ? '#2563EB' : '#0F172A', letterSpacing: '-.04em', lineHeight: 1, marginBottom: 10 }}>
-                    {stat.num}
+      {/* ═══════════════ UNIVERSITY LOGO CAROUSEL ═══════════════ */}
+      <section style={{ background: '#ffffff', padding: '80px 0 40px', borderTop: '1px solid #EEF2F8', textAlign: 'center', overflow: 'hidden' }}>
+        <div style={{ maxWidth: 700, margin: '0 auto', padding: '0 24px', marginBottom: 56 }}>
+          <h2 style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 'clamp(28px, 4.5vw, 44px)', fontWeight: 400, lineHeight: 1.2, color: '#0f2545' }}>
+            Trusted by students at<br />the country's top universities
+          </h2>
+        </div>
+        <div style={{ position: 'relative' }}>
+          {/* Fade edges */}
+          <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 220, background: 'linear-gradient(90deg, #ffffff 20%, transparent)', zIndex: 1, pointerEvents: 'none' }} />
+          <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 220, background: 'linear-gradient(270deg, #ffffff 20%, transparent)', zIndex: 1, pointerEvents: 'none' }} />
+          <div className="logo-carousel" style={{ display: 'flex', gap: 20, width: 'max-content' }}>
+            {[...Array(2)].map((_, setIdx) => (
+              <div key={setIdx} className="logo-carousel-track" style={{ display: 'flex', gap: 20, flexShrink: 0 }}>
+                {([
+                  { name: 'USC', logo: uscLogo },
+                  { name: 'UCLA', logo: uclaLogo },
+                  { name: 'UC Berkeley', logo: berkeleyLogo },
+                  { name: 'Stanford', logo: stanfordLogo },
+                  { name: 'UW', logo: uwLogo },
+                  { name: 'NYU', logo: nyuLogo },
+                  { name: 'Georgetown', logo: georgetownLogo },
+                  { name: 'Michigan', logo: michiganLogo },
+                  { name: 'Wharton', logo: whartonLogo },
+                  { name: 'Notre Dame', logo: notreDameLogo },
+                  { name: 'Dartmouth', logo: dartmouthLogo },
+                ] as const).map((school) => (
+                  <div key={`${setIdx}-${school.name}`} style={{ borderRadius: 12, border: '0.5px solid #e5e7eb', padding: '12px 20px', background: '#fff', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 160, height: 72 }}>
+                    <img src={school.logo} alt={school.name} style={{ maxHeight: 44, maxWidth: 120, width: 'auto', height: 'auto', objectFit: 'contain', display: 'block' }} />
                   </div>
-                  <div style={{ height: 1.5, background: 'linear-gradient(90deg, transparent, #2563EB, transparent)', maxWidth: 28, margin: '0 auto 10px', opacity: .6 }} />
-                  <div style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 12, color: '#94A3B8', lineHeight: 1.6, whiteSpace: 'pre-line' }}>
-                    {stat.label}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Bottom schools line */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, position: 'relative' }}>
-              <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg, transparent, #DBEAFE)' }} />
-              <div style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 12, color: '#CBD5E1', letterSpacing: '.06em', whiteSpace: 'nowrap' }}>USC · Michigan · NYU · Georgetown · Wharton</div>
-              <div style={{ flex: 1, height: 1, background: 'linear-gradient(270deg, transparent, #DBEAFE)' }} />
-            </div>
+                ))}
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* ═══════════════ CHAPTER I: HOW IT WORKS ═══════════════ */}
-      <section id="how-it-works" className="relative px-6 md:px-12" style={{ padding: '72px 64px 60px', borderTop: '1px solid #EEF2F8', background: '#fff' }}>
-        {/* Ink splatter — Chapter I */}
-        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 0 }}>
-          <svg width="100%" height="100%" viewBox="0 0 1200 500" fill="none" preserveAspectRatio="xMidYMid slice">
-            <path d="M 1098 8 Q 1152 -4 1192 28 Q 1224 56 1210 100 Q 1196 140 1154 144 Q 1108 148 1086 112 Q 1066 78 1080 42 Q 1088 18 1098 8 Z" fill="#1D4ED8" opacity="0.11"/>
-            <circle cx="1196" cy="18" r="9" fill="#1D4ED8" opacity="0.10"/>
-            <circle cx="1192" cy="40" r="5" fill="#2563EB" opacity="0.09"/>
-            <circle cx="1200" cy="56" r="4" fill="#3B82F6" opacity="0.08"/>
-            <circle cx="1074" cy="150" r="7" fill="#1D4ED8" opacity="0.09"/>
-            <circle cx="1062" cy="164" r="4" fill="#2563EB" opacity="0.08"/>
-            <circle cx="1080" cy="168" r="3" fill="#3B82F6" opacity="0.07"/>
+      {/* ═══════════════ STATS CREST ═══════════════ */}
+      <div style={{ background: '#ffffff', padding: '56px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        {/* Top ornament */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 28, width: '100%', maxWidth: 400 }}>
+          <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg, transparent, #cbd5e1)' }} />
+          <svg width="20" height="12" viewBox="0 0 20 12" fill="none">
+            <path d="M10 0L13 4H7L10 0Z" fill="#2563EB" opacity=".3"/>
+            <path d="M10 12L7 8H13L10 12Z" fill="#2563EB" opacity=".3"/>
+            <circle cx="3" cy="6" r="1.5" fill="#cbd5e1"/>
+            <circle cx="17" cy="6" r="1.5" fill="#cbd5e1"/>
           </svg>
+          <div style={{ flex: 1, height: 1, background: 'linear-gradient(270deg, transparent, #cbd5e1)' }} />
         </div>
 
-        <span style={{ position: 'absolute', top: 20, left: 40, fontFamily: "'Lora', serif", fontSize: 72, fontWeight: 700, color: '#F0F5FF', userSelect: 'none', pointerEvents: 'none', zIndex: 1 }}>I</span>
-        <span style={{ position: 'absolute', right: 32, top: '50%', transform: 'translateY(-50%)', fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 11, color: '#CBD5E1', zIndex: 1 }}>p. 1</span>
+        {/* Numbers */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 56, alignItems: 'center' }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 'clamp(36px, 5vw, 52px)', fontWeight: 400, color: '#2563EB', lineHeight: 1 }}>2.2B+</div>
+            <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: '#94a3b8', marginTop: 8, letterSpacing: '.06em', textTransform: 'uppercase' }}>verified contacts</div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+            <div style={{ width: 1, height: 20, background: 'linear-gradient(to bottom, transparent, #cbd5e1)' }} />
+            <div style={{ width: 5, height: 5, borderRadius: '50%', border: '1px solid #cbd5e1' }} />
+            <div style={{ width: 1, height: 20, background: 'linear-gradient(to top, transparent, #cbd5e1)' }} />
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 'clamp(36px, 5vw, 52px)', fontWeight: 400, color: '#2563EB', lineHeight: 1 }}>2,400+</div>
+            <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: '#94a3b8', marginTop: 8, letterSpacing: '.06em', textTransform: 'uppercase' }}>students</div>
+          </div>
+        </div>
+
+        {/* Bottom ornament */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 28, width: '100%', maxWidth: 400 }}>
+          <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg, transparent, #cbd5e1)' }} />
+          <svg width="20" height="8" viewBox="0 0 20 8" fill="none">
+            <path d="M0 4Q5 0 10 4Q15 8 20 4" stroke="#cbd5e1" strokeWidth="1" fill="none"/>
+          </svg>
+          <div style={{ flex: 1, height: 1, background: 'linear-gradient(270deg, transparent, #cbd5e1)' }} />
+        </div>
+      </div>
+
+      {/* ═══════════════ CHAPTER I: HOW IT WORKS ═══════════════ */}
+      <section id="how-it-works" className="relative px-6 md:px-12" style={{ padding: '72px 64px 60px', background: '#ffffff' }}>
 
         <div style={{ position: 'relative', zIndex: 1, maxWidth: 760, margin: '0 auto', textAlign: 'center' }}>
-          <div style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 11, color: '#93C5FD', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-            Chapter I
-            <div style={{ flex: 1, height: 1, maxWidth: 120, background: 'linear-gradient(90deg, #DBEAFE, transparent)' }} />
-          </div>
-          <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(32px, 5vw, 52px)', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-.025em', color: '#0F172A', marginBottom: 0 }}>
-            The ChatGPT of Email Outreach
+          <h2 style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 'clamp(32px, 5vw, 52px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-.025em', color: '#0f2545', marginBottom: 0 }}>
+            How It Works
           </h2>
           <div style={{ height: 1.5, background: 'linear-gradient(90deg, #2563EB, #60A5FA, transparent)', maxWidth: 200, margin: '10px auto 16px' }} />
-          <p style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 16, lineHeight: 1.75, color: '#6B7280', maxWidth: 640, margin: '0 auto 48px' }}>
+          <p style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 16, lineHeight: 1.75, color: '#6B7280', maxWidth: 640, margin: '0 auto 48px' }}>
             Prompt the type of person you want to talk to and instantly have personalized emails created in your drafts ready to send. At the same time their information is stored into a networking tracker spreadsheet.
           </p>
 
           <div style={{ maxWidth: 900, margin: '0 auto', borderRadius: 4, overflow: 'hidden', border: '1px solid #E2E8F0', boxShadow: '0 2px 4px rgba(0,0,0,.03), 0 8px 24px rgba(37,99,235,.06)' }}>
-            <video src={HowItWorksVideo} autoPlay loop muted playsInline style={{ width: '100%', display: 'block' }} />
+            <video src={HowItWorksVideo} autoPlay loop muted playsInline className="w-full rounded-xl" style={{ display: 'block' }} />
           </div>
         </div>
       </section>
 
       {/* Chrome Extension */}
-      <section id="extension" className="relative px-6 md:px-12" style={{ padding: '72px 64px 60px', borderTop: '1px solid #EEF2F8', background: '#fff' }}>
-        {/* Ink splatter — Chrome Extension */}
-        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 0 }}>
-          <svg width="100%" height="100%" viewBox="0 0 1200 500" fill="none" preserveAspectRatio="xMidYMid slice">
-            <path d="M 12 372 Q 62 348 108 374 Q 146 396 138 442 Q 128 484 84 490 Q 38 496 14 458 Q -6 424 4 390 Q 8 376 12 372 Z" fill="#1D4ED8" opacity="0.11"/>
-            <circle cx="118" cy="362" r="8" fill="#1D4ED8" opacity="0.10"/>
-            <circle cx="132" cy="350" r="5" fill="#2563EB" opacity="0.09"/>
-            <circle cx="106" cy="352" r="4" fill="#3B82F6" opacity="0.08"/>
-            <circle cx="4" cy="506" r="7" fill="#1D4ED8" opacity="0.09"/>
-            <circle cx="20" cy="510" r="4" fill="#2563EB" opacity="0.08"/>
-          </svg>
-        </div>
-
-        <span style={{ position: 'absolute', right: 32, top: '50%', transform: 'translateY(-50%)', fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 11, color: '#CBD5E1', zIndex: 1 }}>p. 2</span>
+      <section id="extension" className="relative px-6 md:px-12" style={{ padding: '72px 64px 60px', borderTop: '1px solid #EEF2F8', background: '#E8F1FB', overflow: 'hidden' }}>
+        {/* Large faded Chrome logo */}
 
         <div style={{ position: 'relative', zIndex: 1, maxWidth: 760, margin: '0 auto', textAlign: 'center' }}>
-          <div style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 11, color: '#93C5FD', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-            Chrome Extension
-            <div style={{ flex: 1, height: 1, maxWidth: 120, background: 'linear-gradient(90deg, #DBEAFE, transparent)' }} />
-          </div>
-          <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(32px, 5vw, 52px)', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-.025em', color: '#0F172A', marginBottom: 0 }}>
+          <h2 style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 'clamp(32px, 5vw, 52px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-.025em', color: '#0f2545', marginBottom: 0 }}>
             Works right inside LinkedIn
           </h2>
           <div style={{ height: 1.5, background: 'linear-gradient(90deg, #2563EB, #60A5FA, transparent)', maxWidth: 200, margin: '10px auto 16px' }} />
-          <p style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 16, lineHeight: 1.75, color: '#6B7280', maxWidth: 540, margin: '0 auto 32px' }}>
+          <p style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 16, lineHeight: 1.75, color: '#6B7280', maxWidth: 540, margin: '0 auto 32px' }}>
             Write emails to anyone from their profile. Find hiring managers on any job posting. All from a single Chrome extension.
           </p>
 
@@ -769,11 +569,11 @@ const Index = () => {
             href={CHROME_EXTENSION_URL}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 10, background: '#0F172A', color: '#DBEAFE', textDecoration: 'none', fontFamily: "'Lora', serif", fontStyle: 'italic', fontWeight: 600, fontSize: 14, padding: '13px 28px', borderRadius: 3, border: 'none', cursor: 'pointer', transition: 'background 0.15s ease' }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = '#1E293B'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = '#0F172A'; }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 10, background: '#2563EB', color: '#fff', textDecoration: 'none', fontFamily: "'Libre Baskerville', Georgia, serif", fontWeight: 600, fontSize: 14, padding: '13px 28px', borderRadius: 3, border: 'none', cursor: 'pointer', transition: 'background 0.15s ease' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = '#1D4ED8'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = '#2563EB'; }}
           >
-            <img src={GoogleLogo} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />
+            <img src={ChromeIcon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />
             Add to Chrome — it's free
           </a>
 
@@ -785,104 +585,16 @@ const Index = () => {
         </div>
       </section>
 
-      {/* ═══════════════ CHAPTER II: COMPARISON ═══════════════ */}
-      <section id="comparison" className="relative px-6 md:px-12" style={{ padding: '72px 64px 60px', borderTop: '1px solid #EEF2F8', background: '#fff' }}>
-        {/* Ink splatter — Chapter II */}
-        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 0 }}>
-          <svg width="100%" height="100%" viewBox="0 0 1200 500" fill="none" preserveAspectRatio="xMidYMid slice">
-            <path d="M 8 12 Q 68 -6 118 26 Q 158 52 150 102 Q 140 148 96 156 Q 48 164 16 128 Q -8 96 2 52 Q 6 26 8 12 Z" fill="#1D4ED8" opacity="0.11"/>
-            <circle cx="128" cy="18" r="9" fill="#1D4ED8" opacity="0.10"/>
-            <circle cx="146" cy="36" r="5" fill="#2563EB" opacity="0.09"/>
-            <circle cx="112" cy="8" r="4" fill="#3B82F6" opacity="0.08"/>
-            <circle cx="6" cy="168" r="8" fill="#1D4ED8" opacity="0.09"/>
-            <circle cx="22" cy="182" r="4" fill="#2563EB" opacity="0.08"/>
-            <circle cx="36" cy="176" r="3" fill="#3B82F6" opacity="0.07"/>
-          </svg>
-        </div>
-
-        <span style={{ position: 'absolute', top: 20, left: 40, fontFamily: "'Lora', serif", fontSize: 72, fontWeight: 700, color: '#F0F5FF', userSelect: 'none', pointerEvents: 'none', zIndex: 1 }}>II</span>
-        <span style={{ position: 'absolute', right: 32, top: '50%', transform: 'translateY(-50%)', fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 11, color: '#CBD5E1', zIndex: 1 }}>p. 3</span>
-
-        <div style={{ position: 'relative', zIndex: 1, maxWidth: 760, margin: '0 auto', textAlign: 'center' }}>
-          <div style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 11, color: '#93C5FD', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-            Chapter II
-            <div style={{ flex: 1, height: 1, maxWidth: 120, background: 'linear-gradient(90deg, #DBEAFE, transparent)' }} />
-          </div>
-          <h2 className="reveal" style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(32px, 5vw, 52px)', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-.025em', color: '#0F172A', marginBottom: 0 }}>
-            Where your time actually goes
-          </h2>
-          <div style={{ height: 1.5, background: 'linear-gradient(90deg, #2563EB, #60A5FA, transparent)', maxWidth: 200, margin: '10px auto 48px' }} />
-        </div>
-
-        {/* Two-column book layout with column rule */}
-        <div className="max-w-[900px] mx-auto" style={{ display: 'grid', gridTemplateColumns: '1fr 2px 1fr', gap: '0 32px', position: 'relative', zIndex: 1 }}>
-          {/* Left: Without */}
-          <div className="reveal-stagger" style={{ padding: '32px 0' }}>
-            <h3 style={{ fontFamily: "'Lora', serif", fontSize: 13, letterSpacing: '.06em', textTransform: 'uppercase', color: '#94A3B8', marginBottom: 24 }}>Without Offerloop</h3>
-            {[
-              <>Effort spent writing an email to an email address that isn't real</>,
-              <><strong>15 minutes</strong> writing a single personalized message</>,
-              <><strong>5 minutes</strong> manually updating a spreadsheet after every email</>,
-              <><strong>30 minutes to an hour</strong> researching a person and company before a call</>,
-              <>Constantly refreshing your inbox to see if they responded</>,
-              <><strong>3+ hours</strong> before you even land one coffee chat</>,
-            ].map((text, i) => (
-              <div key={i} className="relative mb-4 reveal" style={{ paddingLeft: 24, fontSize: 14, lineHeight: 1.75, color: '#374151', fontFamily: "'Lora', serif", fontStyle: 'italic' }}>
-                <div className="absolute left-0 top-[9px] w-1.5 h-1.5 rounded-full" style={{ background: '#CBD5E1' }} />
-                {text}
-              </div>
-            ))}
-          </div>
-
-          {/* Column rule */}
-          <div style={{ background: 'linear-gradient(to bottom, transparent, #CBD5E1 20%, #CBD5E1 80%, transparent)' }} />
-
-          {/* Right: With */}
-          <div className="reveal-stagger" style={{ padding: '32px 0' }}>
-            <h3 style={{ fontFamily: "'Lora', serif", fontSize: 13, letterSpacing: '.06em', textTransform: 'uppercase', color: '#2563EB', marginBottom: 24 }}>With Offerloop</h3>
-            {[
-              <>Verified, deliverable emails found <strong>instantly</strong> — no more bounced messages</>,
-              <>Personalized emails drafted in <strong>seconds</strong>, not 15 minutes</>,
-              <>Every contact and outreach logged to your dashboard <strong>automatically</strong> — no manual spreadsheets</>,
-              <>AI-generated prep sheets with talking points and research for every call</>,
-              <><strong>Real-time</strong> email tracking so you know exactly when someone opens or replies</>,
-              <><strong>10 minutes</strong> of work that will almost guarantee you a coffee chat</>,
-            ].map((text, i) => (
-              <div key={i} className="relative mb-4 reveal" style={{ paddingLeft: 24, fontSize: 14, lineHeight: 1.75, color: '#374151', fontFamily: "'Lora', serif", fontStyle: 'italic' }}>
-                <div className="absolute left-0 top-[9px] w-1.5 h-1.5 rounded-full" style={{ background: '#3B82F6', opacity: 0.6 }} />
-                {text}
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* ═══════════════ COMPARISON ═══════════════ */}
+      <section id="comparison" style={{ borderTop: '1px solid #EEF2F8', background: '#ffffff' }}>
+        <TimeComparison />
       </section>
 
       {/* ═══════════════ CHAPTER III: FEATURES ═══════════════ */}
-      <section id="features" className="relative px-6 md:px-12" style={{ padding: '72px 64px 60px', borderTop: '1px solid #EEF2F8', background: '#fff' }}>
-        {/* Ink splatter — Chapter III */}
-        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 0 }}>
-          <svg width="100%" height="100%" viewBox="0 0 1200 800" fill="none" preserveAspectRatio="xMidYMid slice">
-            <path d="M 1094 6 Q 1152 -8 1194 28 Q 1228 58 1214 106 Q 1198 150 1152 156 Q 1102 162 1076 122 Q 1054 86 1072 44 Q 1082 16 1094 6 Z" fill="#1D4ED8" opacity="0.11"/>
-            <circle cx="1196" cy="18" r="9" fill="#1D4ED8" opacity="0.10"/>
-            <circle cx="1192" cy="40" r="5" fill="#2563EB" opacity="0.09"/>
-            <circle cx="1062" cy="162" r="6" fill="#1D4ED8" opacity="0.09"/>
-            <circle cx="1050" cy="174" r="3.5" fill="#2563EB" opacity="0.08"/>
-            <path d="M 6 572 Q 58 548 104 572 Q 142 592 136 638 Q 128 680 82 686 Q 34 692 8 652 Q -12 618 2 586 Q 4 576 6 572 Z" fill="#2563EB" opacity="0.10"/>
-            <circle cx="114" cy="562" r="8" fill="#1D4ED8" opacity="0.10"/>
-            <circle cx="128" cy="550" r="5" fill="#2563EB" opacity="0.08"/>
-            <circle cx="100" cy="552" r="4" fill="#3B82F6" opacity="0.08"/>
-          </svg>
-        </div>
-
-        <span style={{ position: 'absolute', top: 20, left: 40, fontFamily: "'Lora', serif", fontSize: 72, fontWeight: 700, color: '#F0F5FF', userSelect: 'none', pointerEvents: 'none', zIndex: 1 }}>III</span>
-        <span style={{ position: 'absolute', right: 32, top: '50%', transform: 'translateY(-50%)', fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 11, color: '#CBD5E1', zIndex: 1 }}>p. 4</span>
+      <section id="features" className="relative px-6 md:px-12" style={{ padding: '72px 64px 60px', borderTop: '1px solid #EEF2F8', background: '#E8F1FB' }}>
 
         <div style={{ position: 'relative', zIndex: 1, maxWidth: 760, margin: '0 auto', textAlign: 'center' }}>
-          <div style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 11, color: '#93C5FD', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-            Chapter III
-            <div style={{ flex: 1, height: 1, maxWidth: 120, background: 'linear-gradient(90deg, #DBEAFE, transparent)' }} />
-          </div>
-          <h2 className="reveal" style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(32px, 5vw, 52px)', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-.025em', color: '#0F172A', marginBottom: 0 }}>
+          <h2 className="reveal" style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 'clamp(32px, 5vw, 52px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-.025em', color: '#0f2545', marginBottom: 0 }}>
             Everything You Need to Network Smarter
           </h2>
           <div style={{ height: 1.5, background: 'linear-gradient(90deg, #2563EB, #60A5FA, transparent)', maxWidth: 200, margin: '10px auto 16px' }} />
@@ -890,23 +602,20 @@ const Index = () => {
 
         <div className="max-w-5xl mx-auto" style={{ display: 'flex', flexDirection: 'column', gap: 80, marginTop: 64, position: 'relative', zIndex: 1 }}>
           {[
-            { numeral: 'i', title: 'Find Company', description: "Describe the type of companies you're looking for in plain English and we'll find them for you.", image: FindCompanyImg },
-            { numeral: 'ii', title: 'Find Hiring Manager', description: "Paste a job posting URL and we'll find the recruiters and hiring managers for that role.", image: FindHiringManagerImg },
-            { numeral: 'iii', title: 'Coffee Chat Prep', description: "Paste a LinkedIn URL and get a personalized prep sheet with talking points, recent news, and smart questions.", image: CoffeeChatImg },
-            { numeral: 'iv', title: 'Manage Emails', description: "Track every email you've sent, see who opened it, who replied, and who needs a follow-up.", image: EmailOutreachImg },
+            { title: 'Find Hiring Managers', description: "Paste a job posting URL and we'll find the recruiters and hiring managers for that role.", image: FindHiringManagerImg },
+            { title: 'Manage Emails', description: "Track every email you've sent, see who opened it, who replied, and who needs a follow-up.", image: EmailOutreachImg },
+            { title: 'Coffee Chat Prep', description: "Paste a LinkedIn URL and get a personalized prep sheet with talking points, recent news, and smart questions.", image: CoffeeChatImg },
+            { title: 'Find Company', description: "Describe the type of companies you're looking for in plain English and we'll find them for you.", image: FindCompanyImg },
           ].map((feature, i) => {
             const isTextLeft = i % 2 === 0;
             return (
               <div key={feature.title} className="reveal" style={{ display: 'flex', flexDirection: isTextLeft ? 'row' : 'row-reverse', alignItems: 'center', gap: 48, flexWrap: 'wrap' }}>
                 <div style={{ flex: '1 1 340px', minWidth: 0 }}>
-                  <div style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 11, color: '#93C5FD', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8 }}>
-                    {feature.numeral}. {feature.title}
-                  </div>
-                  <h3 style={{ fontFamily: "'Lora', serif", fontSize: 22, fontWeight: 700, color: '#0F172A', marginBottom: 0 }}>
+                  <h3 style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 22, fontWeight: 400, color: '#0f2545', marginBottom: 0 }}>
                     {feature.title}
                   </h3>
                   <div style={{ height: 1, background: 'linear-gradient(90deg, #DBEAFE, transparent)', width: 80, margin: '8px 0 10px' }} />
-                  <p style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 15, lineHeight: 1.75, color: '#6B7280' }}>
+                  <p style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 15, lineHeight: 1.75, color: '#6B7280' }}>
                     {feature.description}
                   </p>
                 </div>
@@ -919,157 +628,74 @@ const Index = () => {
         </div>
       </section>
 
-      {/* ═══════════════ CHAPTER IV: TESTIMONIALS / PULL QUOTES ═══════════════ */}
-      <section id="testimonials" className="relative px-6 md:px-12" style={{ padding: '72px 64px 60px', borderTop: '1px solid #EEF2F8', background: '#FAFBFF' }}>
-        {/* Ink splatter — Chapter IV */}
-        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 0 }}>
-          <svg width="100%" height="100%" viewBox="0 0 1200 500" fill="none" preserveAspectRatio="xMidYMid slice">
-            <path d="M 1090 4 Q 1152 -10 1196 30 Q 1230 62 1214 110 Q 1196 154 1148 158 Q 1096 162 1070 120 Q 1048 82 1068 40 Q 1078 14 1090 4 Z" fill="#1D4ED8" opacity="0.11"/>
-            <circle cx="1198" cy="20" r="8" fill="#1D4ED8" opacity="0.10"/>
-            <circle cx="1192" cy="42" r="5" fill="#2563EB" opacity="0.09"/>
-            <circle cx="1058" cy="164" r="6" fill="#1D4ED8" opacity="0.09"/>
-            <circle cx="1048" cy="176" r="3.5" fill="#2563EB" opacity="0.08"/>
-          </svg>
-        </div>
-
-        <span style={{ position: 'absolute', top: 20, left: 40, fontFamily: "'Lora', serif", fontSize: 72, fontWeight: 700, color: '#F0F5FF', userSelect: 'none', pointerEvents: 'none', zIndex: 1 }}>IV</span>
-        <span style={{ position: 'absolute', right: 32, top: '50%', transform: 'translateY(-50%)', fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 11, color: '#CBD5E1', zIndex: 1 }}>p. 5</span>
-
-        <div style={{ position: 'relative', zIndex: 1, maxWidth: 760, margin: '0 auto', textAlign: 'center' }}>
-          <div style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 11, color: '#93C5FD', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-            Chapter IV
-            <div style={{ flex: 1, height: 1, maxWidth: 120, background: 'linear-gradient(90deg, #DBEAFE, transparent)' }} />
-          </div>
-          <h2 className="reveal" style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(32px, 5vw, 52px)', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-.025em', color: '#0F172A', marginBottom: 0 }}>
-            People Like You Use This
-          </h2>
-          <div style={{ height: 1.5, background: 'linear-gradient(90deg, #2563EB, #60A5FA, transparent)', maxWidth: 200, margin: '10px auto 48px' }} />
-        </div>
-
-        {/* Two-column pull quotes with column rule */}
-        <div className="max-w-[800px] mx-auto" style={{ position: 'relative', zIndex: 1 }}>
-          {[
-            { name: 'Dylan Roby', role: 'Investment Banking Analyst, Evercore', quote: 'Offerloop does the work I spent hundreds of hours doing to land my internship — in minutes.' },
-            { name: 'Jackson Leck', role: 'Private Equity Intern, Blackstone', quote: "I had so many recruiting tabs open. Now I have one. Everything I need in a single place." },
-            { name: 'Sarah Ucuzoglu', role: 'Financial Advisory Intern, PwC', quote: 'Automating cold outreach gave me more time spent face to face with professionals who could actually help.' },
-          ].map((t, i) => (
-            <div key={i} className="reveal" style={{ borderLeft: '3px solid #2563EB', padding: '20px 0 20px 28px', marginBottom: i < 2 ? 40 : 0 }}>
-              <p style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 16, color: '#374151', lineHeight: 1.8, marginBottom: 12 }}>
-                {t.quote}
-              </p>
-              <div style={{ fontFamily: "'Lora', serif", fontSize: 12, color: '#94A3B8' }}>
-                <span style={{ fontWeight: 700, fontStyle: 'normal', color: '#4A5E80' }}>{t.name}</span> — <span style={{ fontStyle: 'italic', color: '#2563EB' }}>{t.role}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ═══════════════ EPILOGUE / BACK COVER CTA ═══════════════ */}
-      <section className="relative px-6 md:px-12" style={{ padding: '100px 48px 110px', background: 'linear-gradient(170deg, #0A1628, #102040)', backgroundImage: RULED_LINES.replace('rgba(37,99,235,.04)', 'rgba(255,255,255,.03)'), textAlign: 'center' }}>
-        {/* Ink splatter — Epilogue (dark bg, higher opacity) */}
-        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 0 }}>
-          <svg width="100%" height="100%" viewBox="0 0 1200 500" fill="none" preserveAspectRatio="xMidYMid slice">
-            <path d="M 14 10 Q 98 -12 168 38 Q 222 78 208 148 Q 194 212 132 220 Q 66 228 22 174 Q -14 126 4 62 Q 10 28 14 10 Z" fill="#3B82F6" opacity="0.18"/>
-            <circle cx="192" cy="28" r="14" fill="#3B82F6" opacity="0.18"/>
-            <circle cx="214" cy="50" r="8" fill="#60A5FA" opacity="0.16"/>
-            <circle cx="172" cy="14" r="7" fill="#2563EB" opacity="0.18"/>
-            <circle cx="10" cy="240" r="10" fill="#3B82F6" opacity="0.16"/>
-            <circle cx="28" cy="256" r="6" fill="#60A5FA" opacity="0.14"/>
-            <circle cx="44" cy="248" r="4" fill="#2563EB" opacity="0.14"/>
-            <path d="M 1002 378 Q 1072 350 1138 388 Q 1192 420 1180 476 Q 1166 526 1106 530 Q 1040 534 1000 488 Q 966 448 980 408 Q 990 384 1002 378 Z" fill="#2563EB" opacity="0.18"/>
-            <circle cx="1154" cy="366" r="12" fill="#3B82F6" opacity="0.18"/>
-            <circle cx="1174" cy="386" r="7" fill="#60A5FA" opacity="0.16"/>
-            <circle cx="1138" cy="352" r="6" fill="#2563EB" opacity="0.16"/>
-            <circle cx="988" cy="546" r="8" fill="#3B82F6" opacity="0.16"/>
-            <circle cx="974" cy="558" r="4.5" fill="#60A5FA" opacity="0.14"/>
-          </svg>
-        </div>
-
-        <span style={{ position: 'absolute', right: 32, top: '50%', transform: 'translateY(-50%)', fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 11, color: 'rgba(255,255,255,.15)', zIndex: 1 }}>p. 6</span>
-
-        <div style={{ maxWidth: 640, margin: '0 auto', position: 'relative', zIndex: 1 }}>
-          <div style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 11, color: '#93C5FD', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-            Epilogue
-            <div style={{ flex: 1, height: 1, maxWidth: 120, background: 'linear-gradient(90deg, rgba(147,197,253,.4), transparent)' }} />
-          </div>
-
-          <p style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 12, color: 'rgba(255,255,255,.25)', marginBottom: 20 }}>
-            Join 400+ students from USC, Georgetown, NYU &amp; more
-          </p>
-
-          <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 'clamp(32px, 5vw, 52px)', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-.025em', color: '#fff', marginBottom: 0 }}>
-            Start Today
-          </h2>
-          <div style={{ height: 1.5, background: 'linear-gradient(90deg, transparent, #2563EB, #60A5FA, transparent)', maxWidth: 200, margin: '10px auto 16px' }} />
-
-          <p style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 15, color: 'rgba(255,255,255,.45)', marginBottom: 32 }}>
-            Free to start. Set up in under two minutes.
-          </p>
-
-          <button
-            onClick={() => navigate('/signin?mode=signup')}
-            className="btn-pulse"
-            style={{ background: '#DBEAFE', color: '#0F172A', fontFamily: "'Lora', serif", fontStyle: 'italic', fontWeight: 600, fontSize: 14, padding: '13px 28px', borderRadius: 3, border: 'none', cursor: 'pointer', transition: 'background 0.15s ease' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#fff'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = '#DBEAFE'; }}
-          >
-            Create free account
-          </button>
-        </div>
-      </section>
-
-      {/* FAQ SECTION */}
-      <section id="faq" style={{ padding: '64px 24px', maxWidth: 800, margin: '0 auto' }}>
-        <span style={{ position: 'absolute', right: 32, fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 11, color: '#CBD5E1' }}>p. 7</span>
-
-        <div style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 11, color: '#93C5FD', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
-          Common questions
-          <div style={{ flex: 1, height: 1, maxWidth: 120, background: 'linear-gradient(90deg, #DBEAFE, transparent)' }} />
-        </div>
-
-        <h2 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 24, fontWeight: 700, letterSpacing: '-.025em', color: '#0F172A', marginBottom: 0 }}>
-          Frequently Asked Questions
-        </h2>
-        <div style={{ height: 1.5, background: 'linear-gradient(90deg, #2563EB, #60A5FA, transparent)', maxWidth: 200, margin: '10px 0 24px' }} />
-
-        <div style={{ border: '1px solid #E2E8F0', borderRadius: 3, overflow: 'hidden' }}>
-          {[
-            { q: "How do I write a coffee chat email to someone I've never met?", a: "A strong coffee chat email should be concise (3-5 sentences), mention a specific reason you're reaching out to that person, and propose a clear ask like a 15-minute virtual call. Personalization is critical — reference their career path, a recent project, or a shared alma mater. Offerloop uses AI to draft personalized coffee chat requests by pulling context from a contact's background, saving hours of manual research and writing." },
-            { q: "What should I include in a cold email to a consultant at McKinsey, BCG, or Bain?", a: "Your cold email to an MBB consultant should include a brief introduction (school, year, relevant interest), one specific reason you're reaching out to them personally, and a low-commitment ask such as a 15-minute call. Avoid generic flattery and instead reference something concrete like their office location, practice area, or a published insight. Offerloop's AI email writer generates personalized consulting outreach emails by analyzing each contact's firm, role, and background from its 2.2 billion contact database." },
-            { q: "How do I cold email investment banking analysts and associates for networking?", a: "When cold emailing IB professionals, keep your message under 100 words, lead with a shared connection point (alma mater, hometown, or mutual contact), and ask for a brief phone call rather than an in-person meeting. A subject line like 'Fellow [University] Student — Quick Question on [Group Name]' tends to perform well. Offerloop helps students find verified emails of bankers across bulge brackets and elite boutiques while generating tailored outreach." },
-            { q: "How can I find the professional email address of someone I want to network with?", a: "Professional email addresses can often be found through company email pattern recognition, LinkedIn profile clues, or dedicated lookup tools. Offerloop provides access to a database of over 2.2 billion verified contacts, allowing college students to instantly find professional email addresses for alumni, recruiters, and industry professionals without needing multiple free tools." },
-            { q: "How do I reach out to alumni from my university for career advice?", a: "Start by identifying alumni in your target industry through your university's alumni directory, LinkedIn, or a networking platform. Your outreach should mention your shared school, express genuine curiosity about their career path, and request a specific time commitment like a 15-minute call. Offerloop lets students search for alumni by university, company, and role, then auto-generates personalized emails sent directly through Gmail with conversation tracking built in." },
-            { q: "What's the best strategy for networking to land an internship as a college freshman or sophomore?", a: "Start early by building relationships before recruiting season — reach out to upperclassmen, recent alumni, and professionals in your target industry 3-6 months before application deadlines. Focus on learning rather than asking for referrals in your initial conversations, and aim to build a network of 15-20 meaningful contacts in your target field. Offerloop removes the biggest barriers to networking — finding contacts, writing compelling emails, and staying organized." },
-            { q: "Is there a better alternative to LinkedIn for college students trying to network?", a: "LinkedIn is useful for browsing profiles, but it wasn't designed for proactive outreach — students often hit connection request limits, get ignored in DMs, and lack access to direct email addresses. Offerloop is designed as a LinkedIn alternative for students, combining a 2.2 billion contact database with AI-powered email generation and Gmail integration so students can move beyond passive profile browsing into active, measurable networking." },
-            { q: "What's a good networking email template for college students?", a: "A strong networking template has four parts: a personalized opening line (shared school, mutual connection, or specific interest in their work), one sentence about you, a clear and low-commitment ask (15-minute call), and a gracious close. Offerloop's AI generates unique emails for each contact by analyzing their professional background — the efficiency of a template with the authenticity of a hand-written message." },
-            { q: "Is offerloop.ai a personal email domain?", a: "No — offerloop.ai is not a personal email service. Offerloop is an AI-powered networking platform for college students. It helps students find professional contacts, generate personalized outreach emails, and track their networking pipeline for recruiting in consulting, investment banking, and tech." },
-          ].map((faq, i, arr) => (
-            <div key={i} style={{ padding: '20px 24px', borderBottom: i < arr.length - 1 ? '1px solid #EEF2F8' : 'none' }}>
-              <h3 style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 16, fontWeight: 700, color: '#0F172A', marginBottom: 8 }}>{faq.q}</h3>
-              <p style={{ fontFamily: "'Lora', serif", fontStyle: 'italic', fontSize: 14, lineHeight: 1.75, color: '#6B7280' }}>{faq.a}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+      {/* ═══════════════ BULLETIN BOARD ═══════════════ */}
+      <BulletinBoard />
 
       {/* FOOTER */}
-      <footer className="py-12 px-6 md:px-12" style={{ background: '#FFFFFF', borderTop: '1px solid #EEF2F8' }}>
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="text-sm" style={{ fontFamily: "'Lora', Georgia, serif", fontStyle: 'italic', fontSize: 13, color: '#CBD5E1' }}>
-            © 2026 Offerloop. All rights reserved.
-          </p>
-          <div className="flex gap-6">
-            {[
-              { label: 'About', path: '/about' },
-              { label: 'Contact', path: '/contact-us' },
-              { label: 'Privacy', path: '/privacy' },
-              { label: 'Terms', path: '/terms-of-service' },
-            ].map((link) => (
-              <Link key={link.path} to={link.path} className="footer-link text-sm relative" style={{ fontFamily: "'Lora', Georgia, serif", fontStyle: 'italic', fontSize: 13, color: '#94A3B8' }}>
-                {link.label}
-              </Link>
-            ))}
+      <footer style={{ background: '#ffffff', borderTop: '1px solid #EEF2F8' }}>
+        <div style={{ maxWidth: 1100, margin: '0 auto', padding: '64px 32px 0' }}>
+          {/* Top: Logo + Link Columns */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 64, alignItems: 'start' }}>
+            {/* Logo */}
+            <div>
+              <img src={OfferloopLogo} alt="Offerloop" style={{ height: 160, cursor: 'pointer' }} onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} />
+            </div>
+
+            {/* Features */}
+            <div>
+              <p style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 13, fontWeight: 700, color: '#0f2545', marginBottom: 16 }}>Features</p>
+              {[
+                { label: 'Find People', path: '/find' },
+                { label: 'Coffee Chat Prep', path: '/coffee-chat-prep' },
+                { label: 'Interview Prep', path: '/interview-prep' },
+                { label: 'Chrome Extension', href: CHROME_EXTENSION_URL },
+                { label: 'Job Board', path: '/job-board' },
+              ].map((link) => (
+                'href' in link ? (
+                  <a key={link.label} href={link.href} target="_blank" rel="noopener noreferrer" style={{ display: 'block', fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 13, color: '#64748b', textDecoration: 'none', marginBottom: 12, transition: 'color .15s' }} onMouseEnter={(e) => { e.currentTarget.style.color = '#2563EB'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#64748b'; }}>{link.label}</a>
+                ) : (
+                  <Link key={link.label} to={link.path!} style={{ display: 'block', fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 13, color: '#64748b', textDecoration: 'none', marginBottom: 12, transition: 'color .15s' }} onMouseEnter={(e) => { e.currentTarget.style.color = '#2563EB'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#64748b'; }}>{link.label}</Link>
+                )
+              ))}
+            </div>
+
+            {/* Company */}
+            <div>
+              <p style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 13, fontWeight: 700, color: '#0f2545', marginBottom: 16 }}>Company</p>
+              {[
+                { label: 'About', path: '/about' },
+                { label: 'Blog', path: '/blog' },
+                { label: 'Contact Us', path: '/contact-us' },
+                { label: 'Privacy', path: '/privacy' },
+                { label: 'Terms of Service', path: '/terms-of-service' },
+              ].map((link) => (
+                <Link key={link.label} to={link.path} style={{ display: 'block', fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 13, color: '#64748b', textDecoration: 'none', marginBottom: 12, transition: 'color .15s' }} onMouseEnter={(e) => { e.currentTarget.style.color = '#2563EB'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#64748b'; }}>{link.label}</Link>
+              ))}
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div style={{ height: 1, background: '#EEF2F8', margin: '48px 0 24px' }} />
+
+          {/* Bottom: Social + Copyright */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 32 }}>
+            <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+              <a href="https://www.linkedin.com/company/offerloop" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn" style={{ color: '#94A3B8', transition: 'color .15s' }} onMouseEnter={(e) => { e.currentTarget.style.color = '#2563EB'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#94A3B8'; }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+              </a>
+              <a href="https://twitter.com/offerloop" target="_blank" rel="noopener noreferrer" aria-label="X / Twitter" style={{ color: '#94A3B8', transition: 'color .15s' }} onMouseEnter={(e) => { e.currentTarget.style.color = '#2563EB'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#94A3B8'; }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+              </a>
+              <a href="https://www.instagram.com/offerloop" target="_blank" rel="noopener noreferrer" aria-label="Instagram" style={{ color: '#94A3B8', transition: 'color .15s' }} onMouseEnter={(e) => { e.currentTarget.style.color = '#2563EB'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#94A3B8'; }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+              </a>
+              <a href="https://www.tiktok.com/@offerloop" target="_blank" rel="noopener noreferrer" aria-label="TikTok" style={{ color: '#94A3B8', transition: 'color .15s' }} onMouseEnter={(e) => { e.currentTarget.style.color = '#2563EB'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#94A3B8'; }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1v-3.5a6.37 6.37 0 00-.79-.05A6.34 6.34 0 003.15 15.2a6.34 6.34 0 0010.86 4.46V13a8.28 8.28 0 005.58 2.17V11.7a4.85 4.85 0 01-3.77-1.85V6.69h3.77z"/></svg>
+              </a>
+            </div>
+            <p style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 12, color: '#CBD5E1' }}>
+              © 2026 Offerloop. All rights reserved.
+            </p>
           </div>
         </div>
       </footer>
@@ -1087,11 +713,25 @@ const Index = () => {
 
       {/* Drop cap CSS */}
       <style>{`
+        @keyframes logo-scroll {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-100%); }
+        }
+        .logo-carousel-track {
+          animation: logo-scroll 30s linear infinite;
+        }
+        @keyframes testimonial-scroll {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-100%); }
+        }
+        .testimonial-carousel-track {
+          animation: testimonial-scroll 45s linear infinite;
+        }
         .hero-drop-cap::first-letter {
           font-size: 3.2em;
           font-weight: 700;
           font-style: normal;
-          color: #0F172A;
+          color: #0f2545;
           float: left;
           line-height: .78;
           margin: 4px 6px -4px 0;
