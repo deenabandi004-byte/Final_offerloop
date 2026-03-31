@@ -8,6 +8,8 @@ from backend.app.utils.job_ranking import (
     rank_with_gpt,
     apply_feedback_adjustments,
     cap_per_company,
+    _is_excluded as _is_excluded_job,
+    _is_non_us as _is_international_job,
 )
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor
@@ -29,60 +31,6 @@ _ranking_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="job-rank")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-_EXCLUDED_COUNTRIES = {
-    "brazil", "canada", "india", "uk", "united kingdom", "singapore",
-    "australia", "germany", "france", "netherlands", "china", "japan",
-    "ireland", "poland", "spain", "italy", "sweden", "denmark",
-    "finland", "norway", "mexico",
-}
-
-
-_SENIOR_TITLE_KEYWORDS = [
-    "sr. ", "sr ", "senior ", "lead ", "principal ", "staff ",
-    "director", "vp ", "vice president", "head of",
-    "managing director", "partner,",
-]
-_MANAGER_EXCEPTIONS = ("product manager", "program manager")
-_EXCLUDED_TITLE_KEYWORDS = [
-    "assembly", "manufacturing", "warehouse", "forklift", "cdl",
-    "nursing", "medical assistant", "dental", "hvac", "electrician",
-    "plumber", "truck driver", "cashier", "barista",
-]
-_EXCLUDED_CATEGORIES = frozenset([
-    "manufacturing", "construction", "healthcare", "retail",
-    "food_service", "transportation", "agriculture",
-])
-
-
-def _is_excluded_job(job: dict) -> bool:
-    """Return True if job should be excluded from feed (senior, irrelevant, etc.)."""
-    if job.get("category") in _EXCLUDED_CATEGORIES:
-        return True
-    title_lower = (job.get("title") or "").lower()
-    if any(kw in title_lower for kw in _EXCLUDED_TITLE_KEYWORDS):
-        return True
-    if any(kw in title_lower for kw in _SENIOR_TITLE_KEYWORDS):
-        return True
-    if "manager" in title_lower and not any(exc in title_lower for exc in _MANAGER_EXCEPTIONS):
-        return True
-    return False
-
-
-def _is_international_job(job: dict) -> bool:
-    """Return True if job is based in a non-US location.
-
-    Excludes jobs like "Remote, Singapore" where the primary location is
-    international, even if tagged remote. Keeps purely "Remote" or "Remote - US".
-    """
-    loc = job.get("location") or ""
-    if isinstance(loc, dict):
-        loc = loc.get("name") or loc.get("city") or str(loc)
-    elif isinstance(loc, list):
-        loc = " ".join(str(x) for x in loc)
-    location = str(loc).lower()
-    # If location mentions a non-US country, exclude regardless of remote flag
-    return any(c in location for c in _EXCLUDED_COUNTRIES)
 
 
 def _dedup_by_title_company(jobs: list[dict]) -> list[dict]:

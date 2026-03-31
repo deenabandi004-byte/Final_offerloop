@@ -1,21 +1,22 @@
 import { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { OnboardingShell } from "@/components/OnboardingShell";
 import { OnboardingWelcome } from "./OnboardingWelcome";
-import { OnboardingLocationPreferences } from "./OnboardingLocationPreferences";
 import { OnboardingProfile } from "./OnboardingProfile";
 import { OnboardingAcademics } from "./OnboardingAcademics";
-import { User, GraduationCap, MapPin } from "lucide-react";
+import { OnboardingGoals } from "./OnboardingGoals";
+import { OnboardingLocationPreferences } from "./OnboardingLocationPreferences";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { BACKEND_URL } from "@/services/api";
-import { toast } from "sonner"; // Make sure you have sonner installed for toast notifications
-import { auth } from '@/lib/firebase';
-
-type OnboardingStep = "welcome" | "profile" | "academics" | "location";
+import { toast } from "sonner";
+import { auth } from "@/lib/firebase";
 
 interface OnboardingData {
-  location?: any;
   profile?: any;
   academics?: any;
+  goals?: { careerTrack: string; dreamCompanies: string[]; personalNote: string };
+  skippedGoals?: boolean;
+  location?: any;
 }
 
 interface OnboardingFlowProps {
@@ -25,91 +26,89 @@ interface OnboardingFlowProps {
 export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { completeOnboarding, refreshUser, user } = useFirebaseAuth(); // ← ADD refreshUser here
+  const { completeOnboarding, refreshUser } = useFirebaseAuth();
 
   const sp = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const returnTo = useMemo(() => sp.get("returnTo") || "", [sp]);
 
-  const [currentStep, setCurrentStep] = useState<OnboardingStep>("welcome");
-  const [isSubmitting, setIsSubmitting] = useState(false); // ← ADD THIS
+  const [currentStep, setCurrentStep] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [onboardingData, setOnboardingData] = useState<OnboardingData>({
-    location: {},
     profile: {},
     academics: {},
+    goals: undefined,
+    skippedGoals: false,
+    location: {},
   });
 
+  // Step 1 → 2
   const handleProfileData = (profileData: any) => {
     setOnboardingData((prev) => ({ ...prev, profile: profileData }));
-    setCurrentStep("academics");
+    setCurrentStep(2);
   };
 
+  // Step 2 → 3
   const handleAcademicsData = (academicsData: any) => {
     setOnboardingData((prev) => ({ ...prev, academics: academicsData }));
-    setCurrentStep("location");
+    setCurrentStep(3);
   };
 
-  const handleLocationData = async (locationData: any) => {
-    // Prevent double submission
+  // Step 3 → 4 (Goals continue)
+  const handleGoalsData = (goalsData: { careerTrack: string; dreamCompanies: string[]; personalNote: string }) => {
+    setOnboardingData((prev) => ({ ...prev, goals: goalsData, skippedGoals: false }));
+    setCurrentStep(4);
+  };
+
+  // Step 3 → 4 (Goals skip)
+  const handleGoalsSkip = () => {
+    setOnboardingData((prev) => ({ ...prev, skippedGoals: true }));
+    setCurrentStep(4);
+  };
+
+  // Step 4 → complete (Preferences / final submit)
+  const handlePreferencesData = async (preferencesData: any) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
 
     try {
-      console.log('🎯 Starting onboarding completion...');
-      
       // 1. Process resume if uploaded during onboarding
-      // The backend API already handles: parsing, uploading to Firebase Storage, and saving to Firestore
       if (onboardingData.profile.resume && onboardingData.profile.resume instanceof File) {
-        console.log('📄 Processing resume upload from onboarding...');
         try {
           const file = onboardingData.profile.resume;
-          
-          // Validate file type
-          const extension = file.name.split('.').pop()?.toLowerCase();
-          const validExtensions = ['pdf', 'docx', 'doc'];
+          const extension = file.name.split(".").pop()?.toLowerCase();
+          const validExtensions = ["pdf", "docx", "doc"];
           if (!extension || !validExtensions.includes(extension)) {
-            console.warn('⚠️ Resume must be a PDF, DOCX, or DOC file, skipping resume upload');
-            toast.warning('Resume must be a PDF, DOCX, or DOC file. You can upload it later in Account Settings.');
+            toast.warning("Resume must be a PDF, DOCX, or DOC file. You can upload it later in Account Settings.");
           } else {
-            // Parse and upload resume via backend API (backend handles Storage upload and Firestore save)
             const formData = new FormData();
-            formData.append('resume', file);
-
-            const API_URL = BACKEND_URL;
-
+            formData.append("resume", file);
             const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
-
-            const response = await fetch(`${API_URL}/api/parse-resume`, {
-              method: 'POST',
-              headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+            const response = await fetch(`${BACKEND_URL}/api/parse-resume`, {
+              method: "POST",
+              headers: token ? { Authorization: `Bearer ${token}` } : {},
               body: formData,
             });
             const result = await response.json();
             if (!response.ok) {
-              throw new Error(result.error || 'Failed to parse resume');
+              throw new Error(result.error || "Failed to parse resume");
             }
-
-            // Backend already saved to Firestore, but we update localStorage for backward compatibility
             const parsed = {
-              name: result.data.name || '',
-              year: result.data.year || '',
-              major: result.data.major || '',
-              university: result.data.university || '',
+              name: result.data.name || "",
+              year: result.data.year || "",
+              major: result.data.major || "",
+              university: result.data.university || "",
               fileName: file.name,
               uploadDate: new Date().toISOString(),
             };
-            localStorage.setItem('resumeData', JSON.stringify(parsed));
-
-            console.log('✅ Resume processed and saved successfully');
-            console.log('   Resume URL:', result.resumeUrl);
+            localStorage.setItem("resumeData", JSON.stringify(parsed));
           }
         } catch (resumeError) {
-          console.error('❌ Error processing resume:', resumeError);
-          // Don't block onboarding if resume processing fails
-          toast.error('Resume upload failed, but you can upload it later in Account Settings');
+          console.error("Error processing resume:", resumeError);
+          toast.error("Resume upload failed, but you can upload it later in Account Settings");
         }
       }
-      
-      // 2. Transform data to match backend expectations
+
+      // 2. Transform data
       const finalData = {
         profile: {
           fullName: `${onboardingData.profile.firstName} ${onboardingData.profile.lastName}`,
@@ -120,150 +119,103 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
         },
         academics: {
           university: onboardingData.academics.university,
-          college: onboardingData.academics.university, // Backend fallback
+          college: onboardingData.academics.university,
           degree: onboardingData.academics.degree,
           major: onboardingData.academics.major,
           graduationMonth: onboardingData.academics.graduationMonth,
           graduationYear: onboardingData.academics.graduationYear,
         },
         location: {
-          country: locationData.country,
-          state: locationData.state,
-          city: locationData.city,
-          jobTypes: locationData.jobTypes,
-          interests: locationData.interests,
-          careerInterests: locationData.interests, // Backend expects this
-          career_interests: locationData.interests, // Alternative
-          preferredLocation: locationData.preferredLocation,
+          jobTypes: preferencesData.jobTypes,
+          preferredLocation: preferencesData.preferredLocation,
+        },
+        goals: {
+          careerTrack: onboardingData.goals?.careerTrack || "",
+          dreamCompanies: onboardingData.goals?.dreamCompanies || [],
+          personalNote: onboardingData.goals?.personalNote || "",
+        },
+        onboarding: {
+          skippedGoals: onboardingData.skippedGoals ?? false,
+          completedAt: new Date().toISOString(),
         },
       };
 
-      // 3. Persist onboarding to Firestore via context
-      console.log('💾 Calling completeOnboarding...');
+      // 3. Persist to Firestore
       await completeOnboarding(finalData);
-      console.log('✅ Onboarding saved to Firestore');
-      
-      // 3. Set a session flag to bypass route guard temporarily
-      sessionStorage.setItem('onboarding_just_completed', 'true');
-      console.log('✅ Session flag set');
-      
-      // 4. Give time for state to propagate
-      await new Promise(resolve => setTimeout(resolve, 500));
-      console.log('✅ State propagation delay complete');
-      
-      // 5. Refresh user data from Firestore to ensure we have latest state
-      console.log('🔄 Refreshing user data...');
-      await refreshUser();
-      console.log('✅ User data refreshed');
 
-      // 6. Optional: analytics callback
+      // 4. Session flag
+      sessionStorage.setItem("onboarding_just_completed", "true");
+
+      // 5. Propagation delay
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // 6. Refresh user
+      await refreshUser();
+
+      // 7. Analytics callback
       try {
         onComplete(finalData);
       } catch (e) {
-        console.error('Analytics error:', e);
+        console.error("Analytics error:", e);
       }
 
-      // 7. Determine destination
+      // 8. Navigate
       let destination = "/home";
       if (returnTo) {
         try {
-          // Decode the URL (it may be encoded multiple times)
           let decoded = returnTo;
           while (decoded !== decodeURIComponent(decoded)) {
             decoded = decodeURIComponent(decoded);
           }
-          // Don't redirect back to onboarding or signin pages
           if (!decoded.includes("/onboarding") && !decoded.includes("/signin")) {
             destination = decoded;
           }
         } catch (e) {
-          // If decoding fails, just go to home
           console.error("Failed to decode returnTo:", e);
         }
       }
-      
-      console.log('🧭 Navigating to:', destination);
       navigate(destination, { replace: true });
-      
     } catch (e) {
-      console.error("❌ Onboarding failed:", e);
+      console.error("Onboarding failed:", e);
       toast.error("Failed to complete onboarding. Please try again.");
       setIsSubmitting(false);
-      // Don't navigate if onboarding failed!
     }
   };
 
-  const handleBack = () => {
-    if (currentStep === "academics") setCurrentStep("profile");
-    else if (currentStep === "location") setCurrentStep("academics");
-  };
-
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto px-4 py-8">
-        {/* Progress header */}
-        <div className="flex items-center gap-2 mb-8">
-          <span
-            className={`w-8 h-8 rounded-full flex items-center justify-center ${
-              currentStep !== "welcome" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-            }`}
-          >
-            <User className="w-4 h-4" />
-          </span>
-          <div
-            className={`h-[2px] flex-1 ${["academics", "location"].includes(currentStep) ? "bg-primary" : "bg-muted"}`}
-          />
-          <span
-            className={`w-8 h-8 rounded-full flex items-center justify-center ${
-              ["academics", "location"].includes(currentStep)
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground"
-            }`}
-          >
-            <GraduationCap className="w-4 h-4" />
-          </span>
-          <div className={`h-[2px] flex-1 ${currentStep === "location" ? "bg-primary" : "bg-muted"}`} />
-          <span
-            className={`w-8 h-8 rounded-full flex items-center justify-center ${
-              currentStep === "location" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-            }`}
-          >
-            <MapPin className="w-4 h-4" />
-          </span>
-        </div>
+    <OnboardingShell currentStep={currentStep}>
+      {currentStep === 0 && (
+        <OnboardingWelcome onNext={() => setCurrentStep(1)} />
+      )}
 
-        {/* Steps */}
-        <div className="mt-8">
-          {currentStep === "welcome" && (
-            <OnboardingWelcome onNext={() => setCurrentStep("profile")} userName={user?.name || "there"} />
-          )}
+      {currentStep === 1 && (
+        <OnboardingProfile
+          onNext={handleProfileData}
+          initialData={onboardingData.profile}
+        />
+      )}
 
-          {currentStep === "profile" && (
-            <OnboardingProfile
-              onNext={handleProfileData}
-              onBack={() => setCurrentStep("welcome")}
-              initialData={onboardingData.profile}
-            />
-          )}
+      {currentStep === 2 && (
+        <OnboardingAcademics
+          onNext={handleAcademicsData}
+          initialData={onboardingData.academics}
+        />
+      )}
 
-          {currentStep === "academics" && (
-            <OnboardingAcademics
-              onNext={handleAcademicsData}
-              onBack={handleBack}
-              initialData={onboardingData.academics}
-            />
-          )}
+      {currentStep === 3 && (
+        <OnboardingGoals
+          onNext={handleGoalsData}
+          onSkip={handleGoalsSkip}
+          initialData={onboardingData.goals}
+        />
+      )}
 
-          {currentStep === "location" && (
-            <OnboardingLocationPreferences
-              onNext={handleLocationData}
-              onBack={handleBack}
-              initialData={onboardingData.location}
-              isSubmitting={isSubmitting}
-            />
-          )}
-        </div>
-      </div>
-    </div>
+      {currentStep === 4 && (
+        <OnboardingLocationPreferences
+          onNext={handlePreferencesData}
+          isSubmitting={isSubmitting}
+        />
+      )}
+    </OnboardingShell>
   );
 };

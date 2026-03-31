@@ -1,14 +1,10 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ArrowRight, ArrowLeft, GraduationCap, Check, ChevronsUpDown } from "lucide-react";
-import academicIllustration from "@/assets/academic-illustration.png";
+import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface AcademicData {
@@ -21,7 +17,6 @@ interface AcademicData {
 
 interface OnboardingAcademicsProps {
   onNext: (data: AcademicData) => void;
-  onBack: () => void;
   initialData?: AcademicData;
 }
 
@@ -1048,7 +1043,7 @@ const universities = [
   "Other",
 ];
 
-export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingAcademicsProps) => {
+export const OnboardingAcademics = ({ onNext, initialData }: OnboardingAcademicsProps) => {
   const [academics, setAcademics] = useState<AcademicData>({
     university: initialData?.university || "",
     degree: initialData?.degree || "",
@@ -1072,21 +1067,33 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
   ];
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-start px-4">
-      <div className="space-y-8">
-        <div className="space-y-6">
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-foreground">
-            Academic <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">Information</span>
-          </h2>
-          <p className="text-lg md:text-xl text-muted-foreground leading-relaxed">
-            Tell us about your educational background to help us find the best opportunities for you.
-          </p>
-        </div>
+    <div>
+      <p
+        style={{
+          fontSize: 11,
+          fontWeight: 500,
+          letterSpacing: "0.1em",
+          textTransform: "uppercase",
+          color: "#94A3B8",
+          marginBottom: 8,
+        }}
+      >
+        Step 3 of 5
+      </p>
+      <h1
+        className="text-2xl font-semibold tracking-tight text-[#0F172A] mb-1.5"
+        style={{ fontFamily: "'Lora', Georgia, serif" }}
+      >
+        Your academic background
+      </h1>
+      <p className="text-sm text-[#475569] leading-relaxed mb-8">
+        We use this to surface relevant opportunities and contacts.
+      </p>
 
-        <form onSubmit={handleSubmit} className="space-y-6 mt-8 lg:mt-12">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <Label htmlFor="university" className="text-foreground font-medium">University/College</Label>
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="space-y-5">
+            <div>
+              <label className="text-sm font-medium text-[#0F172A] mb-1.5 block">University</label>
               <Popover open={open} onOpenChange={setOpen}>
                 <PopoverTrigger asChild>
                   <Button
@@ -1150,8 +1157,40 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
               </Popover>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="degree" className="text-foreground font-medium">Degree Level</Label>
+            {/* Major (required) */}
+            <div>
+              <label className="text-sm font-medium text-[#0F172A] mb-1.5 block">Major</label>
+              <Input
+                id="major"
+                value={academics.major}
+                onChange={(e) => setAcademics(prev => ({ ...prev, major: e.target.value }))}
+                placeholder="e.g. Finance, Computer Science, Economics"
+                required
+              />
+            </div>
+
+            {/* Graduation year (required) */}
+            <div>
+              <label className="text-sm font-medium text-[#0F172A] mb-1.5 block">Graduation year</label>
+              <Select value={academics.graduationYear} onValueChange={(value) => setAcademics(prev => ({ ...prev, graduationYear: value }))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select graduation year" />
+                </SelectTrigger>
+                <SelectContent className="bg-background border z-50">
+                  {years.map((year) => (
+                    <SelectItem key={year} value={year.toString()}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Degree (optional) */}
+            <div>
+              <label className="text-sm font-medium text-[#0F172A] mb-1.5 block">
+                Degree <span className="text-[#94A3B8] font-normal">(optional)</span>
+              </label>
               <Select value={academics.degree} onValueChange={(value) => setAcademics(prev => ({ ...prev, degree: value }))}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select degree level" />
@@ -1166,11 +1205,12 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
                 </SelectContent>
               </Select>
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <Label htmlFor="graduationMonth" className="text-foreground font-medium">Graduation Month</Label>
+            {/* Graduation month (optional) */}
+            <div>
+              <label className="text-sm font-medium text-[#0F172A] mb-1.5 block">
+                Graduation month <span className="text-[#94A3B8] font-normal">(optional)</span>
+              </label>
               <Select value={academics.graduationMonth} onValueChange={(value) => setAcademics(prev => ({ ...prev, graduationMonth: value }))}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select graduation month" />
@@ -1184,66 +1224,19 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
                 </SelectContent>
               </Select>
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="graduationYear" className="text-foreground font-medium">Graduation Year</Label>
-              <Select value={academics.graduationYear} onValueChange={(value) => setAcademics(prev => ({ ...prev, graduationYear: value }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select graduation year" />
-                </SelectTrigger>
-                <SelectContent className="bg-background border z-50">
-                  {years.map((year) => (
-                    <SelectItem key={year} value={year.toString()}>
-                      {year}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="major" className="text-foreground font-medium">Major/Field of Study</Label>
-            <Input
-              id="major"
-              value={academics.major}
-              onChange={(e) => setAcademics(prev => ({ ...prev, major: e.target.value }))}
-              placeholder="Enter your major"
-              required
-            />
           </div>
 
 
-          <div className="flex justify-between pt-8">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onBack}
-              className="px-8 py-3 rounded-full font-semibold"
-            >
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back
-            </Button>
-            
-            <Button
-              type="submit"
-              variant="gradient"
-              className="px-12 py-3 rounded-full font-bold group"
-            >
-              Next
-              <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
+          <div
+            className="flex items-center justify-between mt-8 pt-6"
+            style={{ borderTop: "1px solid #E2E8F0" }}
+          >
+            <span />
+            <Button type="submit" variant="default" size="default" className="min-w-[120px]">
+              Continue
             </Button>
           </div>
         </form>
-      </div>
-      
-      <div className="hidden lg:flex items-center justify-center">
-        <img 
-          src={academicIllustration} 
-          alt="Academic robot illustration" 
-          className="w-full max-w-md h-auto object-contain"
-        />
-      </div>
     </div>
   );
 };

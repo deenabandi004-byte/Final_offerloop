@@ -2,6 +2,8 @@
 Job ranking utilities — pure Python, no Flask imports.
 Deterministic pre-filtering, GPT-based ranking, and feedback adjustments.
 """
+import re as _re
+from datetime import datetime
 from typing import Optional
 
 
@@ -65,7 +67,6 @@ def infer_field(profile: dict) -> Optional[str]:
 
 
 def infer_preferred_type(profile: dict) -> Optional[str]:
-    from datetime import datetime
     education = (profile.get("resumeParsed") or {}).get("education", {}) or {}
     grad_year = education.get("graduation_year") or profile.get("graduationYear")
     if not grad_year:
@@ -89,24 +90,42 @@ EXCLUDED_TITLE_KEYWORDS = [
     "assembly", "manufacturing", "warehouse", "forklift", "cdl",
     "nursing", "medical assistant", "dental", "hvac", "electrician",
     "plumber", "truck driver", "cashier", "barista",
+    "it support", "help desk", "desktop support",
+    "technical support specialist", "field technician",
+    "field service", "maintenance technician",
 ]
 
 # Always excluded — clearly not entry-level regardless of graduation year
 SENIOR_TITLE_KEYWORDS = [
     "sr. ", "sr ", "senior ", "lead ", "principal ", "staff ",
     "director", "vp ", "vice president", "head of",
-    "managing director", "partner,",
+    "managing director", "partner",
 ]
+
+# "Partner" is excluded UNLESS it's one of these entry-level roles
+_PARTNER_EXCEPTIONS = ("channel partner", "partner manager", "partner success")
 
 # "Manager" is excluded UNLESS preceded by "product" or "program"
 _MANAGER_EXCEPTIONS = ("product manager", "program manager")
 
 NON_US_LOCATION_KEYWORDS = [
-    "india", "brazil", "canada", "singapore", "london", "uk",
-    "united kingdom", "australia", "germany", "france", "netherlands",
+    # Countries
+    "india", "brazil", "canada", "singapore", "united kingdom",
+    "australia", "germany", "france", "netherlands",
     "china", "japan", "mexico", "ireland", "poland", "spain",
     "italy", "sweden", "denmark", "finland", "norway",
+    # Indian cities
+    "bengaluru", "bangalore", "mumbai", "delhi", "hyderabad",
+    "chennai", "pune", "kolkata", "ahmedabad", "noida", "gurgaon",
+    # Other international cities
+    "toronto", "vancouver", "montreal", "london", "manchester",
+    "berlin", "amsterdam", "paris", "sydney", "melbourne",
+    "hong kong", "tokyo", "beijing", "shanghai",
+    "mexico city", "sao paulo", "dublin", "warsaw",
 ]
+
+# "uk" needs word-boundary matching to avoid false positives on substrings
+_UK_RE = _re.compile(r"\buk\b", _re.IGNORECASE)
 
 
 def _get_grad_year(profile: dict) -> Optional[int]:
@@ -121,7 +140,7 @@ def _get_grad_year(profile: dict) -> Optional[int]:
         return None
 
 
-def _is_excluded(job: dict, profile: dict = None) -> bool:
+def _is_excluded(job: dict) -> bool:
     """Return True if a job should be excluded from ranking entirely."""
     if job.get("category") in EXCLUDED_CATEGORIES:
         return True
@@ -129,8 +148,12 @@ def _is_excluded(job: dict, profile: dict = None) -> bool:
     if any(kw in title_lower for kw in EXCLUDED_TITLE_KEYWORDS):
         return True
     # Always exclude senior-level titles (not entry-level)
-    if any(kw in title_lower for kw in SENIOR_TITLE_KEYWORDS):
-        return True
+    for kw in SENIOR_TITLE_KEYWORDS:
+        if kw in title_lower:
+            # "partner" has entry-level exceptions (e.g. "partner manager")
+            if kw == "partner" and any(exc in title_lower for exc in _PARTNER_EXCEPTIONS):
+                continue
+            return True
     # Exclude "manager" unless it's "product manager" or "program manager"
     if "manager" in title_lower and not any(exc in title_lower for exc in _MANAGER_EXCEPTIONS):
         return True
@@ -156,12 +179,16 @@ def _is_non_us(job: dict) -> bool:
     Excludes jobs like "Remote, Singapore" where the primary location is international.
     """
     location_lower = _normalize_location(job.get("location")).lower()
-    has_international = any(kw in location_lower for kw in NON_US_LOCATION_KEYWORDS)
+    # Check keyword list AND word-boundary regex for short codes like "uk"
+    has_international = (
+        any(kw in location_lower for kw in NON_US_LOCATION_KEYWORDS)
+        or bool(_UK_RE.search(location_lower))
+    )
     if not has_international:
         return False
-    # Location mentions a non-US country — only keep if location is purely remote
-    # with no international country (e.g. "Remote" or "Remote - US" are fine,
-    # but "Remote, Singapore" or "Singapore - Remote" are not)
+    # Pure remote with no international qualifier → keep
+    if job.get("remote_derived") and location_lower.strip() in ("remote", "remote - usa", "remote - us"):
+        return False
     return True
 
 
@@ -191,7 +218,6 @@ def deterministic_score(job: dict, profile: dict) -> float:
     grad_year = education.get("graduation_year") or profile.get("graduationYear")
     if grad_year:
         try:
-            from datetime import datetime
             years_left = int(grad_year) - datetime.now().year
             if years_left <= 1 and job.get("type") == "FULLTIME":
                 score += 10
@@ -214,7 +240,7 @@ def prefilter_candidates(jobs: list[dict], profile: dict, top_n: int = 30) -> li
     non_us_count = 0
     eligible = []
     for j in jobs:
-        if _is_excluded(j, profile):
+        if _is_excluded(j):
             excluded_count += 1
         elif _is_non_us(j):
             non_us_count += 1
