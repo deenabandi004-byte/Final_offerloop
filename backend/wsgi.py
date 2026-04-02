@@ -2,7 +2,7 @@ import os
 import logging
 import threading
 import time
-from flask import Flask, send_from_directory, abort, request, redirect
+from flask import Flask, send_from_directory, abort, request, redirect, make_response
 
 # Configure logging BEFORE importing anything else that uses logging
 from .app.logging_config import configure_logging
@@ -221,7 +221,11 @@ def create_app() -> Flask:
     # --- Serve root index.html ---
     @app.route('/')
     def index():
-        return send_from_directory(app.static_folder, 'index.html')
+        response = make_response(send_from_directory(app.static_folder, 'index.html'))
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
 
     # --- Serve SEO/AEO root files explicitly ---
     @app.route('/sitemap.xml')
@@ -247,7 +251,11 @@ def create_app() -> Flask:
         index_path = os.path.join(app.static_folder, 'index.html')
         if os.path.exists(index_path):
             app.logger.info(f"404 handler serving index.html for path: {request.path}")
-            return send_from_directory(app.static_folder, 'index.html')
+            response = make_response(send_from_directory(app.static_folder, 'index.html'))
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
         else:
             return "Frontend build not found", 500
 
