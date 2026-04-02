@@ -32,8 +32,35 @@ def flatten_experience_title(title_field) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Field inference from major
+# Field inference from careerTrack / major
 # ---------------------------------------------------------------------------
+
+# Explicit careerTrack → field key (same keys as MAJOR_FIELD_MAP values)
+# These feed into FIELD_CATEGORY_MAP for matching against job categories.
+CAREER_TRACK_MAP = {
+    "investment banking": "finance",
+    "finance": "finance",
+    "banking": "finance",
+    "consulting": "consulting",
+    "management consulting": "consulting",
+    "software engineering": "tech",
+    "software": "tech",
+    "engineering": "tech",
+    "product management": "consulting",  # PM maps to consulting field (has product_management category)
+    "product": "consulting",
+    "data science": "data",
+    "data analytics": "data",
+    "data": "data",
+    "marketing": "marketing",
+    "growth": "marketing",
+    "venture capital": "venture_capital",
+    "private equity": "venture_capital",
+    "private equity / vc": "venture_capital",
+    "vc": "venture_capital",
+    "pe": "venture_capital",
+    "sales & trading": "finance",
+    "corporate finance / fp&a": "finance",
+}
 
 MAJOR_FIELD_MAP = {
     "finance": "finance", "economics": "finance", "accounting": "finance",
@@ -58,6 +85,14 @@ FIELD_CATEGORY_MAP = {
 
 
 def infer_field(profile: dict) -> Optional[str]:
+    # 1. Explicit careerTrack from onboarding (highest priority)
+    career_track = (profile.get("goals") or {}).get("careerTrack", "").lower().strip()
+    if career_track:
+        category = CAREER_TRACK_MAP.get(career_track)
+        if category:
+            return category
+
+    # 2. Fallback: infer from major
     education = (profile.get("resumeParsed") or {}).get("education", {}) or {}
     major = (education.get("major") or profile.get("major") or "").lower().strip()
     for key, field in MAJOR_FIELD_MAP.items():
@@ -67,6 +102,19 @@ def infer_field(profile: dict) -> Optional[str]:
 
 
 def infer_preferred_type(profile: dict) -> Optional[str]:
+    # 1. Explicit jobTypes from onboarding (highest priority)
+    job_types = (profile.get("location") or {}).get("jobTypes") or []
+    if job_types:
+        has_intern = "Internship" in job_types
+        has_ft = "Full-Time" in job_types
+        if has_intern and has_ft:
+            return None  # no preference — user wants both
+        if has_intern:
+            return "INTERNSHIP"
+        if has_ft:
+            return "FULLTIME"
+
+    # 2. Fallback: infer from graduation year
     education = (profile.get("resumeParsed") or {}).get("education", {}) or {}
     grad_year = education.get("graduation_year") or profile.get("graduationYear")
     if not grad_year:
@@ -204,6 +252,7 @@ def deterministic_score(job: dict, profile: dict) -> float:
         (profile.get("resumeParsed") or {}).get("skills", [])
     ))
 
+    # Field alignment (careerTrack or major → job category)
     if user_field and job.get("category") in FIELD_CATEGORY_MAP.get(user_field, []):
         score += 40
     if preferred_type and job.get("type") == preferred_type:
@@ -214,6 +263,7 @@ def deterministic_score(job: dict, profile: dict) -> float:
         desc_lower = job.get("description_raw", "").lower()
         score += min(sum(1 for s in user_skills if s in desc_lower) * 4, 20)
 
+    # Graduation year fit
     education = (profile.get("resumeParsed") or {}).get("education", {}) or {}
     grad_year = education.get("graduation_year") or profile.get("graduationYear")
     if grad_year:
@@ -227,6 +277,23 @@ def deterministic_score(job: dict, profile: dict) -> float:
                 score += 4
         except (ValueError, TypeError):
             pass
+
+    # Dream company bonus
+    dream_companies = (profile.get("goals") or {}).get("dreamCompanies") or []
+    if dream_companies:
+        job_company = (job.get("company") or "").lower().strip()
+        if job_company and any(dc.lower().strip() in job_company or job_company in dc.lower().strip()
+                               for dc in dream_companies):
+            score += 15
+
+    # Location preference bonus
+    pref_location = ((profile.get("location") or {}).get("preferredLocation") or "").strip()
+    job_location = _normalize_location(job.get("location")).lower()
+    if job.get("remote_derived") or "remote" in job_location:
+        score += 5
+    if pref_location and pref_location.lower() not in ("", "remote"):
+        if pref_location.lower() in job_location:
+            score += 10
 
     return score
 
@@ -304,10 +371,18 @@ def rank_with_gpt(jobs: list[dict], profile: dict) -> list[dict]:
         if flatten_experience_title(e.get("title", "")) and e.get("company")
     ]) or "None listed"
 
+    goals = profile.get("goals") or {}
+    career_track = goals.get("careerTrack", "")
+    dream_companies = goals.get("dreamCompanies") or []
+    pref_location = (profile.get("location") or {}).get("preferredLocation", "")
+
     profile_str = f"""STUDENT PROFILE:
 - Major: {education.get("major") or profile.get("major", "Not specified")}
 - Graduation: {education.get("graduation_year") or profile.get("graduationYear", "Not specified")}
 - University: {education.get("school") or profile.get("university", "Not specified")}
+- Career goal: {career_track or "Not specified"}
+- Dream companies: {", ".join(dream_companies) or "None listed"}
+- Preferred location: {pref_location or "Not specified"}
 - Skills: {", ".join(skills[:15]) or "None listed"}
 - Experience: {exp_lines}"""
 

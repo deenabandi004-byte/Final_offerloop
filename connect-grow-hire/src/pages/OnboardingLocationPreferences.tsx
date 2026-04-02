@@ -43,7 +43,7 @@ export const OnboardingLocationPreferences = ({
           marginBottom: 8,
         }}
       >
-        Step 5 of 5
+        Step 4 of 4
       </p>
       <h1
         className="text-2xl font-semibold tracking-tight text-[#0F172A] mb-1.5"

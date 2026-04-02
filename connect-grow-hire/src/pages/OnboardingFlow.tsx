@@ -4,7 +4,6 @@ import { OnboardingShell } from "@/components/OnboardingShell";
 import { OnboardingWelcome } from "./OnboardingWelcome";
 import { OnboardingProfile } from "./OnboardingProfile";
 import { OnboardingAcademics } from "./OnboardingAcademics";
-import { OnboardingGoals } from "./OnboardingGoals";
 import { OnboardingLocationPreferences } from "./OnboardingLocationPreferences";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { BACKEND_URL } from "@/services/api";
@@ -14,8 +13,6 @@ import { auth } from "@/lib/firebase";
 interface OnboardingData {
   profile?: any;
   academics?: any;
-  goals?: { careerTrack: string; dreamCompanies: string[]; personalNote: string };
-  skippedGoals?: boolean;
   location?: any;
 }
 
@@ -36,8 +33,6 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
   const [onboardingData, setOnboardingData] = useState<OnboardingData>({
     profile: {},
     academics: {},
-    goals: undefined,
-    skippedGoals: false,
     location: {},
   });
 
@@ -53,19 +48,7 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
     setCurrentStep(3);
   };
 
-  // Step 3 → 4 (Goals continue)
-  const handleGoalsData = (goalsData: { careerTrack: string; dreamCompanies: string[]; personalNote: string }) => {
-    setOnboardingData((prev) => ({ ...prev, goals: goalsData, skippedGoals: false }));
-    setCurrentStep(4);
-  };
-
-  // Step 3 → 4 (Goals skip)
-  const handleGoalsSkip = () => {
-    setOnboardingData((prev) => ({ ...prev, skippedGoals: true }));
-    setCurrentStep(4);
-  };
-
-  // Step 4 → complete (Preferences / final submit)
+  // Step 3 → complete (Preferences / final submit)
   const handlePreferencesData = async (preferencesData: any) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -129,13 +112,7 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
           jobTypes: preferencesData.jobTypes,
           preferredLocation: preferencesData.preferredLocation,
         },
-        goals: {
-          careerTrack: onboardingData.goals?.careerTrack || "",
-          dreamCompanies: onboardingData.goals?.dreamCompanies || [],
-          personalNote: onboardingData.goals?.personalNote || "",
-        },
         onboarding: {
-          skippedGoals: onboardingData.skippedGoals ?? false,
           completedAt: new Date().toISOString(),
         },
       };
@@ -203,14 +180,6 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
       )}
 
       {currentStep === 3 && (
-        <OnboardingGoals
-          onNext={handleGoalsData}
-          onSkip={handleGoalsSkip}
-          initialData={onboardingData.goals}
-        />
-      )}
-
-      {currentStep === 4 && (
         <OnboardingLocationPreferences
           onNext={handlePreferencesData}
           isSubmitting={isSubmitting}

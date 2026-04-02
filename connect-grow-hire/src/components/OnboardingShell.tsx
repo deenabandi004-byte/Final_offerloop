@@ -4,8 +4,7 @@ const STEPS = [
   { number: 1, label: "Welcome" },
   { number: 2, label: "Profile" },
   { number: 3, label: "Academics" },
-  { number: 4, label: "Your Goals" },
-  { number: 5, label: "Preferences" },
+  { number: 4, label: "Preferences" },
 ];
 
 interface OnboardingShellProps {
@@ -134,7 +133,7 @@ export const OnboardingShell = ({ currentStep, children }: OnboardingShellProps)
             }}
           >
             <span>Progress</span>
-            <span>{completedCount} of 5</span>
+            <span>{completedCount} of 4</span>
           </div>
           <div
             style={{
@@ -149,7 +148,7 @@ export const OnboardingShell = ({ currentStep, children }: OnboardingShellProps)
                 height: "100%",
                 background: "#3B82F6",
                 borderRadius: 2,
-                width: `${(completedCount / 5) * 100}%`,
+                width: `${(completedCount / 4) * 100}%`,
                 transition: "width 0.4s cubic-bezier(0.16,1,0.3,1)",
               }}
             />

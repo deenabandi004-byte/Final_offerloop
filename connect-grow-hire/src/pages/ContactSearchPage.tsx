@@ -166,6 +166,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
   const searchSuccessRef = useRef<HTMLDivElement>(null);
 
   // Form state (prompt-based search)
+  const pendingAutoSearch = useRef(false);
   const [searchPrompt, setSearchPrompt] = useState("");
   const [hoveredChipPrompt, setHoveredChipPrompt] = useState<string | null>(null);
   const [showTemplateTooltip, setShowTemplateTooltip] = useState(false);
@@ -264,16 +265,19 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
       if (companyParam) parts.push(`at ${companyParam}`);
       if (locationParam) parts.push(`in ${locationParam}`);
       setSearchPrompt(parts.join(' ') || '');
+      pendingAutoSearch.current = true;
 
       setSearchParams({}, { replace: true });
-      toast({
-        title: "Search pre-filled",
-        description: roleParam
-          ? `Finding ${roleParam}${companyParam ? ` at ${companyParam}` : ''}`
-          : `Finding contacts at ${companyParam || 'this company'}`,
-      });
     }
   }, []); // Run once on mount
+
+  // Auto-trigger search when pre-filled from URL params (e.g. job board "Find Contact")
+  useEffect(() => {
+    if (pendingAutoSearch.current && searchPrompt.trim() && user) {
+      pendingAutoSearch.current = false;
+      handleSearch();
+    }
+  }, [searchPrompt, user]);
 
   // Load saved email template on mount (contact search tab)
   useEffect(() => {
