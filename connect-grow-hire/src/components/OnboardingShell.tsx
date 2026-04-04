@@ -1,14 +1,13 @@
 import { Check } from "lucide-react";
 
 const STEPS = [
-  { number: 1, label: "Welcome" },
-  { number: 2, label: "Profile" },
-  { number: 3, label: "Academics" },
-  { number: 4, label: "Preferences" },
+  { number: 1, label: "Profile" },
+  { number: 2, label: "Academics" },
+  { number: 3, label: "Preferences" },
 ];
 
 interface OnboardingShellProps {
-  currentStep: number; // 0-indexed (0 = Welcome, 4 = Preferences)
+  currentStep: number; // 0-indexed (0 = Profile, 1 = Academics, 2 = Preferences)
   children: React.ReactNode;
 }
 
@@ -133,7 +132,7 @@ export const OnboardingShell = ({ currentStep, children }: OnboardingShellProps)
             }}
           >
             <span>Progress</span>
-            <span>{completedCount} of 4</span>
+            <span>{completedCount} of 3</span>
           </div>
           <div
             style={{
@@ -148,7 +147,7 @@ export const OnboardingShell = ({ currentStep, children }: OnboardingShellProps)
                 height: "100%",
                 background: "#3B82F6",
                 borderRadius: 2,
-                width: `${(completedCount / 4) * 100}%`,
+                width: `${(completedCount / 3) * 100}%`,
                 transition: "width 0.4s cubic-bezier(0.16,1,0.3,1)",
               }}
             />

@@ -4,7 +4,7 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
-import { Search, Building2, UserCheck, FileText, ChevronRight, Users, Mail } from "lucide-react";
+import { Search, Building2, UserCheck, FileText, ChevronRight, Users, Mail, Table2, Building, UserSearch } from "lucide-react";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { apiService, type EmailTemplate, getEmailTemplateLabel } from "@/services/api";
@@ -107,42 +107,65 @@ const FindPage: React.FC = () => {
         <MainContentWrapper>
           <AppHeader
             rightContent={
-              <div style={{ position: 'relative' }}>
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => isElite ? navigate("/find/templates") : setShowEliteGate(true)}
+                  onClick={() => navigate(
+                    activeTab === "companies" ? "/company-tracker"
+                    : activeTab === "hiring-managers" ? "/hiring-manager-tracker"
+                    : "/contact-directory"
+                  )}
                   className="inline-flex items-center gap-2 rounded-[3px] px-3 py-1.5 text-sm font-medium transition-all duration-150 cursor-pointer focus:outline-none bg-white border border-[#E2E8F0] text-[#0F172A] hover:bg-[#FAFBFF] hover:border-[#3B82F6] shadow-none"
-                  data-tour="tour-templates-button"
-                  onMouseEnter={() => { headerTooltipTimer.current = setTimeout(() => setShowHeaderTooltip(true), 280); }}
-                  onMouseLeave={() => { if (headerTooltipTimer.current) clearTimeout(headerTooltipTimer.current); setShowHeaderTooltip(false); }}
                 >
-                  <FileText className="h-4 w-4 text-[#6B7280]" />
+                  {activeTab === "companies"
+                    ? <Building className="h-4 w-4 text-[#6B7280]" />
+                    : activeTab === "hiring-managers"
+                    ? <UserSearch className="h-4 w-4 text-[#6B7280]" />
+                    : <Table2 className="h-4 w-4 text-[#6B7280]" />
+                  }
                   <span className="hidden sm:inline whitespace-nowrap">
-                    Email Template
+                    {activeTab === "companies" ? "Company Spreadsheet"
+                    : activeTab === "hiring-managers" ? "Hiring Manager Tracker"
+                    : "Contact Spreadsheet"}
                   </span>
                 </button>
-                <div
-                  className="pointer-events-none"
-                  style={{
-                    position: 'absolute',
-                    top: '100%',
-                    right: 0,
-                    marginTop: 8,
-                    background: '#1E293B',
-                    color: '#fff',
-                    fontSize: 13,
-                    lineHeight: 1.45,
-                    padding: '8px 12px',
-                    borderRadius: 8,
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                    width: 260,
-                    whiteSpace: 'normal',
-                    opacity: showHeaderTooltip ? 1 : 0,
-                    transition: 'opacity .15s',
-                    zIndex: 50,
-                  }}
-                >
-                  Set the tone, style, and sign-off for every email we draft. Click to customize your template.
+                <div style={{ position: 'relative' }}>
+                  <button
+                    type="button"
+                    onClick={() => isElite ? navigate("/find/templates") : setShowEliteGate(true)}
+                    className="inline-flex items-center gap-2 rounded-[3px] px-3 py-1.5 text-sm font-medium transition-all duration-150 cursor-pointer focus:outline-none bg-white border border-[#E2E8F0] text-[#0F172A] hover:bg-[#FAFBFF] hover:border-[#3B82F6] shadow-none"
+                    data-tour="tour-templates-button"
+                    onMouseEnter={() => { headerTooltipTimer.current = setTimeout(() => setShowHeaderTooltip(true), 280); }}
+                    onMouseLeave={() => { if (headerTooltipTimer.current) clearTimeout(headerTooltipTimer.current); setShowHeaderTooltip(false); }}
+                  >
+                    <FileText className="h-4 w-4 text-[#6B7280]" />
+                    <span className="hidden sm:inline whitespace-nowrap">
+                      Email Template
+                    </span>
+                  </button>
+                  <div
+                    className="pointer-events-none"
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      right: 0,
+                      marginTop: 8,
+                      background: '#1E293B',
+                      color: '#fff',
+                      fontSize: 13,
+                      lineHeight: 1.45,
+                      padding: '8px 12px',
+                      borderRadius: 8,
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                      width: 260,
+                      whiteSpace: 'normal',
+                      opacity: showHeaderTooltip ? 1 : 0,
+                      transition: 'opacity .15s',
+                      zIndex: 50,
+                    }}
+                  >
+                    Set the tone, style, and sign-off for every email we draft. Click to customize your template.
+                  </div>
                 </div>
               </div>
             }
