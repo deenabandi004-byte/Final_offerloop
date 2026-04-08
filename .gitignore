@@ -77,3 +77,4 @@ backend/token.pickle
 credentials.json
 .env
 research-outputs/*.json
+.gstack/

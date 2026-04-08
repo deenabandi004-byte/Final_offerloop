@@ -18,6 +18,7 @@ from ..extensions import require_firebase_auth
 from app.services.reply_generation import batch_generate_emails
 from app.services.gmail_client import get_gmail_service_for_user
 from app.services.interview_prep.resume_parser import extract_text_from_pdf_bytes
+from app.utils.url_validator import validate_fetch_url, UnsafeURLError
 from ..extensions import get_db
 from email_templates import get_template_instructions
 
@@ -96,6 +97,7 @@ def generate_and_draft():
         if _resume_url:
             _resume_url = _normalize_drive_url(_resume_url)
             try:
+                _resume_url = validate_fetch_url(_resume_url)
                 _res = requests.get(_resume_url, timeout=15, headers={"User-Agent": "Offerloop/1.0"})
                 _res.raise_for_status()
                 _pdf_bytes = _res.content
@@ -158,6 +160,27 @@ def generate_and_draft():
         or "Resume.pdf"
     )
 
+    # Pull resumeParsed from Firestore (includes LinkedIn enrichment + resume data)
+    # This gives the email generator rich context: skills, career_interests,
+    # extracurriculars, certifications, experience — even for LinkedIn-only users
+    resume_parsed = user_data.get("resumeParsed")
+    if resume_parsed and isinstance(resume_parsed, dict):
+        print(f"[EmailGen] Using resumeParsed from Firestore: name={resume_parsed.get('name')!r}, "
+              f"skills={bool(resume_parsed.get('skills'))}, career_interests={resume_parsed.get('career_interests', [])[:3]}, "
+              f"experience={len(resume_parsed.get('experience', []))} entries")
+    else:
+        resume_parsed = None
+        print("[EmailGen] No resumeParsed in Firestore")
+
+    # Backfill career interests from resumeParsed if frontend didn't send them
+    if not career_interest and resume_parsed and resume_parsed.get("career_interests"):
+        career_interest = resume_parsed["career_interests"]
+        print(f"[EmailGen] Backfilled career_interests from resumeParsed: {career_interest[:3]}")
+
+    # Read personalNote and dreamCompanies for enhanced personalization
+    personal_note = user_data.get("personalNote", "")
+    dream_companies = user_data.get("dreamCompanies", [])
+
     # Only generate emails for contacts that don't have them
     results = {}
     if contacts_needing_emails:
@@ -178,11 +201,14 @@ def generate_and_draft():
             user_profile,
             career_interest,
             fit_context=fit_context,
+            pre_parsed_user_info=resume_parsed,
             template_instructions=template_instructions,
             email_template_purpose=purpose,
             resume_filename=draft_resume_filename,
             signoff_config=signoff_config,
             auth_display_name=auth_display_name,
+            personal_note=personal_note,
+            dream_companies=dream_companies,
         )
         print(f"🧪 batch_generate_emails returned: type={type(generated_results)}, "
           f"len={len(generated_results) if hasattr(generated_results, '__len__') else 'n/a'}, "
@@ -233,6 +259,7 @@ def generate_and_draft():
     _cached_resume_ctype = None
     if resume_url:
         try:
+            resume_url = validate_fetch_url(resume_url)
             _resume_res = requests.get(
                 resume_url, timeout=15,
                 headers={"User-Agent": "Offerloop/1.0"}
@@ -494,6 +521,12 @@ def generate_and_draft():
                     "pipelineStage": "draft_created",
                     "inOutbox": True,
                 }
+
+                # Store personalization metadata if available
+                personalization = r.get("personalization")
+                if personalization:
+                    contact_data["personalizationLabel"] = personalization.get("label", "")
+                    contact_data["personalizationType"] = personalization.get("commonality_type", "")
                 
                 # Add threadId if we have it
                 if thread_id:

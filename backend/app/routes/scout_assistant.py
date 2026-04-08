@@ -52,12 +52,29 @@ def scout_assistant_chat():
         return jsonify({}), 200
     
     payload = request.get_json(force=True, silent=True) or {}
-    
+
     # Extract request data
-    message = payload.get("message", "")
+    message = (payload.get("message") or "")[:2000]
     conversation_history = payload.get("conversation_history", [])
-    current_page = payload.get("current_page", "/home")
+    current_page = (payload.get("current_page") or "/home")[:200]
     user_info = payload.get("user_info", {})
+
+    # Validate conversation_history: cap entries, cap content length, validate roles
+    VALID_ROLES = {"user", "assistant"}
+    MAX_HISTORY = 20
+    MAX_ENTRY_CHARS = 2000
+    if not isinstance(conversation_history, list):
+        conversation_history = []
+    sanitized_history = []
+    for entry in conversation_history[:MAX_HISTORY]:
+        if not isinstance(entry, dict):
+            continue
+        role = entry.get("role", "")
+        if role not in VALID_ROLES:
+            continue
+        content = (entry.get("content") or "")[:MAX_ENTRY_CHARS]
+        sanitized_history.append({"role": role, "content": content})
+    conversation_history = sanitized_history
     
     # Get user info from Firebase auth or request
     user_name = user_info.get("name", "there")

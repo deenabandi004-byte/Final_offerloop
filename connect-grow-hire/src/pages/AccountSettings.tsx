@@ -1,4 +1,4 @@
-import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText, User, GraduationCap, Briefcase, Rocket, Settings, AlertTriangle, Lock, Eye, RefreshCw, X, CheckCircle, Mail } from "lucide-react";
+import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText, User, GraduationCap, Briefcase, Rocket, Settings, AlertTriangle, Lock, Eye, RefreshCw, X, CheckCircle, Mail, Target, Star } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -101,9 +101,25 @@ const sections = [
   { id: 'academic', label: 'Academic Information', icon: GraduationCap },
   { id: 'professional', label: 'Professional Profile', icon: Briefcase },
   { id: 'career', label: 'Career Interests', icon: Rocket },
+  { id: 'goals', label: 'Career Goals', icon: Target },
   { id: 'gmail', label: 'Gmail Integration', icon: Mail },
   { id: 'account', label: 'Account Management', icon: Settings },
   { id: 'danger', label: 'Danger Zone', icon: AlertTriangle },
+];
+
+const careerTrackOptions = [
+  "Investment Banking",
+  "Management Consulting",
+  "Private Equity",
+  "Venture Capital",
+  "Tech / Software Engineering",
+  "Product Management",
+  "Data Science / Analytics",
+  "Marketing",
+  "Finance / Corporate Finance",
+  "Accounting",
+  "Operations",
+  "Other",
 ];
 
 // Settings Section Component
@@ -225,6 +241,14 @@ export default function AccountSettings() {
     preferredLocations: [] as string[],
     jobTypes: [] as string[],
   });
+
+  // Career goals state
+  const [goalsInfo, setGoalsInfo] = useState({
+    careerTrack: "",
+    dreamCompanies: [] as string[],
+    personalNote: "",
+  });
+  const [dreamCompanyInput, setDreamCompanyInput] = useState("");
 
   // State for saving
   const [isSaving, setIsSaving] = useState(false);
@@ -472,6 +496,9 @@ export default function AccountSettings() {
           degree: academicInfo.currentDegree,
           university: personalInfo.university,
         },
+        careerTrack: goalsInfo.careerTrack,
+        dreamCompanies: goalsInfo.dreamCompanies,
+        personalNote: goalsInfo.personalNote,
       };
       
       let intentChanged = false;
@@ -517,6 +544,9 @@ export default function AccountSettings() {
         preferredLocation: careerInfo.preferredLocations,
         jobTypes: careerInfo.jobTypes,
         jobTypesInterestedIn: careerInfo.jobTypes,
+        careerTrack: goalsInfo.careerTrack,
+        dreamCompanies: goalsInfo.dreamCompanies,
+        personalNote: goalsInfo.personalNote,
       };
 
       const userDoc = await getDoc(userRef);
@@ -609,6 +639,12 @@ export default function AccountSettings() {
               preferredJobRole: data.preferredJobRole || data.preferredJobRolesOrTitles || "",
               preferredLocations: data.preferredLocations || data.preferredLocation || data.location?.preferredLocation || [],
               jobTypes: data.jobTypes || data.jobTypesInterestedIn || data.location?.jobTypes || [],
+            });
+
+            setGoalsInfo({
+              careerTrack: data.careerTrack || data.goals?.careerTrack || "",
+              dreamCompanies: data.dreamCompanies || data.goals?.dreamCompanies || [],
+              personalNote: data.personalNote || data.goals?.personalNote || "",
             });
           }
         }
@@ -835,6 +871,71 @@ export default function AccountSettings() {
                 >
                   Manage your account and preferences
                 </p>
+
+                {/* Profile Completeness */}
+                {(() => {
+                  const fields = [
+                    { label: 'Name', filled: !!(personalInfo.firstName || personalInfo.lastName), section: 'personal' },
+                    { label: 'University', filled: !!personalInfo.university, section: 'personal' },
+                    { label: 'Major', filled: !!academicInfo.fieldOfStudy, section: 'academic' },
+                    { label: 'Graduation', filled: !!academicInfo.graduationYear, section: 'academic' },
+                    { label: 'Resume', filled: !!resumeData, section: 'professional' },
+                    { label: 'Industries', filled: careerInfo.industriesOfInterest.length > 0, section: 'career' },
+                    { label: 'Career Track', filled: !!goalsInfo.careerTrack, section: 'goals' },
+                    { label: 'Dream Companies', filled: goalsInfo.dreamCompanies.length > 0, section: 'goals' },
+                    { label: 'Personal Note', filled: !!goalsInfo.personalNote, section: 'goals' },
+                  ];
+                  const filled = fields.filter(f => f.filled).length;
+                  const pct = Math.round((filled / fields.length) * 100);
+                  if (pct >= 100) return null;
+                  const missing = fields.filter(f => !f.filled);
+                  return (
+                    <div
+                      style={{
+                        padding: '16px 20px',
+                        borderRadius: '3px',
+                        background: '#FFFFFF',
+                        border: '1px solid rgba(59, 130, 246, 0.08)',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.02)',
+                        marginBottom: '24px',
+                      }}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: '14px', fontWeight: 600, color: '#0F172A' }}>
+                          Profile completeness
+                        </span>
+                        <span style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: '14px', fontWeight: 600, color: '#3B82F6' }}>
+                          {pct}%
+                        </span>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 3, background: 'rgba(59,130,246,0.08)', overflow: 'hidden' }}>
+                        <div style={{ width: `${pct}%`, height: '100%', borderRadius: 3, background: '#3B82F6', transition: 'width 0.3s' }} />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 mt-3">
+                        {missing.slice(0, 4).map(f => (
+                          <button
+                            key={f.label}
+                            onClick={() => {
+                              document.getElementById(f.section)?.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            style={{
+                              padding: '3px 10px',
+                              borderRadius: '4px',
+                              background: 'rgba(59,130,246,0.06)',
+                              border: 'none',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '12px',
+                              color: '#3B82F6',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            + {f.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Main Content with Sidebar */}
@@ -1924,6 +2025,275 @@ export default function AccountSettings() {
                           )}
                         </button>
                       </div>
+                    </div>
+                  </SettingsSection>
+
+                  {/* Career Goals Section */}
+                  <SettingsSection
+                    id="goals"
+                    icon={Target}
+                    title="Career Goals"
+                    description="Help us personalize your outreach and contact recommendations"
+                  >
+                    <div className="space-y-6">
+                      {/* Career Track */}
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            color: '#0F172A',
+                            marginBottom: '6px',
+                          }}
+                        >
+                          Career Track
+                        </label>
+                        <Select
+                          value={goalsInfo.careerTrack}
+                          onValueChange={(value) => setGoalsInfo({ ...goalsInfo, careerTrack: value })}
+                        >
+                          <SelectTrigger
+                            className="w-full"
+                            style={{
+                              padding: '12px 16px',
+                              borderRadius: '3px',
+                              border: '1px solid rgba(59, 130, 246, 0.12)',
+                              background: '#FAFBFF',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '15px',
+                              color: '#0F172A',
+                            }}
+                          >
+                            <SelectValue placeholder="What field are you targeting?" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {careerTrackOptions.map((track) => (
+                              <SelectItem key={track} value={track}>
+                                {track}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Dream Companies */}
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            color: '#0F172A',
+                            marginBottom: '6px',
+                          }}
+                        >
+                          Dream Companies
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={dreamCompanyInput}
+                            onChange={(e) => setDreamCompanyInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && dreamCompanyInput.trim()) {
+                                e.preventDefault();
+                                if (!goalsInfo.dreamCompanies.includes(dreamCompanyInput.trim())) {
+                                  setGoalsInfo({
+                                    ...goalsInfo,
+                                    dreamCompanies: [...goalsInfo.dreamCompanies, dreamCompanyInput.trim()],
+                                  });
+                                }
+                                setDreamCompanyInput("");
+                              }
+                            }}
+                            placeholder="Type a company name and press Enter"
+                            className="flex-1 transition-all"
+                            style={{
+                              padding: '12px 16px',
+                              borderRadius: '3px',
+                              border: '1px solid rgba(59, 130, 246, 0.12)',
+                              background: '#FAFBFF',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '15px',
+                              color: '#0F172A',
+                              outline: 'none',
+                            }}
+                            onFocus={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.08)';
+                            }}
+                            onBlur={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.12)';
+                              e.currentTarget.style.boxShadow = 'none';
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (dreamCompanyInput.trim() && !goalsInfo.dreamCompanies.includes(dreamCompanyInput.trim())) {
+                                setGoalsInfo({
+                                  ...goalsInfo,
+                                  dreamCompanies: [...goalsInfo.dreamCompanies, dreamCompanyInput.trim()],
+                                });
+                                setDreamCompanyInput("");
+                              }
+                            }}
+                            style={{
+                              padding: '12px 16px',
+                              borderRadius: '3px',
+                              border: '1px solid rgba(59, 130, 246, 0.12)',
+                              background: '#FAFBFF',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '14px',
+                              fontWeight: 500,
+                              color: '#3B82F6',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Add
+                          </button>
+                        </div>
+                        {goalsInfo.dreamCompanies.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-3">
+                            {goalsInfo.dreamCompanies.map((company) => (
+                              <span
+                                key={company}
+                                className="inline-flex items-center gap-1"
+                                style={{
+                                  padding: '4px 10px',
+                                  borderRadius: '6px',
+                                  background: 'rgba(124, 58, 237, 0.08)',
+                                  color: '#7C3AED',
+                                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                                  fontSize: '13px',
+                                  fontWeight: 500,
+                                }}
+                              >
+                                {company}
+                                <button
+                                  onClick={() => setGoalsInfo({
+                                    ...goalsInfo,
+                                    dreamCompanies: goalsInfo.dreamCompanies.filter(c => c !== company),
+                                  })}
+                                  className="rounded-full p-0.5"
+                                  style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+                                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(124, 58, 237, 0.15)'; }}
+                                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Personal Note */}
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            color: '#0F172A',
+                            marginBottom: '6px',
+                          }}
+                        >
+                          Personal Note
+                        </label>
+                        <textarea
+                          value={goalsInfo.personalNote}
+                          onChange={(e) => {
+                            if (e.target.value.length <= 500) {
+                              setGoalsInfo({ ...goalsInfo, personalNote: e.target.value });
+                            }
+                          }}
+                          placeholder="One thing about you we can't see on your resume — e.g., 'I grew up on a farm and that's why supply chain fascinates me'"
+                          rows={3}
+                          className="w-full transition-all resize-none"
+                          style={{
+                            padding: '12px 16px',
+                            borderRadius: '3px',
+                            border: '1px solid rgba(59, 130, 246, 0.12)',
+                            background: '#FAFBFF',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '15px',
+                            color: '#0F172A',
+                            outline: 'none',
+                          }}
+                          onFocus={(e) => {
+                            e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+                            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.08)';
+                          }}
+                          onBlur={(e) => {
+                            e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.12)';
+                            e.currentTarget.style.boxShadow = 'none';
+                          }}
+                        />
+                        <p
+                          style={{
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '13px',
+                            color: '#94A3B8',
+                            marginTop: '4px',
+                            textAlign: 'right',
+                          }}
+                        >
+                          {goalsInfo.personalNote.length}/500
+                        </p>
+                      </div>
+
+                      {/* What We Know Section */}
+                      {resumeData && (
+                        <div
+                          style={{
+                            padding: '16px 20px',
+                            borderRadius: '3px',
+                            background: 'rgba(59, 130, 246, 0.03)',
+                            border: '1px solid rgba(59, 130, 246, 0.08)',
+                          }}
+                        >
+                          <div className="flex items-center gap-2 mb-3">
+                            <Star className="w-4 h-4" style={{ color: '#3B82F6' }} />
+                            <h4
+                              style={{
+                                fontFamily: "'DM Sans', system-ui, sans-serif",
+                                fontSize: '14px',
+                                fontWeight: 600,
+                                color: '#0F172A',
+                              }}
+                            >
+                              What we know about you
+                            </h4>
+                          </div>
+                          <div className="space-y-1.5" style={{ fontSize: '13px', fontFamily: "'DM Sans', system-ui, sans-serif" }}>
+                            {resumeData.university && (
+                              <p style={{ color: '#475569' }}>
+                                <span style={{ color: '#94A3B8' }}>University:</span> {resumeData.university}
+                              </p>
+                            )}
+                            {resumeData.major && (
+                              <p style={{ color: '#475569' }}>
+                                <span style={{ color: '#94A3B8' }}>Major:</span> {resumeData.major}
+                              </p>
+                            )}
+                            {resumeData.year && (
+                              <p style={{ color: '#475569' }}>
+                                <span style={{ color: '#94A3B8' }}>Graduation:</span> {resumeData.year}
+                              </p>
+                            )}
+                            {!resumeData.university && !resumeData.major && (
+                              <p style={{ color: '#94A3B8', fontStyle: 'italic' }}>
+                                Upload your resume or connect LinkedIn to improve personalization.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </SettingsSection>
 

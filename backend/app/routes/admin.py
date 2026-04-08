@@ -72,11 +72,17 @@ def sync_stale():
 
 def _is_cron_authorized():
     """Check if the request has a valid cron secret for headless access."""
+    import hmac
     cron_secret = os.getenv("CRON_SECRET")
-    if not cron_secret:
-        return False
+    if not cron_secret or len(cron_secret) < 20:
+        # Reject trivially short/guessable secrets in production
+        if os.getenv("RENDER") or os.getenv("FLASK_ENV") == "production":
+            print("[SECURITY] CRON_SECRET is missing or too short (<20 chars). Rejecting cron auth.")
+            return False
+        if not cron_secret:
+            return False
     provided = (request.headers.get("X-Cron-Secret") or "").strip()
-    return provided == cron_secret
+    return hmac.compare_digest(provided, cron_secret)
 
 
 @admin_bp.post("/renew-watches")

@@ -1,0 +1,15 @@
+# Security-sensitive paths require owner review.
+# Enable "Require review from Code Owners" in branch protection settings.
+
+# CI/CD workflows — prevent secret exfiltration via workflow modification
+.github/ @deenabandi004-byte
+
+# Backend security-critical files
+backend/app/routes/billing.py @deenabandi004-byte
+backend/app/routes/admin.py @deenabandi004-byte
+backend/app/extensions.py @deenabandi004-byte
+backend/requirements.txt @deenabandi004-byte
+
+# Firestore security rules
+firestore.rules @deenabandi004-byte
+storage.rules @deenabandi004-byte

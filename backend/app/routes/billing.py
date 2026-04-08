@@ -128,7 +128,7 @@ def check_credits():
         
     except Exception as e:
         print(f"Check credits error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Failed to check credits'}), 500
 
 
 @billing_bp.route('/user/update-tier', methods=['POST'])
@@ -197,7 +197,7 @@ def update_user_tier():
 
     except Exception as e:
         print(f"User tier update error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Failed to update tier'}), 500
 
 
 @billing_bp.route('/create-checkout-session', methods=['POST'])
@@ -263,11 +263,15 @@ def complete_upgrade():
                 'stripe_error': str(e)
             }), 400
         except Exception as e:
-            print(f"   ⚠️  Error retrieving Stripe session: {e}")
+            print(f"   ❌ Stripe session retrieval failed (non-Stripe error): {e}")
             import traceback
             traceback.print_exc()
-            # Continue without Stripe verification if it fails
-            # This allows manual upgrades if Stripe is having issues
+            # Hard fail: never upgrade without payment verification.
+            # Stripe webhooks handle eventual consistency if this endpoint is unavailable.
+            return jsonify({
+                'error': 'Payment verification temporarily unavailable. Your subscription will activate automatically via webhook.',
+                'retry': True
+            }), 503
         
         # Update Firebase
         if not db:
@@ -350,12 +354,12 @@ def complete_upgrade():
         print(f"❌ Missing required field: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': f'Missing required field: {str(e)}'}), 400
+        return jsonify({'error': 'Missing required field in request'}), 400
     except Exception as e:
         print(f"❌ Upgrade completion error: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Failed to complete upgrade'}), 500
 
 
 @billing_bp.route('/stripe-webhook', methods=['POST'])
@@ -478,7 +482,7 @@ def get_user_subscription():
         
     except Exception as e:
         print(f"Get subscription error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Failed to retrieve subscription info'}), 500
 
 
 @billing_bp.route('/user/check-feature', methods=['POST'])
@@ -519,7 +523,7 @@ def check_feature():
         
     except Exception as e:
         print(f"Check feature error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Failed to check feature access'}), 500
 
 
 @billing_bp.route('/user/increment-usage', methods=['POST'])
@@ -577,7 +581,7 @@ def increment_usage():
         
     except Exception as e:
         print(f"Increment usage error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Failed to update usage'}), 500
 
 
 @billing_bp.route('/debug/check-upgrade/<user_id>', methods=['GET'])
@@ -616,5 +620,6 @@ def debug_check_upgrade(user_id):
         })
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"Debug check-upgrade error: {e}")
+        return jsonify({'error': 'Failed to check upgrade status'}), 500
 

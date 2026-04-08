@@ -2,9 +2,11 @@ import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowRight, ArrowLeft, Upload, FileText } from "lucide-react";
+import { ArrowRight, ArrowLeft, Upload, FileText, Linkedin, Loader2 } from "lucide-react";
 import profileIllustration from "@/assets/profile-setup-illustration.png";
 import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileTypes";
+import { enrichLinkedInOnboarding, BACKEND_URL } from "@/services/api";
+import { auth } from "@/lib/firebase";
 
 interface ProfileData {
   firstName: string;
@@ -13,6 +15,8 @@ interface ProfileData {
   phone: string;
   avatar?: string;
   resume?: File;
+  linkedinUrl: string;
+  linkedinEnrichment?: any;
 }
 
 interface OnboardingProfileProps {
@@ -29,23 +33,124 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
     phone: initialData?.phone || "",
     avatar: initialData?.avatar,
     resume: initialData?.resume,
+    linkedinUrl: initialData?.linkedinUrl || "",
   });
   
   const resumeInputRef = useRef<HTMLInputElement>(null);
+  const [linkedinLoading, setLinkedinLoading] = useState(false);
+  const [linkedinFetched, setLinkedinFetched] = useState(false);
+  const [resumeParsing, setResumeParsing] = useState(false);
+  const [profileAutoFilled, setProfileAutoFilled] = useState<Set<string>>(new Set());
+
+  const handleLinkedInBlur = async () => {
+    const url = profile.linkedinUrl.trim();
+    if (!url || !url.includes("linkedin.com/in/") || linkedinFetched) return;
+
+    setLinkedinLoading(true);
+    try {
+      const result = await Promise.race([
+        enrichLinkedInOnboarding(url),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+      ]) as any;
+
+      if (result?.success) {
+        setLinkedinFetched(true);
+        const filled = new Set<string>();
+
+        setProfile(prev => {
+          const updated = { ...prev, linkedinEnrichment: result };
+          if (result.profile) {
+            if (!prev.firstName && result.profile.firstName) {
+              updated.firstName = result.profile.firstName;
+              filled.add("firstName");
+            }
+            if (!prev.lastName && result.profile.lastName) {
+              updated.lastName = result.profile.lastName;
+              filled.add("lastName");
+            }
+            if (!prev.email && result.profile.email) {
+              updated.email = result.profile.email;
+              filled.add("email");
+            }
+            if (!prev.phone && result.profile.phone) {
+              updated.phone = result.profile.phone;
+              filled.add("phone");
+            }
+          }
+          return updated;
+        });
+
+        setProfileAutoFilled(filled);
+      }
+    } catch {
+      // Silent — user can fill manually
+    } finally {
+      setLinkedinLoading(false);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onNext(profile);
   };
 
-  const handleResumeUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (!isValidResumeFile(file)) {
-        // File type validation - user can still proceed but will see error later
-        console.warn('Invalid resume file type:', file.name);
+    if (!file) return;
+
+    if (!isValidResumeFile(file)) {
+      console.warn('Invalid resume file type:', file.name);
+    }
+    setProfile(prev => ({ ...prev, resume: file }));
+
+    // Parse resume to auto-fill profile fields
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (!ext || !["pdf", "docx", "doc"].includes(ext)) return;
+
+    setResumeParsing(true);
+    try {
+      const formData = new FormData();
+      formData.append("resume", file);
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+      const response = await fetch(`${BACKEND_URL}/api/parse-resume`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      const result = await response.json();
+      if (response.ok && result.data) {
+        const parsed = result.data;
+        const nameParts = (parsed.name || "").trim().split(" ", 2);
+        const contact = parsed.contact || {};
+        const filled = new Set<string>(profileAutoFilled);
+
+        setProfile(prev => {
+          const updated = { ...prev };
+          if (!prev.firstName && nameParts[0]) {
+            updated.firstName = nameParts[0];
+            filled.add("firstName");
+          }
+          if (!prev.lastName && nameParts.length > 1) {
+            updated.lastName = nameParts.slice(1).join(" ");
+            filled.add("lastName");
+          }
+          if (!prev.email && contact.email) {
+            updated.email = contact.email;
+            filled.add("email");
+          }
+          if (!prev.phone && contact.phone) {
+            updated.phone = contact.phone;
+            filled.add("phone");
+          }
+          return updated;
+        });
+
+        setProfileAutoFilled(filled);
       }
-      setProfile(prev => ({ ...prev, resume: file }));
+    } catch {
+      // Silent — user can fill manually
+    } finally {
+      setResumeParsing(false);
     }
   };
 
@@ -86,8 +191,9 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
                 <span>Choose Resume File</span>
               </Button>
               {profile.resume && (
-                <span className="text-sm text-muted-foreground">
+                <span className="text-sm text-muted-foreground flex items-center gap-2">
                   {profile.resume.name}
+                  {resumeParsing && <Loader2 className="h-3 w-3 animate-spin" />}
                 </span>
               )}
             </div>
@@ -107,28 +213,71 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
             </p>
           </div>
 
+          <div className="flex items-center gap-4 my-2">
+            <div className="flex-1 h-px bg-border" />
+            <span className="text-sm text-muted-foreground font-medium">OR</span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="linkedinUrl" className="text-foreground font-medium flex items-center gap-2">
+              <Linkedin className="h-4 w-4" />
+              LinkedIn Profile (Optional)
+            </Label>
+            <div className="relative">
+              <Input
+                id="linkedinUrl"
+                value={profile.linkedinUrl}
+                onChange={(e) => { setProfile(prev => ({ ...prev, linkedinUrl: e.target.value })); setLinkedinFetched(false); }}
+                onBlur={handleLinkedInBlur}
+                placeholder="https://linkedin.com/in/your-profile"
+              />
+              {linkedinLoading && (
+                <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Don't have a resume? Your LinkedIn profile helps us personalize your outreach.
+            </p>
+            {profile.linkedinUrl && !profile.linkedinUrl.includes("linkedin.com/in/") && (
+              <p className="text-xs text-red-500">
+                Please enter a valid LinkedIn profile URL (e.g. https://linkedin.com/in/your-profile)
+              </p>
+            )}
+          </div>
+
           <div className="pt-4">
             <h3 className="text-lg font-semibold text-foreground mb-4">Personal</h3>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <Label htmlFor="firstName" className="text-foreground font-medium">First Name</Label>
+              <Label htmlFor="firstName" className="text-foreground font-medium">
+                First Name
+                {profileAutoFilled.has("firstName") && (
+                  <span className="ml-2 inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">Auto-filled</span>
+                )}
+              </Label>
               <Input
                 id="firstName"
                 value={profile.firstName}
-                onChange={(e) => setProfile(prev => ({ ...prev, firstName: e.target.value }))}
+                onChange={(e) => { setProfile(prev => ({ ...prev, firstName: e.target.value })); setProfileAutoFilled(prev => { const next = new Set(prev); next.delete("firstName"); return next; }); }}
                 placeholder="Enter your first name"
                 required
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="lastName" className="text-foreground font-medium">Last Name</Label>
+              <Label htmlFor="lastName" className="text-foreground font-medium">
+                Last Name
+                {profileAutoFilled.has("lastName") && (
+                  <span className="ml-2 inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">Auto-filled</span>
+                )}
+              </Label>
               <Input
                 id="lastName"
                 value={profile.lastName}
-                onChange={(e) => setProfile(prev => ({ ...prev, lastName: e.target.value }))}
+                onChange={(e) => { setProfile(prev => ({ ...prev, lastName: e.target.value })); setProfileAutoFilled(prev => { const next = new Set(prev); next.delete("lastName"); return next; }); }}
                 placeholder="Enter your last name"
                 required
               />
@@ -137,24 +286,34 @@ export const OnboardingProfile = ({ onNext, onBack, initialData }: OnboardingPro
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-foreground font-medium">Email Address</Label>
+              <Label htmlFor="email" className="text-foreground font-medium">
+                Email Address
+                {profileAutoFilled.has("email") && (
+                  <span className="ml-2 inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">Auto-filled</span>
+                )}
+              </Label>
               <Input
                 id="email"
                 type="email"
                 value={profile.email}
-                onChange={(e) => setProfile(prev => ({ ...prev, email: e.target.value }))}
+                onChange={(e) => { setProfile(prev => ({ ...prev, email: e.target.value })); setProfileAutoFilled(prev => { const next = new Set(prev); next.delete("email"); return next; }); }}
                 placeholder="Enter your email address"
                 required
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="phone" className="text-foreground font-medium">Phone Number</Label>
+              <Label htmlFor="phone" className="text-foreground font-medium">
+                Phone Number
+                {profileAutoFilled.has("phone") && (
+                  <span className="ml-2 inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">Auto-filled</span>
+                )}
+              </Label>
               <Input
                 id="phone"
                 type="tel"
                 value={profile.phone}
-                onChange={(e) => setProfile(prev => ({ ...prev, phone: e.target.value }))}
+                onChange={(e) => { setProfile(prev => ({ ...prev, phone: e.target.value })); setProfileAutoFilled(prev => { const next = new Set(prev); next.delete("phone"); return next; }); }}
                 placeholder="Enter your phone number"
               />
             </div>

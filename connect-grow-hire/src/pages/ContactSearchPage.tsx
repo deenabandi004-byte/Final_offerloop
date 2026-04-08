@@ -452,6 +452,11 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
           gmailDraftUrl: c.gmailDraftUrl ?? c.gmail_draft_url ?? undefined,
           hasUnreadReply: false,
           notificationsMuted: false,
+          warmthScore: c.warmth_score ?? undefined,
+          warmthTier: c.warmth_tier ?? undefined,
+          warmthSignals: c.warmth_signals ?? undefined,
+          personalizationLabel: c.personalization?.label ?? undefined,
+          personalizationType: c.personalization?.commonality_type ?? undefined,
         });
 
         // DEBUG: Log first mapped contact to see email fields
@@ -1625,15 +1630,80 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                     {initials}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: '#0F172A' }}>{name}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 500, color: '#0F172A' }}>{name}</span>
+                      {/* Warmth indicator */}
+                      {c.warmth_tier === 'warm' && (
+                        <span
+                          title={(() => {
+                            const sigs = c.warmth_signals || [];
+                            return sigs.slice(0, 2).map((s: any) => s.detail || s.signal?.replace(/_/g, ' ')).filter(Boolean).join(', ');
+                          })()}
+                          style={{
+                            padding: '1px 6px',
+                            borderRadius: 3,
+                            background: 'rgba(34, 197, 94, 0.10)',
+                            color: '#16A34A',
+                            fontSize: 10,
+                            fontWeight: 600,
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                          }}
+                        >
+                          Strong match
+                        </span>
+                      )}
+                      {c.warmth_tier === 'neutral' && (
+                        <span
+                          title={(() => {
+                            const sigs = c.warmth_signals || [];
+                            return sigs.slice(0, 2).map((s: any) => s.detail || s.signal?.replace(/_/g, ' ')).filter(Boolean).join(', ');
+                          })()}
+                          style={{
+                            padding: '1px 6px',
+                            borderRadius: 3,
+                            background: 'rgba(245, 158, 11, 0.10)',
+                            color: '#D97706',
+                            fontSize: 10,
+                            fontWeight: 600,
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                          }}
+                        >
+                          Good fit
+                        </span>
+                      )}
+                    </div>
                     <div style={{ fontSize: 11, color: '#6B7280', marginTop: 1 }}>
                       {[title, company].filter(Boolean).join(' at ')}
                     </div>
+                    {/* Personalization tag */}
+                    {c.personalization?.label && (
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          marginTop: 3,
+                          padding: '1px 7px',
+                          borderRadius: 3,
+                          fontSize: 10,
+                          fontWeight: 500,
+                          fontFamily: "'DM Sans', system-ui, sans-serif",
+                          background: c.personalization?.commonality_type === 'university' ? 'rgba(59,130,246,0.08)' :
+                                     c.personalization?.commonality_type === 'hometown' ? 'rgba(34,197,94,0.08)' :
+                                     c.personalization?.commonality_type === 'company' ? 'rgba(124,58,237,0.08)' :
+                                     'rgba(107,114,128,0.08)',
+                          color: c.personalization?.commonality_type === 'university' ? '#2563EB' :
+                                 c.personalization?.commonality_type === 'hometown' ? '#16A34A' :
+                                 c.personalization?.commonality_type === 'company' ? '#7C3AED' :
+                                 '#6B7280',
+                        }}
+                      >
+                        {c.personalization.label}
+                      </span>
+                    )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                     {email && <span style={{ fontSize: 11, color: '#94A3B8' }}>{email}</span>}
                     {linkedin && (
-                      <a href={linkedin} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                      <a href={linkedin.startsWith('http') ? linkedin : `https://${linkedin}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
                         <ExternalLink className="w-3.5 h-3.5" style={{ color: '#94A3B8' }} />
                       </a>
                     )}

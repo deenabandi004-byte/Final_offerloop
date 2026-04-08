@@ -56,7 +56,9 @@ def create_app() -> Flask:
     )
 
     # --- Prerender.io middleware for bot crawlers (SEO/AEO) ---
-    PRERENDER_TOKEN = os.environ.get("PRERENDER_TOKEN", "7CEDXDDuzwprjCKsW8Ln")
+    PRERENDER_TOKEN = os.environ.get("PRERENDER_TOKEN")
+    if not PRERENDER_TOKEN:
+        app.logger.warning("PRERENDER_TOKEN not set — bot SSR via Prerender.io is disabled")
     BOT_AGENTS = [
         'googlebot', 'bingbot', 'yandex', 'duckduckbot', 'slurp',
         'baiduspider', 'facebookexternalhit', 'twitterbot', 'linkedinbot',
@@ -76,7 +78,7 @@ def create_app() -> Flask:
         is_bot = any(bot in user_agent for bot in BOT_AGENTS)
 
         # Only prerender GET requests to non-API, non-asset routes
-        if not is_bot:
+        if not is_bot or not PRERENDER_TOKEN:
             return None
         if request.method != 'GET':
             return None

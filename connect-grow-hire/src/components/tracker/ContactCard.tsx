@@ -146,6 +146,23 @@ export function ContactCard({ contact, bucket, isSelected, onClick }: ContactCar
         <p className={`text-xs mt-0.5 truncate ${isReplied ? "text-red-500 font-medium" : "text-gray-400"}`}>
           {statusLine(contact)}
         </p>
+        {(contact as any).personalizationLabel && (
+          <span
+            className="inline-block mt-0.5 text-[10px] font-medium px-1.5 py-px rounded"
+            style={{
+              background: (contact as any).personalizationType === 'university' ? 'rgba(59,130,246,0.08)' :
+                         (contact as any).personalizationType === 'hometown' ? 'rgba(34,197,94,0.08)' :
+                         (contact as any).personalizationType === 'company' ? 'rgba(124,58,237,0.08)' :
+                         'rgba(107,114,128,0.08)',
+              color: (contact as any).personalizationType === 'university' ? '#2563EB' :
+                     (contact as any).personalizationType === 'hometown' ? '#16A34A' :
+                     (contact as any).personalizationType === 'company' ? '#7C3AED' :
+                     '#6B7280',
+            }}
+          >
+            {(contact as any).personalizationLabel}
+          </span>
+        )}
       </div>
 
       {/* chip */}

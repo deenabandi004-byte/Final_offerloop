@@ -17,10 +17,18 @@ interface AcademicData {
   graduationYear: string;
 }
 
+interface LinkedinAcademicData {
+  university?: string;
+  major?: string;
+  degree?: string;
+  graduationYear?: string;
+}
+
 interface OnboardingAcademicsProps {
   onNext: (data: AcademicData) => void;
   onBack: () => void;
   initialData?: AcademicData;
+  linkedinData?: LinkedinAcademicData | null;
 }
 
 const universities = [
@@ -623,23 +631,78 @@ const universities = [
   "University of Zurich"
 ];
 
-export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingAcademicsProps) => {
-  const [academics, setAcademics] = useState<AcademicData>({
-    university: initialData?.university || "",
-    degree: initialData?.degree || "",
-    major: initialData?.major || "",
-    graduationMonth: initialData?.graduationMonth || "",
-    graduationYear: initialData?.graduationYear || "",
+function findClosestUniversity(input: string): string {
+  if (!input) return "";
+  const normalized = input.toLowerCase().trim();
+  const exact = universities.find(u => u.toLowerCase() === normalized);
+  if (exact) return exact;
+  const partial = universities.find(u =>
+    u.toLowerCase().includes(normalized) ||
+    normalized.includes(u.toLowerCase())
+  );
+  return partial || "";
+}
+
+function normalizeDegree(input: string): string {
+  if (!input) return "";
+  const lower = input.toLowerCase();
+  if (lower.includes("bachelor")) return "bachelor";
+  if (lower.includes("master")) return "master";
+  if (lower.includes("phd") || lower.includes("doctor")) return "doctoral";
+  if (lower.includes("associate")) return "associate";
+  return "";
+}
+
+function normalizeGraduationYear(input: string): string {
+  if (!input) return "";
+  return input.split("-")[0];
+}
+
+export const OnboardingAcademics = ({ onNext, onBack, initialData, linkedinData }: OnboardingAcademicsProps) => {
+  const [academics, setAcademics] = useState<AcademicData>(() => {
+    const matchedUniversity = findClosestUniversity(linkedinData?.university || "");
+    const matchedDegree = normalizeDegree(linkedinData?.degree || "");
+    const matchedYear = normalizeGraduationYear(linkedinData?.graduationYear || "");
+    return {
+      university: initialData?.university || matchedUniversity || "",
+      degree: initialData?.degree || matchedDegree || "",
+      major: initialData?.major || linkedinData?.major || "",
+      graduationMonth: initialData?.graduationMonth || "",
+      graduationYear: initialData?.graduationYear || matchedYear || "",
+    };
   });
   const [open, setOpen] = useState(false);
+  const [autoFilledFields, setAutoFilledFields] = useState<Set<string>>(() => {
+    const fields = new Set<string>();
+    if (!initialData?.university && findClosestUniversity(linkedinData?.university || "")) fields.add("university");
+    if (!initialData?.degree && normalizeDegree(linkedinData?.degree || "")) fields.add("degree");
+    if (linkedinData?.major && !initialData?.major) fields.add("major");
+    if (!initialData?.graduationYear && normalizeGraduationYear(linkedinData?.graduationYear || "")) fields.add("graduationYear");
+    return fields;
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onNext(academics);
   };
 
+  const removeAutoFill = (field: string) => {
+    setAutoFilledFields(prev => {
+      const next = new Set(prev);
+      next.delete(field);
+      return next;
+    });
+  };
+
+  const AutoFilledBadge = ({ field }: { field: string }) =>
+    autoFilledFields.has(field) ? (
+      <span className="ml-2 inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+        Auto-filled from LinkedIn
+      </span>
+    ) : null;
+
   const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 20 }, (_, i) => currentYear - 10 + i);
+  const years = Array.from({ length: currentYear - 1940 + 10 + 1 }, (_, i) => 1940 + i);
   const months = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
@@ -660,7 +723,7 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
         <form onSubmit={handleSubmit} className="space-y-6 mt-8 lg:mt-12">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <Label htmlFor="university" className="text-foreground font-medium">University/College</Label>
+              <Label htmlFor="university" className="text-foreground font-medium">University/College<AutoFilledBadge field="university" /></Label>
               <Popover open={open} onOpenChange={setOpen}>
                 <PopoverTrigger asChild>
                   <Button
@@ -686,10 +749,11 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
                             key={university}
                             value={university}
                             onSelect={(currentValue) => {
-                              setAcademics(prev => ({ 
-                                ...prev, 
-                                university: currentValue === academics.university ? "" : currentValue 
+                              setAcademics(prev => ({
+                                ...prev,
+                                university: currentValue === academics.university ? "" : currentValue
                               }));
+                              removeAutoFill("university");
                               setOpen(false);
                             }}
                           >
@@ -710,8 +774,8 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="degree" className="text-foreground font-medium">Degree Level</Label>
-              <Select value={academics.degree} onValueChange={(value) => setAcademics(prev => ({ ...prev, degree: value }))}>
+              <Label htmlFor="degree" className="text-foreground font-medium">Degree Level<AutoFilledBadge field="degree" /></Label>
+              <Select value={academics.degree} onValueChange={(value) => { setAcademics(prev => ({ ...prev, degree: value })); removeAutoFill("degree"); }}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select degree level" />
                 </SelectTrigger>
@@ -745,8 +809,8 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="graduationYear" className="text-foreground font-medium">Graduation Year</Label>
-              <Select value={academics.graduationYear} onValueChange={(value) => setAcademics(prev => ({ ...prev, graduationYear: value }))}>
+              <Label htmlFor="graduationYear" className="text-foreground font-medium">Graduation Year<AutoFilledBadge field="graduationYear" /></Label>
+              <Select value={academics.graduationYear} onValueChange={(value) => { setAcademics(prev => ({ ...prev, graduationYear: value })); removeAutoFill("graduationYear"); }}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select graduation year" />
                 </SelectTrigger>
@@ -762,11 +826,11 @@ export const OnboardingAcademics = ({ onNext, onBack, initialData }: OnboardingA
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="major" className="text-foreground font-medium">Major/Field of Study</Label>
+            <Label htmlFor="major" className="text-foreground font-medium">Major/Field of Study<AutoFilledBadge field="major" /></Label>
             <Input
               id="major"
               value={academics.major}
-              onChange={(e) => setAcademics(prev => ({ ...prev, major: e.target.value }))}
+              onChange={(e) => { setAcademics(prev => ({ ...prev, major: e.target.value })); removeAutoFill("major"); }}
               placeholder="Enter your major"
               required
             />

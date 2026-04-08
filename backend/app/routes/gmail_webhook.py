@@ -441,14 +441,47 @@ def _process_gmail_notification(email_address, history_id):
         traceback.print_exc()
 
 
+def _verify_google_pubsub_jwt() -> bool:
+    """Verify the Google-signed OIDC JWT in the Authorization header."""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return False
+    id_token = auth_header.split("Bearer ", 1)[1]
+    try:
+        from google.oauth2 import id_token as google_id_token
+        from google.auth.transport import requests as google_requests
+        claim = google_id_token.verify_oauth2_token(
+            id_token,
+            google_requests.Request(),
+            audience=None,  # Accept any audience; Pub/Sub uses the push endpoint URL
+        )
+        # Verify the issuer is Google
+        issuer = claim.get("iss", "")
+        if issuer not in ("accounts.google.com", "https://accounts.google.com"):
+            logger.warning("[gmail_webhook] JWT issuer mismatch: %s", issuer)
+            return False
+        return True
+    except Exception as e:
+        logger.warning("[gmail_webhook] JWT verification failed: %s", e)
+        return False
+
+
 @gmail_webhook_bp.post("/webhook")
 def webhook():
     """
-    Pub/Sub push endpoint. Verifies token, decodes message, dispatches processing
-    to a background thread, and returns 200 immediately to avoid Pub/Sub redelivery.
+    Pub/Sub push endpoint. Verifies authenticity via Google OIDC JWT (primary)
+    or static token (fallback for backwards compatibility), decodes message,
+    dispatches processing to a background thread, and returns 200 immediately.
     """
+    # Primary: verify Google-signed JWT from Pub/Sub
+    jwt_ok = _verify_google_pubsub_jwt()
+
+    # Fallback: static token (for backwards compat during migration)
     token = (request.args.get("token") or "").strip()
-    if not GMAIL_WEBHOOK_SECRET or not hmac.compare_digest(token, GMAIL_WEBHOOK_SECRET):
+    token_ok = bool(GMAIL_WEBHOOK_SECRET and hmac.compare_digest(token, GMAIL_WEBHOOK_SECRET))
+
+    if not jwt_ok and not token_ok:
+        logger.warning("[gmail_webhook] Auth failed: jwt=%s token=%s", jwt_ok, token_ok)
         return jsonify({"error": "Forbidden"}), 403
 
     envelope = request.get_json(silent=True) or {}

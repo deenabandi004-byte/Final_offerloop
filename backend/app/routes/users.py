@@ -18,6 +18,17 @@ users_bp = Blueprint('users', __name__, url_prefix='/api/users')
 # PHASE 5: Job-Relevant Fields That Trigger Recomputation
 # =============================================================================
 
+# =============================================================================
+# SECURITY: Fields that only the backend (Stripe webhooks, admin scripts) may write.
+# The update-preferences endpoint strips these before writing to Firestore.
+# =============================================================================
+BLOCKED_FIELDS = {
+    "tier", "subscriptionTier", "credits", "maxCredits",
+    "lastCreditReset", "stripeCustomerId", "stripeSubscriptionId",
+    "subscriptionStatus", "alumniSearchesUsed", "coffeeChatPrepsUsed",
+    "interviewPrepsUsed", "email",  # email comes from Firebase Auth, not user input
+}
+
 JOB_RELEVANT_FIELDS = {
     "location.preferredLocation",
     "location.interests",
@@ -30,6 +41,9 @@ JOB_RELEVANT_FIELDS = {
     "professionalInfo.interests",  # Legacy path
     "jobTypes",  # Legacy top-level path
     "graduationYear",  # Legacy top-level path
+    "careerTrack",
+    "dreamCompanies",
+    "personalNote",
 }
 
 
@@ -193,15 +207,27 @@ def update_user_preferences():
         print(f"[IntentUpdate] user={user_id[:8]}... updated_fields={changed_fields}")
         
         # Apply updates to Firestore
-        # Convert nested updates to Firestore-compatible format
+        # SECURITY: Strip billing/tier fields that only the backend should write.
+        # The Admin SDK bypasses Firestore security rules, so we must enforce
+        # the field blocklist here in application code.
         firestore_updates = {}
         for key, value in updates.items():
+            if key in BLOCKED_FIELDS:
+                print(f"[SECURITY] Blocked write to protected field '{key}' for user={user_id[:8]}...")
+                continue
             if isinstance(value, dict):
                 # Nested update (e.g., location.preferredLocation)
                 for nested_key, nested_value in value.items():
-                    firestore_updates[f"{key}.{nested_key}"] = nested_value
+                    field_path = f"{key}.{nested_key}"
+                    if nested_key in BLOCKED_FIELDS or field_path in BLOCKED_FIELDS:
+                        print(f"[SECURITY] Blocked write to protected field '{field_path}' for user={user_id[:8]}...")
+                        continue
+                    firestore_updates[field_path] = nested_value
             else:
                 firestore_updates[key] = value
+
+        if not firestore_updates:
+            return jsonify({"error": "No valid updates provided"}), 400
         
         user_ref.update(firestore_updates)
         

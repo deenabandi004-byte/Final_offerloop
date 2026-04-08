@@ -104,7 +104,7 @@ const ResumeRenderer: React.FC<ResumeRendererProps> = ({ resume, className = '' 
             )}
             {resume.contact.phone && <span>{resume.contact.phone}</span>}
             {resume.contact.linkedin && (
-              <a href={resume.contact.linkedin} target="_blank" rel="noopener noreferrer" className="hover:text-[#3B82F6]">
+              <a href={resume.contact.linkedin.startsWith('http') ? resume.contact.linkedin : `https://${resume.contact.linkedin}`} target="_blank" rel="noopener noreferrer" className="hover:text-[#3B82F6]">
                 LinkedIn
               </a>
             )}

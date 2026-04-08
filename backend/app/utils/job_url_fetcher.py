@@ -13,6 +13,8 @@ from typing import Any, Dict
 import requests
 from bs4 import BeautifulSoup
 
+from app.utils.url_validator import validate_fetch_url, UnsafeURLError
+
 logger = logging.getLogger(__name__)
 
 # Cap visible text to avoid huge payloads
@@ -56,6 +58,13 @@ def fetch_job_posting(url: str) -> Dict[str, Any]:
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
     }
+
+    try:
+        url = validate_fetch_url(url)
+    except UnsafeURLError as e:
+        logger.warning("[JobUrlFetcher] Blocked unsafe URL %s: %s", url[:80], e)
+        result["raw_text"] = f"Job posting URL: {url} (blocked: {e!s})"
+        return result
 
     try:
         response = requests.get(url, headers=headers, timeout=15, allow_redirects=True)

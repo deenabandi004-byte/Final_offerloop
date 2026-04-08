@@ -1,11 +1,11 @@
-anthropic>=0.86.0
-cachetools>=5.3.0
+anthropic==0.52.0
+cachetools==5.5.2
 Flask==3.0.0
 flask-cors==4.0.0
 Flask-Limiter==3.5.0
 gunicorn==21.2.0
 google-search-results==2.4.2
-openpyxl>=3.1.0
+openpyxl==3.1.5
 openai==1.54.0
 httpx==0.27.2
 google-api-python-client==2.114.0
@@ -23,8 +23,8 @@ reportlab==4.0.7
 python-docx==1.1.0
 pdf2docx==0.5.6
 Werkzeug==3.0.1
-pydantic>=2.10.0
-pydantic-settings>=2.6.0
+pydantic==2.12.5
+pydantic-settings==2.12.0
 # Optional: Error tracking (install with: pip install sentry-sdk[flask])
 # sentry-sdk[flask]==1.38.0
 
@@ -36,11 +36,11 @@ pytest==7.4.3
 pytest-cov==4.1.0
 pytest-mock==3.12.0
 # Use 0.23.x with pytest 7.x to avoid "cannot import name 'FixtureDef' from 'pytest'" (pytest-asyncio 1.x needs pytest 8+)
-pytest-asyncio>=0.23,<0.24
-aiohttp
-asyncpraw
-praw
-beautifulsoup4
-weasyprint>=67.0
-jinja2>=3.1.0
-markdown>=3.5.0
+pytest-asyncio==0.23.8
+aiohttp==3.12.15
+asyncpraw==7.8.1
+praw==7.8.1
+beautifulsoup4==4.12.3
+weasyprint==67.0
+jinja2==3.1.4
+markdown==3.10.2

@@ -278,34 +278,34 @@ Offerloop/
 
 | Variable | Service | Required | Example |
 |----------|---------|----------|---------|
-| `PEOPLE_DATA_LABS_API_KEY` | PDL | Yes | `0a763b...` |
-| `OPENAI_API_KEY` | OpenAI | Yes | `sk-proj-...` |
-| `STRIPE_SECRET_KEY` | Stripe | Yes | `sk_live_...` or `sk_test_...` |
-| `STRIPE_PUBLISHABLE_KEY` | Stripe | Yes | `pk_live_...` or `pk_test_...` |
-| `STRIPE_WEBHOOK_SECRET` | Stripe | Yes | `whsec_...` |
-| `STRIPE_PRO_PRICE_ID` | Stripe | No | `price_1ScLXr...` (defaults hardcoded) |
-| `STRIPE_ELITE_PRICE_ID` | Stripe | No | `price_1ScLcf...` (defaults hardcoded) |
-| `GOOGLE_CLIENT_ID` | Gmail OAuth | Yes | `184607...apps.googleusercontent.com` |
-| `GOOGLE_CLIENT_SECRET` | Gmail OAuth | Yes | `GOCSPX-...` |
+| `PEOPLE_DATA_LABS_API_KEY` | PDL | Yes | `<your_pdl_api_key>` |
+| `OPENAI_API_KEY` | OpenAI | Yes | `sk-proj-xxxxxxxxxxxx` |
+| `STRIPE_SECRET_KEY` | Stripe | Yes | `sk_test_xxxxxxxxxxxx` |
+| `STRIPE_PUBLISHABLE_KEY` | Stripe | Yes | `pk_test_xxxxxxxxxxxx` |
+| `STRIPE_WEBHOOK_SECRET` | Stripe | Yes | `whsec_xxxxxxxxxxxx` |
+| `STRIPE_PRO_PRICE_ID` | Stripe | No | `price_xxxxxxxxxxxx` (defaults hardcoded) |
+| `STRIPE_ELITE_PRICE_ID` | Stripe | No | `price_xxxxxxxxxxxx` (defaults hardcoded) |
+| `GOOGLE_CLIENT_ID` | Gmail OAuth | Yes | `xxxxxxxxxxxx.apps.googleusercontent.com` |
+| `GOOGLE_CLIENT_SECRET` | Gmail OAuth | Yes | `GOCSPX-xxxxxxxxxxxx` |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Firebase Admin | Yes (prod) | Path to service account JSON |
 | `OAUTH_REDIRECT_URI` | Gmail OAuth | No | `http://localhost:5001/api/google/oauth/callback` (auto-detected) |
-| `SERPAPI_KEY` | SerpAPI | Yes | `0abc63...` |
-| `HUNTER_API_KEY` | Hunter.io | Yes | `7ca929...` |
-| `JINA_API_KEY` | Jina AI | No | `jina_88...` |
-| `YOUTUBE_API_KEY` | YouTube Data | No | `AIzaSy...` |
-| `SENTRY_DSN` | Sentry | No | `https://...@sentry.io/...` |
+| `SERPAPI_KEY` | SerpAPI | Yes | `<your_serpapi_key>` |
+| `HUNTER_API_KEY` | Hunter.io | Yes | `<your_hunter_api_key>` |
+| `JINA_API_KEY` | Jina AI | No | `jina_xxxxxxxxxxxx` |
+| `YOUTUBE_API_KEY` | YouTube Data | No | `<your_youtube_api_key>` |
+| `SENTRY_DSN` | Sentry | No | `https://xxxx@xxxx.ingest.sentry.io/xxxx` |
 | `FLASK_SECRET` | Flask | Yes (prod) | Random 32-char hex string |
 | `FLASK_ENV` | Flask | No | `development` or `production` |
 | `PROMPT_SEARCH_ENABLED` | Feature flag | No | `true` / `false` |
-| `GOOGLE_CLOUD_PROJECT_ID` | Gmail Pub/Sub | No | `offerloop-native` |
-| `GMAIL_PUBSUB_TOPIC` | Gmail Pub/Sub | No | `projects/offerloop-native/topics/gmail-notifications` |
+| `GOOGLE_CLOUD_PROJECT_ID` | Gmail Pub/Sub | No | `your-project-id` |
+| `GMAIL_PUBSUB_TOPIC` | Gmail Pub/Sub | No | `projects/your-project/topics/gmail-notifications` |
 | `GMAIL_WEBHOOK_SECRET` | Gmail Pub/Sub | No | Random 32-char string |
 
 ### Frontend (`connect-grow-hire/.env`)
 
 | Variable | Service | Required | Example |
 |----------|---------|----------|---------|
-| `VITE_PUBLIC_POSTHOG_KEY` | PostHog | No | `phc_SVa...` |
+| `VITE_PUBLIC_POSTHOG_KEY` | PostHog | No | `phc_xxxxxxxxxxxx` |
 | `VITE_PUBLIC_POSTHOG_HOST` | PostHog | No | `https://us.i.posthog.com` |
 | `VITE_API_BASE_URL` | Backend URL | No | `http://localhost:5001` (for dev) |
 

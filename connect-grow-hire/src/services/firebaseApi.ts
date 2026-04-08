@@ -50,6 +50,13 @@ export interface Contact {
   draftCreatedAt?: string;
   lastChecked?: string;
   mutedAt?: string;
+
+  // Warmth & personalization
+  warmthScore?: number;
+  warmthTier?: string;
+  warmthSignals?: string[];
+  personalizationLabel?: string;
+  personalizationType?: string;
 }
 
 export interface ProfessionalInfo {

@@ -248,7 +248,7 @@ export default function FirmSearchResults({ firms, onViewContacts, onDelete, del
                       {/* LinkedIn */}
                       <td onClick={() => setActiveCell({ firmKey: key, col: 'linkedin' })} style={cellStyle('linkedin')}>
                         {firm.linkedinUrl ? (
-                          <a href={firm.linkedinUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                          <a href={firm.linkedinUrl.startsWith('http') ? firm.linkedinUrl : `https://${firm.linkedinUrl}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
                             style={{ fontSize: 11, color: '#555', textDecoration: 'none', borderBottom: '1px solid #e5e5e3', paddingBottom: 1 }}
                             onMouseEnter={(e) => { e.currentTarget.style.color = '#2a2a2a'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#555'; }}
                           >↗ view</a>

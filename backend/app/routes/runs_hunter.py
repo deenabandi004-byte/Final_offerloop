@@ -17,6 +17,7 @@ from app.routes.gmail_oauth import build_gmail_oauth_url_for_user
 from app.services.auth import check_and_reset_credits
 from app.config import TIER_CONFIGS
 from firebase_admin import firestore
+from app.utils.warmth_scoring import score_and_sort_contacts
 
 
 def _is_valid_email(value: str) -> bool:
@@ -182,11 +183,14 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                     print(f"✅ [{i}] Attached email to {contact.get('FirstName', 'Unknown')}: {subject[:50]}...")
                 else:
                     print(f"⚠️ [{i}] Email result missing subject/body for {contact.get('FirstName', 'Unknown')}")
+                # Attach personalization metadata to contact for frontend
+                if email_result.get('personalization'):
+                    contact['personalization'] = email_result['personalization']
             else:
                 print(f"⚠️ [{i}] No email result found for {contact.get('FirstName', 'Unknown')} - tried keys: {i}, '{i}', '{str(i)}'")
-        
+
         print(f"📧 Attached emails to {emails_attached}/{len(contacts)} contacts")
-        
+
         # Always fetch user resume if available — attach to every draft
         resume_url = None
         resume_content = None
@@ -458,11 +462,14 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                     print(f"✅ [{i}] Attached email to {contact.get('FirstName', 'Unknown')}: {subject[:50]}...")
                 else:
                     print(f"⚠️ [{i}] Email result missing subject/body for {contact.get('FirstName', 'Unknown')}")
+                # Attach personalization metadata to contact for frontend
+                if email_result.get('personalization'):
+                    contact['personalization'] = email_result['personalization']
             else:
                 print(f"⚠️ [{i}] No email result found for {contact.get('FirstName', 'Unknown')} (key: {key})")
-        
+
         print(f"📧 Attached emails to {emails_attached}/{len(contacts)} contacts")
-        
+
         # Always fetch user resume if available — attach to every draft
         resume_url = None
         resume_content = None
@@ -658,15 +665,26 @@ def free_run():
                 }), 401  # 401 = Unauthorized (need to re-auth)
             return jsonify({"error": result["error"]}), 500
         
+        # Apply warmth scoring to sort contacts by relevance
+        scored_contacts = result["contacts"]
+        try:
+            uid = request.firebase_user.get("uid")
+            if uid:
+                user_doc = get_db().collection("users").document(uid).get()
+                if user_doc.exists:
+                    scored_contacts = score_and_sort_contacts(user_doc.to_dict(), scored_contacts)
+        except Exception as ws_err:
+            print(f"[WarmthScore] Non-critical error: {ws_err}")
+
         response_data = {
-            "contacts": result["contacts"],
+            "contacts": scored_contacts,
             "successful_drafts": result.get("successful_drafts", 0),
-            "total_contacts": len(result["contacts"]),
+            "total_contacts": len(scored_contacts),
             "tier": "free",
             "user_email": user_email,
         }
         return jsonify(response_data)
-        
+
     except Exception as e:
         print(f"Free endpoint error: {e}")
         import traceback
@@ -838,15 +856,26 @@ def pro_run():
                 }), 401  # 401 = Unauthorized (need to re-auth)
             return jsonify({"error": result["error"]}), 500
         
+        # Apply warmth scoring to sort contacts by relevance
+        scored_contacts = result["contacts"]
+        try:
+            uid = request.firebase_user.get("uid")
+            if uid:
+                user_doc = get_db().collection("users").document(uid).get()
+                if user_doc.exists:
+                    scored_contacts = score_and_sort_contacts(user_doc.to_dict(), scored_contacts)
+        except Exception as ws_err:
+            print(f"[WarmthScore] Non-critical error: {ws_err}")
+
         response_data = {
-            "contacts": result["contacts"],
+            "contacts": scored_contacts,
             "successful_drafts": result.get("successful_drafts", 0),
-            "total_contacts": len(result["contacts"]),
+            "total_contacts": len(scored_contacts),
             "tier": "pro",
             "user_email": user_email,
         }
         return jsonify(response_data)
-        
+
     except Exception as e:
         print(f"Pro endpoint error: {e}")
         import traceback

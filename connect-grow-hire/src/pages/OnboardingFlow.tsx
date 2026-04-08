@@ -4,9 +4,9 @@ import { OnboardingWelcome } from "./OnboardingWelcome";
 import { OnboardingLocationPreferences } from "./OnboardingLocationPreferences";
 import { OnboardingProfile } from "./OnboardingProfile";
 import { OnboardingAcademics } from "./OnboardingAcademics";
-import { User, GraduationCap, MapPin } from "lucide-react";
+import { User, GraduationCap, MapPin, Loader2 } from "lucide-react";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
-import { BACKEND_URL } from "@/services/api";
+import { BACKEND_URL, enrichLinkedInOnboarding, mergeLinkedInData } from "@/services/api";
 import { toast } from "sonner";
 import { auth } from "@/lib/firebase";
 
@@ -32,14 +32,45 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
 
   const [currentStep, setCurrentStep] = useState<OnboardingStep>("welcome");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [linkedinLoading, setLinkedinLoading] = useState(false);
+  const [linkedinAcademics, setLinkedinAcademics] = useState<{
+    university?: string;
+    major?: string;
+    degree?: string;
+    graduationYear?: string;
+  } | null>(null);
   const [onboardingData, setOnboardingData] = useState<OnboardingData>({
     location: {},
     profile: {},
     academics: {},
   });
 
-  const handleProfileData = (profileData: any) => {
+  const handleProfileData = async (profileData: any) => {
     setOnboardingData((prev) => ({ ...prev, profile: profileData }));
+
+    // Use enrichment result already fetched on Profile page (onBlur)
+    if (profileData.linkedinEnrichment?.academics) {
+      setLinkedinAcademics(profileData.linkedinEnrichment.academics);
+    } else if (profileData.linkedinUrl && profileData.linkedinUrl.includes("linkedin.com/in/")) {
+      // Fallback: fetch if not already done on Profile page
+      setLinkedinLoading(true);
+      try {
+        const result = await Promise.race([
+          enrichLinkedInOnboarding(profileData.linkedinUrl),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+        ]) as any;
+        if (result?.success && result?.academics) {
+          setLinkedinAcademics(result.academics);
+        } else {
+          setLinkedinAcademics(null);
+        }
+      } catch {
+        setLinkedinAcademics(null);
+      } finally {
+        setLinkedinLoading(false);
+      }
+    }
+
     setCurrentStep("academics");
   };
 
@@ -83,6 +114,11 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
               uploadDate: new Date().toISOString(),
             };
             localStorage.setItem("resumeData", JSON.stringify(parsed));
+
+            // Merge LinkedIn enrichment data with resume data
+            if (onboardingData.profile.linkedinUrl) {
+              await mergeLinkedInData();
+            }
           }
         } catch (resumeError) {
           console.error("Error processing resume:", resumeError);
@@ -98,6 +134,7 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
           lastName: onboardingData.profile.lastName,
           email: onboardingData.profile.email,
           phone: onboardingData.profile.phone,
+          linkedinUrl: onboardingData.profile.linkedinUrl || "",
         },
         academics: {
           university: onboardingData.academics.university,
@@ -171,6 +208,14 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
 
   return (
     <div className="min-h-screen bg-background">
+      {linkedinLoading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-lg font-medium text-foreground">Personalizing your experience...</p>
+          </div>
+        </div>
+      )}
       <div className="container mx-auto px-4 py-8">
         {/* Progress header */}
         <div className="flex items-center gap-2 mb-8">
@@ -222,6 +267,7 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
               onNext={handleAcademicsData}
               onBack={handleBack}
               initialData={onboardingData.academics}
+              linkedinData={linkedinAcademics}
             />
           )}
 

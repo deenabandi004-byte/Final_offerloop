@@ -198,10 +198,19 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
 }
 
 /**
- * Format message content (handle markdown-like formatting)
+ * Format message content (handle markdown-like formatting).
+ * HTML-escapes first to prevent XSS, then applies safe formatting.
  */
 export function formatMessage(content: string): string {
-  return content
+  // Escape HTML entities BEFORE inserting any HTML tags
+  const escaped = content
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+  return escaped
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\n/g, '<br />');
 }

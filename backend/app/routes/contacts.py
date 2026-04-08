@@ -484,6 +484,10 @@ def bulk_create_contacts():
         raw_contacts = data.get('contacts') or []
         if not db:
             return jsonify({'error': 'Firebase not initialized'}), 500
+
+        MAX_BULK_CONTACTS = 500
+        if len(raw_contacts) > MAX_BULK_CONTACTS:
+            return jsonify({'error': f'Too many contacts. Maximum {MAX_BULK_CONTACTS} per request.'}), 400
         
         contacts_ref = db.collection('users').document(user_id).collection('contacts')
         created = 0
@@ -720,4 +724,57 @@ def bulk_delete_contacts():
     except Exception as e:
         print(f"Error bulk deleting contacts: {str(e)}")
         raise OfferloopException(f"Failed to bulk delete contacts: {str(e)}", error_code="BULK_DELETE_ERROR")
+
+
+@contacts_bp.route('/refresh-warmth', methods=['POST'])
+@require_firebase_auth
+def refresh_warmth_scores():
+    """Re-score all saved contacts against the user's profile and update Firestore."""
+    try:
+        from app.utils.warmth_scoring import compute_warmth_score, _build_user_comparison_data
+
+        db = get_db()
+        uid = request.firebase_user['uid']
+
+        # Load user profile
+        user_doc = db.collection('users').document(uid).get()
+        if not user_doc.exists:
+            return jsonify({'error': 'User not found'}), 404
+        user_data = user_doc.to_dict()
+        comparison = _build_user_comparison_data(user_data)
+
+        # Load all contacts
+        contacts_ref = db.collection('users').document(uid).collection('contacts')
+        docs = list(contacts_ref.stream())
+
+        updated = 0
+        batch = db.batch()
+        batch_count = 0
+
+        for doc in docs:
+            contact = doc.to_dict()
+            result = compute_warmth_score(comparison, contact)
+
+            batch.update(doc.reference, {
+                'warmthScore': result['score'],
+                'warmthTier': result['tier'],
+                'warmthSignals': [s.get('signal', '') for s in result['signals']],
+            })
+            batch_count += 1
+            updated += 1
+
+            # Firestore batch limit is 500
+            if batch_count >= 450:
+                batch.commit()
+                batch = db.batch()
+                batch_count = 0
+
+        if batch_count > 0:
+            batch.commit()
+
+        return jsonify({'updated': updated, 'message': f'Scored {updated} contacts'})
+
+    except Exception as e:
+        print(f"[RefreshWarmth] Error: {e}")
+        return jsonify({'error': str(e)}), 500
 

@@ -47,12 +47,13 @@ const STATUS_OPTIONS = [
 ];
 
 const COL_DEFS = [
-  { key: 'name', letter: 'A', label: 'Name', width: '15%' },
-  { key: 'linkedin', letter: 'B', label: 'LinkedIn', width: '8%' },
-  { key: 'email', letter: 'C', label: 'Email', width: '20%' },
-  { key: 'company', letter: 'D', label: 'Company', width: '18%' },
-  { key: 'jobTitle', letter: 'E', label: 'Role', width: '17%' },
-  { key: 'status', letter: 'F', label: 'Status', width: '12%' },
+  { key: 'name', letter: 'A', label: 'Name', width: '14%' },
+  { key: 'linkedin', letter: 'B', label: 'LinkedIn', width: '7%' },
+  { key: 'email', letter: 'C', label: 'Email', width: '18%' },
+  { key: 'company', letter: 'D', label: 'Company', width: '16%' },
+  { key: 'jobTitle', letter: 'E', label: 'Role', width: '15%' },
+  { key: 'match', letter: 'F', label: 'Match', width: '10%' },
+  { key: 'status', letter: 'G', label: 'Status', width: '12%' },
 ] as const;
 
 type SheetTab = 'contacts' | 'replied' | 'pipeline';
@@ -171,6 +172,12 @@ const SpreadsheetContactDirectory: React.FC = () => {
       draftCreatedAt: serverContact.draftCreatedAt,
       lastChecked: serverContact.lastChecked,
       mutedAt: serverContact.mutedAt,
+      // Warmth & personalization
+      warmthScore: serverContact.warmthScore,
+      warmthTier: serverContact.warmthTier,
+      warmthSignals: serverContact.warmthSignals,
+      personalizationLabel: serverContact.personalizationLabel,
+      personalizationType: serverContact.personalizationType,
     };
 
     if (isDev) {
@@ -783,11 +790,70 @@ const SpreadsheetContactDirectory: React.FC = () => {
     }
   };
 
+  const warmthRefreshedRef = useRef(false);
+
   useEffect(() => {
     if (!migrationLoading) {
       loadContacts();
     }
   }, [currentUser, migrationLoading]);
+
+  // Auto-refresh warmth scores for existing contacts that don't have them
+  useEffect(() => {
+    if (!currentUser || contacts.length === 0 || warmthRefreshedRef.current) return;
+    const hasAnyWarmth = contacts.some(c => c.warmthTier);
+    if (hasAnyWarmth) return;
+    warmthRefreshedRef.current = true;
+    (async () => {
+      try {
+        const { auth } = await import('@/lib/firebase');
+        const token = await auth.currentUser?.getIdToken();
+        if (!token) return;
+        const resp = await fetch(`${BACKEND_URL}/api/contacts/refresh-warmth`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        });
+        if (resp.ok) {
+          await loadContacts();
+        } else {
+          console.error('[WarmthRefresh] Response not ok:', resp.status);
+        }
+      } catch (err) {
+        console.error('[WarmthRefresh] Failed:', err);
+      }
+    })();
+  }, [contacts, currentUser]);
+
+  // Load user profile for client-side matching
+  const [userUniversity, setUserUniversity] = useState('');
+  useEffect(() => {
+    if (!currentUser) return;
+    (async () => {
+      try {
+        const { db } = await import('@/lib/firebase');
+        const { doc, getDoc } = await import('firebase/firestore');
+        const snap = await getDoc(doc(db, 'users', currentUser.uid));
+        if (snap.exists()) {
+          const d = snap.data();
+          const uni = d.academics?.university || d.professionalInfo?.university || d.resumeParsed?.university || '';
+          setUserUniversity(uni.toLowerCase());
+        }
+      } catch {}
+    })();
+  }, [currentUser]);
+
+  // Client-side match detection as fallback when warmth data is missing
+  const getClientSideMatch = useCallback((contact: Contact): { label: string; type: string } | null => {
+    if (contact.warmthTier || contact.personalizationLabel) return null;
+    if (!userUniversity) return null;
+
+    const contactCollege = (contact.college || '').toLowerCase();
+    if (contactCollege && (contactCollege.includes(userUniversity) || userUniversity.includes(contactCollege))) {
+      return { label: 'Alumni', type: 'university' };
+    }
+
+    return null;
+  }, [userUniversity]);
 
   const getActiveCellValue = (): string => {
     if (!activeCell) return '';
@@ -1247,6 +1313,62 @@ const SpreadsheetContactDirectory: React.FC = () => {
                             {contact.jobTitle || <span style={{ color: '#bbb' }}>—</span>}
                           </span>
                         )}
+                      </td>
+
+                      {/* Match */}
+                      <td
+                        style={{
+                          padding: '0 12px', whiteSpace: 'nowrap',
+                          position: 'relative',
+                        }}
+                      >
+                        {(() => {
+                          const clientMatch = getClientSideMatch(contact);
+                          const label = contact.personalizationLabel || clientMatch?.label;
+                          const type = contact.personalizationType || clientMatch?.type;
+
+                          if (contact.warmthTier === 'warm') {
+                            return (
+                              <span style={{
+                                display: 'inline-block', fontSize: 10, fontWeight: 500,
+                                padding: '3px 10px', borderRadius: 12,
+                                background: '#DCFCE7', color: '#15803D',
+                              }}>
+                                Strong match
+                              </span>
+                            );
+                          }
+                          if (contact.warmthTier === 'neutral') {
+                            return (
+                              <span style={{
+                                display: 'inline-block', fontSize: 10, fontWeight: 500,
+                                padding: '3px 10px', borderRadius: 12,
+                                background: '#FEF3C7', color: '#92400E',
+                              }}>
+                                Good fit
+                              </span>
+                            );
+                          }
+                          if (label) {
+                            return (
+                              <span style={{
+                                display: 'inline-block', fontSize: 10, fontWeight: 500,
+                                padding: '3px 10px', borderRadius: 12,
+                                background: type === 'university' ? 'rgba(59,130,246,0.1)' :
+                                           type === 'hometown' ? 'rgba(34,197,94,0.1)' :
+                                           type === 'company' ? 'rgba(124,58,237,0.1)' :
+                                           '#F3F4F6',
+                                color: type === 'university' ? '#2563EB' :
+                                       type === 'hometown' ? '#16A34A' :
+                                       type === 'company' ? '#7C3AED' :
+                                       '#6B7280',
+                              }}>
+                                {label}
+                              </span>
+                            );
+                          }
+                          return <span style={{ color: '#bbb' }}>—</span>;
+                        })()}
                       </td>
 
                       {/* Status */}

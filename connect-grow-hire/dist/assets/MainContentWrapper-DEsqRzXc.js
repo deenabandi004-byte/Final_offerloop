@@ -1,0 +1,1 @@
+import{j as e}from"./vendor-react-D72jGmtu.js";import{c as l}from"./index-CmdjxwlP.js";function x({children:o,className:s}){return e.jsx("div",{className:"flex-1 flex flex-col p-1.5 sm:p-3 min-h-0",children:e.jsx("div",{className:l("flex-1 flex flex-col rounded-2xl shadow-sm overflow-hidden min-h-0",s),style:{background:"#FFFFFF"},children:o})})}export{x as M};

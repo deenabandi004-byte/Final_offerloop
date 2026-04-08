@@ -89,7 +89,7 @@ export function ConversationPanel({
             {/* linkedin */}
             {contact.linkedinUrl && (
               <a
-                href={contact.linkedinUrl}
+                href={contact.linkedinUrl.startsWith('http') ? contact.linkedinUrl : `https://${contact.linkedinUrl}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-xs text-[#3B82F6] hover:text-[#2563EB]"

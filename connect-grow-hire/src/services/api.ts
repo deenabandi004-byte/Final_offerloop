@@ -2001,3 +2001,29 @@ export function isSuggestionsResult(result: OptimizationResult): result is Sugge
 export function isTemplateRebuildResult(result: OptimizationResult): result is TemplateRebuildResult {
   return result.mode === 'template_rebuild';
 }
+
+export const enrichLinkedInOnboarding = async (linkedinUrl: string) => {
+  const { auth } = await import('../lib/firebase');
+  const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const response = await fetch(`${API_BASE_URL}/enrich-linkedin-onboarding`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ linkedin_url: linkedinUrl }),
+  });
+  return response.json();
+};
+
+export const mergeLinkedInData = async () => {
+  const { auth } = await import('../lib/firebase');
+  const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const response = await fetch(`${API_BASE_URL}/enrich-linkedin-onboarding`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ merge_only: true }),
+  });
+  return response.json();
+};

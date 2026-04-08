@@ -13,10 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
         with:
           node-version: '20'
 
@@ -28,10 +28,33 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: node scripts/generate-blog-post.cjs
 
+      - name: Validate generated content
+        run: |
+          # Ensure only expected files were created/modified
+          CHANGED=$(git diff --name-only)
+          UNTRACKED=$(git ls-files --others --exclude-standard)
+          ALL_FILES="$CHANGED $UNTRACKED"
+          for f in $ALL_FILES; do
+            case "$f" in
+              connect-grow-hire/src/content/blog/*.md) ;;
+              connect-grow-hire/src/content/06_content_calendar.json) ;;
+              connect-grow-hire/public/sitemap.xml) ;;
+              *) echo "ERROR: Unexpected file changed: $f" && exit 1 ;;
+            esac
+          done
+          # Ensure blog posts don't contain script tags or suspicious content
+          for f in connect-grow-hire/src/content/blog/*.md; do
+            if [ -f "$f" ] && grep -qiE '<script|<iframe|javascript:|onerror=' "$f"; then
+              echo "ERROR: Suspicious content in $f" && exit 1
+            fi
+          done
+          echo "Validation passed"
+
       - name: Commit and push
         run: |
           git config user.name "Offerloop Bot"
           git config user.email "bot@offerloop.ai"
-          git add .
+          git add connect-grow-hire/src/content/blog/ connect-grow-hire/src/content/06_content_calendar.json connect-grow-hire/public/sitemap.xml
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
           git commit -m "Auto: weekly blog post"
           git push origin main

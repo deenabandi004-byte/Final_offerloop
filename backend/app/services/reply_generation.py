@@ -467,7 +467,29 @@ def build_template_prompt(context_block: str, template_instructions: str, requir
     return f"{context_block}\n\n{template_instructions.strip()}\n\n{requirements_block}"
 
 
-def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None, pre_parsed_user_info=None, template_instructions="", email_template_purpose=None, resume_filename=None, subject_line=None, signoff_config=None, auth_display_name=None):
+def _build_personalization_label(commonality_type, commonality_details, selected_anchor):
+    """Build a human-readable label describing why this email is personalized."""
+    if commonality_type == 'university':
+        short = commonality_details.get('university_short') or commonality_details.get('university', '')
+        return f"Your {short} connection" if short else "Alumni connection"
+    elif commonality_type == 'hometown':
+        city = commonality_details.get('hometown', '')
+        return f"Shared hometown: {city}" if city else "Shared hometown"
+    elif commonality_type == 'company':
+        company = commonality_details.get('company', '')
+        return f"Both worked at {company}" if company else "Shared company"
+    elif selected_anchor:
+        if selected_anchor.get('type') == 'transition':
+            return "Career transition match"
+        elif selected_anchor.get('type') == 'tenure':
+            company = selected_anchor.get('value', '')
+            if 'recently joined' in company.lower():
+                return company.capitalize()
+            return f"Recently joined"
+    return "Role match"
+
+
+def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None, pre_parsed_user_info=None, template_instructions="", email_template_purpose=None, resume_filename=None, subject_line=None, signoff_config=None, auth_display_name=None, personal_note="", dream_companies=None):
     """
     Generate all emails using the new compelling prompt template.
 
@@ -491,17 +513,64 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
         elif career_interests and not user_profile:
             user_profile = {'careerInterests': career_interests}
         
-        # Extract user info: use pre_parsed_user_info when provided (e.g. Pro tier), else extract from resume/profile
+        # Extract user info: use pre_parsed_user_info when provided (e.g. Pro tier or Firestore resumeParsed), else extract from resume/profile
         user_info = extract_user_info_from_resume_priority(resume_text, user_profile)
         if pre_parsed_user_info and isinstance(pre_parsed_user_info, dict):
-            # Merge so pre-parsed name/education are used and we don't overwrite with empty
+            # Merge: fill scalar gaps, union list fields, merge skill dicts
             for key, value in pre_parsed_user_info.items():
-                if value is not None and value != "" and (not isinstance(value, (list, dict)) or value):
-                    if not user_info.get(key) or user_info.get(key) == "":
+                if value is None or value == "":
+                    continue
+                existing = user_info.get(key)
+
+                # Union list fields (skills sub-lists, career_interests, extracurriculars, certifications)
+                if isinstance(value, list) and value:
+                    if isinstance(existing, list):
+                        seen = {s.lower() for s in existing if isinstance(s, str)}
+                        for item in value:
+                            if isinstance(item, str) and item.lower() not in seen:
+                                existing.append(item)
+                                seen.add(item.lower())
+                        user_info[key] = existing
+                    else:
                         user_info[key] = value
+                # Merge skill dicts (technical, tools, soft_skills, languages)
+                elif key == "skills" and isinstance(value, dict):
+                    if isinstance(existing, dict):
+                        for cat, skill_list in value.items():
+                            if isinstance(skill_list, list) and skill_list:
+                                existing_cat = existing.get(cat, [])
+                                if isinstance(existing_cat, list):
+                                    seen = {s.lower() for s in existing_cat if isinstance(s, str)}
+                                    for s in skill_list:
+                                        if isinstance(s, str) and s.lower() not in seen:
+                                            existing_cat.append(s)
+                                            seen.add(s.lower())
+                                    existing[cat] = existing_cat
+                                else:
+                                    existing[cat] = skill_list
+                        user_info["skills"] = existing
+                    else:
+                        user_info["skills"] = value
+                # Fill scalar gaps
+                elif not existing or existing == "":
+                    user_info[key] = value
+
             # Prefer pre-parsed name if we have it (Pro tier parsed from resume)
             if pre_parsed_user_info.get("name"):
                 user_info["name"] = pre_parsed_user_info["name"]
+
+            # Promote education fields from pre_parsed if missing at top level
+            pre_edu = pre_parsed_user_info.get("education", {})
+            if isinstance(pre_edu, dict):
+                if pre_edu.get("university") and not user_info.get("university"):
+                    user_info["university"] = pre_edu["university"]
+                if pre_edu.get("major") and not user_info.get("major"):
+                    user_info["major"] = pre_edu["major"]
+                if pre_edu.get("graduation") and not user_info.get("year"):
+                    import re as _re
+                    grad = pre_edu["graduation"]
+                    year_match = _re.search(r'20\d{2}', str(grad))
+                    user_info["year"] = year_match.group() if year_match else grad
         
         # Never leave name blank — use profile, then Auth display name, never "Student" if we have a real name
         if not (user_info.get("name") or "").strip():
@@ -543,6 +612,8 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
         contact_strong_connections = {}  # idx -> bool (True if alumni or shared company)
         contact_contexts = []
         selected_anchors = {}  # idx -> anchor dict or None
+        contact_personalization = {}  # idx -> personalization metadata
+        _dream_companies_lower = [c.lower() for c in (dream_companies or []) if c]
         for i, contact in enumerate(contacts):
             # TEMPORARY DEBUG: Print data for first contact only
             if i == 0:
@@ -595,7 +666,22 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
                 has_strong_connection = True
             
             contact_strong_connections[i] = has_strong_connection
-            
+
+            # Check dream company match
+            is_dream_company = bool(_dream_companies_lower and company.lower() in _dream_companies_lower)
+            if is_dream_company and not personalization_note:
+                personalization_note = f"This is one of the sender's dream companies — show genuine enthusiasm"
+
+            # Store personalization metadata
+            contact_personalization[i] = {
+                "anchor_type": selected_anchor["type"] if selected_anchor else None,
+                "anchor_value": selected_anchor["value"] if selected_anchor else None,
+                "commonality_type": commonality_type,
+                "commonality_detail": commonality_details,
+                "is_dream_company": is_dream_company,
+                "label": _build_personalization_label(commonality_type, commonality_details, selected_anchor),
+            }
+
             # Build anchor detail section
             anchor_detail = ""
             if selected_anchor:
@@ -635,7 +721,25 @@ ANCHOR DETAIL:
                 resume_context += f"\n- Skills: {', '.join(skills_raw[:3])}"
         if user_info.get('achievements'):
             resume_context += f"\n- Notable Achievement: {user_info['achievements'][0]}"
-        
+        if user_info.get('career_interests'):
+            interests = user_info['career_interests']
+            if isinstance(interests, list) and interests:
+                resume_context += f"\n- Career Interests: {', '.join(interests[:4])}"
+        if user_info.get('extracurriculars'):
+            extras = user_info['extracurriculars']
+            if isinstance(extras, list) and extras:
+                resume_context += f"\n- Activities/Organizations: {', '.join(str(e) for e in extras[:3])}"
+        if user_info.get('certifications'):
+            certs = user_info['certifications']
+            if isinstance(certs, list) and certs:
+                resume_context += f"\n- Certifications: {', '.join(str(c) for c in certs[:3])}"
+        if personal_note:
+            resume_context += f"\n- Personal Context: {personal_note}"
+        if dream_companies:
+            dc_list = dream_companies[:5] if isinstance(dream_companies, list) else []
+            if dc_list:
+                resume_context += f"\n- Dream Companies: {', '.join(dc_list)}"
+
         # Build fit context section if available
         fit_context_section = ""
         if fit_context:
@@ -1159,8 +1263,12 @@ Would you be open to a brief 15-minute chat about your experience?
             sender_name = user_info.get('name', '') or 'Student'
             body = ensure_sign_off(body, sender_name, signoff_config)
             body = _deduplicate_signoff(body, signoff_config)
-            cleaned_results[idx] = {'subject': subject, 'body': body}
-        
+            result_entry = {'subject': subject, 'body': body}
+            # Attach personalization metadata
+            if idx in contact_personalization:
+                result_entry['personalization'] = contact_personalization[idx]
+            cleaned_results[idx] = result_entry
+
         return cleaned_results
         
     except Exception as e:
