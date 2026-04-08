@@ -232,12 +232,12 @@ class TestFetchJobsIntegration:
         source = inspect.getsource(fetch_jobs)
         assert "fetch_fantasticjobs" in source
 
-    def test_fetch_jobs_has_4_workers(self):
-        """ThreadPoolExecutor should have 4 workers (Greenhouse, Lever, Ashby, Fantastic.jobs)."""
+    def test_fetch_jobs_has_5_workers(self):
+        """ThreadPoolExecutor should have 5 workers (Greenhouse, Lever, Ashby, Simplify, Fantastic.jobs)."""
         import inspect
         from pipeline.fetcher import fetch_jobs
         source = inspect.getsource(fetch_jobs)
-        assert "max_workers=4" in source
+        assert "max_workers=5" in source
 
 
 class TestNormalizerRecognizesSource:

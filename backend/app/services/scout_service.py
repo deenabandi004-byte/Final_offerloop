@@ -113,6 +113,81 @@ class DetailedJobFitAnalysis:
 
 
 @dataclass
+class RequirementMatch:
+    """A single requirement from a job posting matched against the user's resume."""
+    requirement: str
+    met: bool
+    evidence: str = ""
+    gap_severity: str = "low"  # "low", "medium", "high"
+
+
+@dataclass
+class ResumeEdit:
+    """A suggested edit to the user's resume for a specific job."""
+    id: str
+    section: str
+    subsection: Optional[str] = None
+    edit_type: str = "modify"  # "add", "modify", "remove", "reorder"
+    priority: str = "medium"  # "high", "medium", "low"
+    impact: str = ""
+    current_content: Optional[str] = None
+    suggested_content: str = ""
+    rationale: str = ""
+    requirements_addressed: List[str] = field(default_factory=list)
+    keywords_added: List[str] = field(default_factory=list)
+    before_after_preview: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ResumeMatch:
+    """Summary of how well a resume matches a job posting."""
+    overall_score: int  # 0-100
+    matched_requirements: int
+    total_requirements: int
+    key_gaps: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class CoverLetter:
+    """A generated cover letter for a specific job."""
+    content: str
+    tone: str = "conversational"
+    word_count: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class EnhancedFitAnalysis:
+    """Comprehensive job fit analysis with resume edits and cover letter."""
+    score: int
+    match_level: str
+    strengths: List[Dict[str, str]] = field(default_factory=list)
+    gaps: List[Dict[str, str]] = field(default_factory=list)
+    pitch: str = ""
+    talking_points: List[str] = field(default_factory=list)
+    keywords_to_use: List[str] = field(default_factory=list)
+    job_requirements: List[Any] = field(default_factory=list)
+    requirements_summary: str = ""
+    match_breakdown: str = ""
+    resume_edits: List[Any] = field(default_factory=list)
+    edits_summary: str = ""
+    potential_score_after_edits: int = 0
+    cover_letter: Optional[Any] = None
+    score_breakdown: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class ScoutResponse:
     """Response returned to the frontend."""
     status: str  # "ok", "needs_input", "error"

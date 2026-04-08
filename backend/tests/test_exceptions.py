@@ -32,9 +32,12 @@ class TestOfferloopException:
     
     def test_exception_to_response(self):
         """Test exception to Flask response"""
+        from flask import Flask
+        app = Flask(__name__)
         exc = OfferloopException("Test error")
-        response, status = exc.to_response()
-        assert status == 500
+        with app.app_context():
+            response, status = exc.to_response()
+            assert status == 500
 
 
 class TestValidationError:
@@ -77,6 +80,12 @@ class TestExternalAPIError:
     def test_external_api_error(self):
         """Test external API error"""
         exc = ExternalAPIError("PDL", "API timeout")
-        assert "PDL" in exc.message
+        assert exc.message == "API timeout"
         assert exc.status_code == 502
         assert exc.details["service"] == "PDL"
+
+    def test_external_api_error_default_message(self):
+        """Test external API error with default message includes service name"""
+        exc = ExternalAPIError("PDL")
+        assert "PDL" in exc.message
+        assert exc.status_code == 502
