@@ -787,7 +787,9 @@ CONTACTS:
 {chr(10).join(enriched_contact_contexts)}"""
             signature_block_prompt = _build_signature_block_for_prompt(signoff_config, user_info)
 
-            # Build tone guidance per warmth tier
+            # Build tone guidance driven by the dominant warmth tier
+            dominant_tier = max(tier_counts, key=tier_counts.get) if any(tier_counts.values()) else "cold"
+
             warmth_tone_guide = """
 ===== RELATIONSHIP-BASED TONE =====
 
@@ -813,7 +815,12 @@ For ALL contacts:
 - Open naturally based on WHY you're reaching out to THIS person.
 - Ask ONE thoughtful question (not forced two-question structure).
 - If the contact has work history or education data, reference something specific.
-"""
+
+DEFAULT TONE: Most contacts in this batch are {dominant_tier_upper}. Lean toward {dominant_tone} unless the individual contact's warmth tag says otherwise.
+""".replace("{dominant_tier_upper}", dominant_tier.upper()).replace(
+                "{dominant_tone}",
+                {"warm": "a conversational, friendly style", "neutral": "a professional but personable style", "cold": "a concise, respectful style"}[dominant_tier],
+            )
 
             # Industry tone calibration
             industry_vocabulary = ""

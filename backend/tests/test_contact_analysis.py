@@ -19,7 +19,7 @@ def test_detect_tenure_returns_structured_dict():
 
     contact = {
         "experience": [
-            {"company": {"name": "Goldman Sachs"}, "start_date": "2024-01", "end_date": None},
+            {"company": {"name": "Goldman Sachs"}, "start_date": {"year": 2024, "month": 1}, "end_date": None},
         ]
     }
     result = _detect_tenure(contact)

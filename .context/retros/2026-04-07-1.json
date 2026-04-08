@@ -1,0 +1,41 @@
+{
+  "date": "2026-04-07",
+  "window": "7d",
+  "metrics": {
+    "commits": 7,
+    "contributors": 2,
+    "prs_merged": 0,
+    "insertions": 6839,
+    "deletions": 8631,
+    "net_loc": -1792,
+    "test_loc": 0,
+    "test_ratio": 0,
+    "active_days": 5,
+    "sessions": 4,
+    "deep_sessions": 0,
+    "avg_session_minutes": 19,
+    "loc_per_session_hour": 5400,
+    "feat_pct": 0.14,
+    "fix_pct": 0.43,
+    "peak_hour": 15,
+    "ai_assisted_commits": 2
+  },
+  "authors": {
+    "deenabandi004-byte": {
+      "commits": 6,
+      "insertions": 6593,
+      "deletions": 8631,
+      "test_ratio": 0,
+      "top_area": "connect-grow-hire/src/pages/"
+    },
+    "Offerloop Bot": {
+      "commits": 1,
+      "insertions": 246,
+      "deletions": 0,
+      "test_ratio": 0,
+      "top_area": "connect-grow-hire/src/content/blog/"
+    }
+  },
+  "streak_days": 1,
+  "tweetable": "Week of Mar 31: 7 commits, 6.8k LOC added, 0% tests, 0 PRs, peak: 3pm | Streak: 1d"
+}
