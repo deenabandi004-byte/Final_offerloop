@@ -38,8 +38,10 @@ class TestEmailGenerationValidation:
             # Should return a dict
             assert isinstance(results, dict)
             assert '0' in results or 0 in results
-            assert 'subject' in results.get('0') or 'subject' in results.get(0)
-            assert 'body' in results.get('0') or 'body' in results.get(0)
+            entry = results.get(0) or results.get('0')
+            assert entry is not None
+            assert 'subject' in entry
+            assert 'body' in entry
     
     def test_no_banned_openers(self):
         """Test that banned openers are not present in first sentence"""
@@ -110,17 +112,19 @@ class TestEmailGenerationValidation:
             }
         })
         
-        with patch('app.services.reply_generation.get_openai_client') as mock_client:
-            mock_client.return_value.chat.completions.create.return_value = mock_response
-            
-            results = batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=fit_context)
-            
-            body = results.get('0', {}).get('body', '') or results.get(0, {}).get('body', '')
-            
-            # Should include resume line for targeted outreach
-            resume_mentions = ["attached my resume", "attached resume", "resume below", "resume attached"]
-            has_resume_mention = any(mention in body.lower() for mention in resume_mentions)
-            assert has_resume_mention, "Resume line should be included for targeted outreach"
+        with patch('app.services.reply_generation.get_anthropic_client', return_value=None):
+            with patch('app.services.reply_generation.get_openai_client') as mock_client:
+                mock_client.return_value.chat.completions.create.return_value = mock_response
+
+                results = batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=fit_context, resume_filename="resume.pdf")
+
+                entry = results.get(0) or results.get('0') or {}
+                body = entry.get('body', '')
+
+                # Should include resume line for targeted outreach when resume_filename is provided
+                resume_mentions = ["included my resume", "attached my resume", "attached resume", "resume below", "resume attached"]
+                has_resume_mention = any(mention in body.lower() for mention in resume_mentions)
+                assert has_resume_mention, "Resume line should be included for targeted outreach"
     
     def test_resume_line_only_when_allowed_strong_connection(self):
         """Test that resume line appears for strong connections (alumni)"""
@@ -145,17 +149,19 @@ class TestEmailGenerationValidation:
                 }
             })
             
-            with patch('app.services.reply_generation.get_openai_client') as mock_client:
-                mock_client.return_value.chat.completions.create.return_value = mock_response
-                
-                results = batch_generate_emails(contacts, resume_text, user_profile, career_interests)
-                
-                body = results.get('0', {}).get('body', '') or results.get(0, {}).get('body', '')
-                
-                # Should include resume line for strong connection (alumni)
-                resume_mentions = ["attached my resume", "attached resume", "resume below", "resume attached"]
-                has_resume_mention = any(mention in body.lower() for mention in resume_mentions)
-                assert has_resume_mention, "Resume line should be included for strong connection (alumni)"
+            with patch('app.services.reply_generation.get_anthropic_client', return_value=None):
+                with patch('app.services.reply_generation.get_openai_client') as mock_client:
+                    mock_client.return_value.chat.completions.create.return_value = mock_response
+
+                    results = batch_generate_emails(contacts, resume_text, user_profile, career_interests, resume_filename="resume.pdf")
+
+                    entry = results.get(0) or results.get('0') or {}
+                    body = entry.get('body', '')
+
+                    # Should include resume line for strong connection when resume_filename is provided
+                    resume_mentions = ["included my resume", "attached my resume", "attached resume", "resume below", "resume attached"]
+                    has_resume_mention = any(mention in body.lower() for mention in resume_mentions)
+                    assert has_resume_mention, "Resume line should be included for strong connection (alumni)"
     
     def test_resume_line_not_included_for_general_networking(self):
         """Test that resume line is NOT included for general networking without strong connection"""
@@ -413,29 +419,33 @@ class TestAnchorPrioritySelection:
             }
         })
         
-        with patch('app.services.reply_generation.get_openai_client') as mock_client:
-            mock_client.return_value.chat.completions.create.return_value = mock_response
-            
+        with patch('app.services.reply_generation.get_anthropic_client', return_value=None), \
+             patch('app.services.reply_generation.get_openai_client') as mock_client:
+            mock_obj = MagicMock()
+            mock_obj.with_options.return_value = mock_obj
+            mock_obj.chat.completions.create.return_value = mock_response
+            mock_client.return_value = mock_obj
+
             results = batch_generate_emails([contact], resume_text, user_profile, career_interests)
-            
+
             body = results.get('0', {}).get('body', '') or results.get(0, {}).get('body', '')
-            
+
             # Count anchor mentions
             transition_mentions = ['transitioned', 'moved into', 'shifted from']
             tenure_mentions = ['recently joined', 'early in your time']
             title_mentions = ['Consultant at BCG', 'BCG Consultant']
-            
+
             transition_count = sum(1 for pattern in transition_mentions if pattern in body.lower())
             tenure_count = sum(1 for pattern in tenure_mentions if pattern in body.lower())
             title_count = sum(1 for pattern in title_mentions if pattern in body.lower())
-            
+
             # Should have exactly one anchor type mentioned
             anchor_types_found = sum([
                 transition_count > 0,
                 tenure_count > 0,
                 title_count > 0
             ])
-            
+
             assert anchor_types_found == 1, \
                 f"Should have exactly one anchor type, found: transition={transition_count}, tenure={tenure_count}, title={title_count}"
     
@@ -484,25 +494,27 @@ class TestAnchorPrioritySelection:
             }
         })
         
-        with patch('app.services.reply_generation.get_openai_client') as mock_client:
-            mock_client.return_value.chat.completions.create.return_value = mock_response
-            
-            results = batch_generate_emails([contact], resume_text, user_profile, career_interests, fit_context=fit_context)
-            
-            body = results.get('0', {}).get('body', '') or results.get(0, {}).get('body', '')
-            
-            # Check banned openers (should not be present)
-            banned_openers = ["I hope", "Hope", "My name is", "I came across"]
-            first_sentence = body.split('\n')[1] if len(body.split('\n')) > 1 else ""
-            assert not any(first_sentence.startswith(banned) for banned in banned_openers), \
-                "Should not have banned openers"
-            
-            # Check word count (should be reasonable)
-            word_count = len(body.split())
-            assert 30 <= word_count <= 150, f"Word count {word_count} should be reasonable"
-            
-            # Check resume line (should be present for targeted outreach)
-            resume_mentions = ["attached my resume", "attached resume", "resume below", "resume attached"]
-            has_resume_mention = any(mention in body.lower() for mention in resume_mentions)
-            assert has_resume_mention, "Should include resume line for targeted outreach"
+        with patch('app.services.reply_generation.get_anthropic_client', return_value=None):
+            with patch('app.services.reply_generation.get_openai_client') as mock_client:
+                mock_client.return_value.chat.completions.create.return_value = mock_response
+
+                results = batch_generate_emails([contact], resume_text, user_profile, career_interests, fit_context=fit_context, resume_filename="resume.pdf")
+
+                entry = results.get(0) or results.get('0') or {}
+                body = entry.get('body', '')
+
+                # Check banned openers (should not be present)
+                banned_openers = ["I hope", "Hope", "My name is", "I came across"]
+                first_sentence = body.split('\n')[1] if len(body.split('\n')) > 1 else ""
+                assert not any(first_sentence.startswith(banned) for banned in banned_openers), \
+                    "Should not have banned openers"
+
+                # Check word count (should be reasonable)
+                word_count = len(body.split())
+                assert 30 <= word_count <= 150, f"Word count {word_count} should be reasonable"
+
+                # Check resume line (should be present for targeted outreach)
+                resume_mentions = ["included my resume", "attached my resume", "attached resume", "resume below", "resume attached"]
+                has_resume_mention = any(mention in body.lower() for mention in resume_mentions)
+                assert has_resume_mention, "Should include resume line for targeted outreach"
 
