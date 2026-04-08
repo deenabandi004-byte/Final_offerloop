@@ -9,6 +9,7 @@ from app.extensions import require_firebase_auth, get_db
 from app.services.migration import backfill_pipeline_stages, deduplicate_contacts
 from app.services.background_sync import sync_stale_threads
 from app.services.gmail_client import renew_gmail_watch
+from app.services.email_baseline import compute_email_baseline
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
@@ -147,6 +148,33 @@ def renew_watches():
             print(f"[admin/renew-watches] Failed uid={uid}: {e}")
 
     return jsonify({"renewed": renewed, "failed": failed, "errors": errors}), 200
+
+
+@admin_bp.route("/compute-email-baseline", methods=["POST"])
+def compute_baseline():
+    """
+    Aggregate reply data across all users with Gmail integration and store
+    the baseline in Firestore at analytics/email_baseline.
+
+    Auth: Firebase Bearer token or X-Cron-Secret header.
+    """
+    if not _is_cron_authorized():
+        from firebase_admin import auth as fb_auth
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return jsonify({"error": "Unauthorized — provide Firebase auth or X-Cron-Secret"}), 401
+        token = auth_header.split("Bearer ", 1)[1]
+        try:
+            fb_auth.verify_id_token(token, clock_skew_seconds=5)
+        except Exception:
+            return jsonify({"error": "Invalid token"}), 401
+
+    try:
+        baseline = compute_email_baseline()
+    except Exception as e:
+        return jsonify({"error": "Baseline computation failed", "message": str(e)}), 500
+
+    return jsonify(baseline), 200
 
 
 @admin_bp.post("/client-error")
