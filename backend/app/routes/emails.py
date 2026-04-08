@@ -19,6 +19,7 @@ from app.services.reply_generation import batch_generate_emails
 from app.services.gmail_client import get_gmail_service_for_user
 from app.services.interview_prep.resume_parser import extract_text_from_pdf_bytes
 from app.utils.url_validator import validate_fetch_url, UnsafeURLError
+from app.utils.warmth_scoring import score_contacts_for_email
 from ..extensions import get_db
 from email_templates import get_template_instructions
 
@@ -193,6 +194,7 @@ def generate_and_draft():
         
         # 1) Generate emails with fit context and user's template/signoff
         auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
+        warmth_data = score_contacts_for_email(user_data, contacts_to_generate)
         print(f"[EmailGen] Calling batch_generate_emails: resume_text={'present (' + str(len(resume_text)) + ' chars)' if resume_text else 'None/empty'}, "
               f"contacts={len(contacts_to_generate)}")
         generated_results = batch_generate_emails(
@@ -209,6 +211,7 @@ def generate_and_draft():
             auth_display_name=auth_display_name,
             personal_note=personal_note,
             dream_companies=dream_companies,
+            warmth_data=warmth_data,
         )
         print(f"🧪 batch_generate_emails returned: type={type(generated_results)}, "
           f"len={len(generated_results) if hasattr(generated_results, '__len__') else 'n/a'}, "

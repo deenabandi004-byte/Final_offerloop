@@ -9,6 +9,7 @@ from datetime import datetime
 from ..extensions import require_firebase_auth, get_db
 from ..config import PDL_BASE_URL, PEOPLE_DATA_LABS_API_KEY
 from ..services.reply_generation import batch_generate_emails
+from ..utils.warmth_scoring import score_contacts_for_email
 from ..services.gmail_client import create_gmail_draft_for_user, download_resume_from_url
 from ..services.hunter import get_verified_email, get_smart_company_domain
 
@@ -530,6 +531,7 @@ def import_from_linkedin():
             print(f"[LinkedInImport] Step 6: Generating personalized email...")
             # Generate personalized email (include resume line for networking; template_purpose=None => include resume)
             auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
+            warmth_data = score_contacts_for_email(user_data or {}, [contact_for_email])
             email_results = batch_generate_emails(
                 contacts=[contact_for_email],
                 resume_text=resume_text_for_email or None,
@@ -540,6 +542,7 @@ def import_from_linkedin():
                 resume_filename=user_data.get('resumeFileName') if user_data else None,
                 signoff_config=None,
                 auth_display_name=auth_display_name,
+                warmth_data=warmth_data,
             )
             
             print(f"[LinkedInImport] Email generation result: {bool(email_results)}")

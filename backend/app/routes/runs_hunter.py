@@ -17,7 +17,7 @@ from app.routes.gmail_oauth import build_gmail_oauth_url_for_user
 from app.services.auth import check_and_reset_credits
 from app.config import TIER_CONFIGS
 from firebase_admin import firestore
-from app.utils.warmth_scoring import score_and_sort_contacts
+from app.utils.warmth_scoring import score_and_sort_contacts, score_contacts_for_email
 
 
 def _is_valid_email(value: str) -> bool:
@@ -165,8 +165,9 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
 
         # Generate emails
         auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
-        email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests, resume_filename=user_resume_filename, signoff_config=None, auth_display_name=auth_display_name)
-        
+        warmth_data = score_contacts_for_email(user_data or {}, contacts)
+        email_results = batch_generate_emails(contacts=contacts, resume_text=resume_text, user_profile=user_profile, career_interests=career_interests, resume_filename=user_resume_filename, signoff_config=None, auth_display_name=auth_display_name, warmth_data=warmth_data)
+
         # Attach email data to ALL contacts FIRST (before draft creation)
         emails_attached = 0
         print(f"📧 Email results keys: {list(email_results.keys())[:10] if email_results else 'empty'}")
@@ -437,8 +438,9 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         # Generate emails with resume
         print(f"📧 Generating emails for {len(contacts)} contacts...")
         auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
+        warmth_data = score_contacts_for_email(user_data or {}, contacts)
         try:
-            email_results = batch_generate_emails(contacts, resume_text, user_profile, career_interests, resume_filename=user_resume_filename, signoff_config=None, auth_display_name=auth_display_name)
+            email_results = batch_generate_emails(contacts=contacts, resume_text=resume_text, user_profile=user_profile, career_interests=career_interests, resume_filename=user_resume_filename, signoff_config=None, auth_display_name=auth_display_name, warmth_data=warmth_data)
             print(f"📧 Email generation returned {len(email_results)} results")
         except Exception as email_gen_error:
             print(f"❌ Email generation failed: {email_gen_error}")
