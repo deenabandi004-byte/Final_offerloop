@@ -19,6 +19,7 @@ from app.routes.gmail_oauth import build_gmail_oauth_url_for_user
 from app.services.auth import check_and_reset_credits, deduct_credits_atomic
 from app.config import TIER_CONFIGS
 from app.utils.exceptions import OfferloopException, InsufficientCreditsError, ExternalAPIError
+from app.utils.warmth_scoring import score_contacts_for_email
 from email_templates import get_template_instructions
 
 # =============================================================================
@@ -174,7 +175,7 @@ def prompt_search():
                 if user_doc.exists:
                     user_data = user_doc.to_dict()
                     credits_available = check_and_reset_credits(user_ref, user_data)
-                    user_tier = user_data.get("tier", "free")
+                    user_tier = user_data.get("subscriptionTier", user_data.get("tier", "free"))
                     if user_tier not in TIER_CONFIGS:
                         user_tier = "free"
                     seen_contact_set = _get_cached_exclusion_list(user_id)
@@ -306,6 +307,7 @@ def prompt_search():
         contacts = contacts[:max_contacts]
 
         # Same pipeline as free-run: template, emails, drafts, deduct, save
+        # A4: Build rich user profile from root doc + professionalInfo subcollection
         user_profile = data.get("userProfile") or (user_data or {}).get("userProfile")
         if not user_profile and db and user_id:
             try:
@@ -326,6 +328,12 @@ def prompt_search():
                 pass
         if not user_profile:
             user_profile = {"name": "", "email": user_email or ""}
+        # A4: Enrich user_profile with onboarding data from root user document
+        if user_data:
+            for key in ("resumeParsed", "academics", "goals", "careerTrack",
+                        "dreamCompanies", "hometown", "location", "pastCompanies"):
+                if key in user_data and key not in user_profile:
+                    user_profile[key] = user_data[key]
         career_interests = data.get("careerInterests") or (user_data or {}).get("careerInterests", [])
         template_instructions, email_template_purpose, template_subject_line, signoff_config = _resolve_email_template(data.get("emailTemplate"), user_id, db, user_data=user_data)
         # Get resume filename for email body reference
@@ -356,6 +364,9 @@ def prompt_search():
             except Exception as e:
                 print(f"[Runs] Could not download/extract resume: {e}")
 
+        # Compute warmth scores for email personalization
+        warmth_data = score_contacts_for_email(user_profile, contacts)
+
         # Generate emails with resume text
         try:
             email_results = batch_generate_emails(
@@ -367,6 +378,7 @@ def prompt_search():
                 subject_line=template_subject_line,
                 signoff_config=signoff_config,
                 auth_display_name=auth_display_name,
+                warmth_data=warmth_data,
             )
         except Exception as e:
             print(f"[Runs] Email generation failed (prompt-search): {e}")

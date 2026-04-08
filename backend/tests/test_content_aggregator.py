@@ -133,8 +133,8 @@ class TestContentAggregator:
             },
             {
                 "id": "2",
-                "content": "This is a test interview experience about Google",  # Duplicate
-                "source": "youtube"
+                "content": "This is a test interview experience about Google",  # Duplicate (same source)
+                "source": "reddit"
             },
             {
                 "id": "3",

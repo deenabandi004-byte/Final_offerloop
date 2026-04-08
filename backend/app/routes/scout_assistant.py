@@ -78,7 +78,7 @@ def scout_assistant_chat():
     
     # Get user info from Firebase auth or request
     user_name = user_info.get("name", "there")
-    tier = user_info.get("tier", "free")
+    tier = user_info.get("subscriptionTier", user_info.get("tier", "free"))
     credits = user_info.get("credits", 0)
     max_credits = user_info.get("max_credits", 300)
     

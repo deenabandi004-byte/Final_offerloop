@@ -6,7 +6,7 @@ career relevance, and data richness signals. Pure functions, no API calls.
 """
 
 from app.utils.coffee_chat_prep import detect_commonality
-from app.services.reply_generation import _detect_career_transition, _detect_tenure
+from app.utils.contact_analysis import _detect_career_transition, _detect_tenure
 from app.utils.users import get_university_shorthand
 
 
@@ -292,17 +292,12 @@ def _score_career_relevance(comparison, contact):
     # Recently joined < 2 years (+8) ---------------------------------------
     tenure = _detect_tenure(contact)
     if tenure is not None:
-        # _detect_tenure fires for <= 3 years; we tighten to 2 years
-        value_str = tenure.get("value", "")
-        try:
-            # value is typically like "1 year" or "2 years"
-            years = int("".join(c for c in value_str if c.isdigit()) or "99")
-        except ValueError:
-            years = 99
+        # _detect_tenure now returns a structured dict with numeric 'years' field
+        years = tenure.get("years", 99)
         if years <= 2:
             points += 8
             signals.append({"signal": "recently_joined", "points": 8,
-                            "detail": value_str})
+                            "detail": tenure.get("value", "")})
 
     return points, signals
 
@@ -436,3 +431,38 @@ def score_and_sort_contacts(user_profile, contacts):
 
     scored.sort(key=lambda c: c["warmth_score"], reverse=True)
     return scored
+
+
+def score_contacts_for_email(user_profile, contacts):
+    """
+    Score contacts and return warmth data dict keyed by contact index.
+
+    This is the orchestration helper used by all callers of
+    ``batch_generate_emails``.  It runs warmth scoring once per batch
+    and packages the results so the email generator can select prompt
+    variants per contact.
+
+    Returns
+    -------
+    dict
+        ``{0: {"tier": "warm", "score": 62, "signals": [...]}, 1: ...}``
+        Returns empty dict on any error (email generation degrades to
+        default prompt, never fails).
+    """
+    try:
+        comparison = _build_user_comparison_data(user_profile)
+        warmth_data = {}
+        for i, contact in enumerate(contacts):
+            result = compute_warmth_score(comparison, contact)
+            warmth_data[i] = {
+                "tier": result["tier"],
+                "score": result["score"],
+                "signals": result["signals"],
+            }
+        return warmth_data
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Warmth scoring failed, falling back to default: %s", exc
+        )
+        return {}

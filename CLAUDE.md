@@ -111,62 +111,11 @@ gunicorn backend.wsgi:app --bind 0.0.0.0:5001 --workers 4
 
 ### Backend (Python 3.x)
 
-| Category | Package | Version | Purpose |
-|----------|---------|---------|---------|
-| **Framework** | Flask | 3.0.0 | API server |
-| **WSGI** | Gunicorn | 21.2.0 | Production server |
-| **HTTP** | Werkzeug | 3.0.1 | WSGI utilities |
-| **Auth** | firebase-admin | 6.4.0 | Firebase Auth + Firestore |
-| **Google APIs** | google-api-python-client | 2.114.0 | Gmail, Pub/Sub |
-| **AI (primary)** | openai | 1.54.0 | GPT-4 for email gen, resume, scout, prep |
-| **AI (fallback)** | anthropic | >=0.86.0 | Claude as fallback LLM |
-| **Contact search** | requests + httpx | 2.32.0 / 0.27.2 | People Data Labs API |
-| **Payments** | stripe | 8.0.0 | Subscriptions (Pro/Elite) |
-| **Validation** | pydantic | >=2.10.0 | Request/response schemas |
-| **PDF** | pdfplumber, reportlab, weasyprint, pdf2docx | 0.11.9, 4.0.7, >=67.0, 0.5.6 | PDF parsing and generation |
-| **Documents** | python-docx, openpyxl | 1.1.0, >=3.1.0 | DOCX/XLSX handling |
-| **Scraping** | beautifulsoup4, jinja2 | latest, >=3.1.0 | Web scraping, HTML templates |
-| **Search** | google-search-results | 2.4.2 | SerpAPI for jobs/firms |
-| **Video** | youtube-transcript-api | 1.2.4 | YouTube transcript extraction |
-| **Reddit** | asyncpraw, praw, aiohttp | latest | Reddit scraping for interview prep |
-| **Email** | email-validator | 2.1.0 | Email validation |
-| **Rate limiting** | Flask-Limiter | 3.5.0 | Per-user rate limits |
-| **CORS** | flask-cors | 4.0.0 | Cross-origin support |
-| **Caching** | cachetools | >=5.3.0 | In-memory caching |
-| **Testing** | pytest, pytest-cov, pytest-mock, pytest-asyncio | 7.4.3, 4.1.0, 3.12.0, >=0.23 | Test framework |
-| **Config** | python-dotenv | 1.0.0 | Environment variables |
-| **Dates** | dateparser | 1.2.0 | Natural language date parsing |
-| **Markdown** | markdown | >=3.5.0 | Blog/content rendering |
+Key packages: Flask 3.0, firebase-admin 6.4, openai 1.54, anthropic >=0.86 (fallback LLM), stripe 8.0, pydantic >=2.10. Full list in `backend/requirements.txt`.
 
 ### Frontend (TypeScript)
 
-| Category | Package | Version | Purpose |
-|----------|---------|---------|---------|
-| **Framework** | React | 18.2.0 | UI library |
-| **Router** | react-router-dom | 6.20.0 | Client-side routing |
-| **Build** | Vite | 5.0.0 | Dev server + bundler |
-| **TypeScript** | typescript | 5.2.2 | Type system |
-| **Firebase** | firebase | 10.7.0 | Auth, Firestore, Storage |
-| **Server state** | @tanstack/react-query | 5.89.0 | Data fetching/caching |
-| **UI primitives** | @radix-ui/* | latest | 20+ headless components (shadcn/ui) |
-| **Styling** | tailwindcss | 3.3.0 | Utility CSS |
-| **Component variants** | class-variance-authority | 0.7.1 | CVA for shadcn/ui |
-| **Class merging** | clsx + tailwind-merge | 2.0.0 / 2.0.0 | `cn()` helper |
-| **Forms** | react-hook-form + zod | 7.62.0 / 4.1.9 | Form management + validation |
-| **Animation** | framer-motion, gsap | 12.23.25, 3.13.0 | Motion, scroll effects |
-| **Charts** | recharts | 3.2.1 | Data visualization |
-| **PDF** | @react-pdf/renderer, jspdf, html2canvas | 4.3.1, 3.0.4, 1.4.1 | Client-side PDF |
-| **Payments** | @stripe/stripe-js | 7.9.0 | Stripe checkout |
-| **Analytics** | posthog-js | 1.308.0 | Product analytics |
-| **Icons** | lucide-react | 0.544.0 | Icon library |
-| **Command palette** | cmdk | 1.1.1 | Cmd+K interface |
-| **Toasts** | sonner | 2.0.7 | Toast notifications |
-| **Tours** | react-joyride | 2.9.3 | Product tours |
-| **SEO** | react-helmet-async | 3.0.0 | Head management |
-| **Markdown** | react-markdown + remark-gfm | 10.1.0 / 4.0.1 | Blog rendering |
-| **Carousel** | embla-carousel-react | 8.3.0 | Image carousels |
-| **Dates** | date-fns, react-day-picker | 3.6.0, 8.10.1 | Date handling |
-| **Theme** | next-themes | 0.4.6 | Dark/light mode |
+Key packages: React 18.2, Vite 5.0, firebase 10.7, @tanstack/react-query 5.89, tailwindcss 3.3, @stripe/stripe-js 7.9. Full list in `connect-grow-hire/package.json`.
 
 ---
 
@@ -367,41 +316,17 @@ Credits reset at calendar month boundary (not billing cycle). Atomic Firestore d
 
 ### Blueprint registration
 
-All registered in `create_app()`. Key prefixes:
+All 32+ blueprints registered in `create_app()` under `/api/`. Key ones:
 
 | Blueprint | Prefix | Purpose |
 |-----------|--------|---------|
-| `health_bp` | `/` | `/ping`, `/health`, `/healthz` |
-| `gmail_oauth_bp` | `/api/google` | Gmail OAuth start/callback |
-| `emails_bp` | `/api/emails` | Email generation and drafts |
-| `contacts_bp` | `/api/contacts` | Contact CRUD |
-| `linkedin_import_bp` | `/api/contacts` | LinkedIn import (**must register before contacts_bp**) |
-| `runs_bp` | varies | Contact search runs |
-| `enrichment_bp` | `/api` | Data enrichment |
-| `resume_bp` | `/api` | Resume upload/parse |
-| `coffee_chat_bp` | `/api/coffee-chat-prep` | Coffee chat generation |
-| `interview_prep_bp` | `/api/interview-prep` | Interview prep generation |
 | `billing_bp` | `/api` | Stripe checkout, webhooks, tier info |
-| `users_bp` | `/api/users` | User profile |
-| `outbox_bp` | `/api/outbox` | Email pipeline tracking |
+| `runs_bp` | varies | Contact search runs |
+| `emails_bp` | `/api/emails` | Email generation and drafts |
 | `scout_bp` | `/api/scout` | AI job search assistant |
-| `firm_search_bp` | `/api/firm-search` | Company search |
-| `job_board_bp` | `/api/job-board` | Job listings |
-| `resume_workshop_bp` | varies | Resume optimization |
-| `cover_letter_workshop_bp` | `/api/cover-letter` | Cover letter generation |
-| `auth_extension_bp` | `/api/auth` | Chrome extension auth |
-| `email_template_bp` | `/api/email-template` | Saved email templates |
-| `admin_bp` | `/api/admin` | Admin functions |
-| `gmail_webhook_bp` | `/api/gmail` | Gmail push notifications |
-| `dashboard_bp` | `/api/dashboard` | Dashboard stats |
-| `timeline_bp` | `/api/timeline` | Activity tracking |
-| `search_history_bp` | varies | Search history |
-| `contact_import_bp` | varies | LinkedIn/file imports |
-| `scout_assistant_bp` | varies | Scout assistant endpoint |
-| `jobs_bp` | varies | Job search interface |
-| `extension_logs_bp` | varies | Extension error logging |
-| `application_lab_bp` | varies | Application tracking |
-| `resume_pdf_patch_bp` | varies | PDF watermarking |
+| `gmail_oauth_bp` | `/api/google` | Gmail OAuth start/callback |
+
+**Critical ordering**: `linkedin_import_bp` must be registered before `contacts_bp` in `wsgi.py` (both use `/api/contacts` prefix).
 
 **New blueprints must be registered in `wsgi.py`**. Debug with `LIST_ROUTES=1 python wsgi.py`.
 
@@ -426,31 +351,6 @@ def do_something():
 - Coffee chat prep runs in a background thread (`concurrent.futures`), returns job ID for polling.
 - Rate limiting: 2000/day, 500/hour per user (ID if authed, else IP). Static assets and coffee chat status polling exempted.
 - CORS: `offerloop.ai`, `www.offerloop.ai`, plus `CORS_ORIGINS` env var. Localhost origins in dev.
-
-### Key service files (by size/complexity)
-
-| Service | Lines | Purpose |
-|---------|-------|---------|
-| `scout_service.py` | 3,400+ | Conversational AI search assistant |
-| `pdl_client.py` | 3,200+ | People Data Labs contact search with ~50 metro area mappings |
-| `application_lab_service.py` | 3,082 | Application tracking and management |
-| `hunter.py` | 1,742 | Hunter.io email finder and verification |
-| `reply_generation.py` | 1,497 | Email generation and batch operations |
-| `gmail_client.py` | 1,394 | Gmail OAuth, credentials, watch renewal |
-| `recruiter_finder.py` | 1,325 | Hiring manager/recruiter discovery |
-| `company_search.py` | 1,240 | Company/firm search |
-| `firm_details_extraction.py` | 1,192 | Extract company details from web |
-| `pdf_patcher.py` | 1,112 | Resume PDF modification/watermarking |
-| `scout_assistant_service.py` | 1,074 | Scout multi-turn conversations |
-| `resume_parser_v2.py` | 992 | Resume parsing with layout preservation |
-| `prompt_pdl_search.py` | 755 | Natural language → PDL query conversion |
-| `resume_optimizer_v2.py` | 741 | AI resume optimization suggestions |
-| `coffee_chat.py` | 714 | Coffee chat research and prep |
-| `outbox_service.py` | 643 | Outbox/email tracking |
-| `contact_search_optimized.py` | 589 | Optimized contact search |
-| `serp_client.py` | 596 | SerpAPI for jobs/firms |
-| `stripe_client.py` | 545 | Stripe subscription management |
-| `openai_client.py` | varies | OpenAI (primary) + Anthropic (fallback) client init |
 
 ### Error handling
 
@@ -529,12 +429,8 @@ Custom exception hierarchy in `app/utils/exceptions.py`:
 | `useSubscription()` | Tier, credits, usage counts. Refetches every 30s |
 | `useFeatureGate(feature)` | Checks tier access, server-side verified |
 | `useNotifications()` | Real-time Firestore listener for outbox reply notifications |
-| `useScoutChat()` | Scout AI assistant interaction |
-| `useAutocomplete()` | Search autocomplete |
-| `useFirebaseMigration()` | Firebase data migration |
-| `useDebounce()` | Debounce utility |
-| `useMobile()` | Mobile detection |
-| `useOutsideClick()` | Click-outside detection |
+
+Other hooks: `useScoutChat`, `useAutocomplete`, `useFirebaseMigration`, `useDebounce`, `useMobile`, `useOutsideClick`.
 
 ### Build configuration
 

@@ -301,7 +301,7 @@ class TestNormalizeIntent:
     def test_career_phase_new_grad(self):
         """Test career phase for new grad (graduating within 12 months)"""
         current_year = datetime.now().year
-        graduation_year = current_year + 1  # 1 year from now
+        graduation_year = current_year  # Graduating this year (within 0-12 months)
         
         user_profile = {
             "interests": [],

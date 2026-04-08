@@ -16,195 +16,14 @@ from app.utils.users import (
     determine_industry
 )
 from app.utils.coffee_chat_prep import detect_commonality
+from app.utils.contact_analysis import (
+    _detect_career_transition,
+    _detect_tenure,
+)
 from datetime import datetime
 import re
 
 logger = logging.getLogger(__name__)
-
-# ============================================================================
-# ANCHOR PRIORITY SYSTEM
-# ============================================================================
-
-def _detect_career_transition(contact):
-    """
-    Detect if contact has made a career transition (e.g., engineering → consulting).
-    
-    Returns:
-        dict with 'type': 'transition', 'value': str, 'priority': 1
-        or None if no transition detected
-    """
-    # Check if we have experience data
-    experience = contact.get('experience', [])
-    if not isinstance(experience, list) or len(experience) < 2:
-        return None
-    
-    # Handle backward compatibility: if experience is empty, try parsing WorkSummary
-    # (This is a fallback for contacts extracted before experience array was added)
-    if len(experience) == 0:
-        work_summary = contact.get('WorkSummary', '')
-        if 'Previously at' in work_summary or 'Previously' in work_summary:
-            # Has previous job, but can't determine transition type without structured data
-            # Return None to fall back to tenure or title
-            return None
-    
-    # Get current and previous jobs
-    current_job = experience[0] if experience else {}
-    prev_job = experience[1] if len(experience) > 1 else {}
-    
-    if not isinstance(current_job, dict) or not isinstance(prev_job, dict):
-        return None
-    
-    # Extract company and title info
-    current_company = ''
-    current_title = ''
-    if isinstance(current_job.get('company'), dict):
-        current_company = current_job['company'].get('name', '')
-    elif isinstance(current_job.get('company'), str):
-        current_company = current_job.get('company', '')
-    
-    if isinstance(current_job.get('title'), dict):
-        current_title = current_job['title'].get('name', '')
-    elif isinstance(current_job.get('title'), str):
-        current_title = current_job.get('title', '')
-    
-    prev_company = ''
-    prev_title = ''
-    if isinstance(prev_job.get('company'), dict):
-        prev_company = prev_job['company'].get('name', '')
-    elif isinstance(prev_job.get('company'), str):
-        prev_company = prev_job.get('company', '')
-    
-    if isinstance(prev_job.get('title'), dict):
-        prev_title = prev_job['title'].get('name', '')
-    elif isinstance(prev_job.get('title'), str):
-        prev_title = prev_job.get('title', '')
-    
-    # Check if companies differ (transition indicator)
-    if not current_company or not prev_company:
-        return None
-    
-    if current_company.lower() == prev_company.lower():
-        return None  # Same company, not a transition
-    
-    # Determine transition type
-    current_lower = current_title.lower()
-    prev_lower = prev_title.lower()
-    
-    # Define transition patterns
-    consulting_keywords = ['consultant', 'consulting', 'associate', 'analyst', 'manager']
-    banking_keywords = ['analyst', 'associate', 'banking', 'investment', 'finance']
-    engineering_keywords = ['engineer', 'developer', 'software', 'technical']
-    
-    is_consulting = any(kw in current_lower for kw in consulting_keywords)
-    is_banking = any(kw in current_lower for kw in banking_keywords)
-    is_engineering = any(kw in current_lower for kw in engineering_keywords)
-    
-    prev_is_consulting = any(kw in prev_lower for kw in consulting_keywords)
-    prev_is_banking = any(kw in prev_lower for kw in banking_keywords)
-    prev_is_engineering = any(kw in prev_lower for kw in engineering_keywords)
-    
-    # Detect meaningful transitions
-    transition_value = None
-    if is_consulting and (prev_is_engineering or prev_is_banking):
-        transition_value = "transitioned into consulting"
-    elif is_banking and (prev_is_engineering or prev_is_consulting):
-        transition_value = "moved into banking"
-    elif is_consulting and not prev_is_consulting:
-        transition_value = "transitioned into consulting"
-    elif is_banking and not prev_is_banking:
-        transition_value = "moved into banking"
-    elif is_engineering and (prev_is_consulting or prev_is_banking):
-        transition_value = "shifted from industry into consulting"
-    
-    if transition_value:
-        return {
-            'type': 'transition',
-            'priority': 1,
-            'value': transition_value
-        }
-    
-    return None
-
-
-def _detect_tenure(contact):
-    """
-    Detect if contact has short tenure (<= 3 years) at current role.
-    
-    Returns:
-        dict with 'type': 'tenure', 'value': str, 'priority': 2
-        or None if no tenure anchor applies
-    """
-    experience = contact.get('experience', [])
-    if not isinstance(experience, list) or len(experience) == 0:
-        return None
-    
-    current_job = experience[0]
-    if not isinstance(current_job, dict):
-        return None
-    
-    # Check for start_date
-    start_date = current_job.get('start_date')
-    if not isinstance(start_date, dict):
-        # Try to parse from WorkSummary as fallback (backward compatibility)
-        work_summary = contact.get('WorkSummary', '')
-        # Look for years experience pattern like "(2 years experience)"
-        import re
-        years_match = re.search(r'\((\d+)\s+years?\s+experience\)', work_summary)
-        if years_match:
-            years_exp = int(years_match.group(1))
-            if years_exp <= 3:
-                # Estimate start year (current year - years_exp)
-                current_year = datetime.now().year
-                estimated_start_year = current_year - years_exp
-                start_date = {'year': estimated_start_year}
-            else:
-                return None
-        else:
-            return None
-    
-    start_year = start_date.get('year')
-    if not start_year:
-        return None
-    
-    # Calculate tenure
-    current_year = datetime.now().year
-    tenure_years = current_year - start_year
-    
-    # Check if still at this job (no end_date or end_date is future)
-    end_date = current_job.get('end_date')
-    if end_date and isinstance(end_date, dict):
-        end_year = end_date.get('year')
-        if end_year and end_year < current_year:
-            # They left, calculate actual tenure
-            start_month = start_date.get('month', 1)
-            end_month = end_date.get('month', 12)
-            # Rough calculation
-            tenure_years = end_year - start_year
-            if end_month < start_month:
-                tenure_years -= 1
-    
-    # Only use tenure anchor if <= 3 years
-    if tenure_years > 3:
-        return None
-    
-    # Bucket tenure into phrases
-    if tenure_years <= 1:
-        tenure_value = "recently joined"
-    elif tenure_years <= 3:
-        tenure_value = "early in your time"
-    else:
-        return None
-    
-    # Get company name for context
-    company = contact.get('Company', '')
-    if company:
-        tenure_value = f"{tenure_value} at {company}"
-    
-    return {
-        'type': 'tenure',
-        'priority': 2,
-        'value': tenure_value
-    }
 
 
 def _build_title_anchor(contact):
@@ -489,7 +308,7 @@ def _build_personalization_label(commonality_type, commonality_details, selected
     return "Role match"
 
 
-def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None, pre_parsed_user_info=None, template_instructions="", email_template_purpose=None, resume_filename=None, subject_line=None, signoff_config=None, auth_display_name=None, personal_note="", dream_companies=None):
+def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None, pre_parsed_user_info=None, template_instructions="", email_template_purpose=None, resume_filename=None, subject_line=None, signoff_config=None, auth_display_name=None, personal_note="", dream_companies=None, warmth_data=None):
     """
     Generate all emails using the new compelling prompt template.
 
@@ -879,7 +698,78 @@ Return ONLY valid JSON:
             prompt = f"{context_block}\n\n{(template_instructions or '').strip()}\n\n{minimal_formatting}"
             system_content = "You write personalized emails. Follow the user's custom instructions and style exactly. Do not add networking rules, resume mentions, or coffee chat asks unless the instructions say so. Return only valid JSON."
         else:
-            context_block = f"""You write professional, warm networking emails for college students reaching out to industry professionals.
+            # --- A1: Build enriched contact contexts with PDL data ---
+            enriched_contact_contexts = []
+            for i, ctx in enumerate(contact_contexts):
+                pdl_section = ""
+                if i < len(contacts):
+                    c = contacts[i]
+                    # Work history (last 5 positions)
+                    experience = c.get("experience") or []
+                    if isinstance(experience, list) and experience:
+                        exp_lines = []
+                        for exp in experience[:5]:
+                            if isinstance(exp, dict):
+                                exp_title = exp.get("title", {})
+                                if isinstance(exp_title, dict):
+                                    exp_title = exp_title.get("name", "")
+                                exp_co = exp.get("company", {})
+                                if isinstance(exp_co, dict):
+                                    exp_co = exp_co.get("name", "")
+                                if exp_title or exp_co:
+                                    exp_lines.append(f"  - {exp_title} at {exp_co}".strip())
+                        if exp_lines:
+                            pdl_section += "\n- Work History:\n" + "\n".join(exp_lines)
+                    # Education
+                    education = c.get("educationArray") or c.get("education") or []
+                    if isinstance(education, list) and education:
+                        edu_lines = []
+                        for edu in education[:3]:
+                            if isinstance(edu, dict):
+                                school = edu.get("school", {})
+                                if isinstance(school, dict):
+                                    school = school.get("name", "")
+                                degree = edu.get("degrees") or []
+                                if isinstance(degree, list) and degree:
+                                    degree = degree[0]
+                                elif not isinstance(degree, str):
+                                    degree = edu.get("degree", "")
+                                major = edu.get("majors") or edu.get("major") or []
+                                if isinstance(major, list) and major:
+                                    major = major[0]
+                                elif not isinstance(major, str):
+                                    major = ""
+                                parts = [p for p in [degree, major, school] if p]
+                                if parts:
+                                    edu_lines.append(f"  - {', '.join(parts)}")
+                        if edu_lines:
+                            pdl_section += "\n- Education:\n" + "\n".join(edu_lines)
+                    # Skills
+                    skills = c.get("skills") or c.get("Skills") or []
+                    if isinstance(skills, list) and skills:
+                        pdl_section += f"\n- Skills: {', '.join(str(s) for s in skills[:8])}"
+
+                # --- A2: Inject warmth tier + signals per contact ---
+                warmth_section = ""
+                if warmth_data and i in warmth_data:
+                    wd = warmth_data[i]
+                    tier = wd.get("tier", "cold")
+                    signals = wd.get("signals", [])
+                    signal_names = [s.get("signal", "") for s in signals if s.get("signal")]
+                    warmth_section = f"\n- Warmth: {tier}"
+                    if signal_names:
+                        warmth_section += f" ({', '.join(signal_names)})"
+
+                enriched_contact_contexts.append(ctx + pdl_section + warmth_section)
+
+            # --- A3: Warmth-tier-aware prompt variants ---
+            # Determine dominant warmth tier for tone calibration
+            warmth_data = warmth_data or {}
+            tier_counts = {"warm": 0, "neutral": 0, "cold": 0}
+            for wd in warmth_data.values():
+                tier_counts[wd.get("tier", "cold")] = tier_counts.get(wd.get("tier", "cold"), 0) + 1
+
+            context_block = f"""You write professional, natural networking emails for college students reaching out to industry professionals.
 
 TASK:
 Write {len(contacts)} personalized networking emails.
@@ -894,69 +784,81 @@ ABOUT THE SENDER:
 {outreach_type_guidance}
 
 CONTACTS:
-{chr(10).join(contact_contexts)}"""
+{chr(10).join(enriched_contact_contexts)}"""
             signature_block_prompt = _build_signature_block_for_prompt(signoff_config, user_info)
 
-            requirements_block = f"""===== EMAIL STRUCTURE (FOLLOW THIS EXACTLY) =====
+            # Build tone guidance per warmth tier
+            warmth_tone_guide = """
+===== RELATIONSHIP-BASED TONE =====
 
-OPENING (First Paragraph):
-- Start with: "Hi [FirstName],"
-- Then: "I came across your background at [Company] and noticed your work as a [title] there."
-- Then: "I'm a [University] student studying [Major], and I'm especially interested in [something specific about their company/role/industry]."
+Adjust tone based on each contact's Warmth level:
 
-MIDDLE (Second Paragraph):
-- Ask TWO specific questions:
-  1. About their projects or work: "I'd love to hear about the projects you've found most engaging"
-  2. About their day-to-day: "and what your day-to-day looks like on the [engineering/product/etc.] side"
-- End with specific time ask: "If you're open to it, would you have 15 minutes for a quick chat sometime in the next couple of weeks?"
+WARM contacts (alumni, shared employer, shared hometown):
+- Conversational, friendly tone. Lead with the shared connection.
+- 100-150 words. You already have a reason to reach out, so be direct.
+- Example opener: "As a fellow [University] alum, I'd love to..."
+
+NEUTRAL contacts (same industry, career track match, dream company):
+- Professional but personable. Reference a specific aspect of their work.
+- 120-170 words. Show you've done your homework on their career.
+- Example opener: "Your work in [specific area] at [Company] caught my attention..."
+
+COLD contacts (no overlap):
+- Concise and respectful of their time. Get to the point quickly.
+- 80-120 words. Be clear about why you're reaching out.
+- Example opener: "I'm exploring [industry] careers and your path from [X] to [Y] stood out..."
+
+For ALL contacts:
+- Do NOT use "I came across your background" or any forced opener pattern.
+- Open naturally based on WHY you're reaching out to THIS person.
+- Ask ONE thoughtful question (not forced two-question structure).
+- If the contact has work history or education data, reference something specific.
+"""
+
+            # Industry tone calibration
+            industry_vocabulary = ""
+            if career_interests:
+                interests_lower = " ".join(str(ci).lower() for ci in career_interests if ci)
+                if any(w in interests_lower for w in ["consult", "advisory", "strategy", "mckinsey", "bain", "bcg"]):
+                    industry_vocabulary = "\nINDUSTRY TONE: Consulting - use structured, analytical language. Reference case work, client engagements, problem-solving frameworks."
+                elif any(w in interests_lower for w in ["banking", "finance", "investment", "goldman", "jpmorgan", "m&a"]):
+                    industry_vocabulary = "\nINDUSTRY TONE: Finance/Banking - be polished and direct. Reference deal experience, market analysis, financial modeling."
+                elif any(w in interests_lower for w in ["tech", "software", "engineer", "product", "data", "google", "meta"]):
+                    industry_vocabulary = "\nINDUSTRY TONE: Tech - be casual and specific. Reference technical projects, product launches, engineering challenges."
+
+            requirements_block = f"""{warmth_tone_guide}{industry_vocabulary}
+
+===== EMAIL STRUCTURE =====
+
+1. Start with "Hi [FirstName],"
+2. Open naturally (see tone guide above, no forced pattern)
+3. Show genuine interest in something specific about their work or background
+4. Ask ONE thoughtful, specific question
+5. Brief time ask: "Would you have 15 minutes for a quick chat?"
 {resume_line_section}SIGNATURE (REQUIRED - every email MUST end with this):
-Use exactly this format (sign-off line then name/signature block):
 {signature_block_prompt}
-CRITICAL: Never end the email without a sign-off and the sender's name.
-
-===== FORMATTING RULES =====
-
-1. Use "I came across your background at [Company]" - NOT "I'm reaching out because I noticed"
-2. ALWAYS mention the sender's major: "I'm a [University] student studying [Major]"
-3. Show interest in the COMPANY's work, not just generic "your work"
-4. Ask TWO questions (projects + day-to-day OR career path + advice)
-5. Specific time: "15 minutes" and "next couple of weeks"
-{resume_rule_line}No parentheses around university name - use "University of Southern California" not "(USC)"
-{length_rule_num}. LENGTH: 4-5 sentences in the body (not counting greeting/signature). Do NOT be too brief.
-
-===== DO NOT =====
-- Start with "I'm reaching out because I noticed..."
-- Use generic phrases like "I'd be interested in hearing about your work"
-{resume_do_not_line}Use parentheses in university name like "(USC)"
-- Write emails shorter than 4 sentences
-- Use "Hope this finds you well" or "I hope you're doing well"
-- Sound templated or robotic
-- Write "[your major]" or any placeholder text - always fill in actual values
 
 ===== SUBJECT LINES =====
-{f'Use this exact subject line pattern for all emails (personalize with [Company] or recipient details): "{subject_line}"' if subject_line else """Make them conversational and specific:
-- "Question about your work at [Company]"
-- "Curious about your journey at [Company]"
-- "Quick question from a [University] student"
-- "Learning from your path at [Company]"
-- "Insight on your role at [Company]"
+{f'Use this subject line pattern (personalize per recipient): "{subject_line}"' if subject_line else """Personalize each subject line to the specific contact and relationship:
+- For warm contacts: reference the shared connection
+- For neutral: reference their specific work or role
+- For cold: be direct about your interest
 
-NOT these generic ones:
-- "Networking request"
-- "Introduction"
-- "Coffee chat request"
-- "Hope to connect\""""}
+Do NOT use generic subjects like "Networking request" or "Hope to connect"."""}
 
-===== CRITICAL =====
+===== RULES =====
 - If major is empty or "Not specified", write "I'm a [University] student" without mentioning major
 - Use proper grammar with apostrophes (I'm, I'd, you're, it's)
+- No parentheses around university names
 - Use \\n\\n for paragraph breaks in JSON
+- Never use placeholders like [your major] - fill in actual values or omit
+- Never use "Hope this finds you well" or similar filler
 
 Return ONLY valid JSON:
 {{"0": {{"subject": "...", "body": "..."}}, "1": {{"subject": "...", "body": "..."}}, ...}}"""
 
             prompt = build_template_prompt(context_block, template_instructions or "", requirements_block)
-            system_content = "You write warm, professional networking emails for college students. Your emails are 4-5 sentences (not counting greeting/signature), show genuine interest in the recipient's company and role, and always ask TWO specific questions. You ALWAYS mention the sender's university and major. You use the exact phrase 'I came across your background at [Company]' to open. The resume mention always comes BEFORE the signature. You ALWAYS end every email with a sign-off line (e.g. Best, or Best regards,) followed by the sender's full name. Use proper apostrophes (I'm, I'd, you're). Never use placeholders like [your major] - always fill in actual values or omit gracefully."
+            system_content = "You write natural, personalized networking emails for college students. You adapt your tone based on the relationship warmth: conversational for alumni/shared connections, professional for industry matches, concise for cold outreach. You never use forced opener patterns. Each email feels individually written, not templated. You end every email with a sign-off and the sender's name. Use proper apostrophes. Never use placeholders."
 
         # Try Claude first, then GPT, then static fallback
         import unicodedata

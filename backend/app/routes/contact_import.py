@@ -25,6 +25,7 @@ from app.routes.linkedin_import import (
     normalize_linkedin_url,
 )
 from app.services.reply_generation import batch_generate_emails
+from app.utils.warmth_scoring import score_contacts_for_email
 from app.services.gmail_client import create_gmail_draft_for_user, download_resume_from_url
 
 contact_import_bp = Blueprint('contact_import', __name__, url_prefix='/api/contacts')
@@ -137,7 +138,7 @@ def preview_import():
             raise OfferloopException("User not found", error_code="USER_NOT_FOUND")
         
         user_data = user_doc.to_dict()
-        tier = user_data.get('tier', 'free')
+        tier = user_data.get('subscriptionTier', user_data.get('tier', 'free'))
 
         if tier == 'free':
             return jsonify({
@@ -288,7 +289,7 @@ def import_contacts():
             raise OfferloopException("User not found", error_code="USER_NOT_FOUND")
         
         user_data = user_doc.to_dict()
-        tier = user_data.get('tier', 'free')
+        tier = user_data.get('subscriptionTier', user_data.get('tier', 'free'))
 
         if tier == 'free':
             return jsonify({
@@ -570,6 +571,7 @@ def import_contacts():
                 email_results = {}
                 try:
                     auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
+                    warmth_data = score_contacts_for_email(user_data_after or {}, email_contacts)
                     email_results = batch_generate_emails(
                         contacts=email_contacts,
                         resume_text=resume_text or None,
@@ -580,6 +582,7 @@ def import_contacts():
                         resume_filename=user_data_after.get('resumeFileName'),
                         signoff_config=None,
                         auth_display_name=auth_display_name,
+                        warmth_data=warmth_data,
                     )
                     logger.info(f"[ContactImport] Email generation succeeded for {len(email_results)} of {len(email_contacts)} contacts")
                 except Exception as e:
