@@ -6,35 +6,88 @@ from datetime import datetime
 from app.services.openai_client import get_openai_client
 
 
+UNIVERSITY_SHORTCUTS = {
+    'University of Southern California': 'USC',
+    'University of California, Los Angeles': 'UCLA',
+    'University of California, Berkeley': 'UC Berkeley',
+    'Stanford University': 'Stanford',
+    'Harvard University': 'Harvard',
+    'Yale University': 'Yale',
+    'Princeton University': 'Princeton',
+    'Columbia University': 'Columbia',
+    'University of Pennsylvania': 'Penn',
+    'Cornell University': 'Cornell',
+    'Dartmouth College': 'Dartmouth',
+    'Brown University': 'Brown',
+    'Duke University': 'Duke',
+    'Northwestern University': 'Northwestern',
+    'University of Chicago': 'UChicago',
+    'New York University': 'NYU',
+    'University of Michigan': 'Michigan',
+    'University of Virginia': 'UVA',
+    'University of North Carolina': 'UNC',
+    'Georgetown University': 'Georgetown',
+    'University of Texas': 'UT',
+    'University of Notre Dame': 'Notre Dame',
+}
+
+# Reverse lookup: shorthand → full name (lowercase)
+_UNIVERSITY_REVERSE = {v.lower(): k.lower() for k, v in UNIVERSITY_SHORTCUTS.items()}
+
+
 def get_university_shorthand(university):
     """Convert university name to shorthand."""
     if not university:
         return university
-    shortcuts = {
-        'University of Southern California': 'USC',
-        'University of California, Los Angeles': 'UCLA',
-        'University of California, Berkeley': 'UC Berkeley',
-        'Stanford University': 'Stanford',
-        'Harvard University': 'Harvard',
-        'Yale University': 'Yale',
-        'Princeton University': 'Princeton',
-        'Columbia University': 'Columbia',
-        'University of Pennsylvania': 'Penn',
-        'Cornell University': 'Cornell',
-        'Dartmouth College': 'Dartmouth',
-        'Brown University': 'Brown',
-        'Duke University': 'Duke',
-        'Northwestern University': 'Northwestern',
-        'University of Chicago': 'UChicago',
-        'New York University': 'NYU',
-        'University of Michigan': 'Michigan',
-        'University of Virginia': 'UVA',
-        'University of North Carolina': 'UNC',
-        'Georgetown University': 'Georgetown',
-        'University of Texas': 'UT',
-        'University of Notre Dame': 'Notre Dame',
-    }
-    return shortcuts.get(university, university)
+    return UNIVERSITY_SHORTCUTS.get(university, university)
+
+
+def get_university_variants(name):
+    """
+    Return a set of lowercase name variants for a university.
+
+    Handles both directions: full name → shorthand and shorthand → full name.
+    Also handles parenthesized abbreviations like
+    "University of Southern California (USC)".
+
+    For example, "USC" returns {"usc", "university of southern california"}
+    and "University of Southern California" returns the same set.
+    """
+    if not name:
+        return set()
+    name_lower = name.strip().lower()
+    variants = {name_lower}
+
+    # Extract parenthesized abbreviation if present, e.g.
+    # "University of Southern California (USC)" → base="university of southern california", abbr="usc"
+    paren_match = re.match(r'^(.+?)\s*\(([^)]+)\)\s*$', name_lower)
+    if paren_match:
+        base = paren_match.group(1).strip()
+        abbr = paren_match.group(2).strip()
+        variants.add(base)
+        variants.add(abbr)
+        # Also resolve the base form through the lookup
+        for full, short in UNIVERSITY_SHORTCUTS.items():
+            if full.lower() == base:
+                variants.add(short.lower())
+                break
+        if base in _UNIVERSITY_REVERSE:
+            variants.add(_UNIVERSITY_REVERSE[base])
+        if abbr in _UNIVERSITY_REVERSE:
+            variants.add(_UNIVERSITY_REVERSE[abbr])
+        return variants
+
+    # Full name → add shorthand
+    for full, short in UNIVERSITY_SHORTCUTS.items():
+        if full.lower() == name_lower:
+            variants.add(short.lower())
+            break
+
+    # Shorthand → add full name
+    if name_lower in _UNIVERSITY_REVERSE:
+        variants.add(_UNIVERSITY_REVERSE[name_lower])
+
+    return variants
 
 
 def get_university_mascot(university):

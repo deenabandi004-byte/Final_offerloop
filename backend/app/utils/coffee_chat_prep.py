@@ -10,7 +10,8 @@ from app.utils.users import (
     extract_hometown_from_resume,
     extract_companies_from_resume,
     get_university_shorthand,
-    get_university_mascot
+    get_university_mascot,
+    get_university_variants,
 )
 
 logger = logging.getLogger(__name__)
@@ -23,18 +24,28 @@ def detect_commonality(user_info, contact, resume_text):
     PDL-enriched field names (educationArray, company, city, location).
     Returns: (commonality_type, details_dict)
     """
-    user_university = (user_info.get('university', '') or '').lower()
+    user_university = (user_info.get('university', '') or '').strip()
 
-    # Build contact education string from all possible field sources
+    # Build contact education string and extract individual school names
     edu_parts = []
+    contact_schools = []  # individual school names for variant matching
     # PDL enriched format
     for edu in contact.get('educationArray', []):
         if isinstance(edu, dict):
-            edu_parts.append(edu.get('school', ''))
+            school = edu.get('school', '')
+            # PDL returns school as {"name": "...", "type": "..."} or as a string
+            if isinstance(school, dict):
+                school = school.get('name', '')
+            if school:
+                contact_schools.append(school)
+            edu_parts.append(school or '')
             edu_parts.append(edu.get('degree', ''))
             edu_parts.append(edu.get('major', ''))
     # Legacy / flat fields
-    edu_parts.append(contact.get('College', '') or '')
+    legacy_college = contact.get('College', '') or ''
+    if legacy_college:
+        contact_schools.append(legacy_college)
+    edu_parts.append(legacy_college)
     edu_parts.append(contact.get('EducationTop', '') or '')
     edu_parts.append(contact.get('education', '') if isinstance(contact.get('education'), str) else '')
     contact_education = ' '.join(filter(None, edu_parts)).lower()
@@ -45,13 +56,22 @@ def detect_commonality(user_info, contact, resume_text):
     ).lower()
 
     # 1. Check same university (STRONGEST commonality)
-    if user_university and user_university in contact_education:
-        university = user_info.get('university', '')
-        return ('university', {
-            'university': university,
-            'university_short': get_university_shorthand(university),
-            'mascot': get_university_mascot(university)
-        })
+    if user_university:
+        user_uni_variants = get_university_variants(user_university)
+        # Check if any user variant is a substring of the contact education blob
+        matched = any(v in contact_education for v in user_uni_variants)
+        # Also check variant overlap with each individual school name
+        if not matched:
+            for school in contact_schools:
+                if user_uni_variants & get_university_variants(school):
+                    matched = True
+                    break
+        if matched:
+            return ('university', {
+                'university': user_university,
+                'university_short': get_university_shorthand(user_university),
+                'mascot': get_university_mascot(user_university)
+            })
 
     # 2. Check same hometown
     user_hometown = extract_hometown_from_resume(resume_text or '')

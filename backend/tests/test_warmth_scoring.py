@@ -176,6 +176,51 @@ def test_firestore_field_normalization():
     assert isinstance(result["score"], int)
 
 
+def test_university_from_resume_parsed_education():
+    """University nested under resumeParsed.education must be found by warmth scoring.
+
+    This is the real-world case: the resume parser stores university at
+    resumeParsed.education.university, and the user has no academics
+    onboarding data.  Previously _build_user_comparison_data only checked
+    resumeParsed.university (top-level), which was always None.
+    """
+    user = {
+        "resumeParsed": {
+            "education": {
+                "university": "University of Southern California (USC)",
+                "major": "Data Science",
+                "graduation": "May 2026",
+            },
+            "experience": [],
+        },
+        # No academics, no professionalInfo — university only in resume
+    }
+    comparison = _build_user_comparison_data(user)
+    assert "southern california" in comparison["university"], (
+        f"Expected USC in university, got: {comparison['university']!r}"
+    )
+    # Should detect same_university for a USC alum contact
+    contact = {
+        "College": "University of Southern California",
+        "title": "Analyst",
+        "company": "Test",
+        "headline": "Analyst at Test",
+    }
+    result = compute_warmth_score(comparison, contact)
+    signal_names = [s["signal"] for s in result["signals"]]
+    assert "same_university" in signal_names
+
+
+def test_university_from_top_level_profile_field():
+    """University set directly on user_profile (by route handler) should be found."""
+    user = {
+        "university": "USC",
+        # No academics, no resumeParsed
+    }
+    comparison = _build_user_comparison_data(user)
+    assert comparison["university"] == "usc"
+
+
 def test_score_contacts_for_email(user_profile, warm_contact, cold_contact):
     result = score_contacts_for_email(user_profile, [warm_contact, cold_contact])
     assert 0 in result
@@ -198,3 +243,113 @@ def test_tier_label():
     assert _tier_label(25) == "neutral"
     assert _tier_label(10) == "cold"
     assert _tier_label(0) == "cold"
+
+
+# ---------------------------------------------------------------------------
+# University variant matching (PDL format edge cases)
+# ---------------------------------------------------------------------------
+
+class TestUniversityVariantMatching:
+    """Verify same_university fires for all common PDL representations."""
+
+    @pytest.fixture
+    def usc_user(self):
+        """USC Data Science student with shorthand in profile."""
+        return {
+            "academics": {"university": "USC", "major": "Data Science"},
+            "goals": {"careerTrack": "tech"},
+        }
+
+    @pytest.fixture
+    def usc_user_full_name(self):
+        """USC student with full university name in profile."""
+        return {
+            "academics": {"university": "University of Southern California", "major": "Data Science"},
+            "goals": {"careerTrack": "tech"},
+        }
+
+    def _has_signal(self, result, signal_name):
+        return any(s["signal"] == signal_name for s in result["signals"])
+
+    def test_pdl_school_as_nested_dict(self, usc_user):
+        """PDL often returns school as {"name": "...", "type": "..."}."""
+        comparison = _build_user_comparison_data(usc_user)
+        contact = {
+            "FirstName": "David",
+            "LastName": "Tao",
+            "title": "Senior UX Program Manager",
+            "company": "Google",
+            "headline": "Senior UX Program Manager at Google",
+            "educationArray": [
+                {
+                    "school": {"name": "University of Southern California", "type": "post-secondary institution"},
+                    "degrees": ["bachelors"],
+                    "majors": ["design"],
+                    "end_date": "2015",
+                },
+            ],
+            "experience": [
+                {"company": {"name": "Google"}, "title": {"name": "Senior UX Program Manager"}},
+                {"company": {"name": "YouTube"}, "title": {"name": "UX Program Manager"}},
+            ],
+        }
+        result = compute_warmth_score(comparison, contact)
+        assert self._has_signal(result, "same_university"), (
+            f"Expected same_university signal, got signals: {result['signals']}"
+        )
+
+    def test_shorthand_vs_full_name(self, usc_user):
+        """User profile has 'USC', contact has 'University of Southern California'."""
+        comparison = _build_user_comparison_data(usc_user)
+        contact = {
+            "FirstName": "Sarah",
+            "College": "University of Southern California",
+            "title": "Analyst",
+            "company": "Deloitte",
+            "headline": "Analyst at Deloitte",
+        }
+        result = compute_warmth_score(comparison, contact)
+        assert self._has_signal(result, "same_university")
+
+    def test_full_name_vs_shorthand(self, usc_user_full_name):
+        """User profile has full name, contact has 'USC' in College field."""
+        comparison = _build_user_comparison_data(usc_user_full_name)
+        contact = {
+            "FirstName": "Mike",
+            "College": "USC",
+            "title": "PM",
+            "company": "Meta",
+            "headline": "PM at Meta",
+        }
+        result = compute_warmth_score(comparison, contact)
+        assert self._has_signal(result, "same_university")
+
+    def test_sub_school_variant(self, usc_user):
+        """PDL sometimes stores sub-school names like 'USC Viterbi School of Engineering'."""
+        comparison = _build_user_comparison_data(usc_user)
+        contact = {
+            "FirstName": "Li",
+            "title": "Software Engineer",
+            "company": "Amazon",
+            "headline": "Software Engineer at Amazon",
+            "educationArray": [
+                {"school": "USC Viterbi School of Engineering", "major": "Computer Science"},
+            ],
+        }
+        result = compute_warmth_score(comparison, contact)
+        assert self._has_signal(result, "same_university")
+
+    def test_marshall_sub_school(self, usc_user):
+        """'USC Marshall School of Business' should match."""
+        comparison = _build_user_comparison_data(usc_user)
+        contact = {
+            "FirstName": "Amy",
+            "title": "Associate",
+            "company": "BCG",
+            "headline": "Associate at BCG",
+            "educationArray": [
+                {"school": "USC Marshall School of Business", "major": "Business Administration"},
+            ],
+        }
+        result = compute_warmth_score(comparison, contact)
+        assert self._has_signal(result, "same_university")

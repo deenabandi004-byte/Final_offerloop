@@ -501,22 +501,12 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
                 "label": _build_personalization_label(commonality_type, commonality_details, selected_anchor),
             }
 
-            # Build anchor detail section
-            anchor_detail = ""
-            if selected_anchor:
-                anchor_detail = f"""
-ANCHOR DETAIL:
-- Use exactly ONE anchoring detail in the email.
-- Anchor type: {selected_anchor['type']}
-- Anchor value: {selected_anchor['value']}
-- Do NOT include any other anchoring facts."""
-            
             # Build contact context
             contact_context = f"""Contact {i}: {firstname} {lastname}
 - Role: {title} at {company}
 - Industry: {industry}
 - Connection: {personalization_note if personalization_note else 'No specific connection - find a genuine reason to reach out'}
-- Personalize by: Mentioning their role/company, asking about their experience, showing genuine interest in their work{anchor_detail}"""
+- Personalize by: Mentioning their role/company, asking about their experience, showing genuine interest in their work"""
             
             contact_contexts.append(contact_context)
         
@@ -755,10 +745,44 @@ Return ONLY valid JSON:
                     wd = warmth_data[i]
                     tier = wd.get("tier", "cold")
                     signals = wd.get("signals", [])
-                    signal_names = [s.get("signal", "") for s in signals if s.get("signal")]
+                    # Separate meaningful signals (with detail) from metadata-only
+                    METADATA_SIGNALS = {"has_headline_and_title", "rich_work_history",
+                                        "has_education_data", "has_skills_interests"}
+                    meaningful_details = []
+                    for s in signals:
+                        name = s.get("signal", "")
+                        detail = s.get("detail", "")
+                        if not name or name in METADATA_SIGNALS:
+                            continue
+                        if detail:
+                            meaningful_details.append(f"{name}: {detail}")
+                        else:
+                            meaningful_details.append(name)
                     warmth_section = f"\n- Warmth: {tier}"
-                    if signal_names:
-                        warmth_section += f" ({', '.join(signal_names)})"
+                    if meaningful_details:
+                        warmth_section += f"\n- Warmth signals: {'; '.join(meaningful_details)}"
+                    elif tier == "cold" and i < len(contacts):
+                        # No meaningful signals — build a career path from
+                        # work history so the LLM has something concrete.
+                        c = contacts[i]
+                        experience = c.get("experience") or []
+                        if isinstance(experience, list) and len(experience) >= 2:
+                            path_parts = []
+                            for exp in reversed(experience[:4]):
+                                if isinstance(exp, dict):
+                                    exp_title = exp.get("title", {})
+                                    if isinstance(exp_title, dict):
+                                        exp_title = exp_title.get("name", "")
+                                    exp_co = exp.get("company", {})
+                                    if isinstance(exp_co, dict):
+                                        exp_co = exp_co.get("name", "")
+                                    part = exp_title.strip() if exp_title else ""
+                                    if exp_co:
+                                        part = f"{part} at {exp_co}".strip() if part else exp_co
+                                    if part:
+                                        path_parts.append(part.lower())
+                            if path_parts:
+                                warmth_section += f"\n- Path: {' → '.join(path_parts)}"
 
                 enriched_contact_contexts.append(ctx + pdl_section + warmth_section)
 

@@ -89,6 +89,9 @@ def _build_user_comparison_data(user_profile):
     Returns a dict consumed by ``compute_warmth_score``.
     """
     resume_parsed = user_profile.get("resumeParsed") or {}
+    resume_education = resume_parsed.get("education") or {}
+    if not isinstance(resume_education, dict):
+        resume_education = {}
     academics = user_profile.get("academics") or {}
     goals = user_profile.get("goals") or {}
     professional_info = user_profile.get("professionalInfo") or {}
@@ -96,8 +99,10 @@ def _build_user_comparison_data(user_profile):
     # University -----------------------------------------------------------
     university = (
         academics.get("university")
+        or resume_education.get("university")
         or resume_parsed.get("university")
         or professional_info.get("university")
+        or user_profile.get("university")
         or ""
     )
     university_short = get_university_shorthand(university) or university
@@ -105,6 +110,7 @@ def _build_user_comparison_data(user_profile):
     # Major / department ---------------------------------------------------
     major = (
         academics.get("major")
+        or resume_education.get("major")
         or resume_parsed.get("major")
         or academics.get("department")
         or ""
