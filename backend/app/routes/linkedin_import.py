@@ -641,6 +641,8 @@ def import_from_linkedin():
             'status': 'drafted' if has_email and draft_result else 'not_contacted',
             'createdAt': datetime.utcnow(),
             'updatedAt': datetime.utcnow(),
+            # pdlId for agentic queue dedup (new in Phase 1).
+            'pdlId': pdl_contact.get('pdlId', '') or '',
         }
         
         # Add email content and draft info if available
@@ -660,7 +662,8 @@ def import_from_linkedin():
             else:
                 contact_data['gmailDraftId'] = str(draft_result)
             contact_data['pipelineStage'] = 'draft_created'
-        
+            contact_data['emailGeneratedAt'] = datetime.utcnow().isoformat() + "Z"
+
         print(f"[LinkedInImport]   - Contact Data Prepared:")
         print(f"[LinkedInImport]     - Name: {contact_data['firstName']} {contact_data['lastName']}")
         print(f"[LinkedInImport]     - Email: {contact_data['email'] or 'None'}")

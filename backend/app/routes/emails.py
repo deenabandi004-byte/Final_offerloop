@@ -19,9 +19,39 @@ from app.services.reply_generation import batch_generate_emails
 from app.services.gmail_client import get_gmail_service_for_user
 from app.services.interview_prep.resume_parser import extract_text_from_pdf_bytes
 from app.utils.url_validator import validate_fetch_url, UnsafeURLError
+from app.utils.seniority import classify_seniority
 from app.utils.warmth_scoring import score_contacts_for_email
 from ..extensions import get_db
 from email_templates import get_template_instructions
+
+
+def _persist_warmth_on_send(db, uid, contact_email, warmth_info, job_title):
+    """Write warmthTier, warmthScore, and seniorityBucket on the contact doc.
+
+    Called after email generation so the Phase 2 aggregation scanner can
+    bucket contacts by warmth and seniority. Idempotent (merge update).
+    Must never block the email-send flow — all exceptions are swallowed.
+    """
+    try:
+        email_clean = (contact_email or "").strip().lower()
+        if not email_clean:
+            return
+        contacts_ref = db.collection("users").document(uid).collection("contacts")
+        matches = list(contacts_ref.where("email", "==", email_clean).limit(1).stream())
+        if not matches:
+            return
+        update = {
+            "seniorityBucket": classify_seniority(job_title),
+        }
+        if warmth_info:
+            update["warmthTier"] = warmth_info.get("tier", "unknown")
+            update["warmthScore"] = warmth_info.get("score", 0)
+        matches[0].reference.update(update)
+    except Exception as exc:
+        import logging
+        logging.getLogger("emails").debug(
+            "warmth persist failed for %s: %s", contact_email, exc
+        )
 
 emails_bp = Blueprint('emails', __name__, url_prefix='/api/emails')
 def _infer_mime_type(filename_or_url: str, fallback=("application", "octet-stream")):
@@ -517,6 +547,7 @@ def generate_and_draft():
                     "emailBody": body,
                     "draftToEmail": to_addr_clean,
                     "draftCreatedAt": datetime.utcnow().isoformat(),
+                    "emailGeneratedAt": datetime.utcnow().isoformat(),
                     "lastActivityAt": datetime.utcnow().isoformat(),
                     "hasUnreadReply": False,
                     "draftStillExists": True,
@@ -559,6 +590,9 @@ def generate_and_draft():
                     contact_data["college"] = c.get("College") or c.get("college")
                 if c.get("location"):
                     contact_data["location"] = c["location"]
+                # pdlId for agentic queue dedup (new in Phase 1).
+                if c.get("pdlId"):
+                    contact_data["pdlId"] = c.get("pdlId")
                 
                 if existing_contacts:
                     # Update existing contact (same email = one contact doc)
@@ -572,6 +606,15 @@ def generate_and_draft():
                     new_contact_ref = contacts_ref.document()
                     new_contact_ref.set(contact_data)
                     print(f"✅ [{i}] Created new contact {new_contact_ref.id} with draftId {draft['id']}" + (f" and threadId {thread_id}" if thread_id else ""))
+
+                # Persist warmth tier + seniority bucket for Phase 2 aggregation.
+                # warmth_data is keyed by index within contacts_needing_emails,
+                # but we also need to handle contacts_with_emails (no warmth data).
+                _w_info = warmth_data.get(i) if warmth_data else None
+                _persist_warmth_on_send(
+                    db, uid, to_addr_clean, _w_info,
+                    c.get("Title") or c.get("jobTitle") or "",
+                )
             except Exception as e:
                 print(f"⚠️ [{i}] Failed to save contact to Firestore: {e}")
                 import traceback

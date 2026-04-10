@@ -353,6 +353,104 @@ export interface OutboxThreadsResponse {
   threads: OutboxThread[];
 }
 
+export interface Nudge {
+  id: string;
+  contactId: string;
+  contactName: string;
+  company: string;
+  type: string;
+  generatedMessage: string;
+  followUpDraft: string;
+  createdAt: string;
+  status: "pending" | "read" | "acted_on" | "dismissed";
+  actedOn: boolean;
+}
+
+// ================================
+// Agentic Networking Queue (Phase 1)
+// ================================
+
+export type QueueWarmthTier = "warm" | "neutral" | "cold";
+export type QueueContactStatus = "pending" | "approved" | "dismissed" | "edited";
+export type QueueDismissReason = "wrong_company" | "wrong_person" | "not_now";
+export type QueueStatus =
+  | "processing"
+  | "pending_review"
+  | "completed_partial"
+  | "failed"
+  | "failed_pdl"
+  | "failed_emails"
+  | "failed_write"
+  | "archived"
+  | "expired";
+
+export interface QueueContact {
+  id: string;
+  pdlId?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  name?: string | null;
+  email?: string | null;
+  title?: string | null;
+  company?: string | null;
+  linkedinUrl?: string | null;
+  city?: string | null;
+  state?: string | null;
+  college?: string | null;
+  warmthTier?: QueueWarmthTier | null;
+  warmthScore?: number | null;
+  warmthSignals?: string[];
+  whyThisContact?: string | null;
+  emailSubject?: string | null;
+  emailBody?: string | null;
+  status: QueueContactStatus;
+  dismissReason?: QueueDismissReason | null;
+  approvedAt?: string | null;
+  dismissedAt?: string | null;
+  gmailDraftId?: string | null;
+  gmailComposeUrl?: string | null;
+}
+
+export interface QueueFilters {
+  company?: string;
+  titleKeywords?: string;
+  university?: string;
+  location?: string;
+}
+
+export interface QueueDoc {
+  id: string;
+  status: QueueStatus;
+  filters?: QueueFilters;
+  cycleNumber?: number;
+  isFreeWeekly?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  expiresAt?: string;
+  creditsCharged?: number;
+  contacts: QueueContact[];
+  error?: string | null;
+}
+
+export interface QueueStatusResponse {
+  status: QueueStatus;
+  contactCount?: number;
+  error?: string | null;
+}
+
+export interface QueuePreferences {
+  enabled?: boolean;
+  paused?: boolean;
+  pausedUntil?: string | null;
+  cadence?: string;
+  phase?: "guided" | "auto";
+  cyclesCompleted?: number;
+  blocklist?: {
+    companies?: string[];
+    titles?: string[];
+  };
+}
+
 // Union type for search results
 export type SearchResult = SearchResponse | ErrorResponse;
 
@@ -1974,6 +2072,163 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
     } catch {
       // Swallow — error reporting must never throw
     }
+  }
+
+  // ================================
+  // Nudges API
+  // ================================
+
+  /** Get pending nudges for the current user */
+  async getNudges(params?: { status?: string; limit?: number }): Promise<{ nudges: Nudge[]; count: number } | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    const sp = new URLSearchParams();
+    if (params?.status) sp.set("status", params.status);
+    if (params?.limit) sp.set("limit", String(params.limit));
+    const qs = sp.toString();
+    const url = qs ? `/nudges?${qs}` : "/nudges";
+    return this.makeRequest<{ nudges: Nudge[]; count: number } | { error: string }>(url, { method: "GET", headers });
+  }
+
+  /** Update a nudge's status */
+  async updateNudge(nudgeId: string, status: "read" | "acted_on" | "dismissed"): Promise<{ ok: boolean } | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ ok: boolean } | { error: string }>(
+      `/nudges/${nudgeId}`,
+      { method: "PATCH", headers, body: JSON.stringify({ status }) }
+    );
+  }
+
+  /** Create a Gmail draft from a nudge's follow-up text */
+  async createNudgeDraft(nudgeId: string): Promise<{ ok: boolean; draftId?: string; gmailUrl?: string; composeUrl?: string } | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ ok: boolean; draftId?: string; gmailUrl?: string; composeUrl?: string } | { error: string }>(
+      `/nudges/${nudgeId}/draft`,
+      { method: "POST", headers }
+    );
+  }
+
+  // ================================
+  // Agentic Networking Queue (Phase 1)
+  // ================================
+
+  /**
+   * Kick off queue generation. Returns a queueId immediately for polling.
+   *
+   * NOTE: bypasses the shared `makeRequest` helper because that helper
+   * throws a plain `Error` on non-ok responses, which would strip the
+   * structured `needsRefine` / `upgradeRequired` / `creditsNeeded` fields
+   * we need to drive the Refine sheet and upgrade flows.
+   */
+  async generateQueue(
+    params?: { filters?: QueueFilters; intentText?: string }
+  ): Promise<
+    | { ok: true; queueId: string; isFreeWeekly: boolean; creditsCharged: number; status: "processing" }
+    | { error: string; creditsNeeded?: number; upgradeRequired?: boolean; needsRefine?: boolean }
+  > {
+    const headers = await this.getAuthHeaders();
+    const url = `${API_BASE_URL}/queue/generate`;
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          filters: params?.filters || {},
+          intentText: params?.intentText || "",
+        }),
+      });
+      const text = await response.text();
+      let data: any = {};
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { error: text };
+        }
+      }
+      if (!response.ok) {
+        return {
+          error: data?.error || data?.message || `HTTP ${response.status}`,
+          creditsNeeded: data?.creditsNeeded,
+          upgradeRequired: data?.upgradeRequired,
+          needsRefine: data?.needsRefine,
+        };
+      }
+      return data;
+    } catch (err: any) {
+      return { error: err?.message || "Network error" };
+    }
+  }
+
+  /** Fetch the current (non-archived) queue with embedded contacts. */
+  async getCurrentQueue(): Promise<{ queue: QueueDoc | null } | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ queue: QueueDoc | null } | { error: string }>(
+      "/queue/current",
+      { method: "GET", headers }
+    );
+  }
+
+  /** Poll queue generation status for a given queueId. */
+  async getQueueStatus(queueId: string): Promise<QueueStatusResponse | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<QueueStatusResponse | { error: string }>(
+      `/queue/status/${queueId}`,
+      { method: "GET", headers }
+    );
+  }
+
+  /** Approve a queue contact — creates Gmail draft and adds to pipeline. */
+  async approveQueueContact(
+    queueId: string,
+    contactId: string
+  ): Promise<
+    | {
+        ok: true;
+        contactId: string;
+        draftId?: string | null;
+        composeUrl?: string | null;
+        already?: boolean;
+      }
+    | { error: string }
+  > {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest(
+      `/queue/${queueId}/contacts/${contactId}/approve`,
+      { method: "PATCH", headers }
+    );
+  }
+
+  /** Dismiss a queue contact with a reason (feeds the blocklist). */
+  async dismissQueueContact(
+    queueId: string,
+    contactId: string,
+    reason: QueueDismissReason
+  ): Promise<{ ok: true; contactId: string; already?: boolean } | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest(
+      `/queue/${queueId}/contacts/${contactId}/dismiss`,
+      { method: "PATCH", headers, body: JSON.stringify({ reason }) }
+    );
+  }
+
+  /** Get queue preferences (pause state, cadence, blocklist, cycles). */
+  async getQueuePreferences(): Promise<{ preferences: QueuePreferences } | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ preferences: QueuePreferences } | { error: string }>(
+      "/queue/preferences",
+      { method: "GET", headers }
+    );
+  }
+
+  /** Update queue preferences (whitelisted keys only). */
+  async updateQueuePreferences(
+    updates: Partial<Pick<QueuePreferences, "enabled" | "paused" | "pausedUntil" | "cadence">>
+  ): Promise<{ preferences: QueuePreferences } | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ preferences: QueuePreferences } | { error: string }>(
+      "/queue/preferences",
+      { method: "PUT", headers, body: JSON.stringify(updates) }
+    );
   }
 }
 

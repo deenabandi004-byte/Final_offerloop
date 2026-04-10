@@ -370,7 +370,10 @@ def prompt_search():
         # Generate emails with resume text
         try:
             email_results = batch_generate_emails(
-                contacts, resume_text, user_profile, career_interests,
+                contacts=contacts,
+                resume_text=resume_text,
+                user_profile=user_profile,
+                career_interests=career_interests,
                 fit_context=None,
                 template_instructions=template_instructions,
                 email_template_purpose=email_template_purpose,
@@ -496,6 +499,8 @@ def prompt_search():
                         "lastContactDate": today,
                         "userId": user_id,
                         "createdAt": datetime.utcnow().isoformat() + "Z",  # TODO: deprecated in Python 3.12
+                        # pdlId persists the PDL stable identifier for queue dedup.
+                        "pdlId": contact.get("pdlId") or "",
                     }
                     if contact.get("emailSubject"):
                         contact_doc["emailSubject"] = contact["emailSubject"]
@@ -511,6 +516,7 @@ def prompt_search():
                     contact_doc["inOutbox"] = True
                     contact_doc["draftToEmail"] = contact.get("_draftRecipientEmail") or email
                     contact_doc["draftCreatedAt"] = now_iso
+                    contact_doc["emailGeneratedAt"] = now_iso
                     contact_doc["draftStillExists"] = True
                     contact_doc["lastActivityAt"] = now_iso
                     contact_doc["hasUnreadReply"] = False

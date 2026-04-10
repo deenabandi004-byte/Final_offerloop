@@ -30,5 +30,9 @@ def normalize_contact(c: dict) -> dict:
         'Status': c.get('Status', 'Not Contacted'),
         'FirstContactDate': c.get('FirstContactDate', today),
         'LastContactDate': c.get('LastContactDate', today),
+        # pdlId: People Data Labs stable identifier used by the agentic queue
+        # for dedup. Empty string for historical/non-PDL contacts (phase-1 email
+        # fallback in queue_service handles the gap; backfill is a P2 TODO).
+        'pdlId': c.get('pdlId', ''),
     }
 

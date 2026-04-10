@@ -506,6 +506,7 @@ def bulk_create_contacts():
             city = (rc.get('City') or '').strip()
             state = (rc.get('State') or '').strip()
             location = (rc.get('location') or ', '.join([v for v in [city, state] if v]) or '').strip()
+            pdl_id = (rc.get('pdlId') or rc.get('pdl_id') or '').strip()
             
             # Skip if missing critical fields
             if not (first_name and last_name):
@@ -599,6 +600,10 @@ def bulk_create_contacts():
                 'userId': user_id,
                 'createdAt': datetime.utcnow().isoformat() + "Z",  # TODO: deprecated in Python 3.12
                 'lastActivityAt': datetime.utcnow().isoformat() + "Z",  # TODO: deprecated in Python 3.12
+                # pdlId for agentic queue dedup (new in Phase 1). PDL search routes
+                # (runs_hunter.py et al.) return pdlId on each contact; frontend
+                # passes it through to this bulk-add endpoint.
+                'pdlId': pdl_id,
             }
 
             # Add email subject and body if available (from generated personalized emails)

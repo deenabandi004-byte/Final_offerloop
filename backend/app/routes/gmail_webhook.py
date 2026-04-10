@@ -404,6 +404,13 @@ def _process_gmail_notification(email_address, history_id):
             logger.info(f"[gmail_webhook] uid={uid} contact_id={contact_id} UPDATING reply: stage->replied, hasUnreadReply->True, fields={list(updates.keys())}")
             contact_ref.update(updates)
 
+            # Dismiss any pending nudges for this contact (reply makes follow-up nudges stale)
+            try:
+                from app.services.nudge_service import dismiss_pending_nudges_for_contact
+                dismiss_pending_nudges_for_contact(db, uid, contact_id)
+            except Exception as nudge_err:
+                logger.warning(f"[gmail_webhook] Failed to dismiss nudges for contact={contact_id}: {nudge_err}")
+
             logger.info(f"[gmail_webhook] uid={uid} Reply detected and processed for contact={contact_id} from={from_header}")
 
             # Notification doc
