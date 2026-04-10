@@ -17,7 +17,7 @@ Usage:
 
 import re
 import time
-from typing import List, Dict, Optional, Literal
+from typing import List, Dict, Optional, Literal, Any
 from .pdl_client import (
     clean_company_name,
     clean_location_name,
@@ -438,6 +438,100 @@ def rank_recruiters(
     return ranked
 
 
+_TITLE_STOPWORDS = {
+    "senior", "junior", "jr", "sr", "lead", "principal", "staff",
+    "associate", "assistant", "head", "of", "the", "and", "a", "an",
+    "i", "ii", "iii", "iv", "for", "to", "at", "-", "&",
+}
+
+
+def _title_tokens(title: str) -> set:
+    if not title:
+        return set()
+    tokens = re.split(r"[^a-z0-9]+", title.lower())
+    return {t for t in tokens if t and t not in _TITLE_STOPWORDS and len(t) > 1}
+
+
+def _parse_target_city_state(target_location: Optional[str]):
+    """Parse a target location string into (city, state) lowercase tuple."""
+    if not target_location:
+        return None, None
+    parts = [p.strip().lower() for p in target_location.split(",") if p.strip()]
+    if not parts:
+        return None, None
+    if len(parts) == 1:
+        return parts[0], None
+    return parts[0], parts[1]
+
+
+def derive_receipts(
+    contact: Dict[str, Any],
+    target_title: Optional[str],
+    target_location: Optional[str],
+) -> List[Dict[str, Any]]:
+    """
+    Derive per-contact evidence receipts for the Find the Humans flow.
+
+    Phase 1 supports two types only (no deep links):
+      - title_match: contact Title shares non-stopword tokens with target_title
+      - location_match: contact City+State matches target_location city+state
+
+    Returns a list of receipt dicts:
+        {"type": str, "label": str, "strength": "high"|"medium"|"low"}
+
+    Callers should wrap individual invocations in try/except so a single
+    bad contact cannot drop others.
+    """
+    receipts: List[Dict[str, Any]] = []
+
+    # --- title_match ---------------------------------------------------------
+    contact_title = (contact.get("Title") or "").strip()
+    target_title_str = (target_title or "").strip()
+    if contact_title and target_title_str:
+        c_tokens = _title_tokens(contact_title)
+        t_tokens = _title_tokens(target_title_str)
+        if c_tokens and t_tokens:
+            overlap = c_tokens & t_tokens
+            if overlap:
+                strength = "high" if len(overlap) >= 2 else "medium"
+                # Pick a readable label: use the contact's actual title
+                receipts.append({
+                    "type": "title_match",
+                    "label": f"Title: {contact_title}",
+                    "strength": strength,
+                })
+
+    # --- location_match ------------------------------------------------------
+    target_city, target_state = _parse_target_city_state(target_location)
+    contact_city = (contact.get("City") or "").strip().lower()
+    contact_state = (contact.get("State") or "").strip().lower()
+    if target_city and contact_city:
+        # City must match; if target has state, state must also match
+        if contact_city == target_city:
+            if target_state:
+                if contact_state and contact_state == target_state:
+                    loc_label = ", ".join(
+                        [p for p in (contact.get("City"), contact.get("State")) if p]
+                    )
+                    receipts.append({
+                        "type": "location_match",
+                        "label": f"Based in {loc_label}",
+                        "strength": "high",
+                    })
+                # City matches but state differs or is missing -> no receipt
+            else:
+                loc_label = ", ".join(
+                    [p for p in (contact.get("City"), contact.get("State")) if p]
+                )
+                receipts.append({
+                    "type": "location_match",
+                    "label": f"Based in {loc_label}",
+                    "strength": "medium",
+                })
+
+    return receipts
+
+
 def find_recruiters(
     company_name: str,
     job_type: Optional[str] = None,
@@ -559,10 +653,21 @@ def find_recruiters(
         
         # Rank recruiters (include location for ranking)
         ranked_recruiters = rank_recruiters(recruiters_to_rank, job_type, cleaned_company, location)
-        
+
         # Limit results
         final_recruiters = ranked_recruiters[:max_results]
-        
+
+        # Attach Find the Humans receipts (phase 1: title_match + location_match only).
+        # Wrapped per-contact so a single failure can never drop other recruiters.
+        for recruiter in final_recruiters:
+            try:
+                recruiter["findHumansReceipts"] = derive_receipts(
+                    recruiter, job_title, location
+                )
+            except Exception as receipt_error:
+                print(f"[RecruiterFinder] derive_receipts failed for {recruiter.get('FirstName', '?')}: {receipt_error}")
+                recruiter["findHumansReceipts"] = []
+
         # ✅ HUNTER.IO ENRICHMENT - VERIFY ALL RECRUITER EMAILS (including PDL emails)
         if generate_emails and final_recruiters:
             # Ensure Company field is set for Hunter.io (uses cleaned_company)

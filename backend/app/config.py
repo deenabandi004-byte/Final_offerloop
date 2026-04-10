@@ -85,6 +85,10 @@ CREATE_GMAIL_DRAFTS = False  # Set True to create Gmail drafts; False to only re
 # ========================================
 PROMPT_SEARCH_ENABLED = os.getenv('PROMPT_SEARCH_ENABLED', 'false').lower() == 'true'  # Experimental prompt-first search
 
+def _feature_find_humans_enabled() -> bool:
+    """Read FEATURE_FIND_HUMANS env var dynamically so tests can flip it."""
+    return os.getenv('FEATURE_FIND_HUMANS', 'false').lower() == 'true'
+
 # ========================================
 # Database Configuration
 # ========================================

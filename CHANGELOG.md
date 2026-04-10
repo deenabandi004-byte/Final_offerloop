@@ -2,6 +2,19 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.1.0] - 2026-04-10
+
+### Added
+- "Find the Humans" button on each job board card that discovers the hiring team behind a job posting
+- One-click flow: click the button, see 1-3 verified hiring contacts with evidence receipts and Gmail drafts
+- FindHumansModal with stepped loading bar, per-candidate receipt cards using ContactCardBase primitives
+- `derive_receipts()` engine producing title_match and location_match evidence with strength scoring
+- `no_parse=true` flag to skip JD parser when structured job card data is already available
+- `FEATURE_FIND_HUMANS` dual-layer feature flag (backend env var + frontend Vite flag, default OFF)
+- Per-user hourly rate cap (20 requests/hour) using Firestore-backed cross-worker limiter
+- Pro/Elite tier gate on Find the Humans endpoint (free users see upgrade toast)
+- 11 backend integration tests including 2 regression tests ensuring existing recruiter-search-tab callers are unaffected
+
 ## [0.1.0.0] - 2026-04-08
 
 ### Added
