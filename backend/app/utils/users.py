@@ -90,6 +90,54 @@ def get_university_variants(name):
     return variants
 
 
+def get_user_name(user_data: dict) -> str:
+    """Extract display name from user document with fallback chain."""
+    return (
+        user_data.get("name")
+        or user_data.get("displayName")
+        or f"{user_data.get('firstName', '')} {user_data.get('lastName', '')}".strip()
+        or ""
+    )
+
+
+def get_user_school(user_data: dict) -> str:
+    """Extract university from user document with fallback chain."""
+    academics = user_data.get("academics") or {}
+    resume_edu = (user_data.get("resumeParsed") or {}).get("education") or {}
+    if not isinstance(resume_edu, dict):
+        resume_edu = {}
+    return (
+        academics.get("university")
+        or resume_edu.get("university")
+        or user_data.get("professionalInfo", {}).get("university")
+        or user_data.get("university")
+        or ""
+    )
+
+
+def get_user_major(user_data: dict) -> str:
+    """Extract major from user document with fallback chain."""
+    academics = user_data.get("academics") or {}
+    resume_edu = (user_data.get("resumeParsed") or {}).get("education") or {}
+    if not isinstance(resume_edu, dict):
+        resume_edu = {}
+    return (
+        academics.get("major")
+        or resume_edu.get("major")
+        or ""
+    )
+
+
+def get_user_career_track(user_data: dict) -> str:
+    """Extract career track from user document with fallback chain."""
+    goals = user_data.get("goals") or {}
+    return (
+        goals.get("careerTrack")
+        or user_data.get("careerTrack")
+        or ""
+    )
+
+
 def get_university_mascot(university):
     """Get university mascot for alumni emails."""
     if not university:

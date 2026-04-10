@@ -39,6 +39,8 @@ from .app.routes.auth_extension import auth_extension_bp
 from .app.routes.email_template import email_template_bp
 from .app.routes.admin import admin_bp
 from .app.routes.gmail_webhook import gmail_webhook_bp
+from .app.routes.nudges import nudges_bp
+from .app.routes.queue import queue_bp
 from .app.routes.jobs import jobs_bp
 from .app.routes.extension_logs import extension_logs_bp
 from .app.extensions import init_app_extensions
@@ -187,6 +189,8 @@ def create_app() -> Flask:
     app.register_blueprint(email_template_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(gmail_webhook_bp)
+    app.register_blueprint(nudges_bp)
+    app.register_blueprint(queue_bp)
     app.register_blueprint(jobs_bp)
     app.register_blueprint(extension_logs_bp)
 
@@ -261,6 +265,50 @@ def create_app() -> Flask:
         else:
             return "Frontend build not found", 500
 
+    # Start tracker scanner background thread (every 6 hours).
+    #
+    # This single thread dispatches to multiple scanners per iteration. Each
+    # scanner runs inside its own try/except so one scanner's failure does
+    # NOT prevent the other from running in the same iteration.
+    #
+    # Contract: docs/designs/tracker-daemon-contract.md
+    # Ownership: Flywheel owns the thread lifecycle. Each scanner is owned
+    # by its feature team. Adding a third scanner requires updating the
+    # contract doc and re-evaluating the cadence math.
+    _tracker_logger = logging.getLogger("tracker_scanner")
+
+    def _tracker_scanner_loop():
+        _tracker_logger.info("Tracker scanner thread started (interval=6 hours)")
+        SIX_HOURS = 6 * 3600
+        # Initial delay: wait 5 minutes after boot to let app stabilize
+        time.sleep(300)
+        while True:
+            # ---- Nudge scanner (Flywheel Phase 1) -----------------------
+            # Isolated: a crash here MUST NOT block other scanners below.
+            if os.getenv("NUDGES_ENABLED", "true").lower() == "true":
+                try:
+                    with app.app_context():
+                        from .app.services.nudge_service import scan_and_generate_nudges
+                        scan_and_generate_nudges()
+                except Exception:
+                    logging.getLogger("nudge_scanner").exception(
+                        "Nudge scanner iteration failed"
+                    )
+            else:
+                _tracker_logger.info("Nudge scanner disabled via NUDGES_ENABLED=false")
+
+            # ---- Queue scanner (Agentic Queue Phase 2) ------------------
+            # Intentionally left as a placeholder. The queue scanner will be
+            # wired here by the queue team following the isolation pattern
+            # above. See docs/designs/tracker-daemon-contract.md.
+            # Kill switch: QUEUE_SCANNER_ENABLED (default "true")
+
+            time.sleep(SIX_HOURS)
+
+    tracker_thread = threading.Thread(target=_tracker_scanner_loop, daemon=True)
+    tracker_thread.start()
+    _tracker_logger.info("Tracker scanner thread registered (first run in ~5 minutes)")
+
     # Start Gmail watch renewal background thread (every 6 days)
     _watch_logger = logging.getLogger("watch_renewal")
 
@@ -310,6 +358,105 @@ def create_app() -> Flask:
     t = threading.Thread(target=_watch_renewal_loop, daemon=True)
     t.start()
     _watch_logger.info("Gmail watch renewal thread registered (first run in 6 days)")
+
+    # ---- Daemon healthcheck watchdog (every 1 hour) ----------------------
+    #
+    # Reads health docs from Firestore for each daemon scanner (nudge, queue,
+    # gmail_watch) and logs warnings when lastSuccessAt is stale.
+    #
+    # Contract: docs/designs/tracker-daemon-contract.md
+    # TODOS.md P1: "Daemon Thread Healthcheck & Auto-Restart"
+    _watchdog_logger = logging.getLogger("daemon_watchdog")
+
+    # Staleness thresholds in seconds.
+    # Nudge: 8h (2h slack on 6h cadence)
+    # Queue: 7d (slightly over one-week Tuesday cadence)
+    # Aggregation: 8d (slightly over one-week Sunday cadence)
+    # Gmail watch: 7d (6-day renewal cadence + 1d slack)
+    _STALENESS = {
+        "nudge_scanner": 8 * 3600,
+        "queue_scanner": 7 * 24 * 3600,
+        "aggregation_scanner": 8 * 24 * 3600,
+        "gmail_watch": 7 * 24 * 3600,
+    }
+
+    def _watchdog_loop():
+        ONE_HOUR = 3600
+        _watchdog_logger.info("Daemon watchdog started (interval=1 hour)")
+        # Wait 10 minutes to give scanners time to do their first run.
+        time.sleep(600)
+        while True:
+            try:
+                with app.app_context():
+                    from .app.extensions import get_db
+                    from datetime import datetime, timezone
+                    db = get_db()
+                    now = datetime.now(timezone.utc)
+                    stale_scanners = []
+
+                    for scanner_name, threshold_seconds in _STALENESS.items():
+                        try:
+                            doc = db.collection("system").document(scanner_name).get()
+                            if not doc.exists:
+                                # Scanner hasn't run yet — only warn if it
+                                # should have had enough time (> threshold).
+                                _watchdog_logger.debug(
+                                    "No health doc for %s (may not have run yet)",
+                                    scanner_name,
+                                )
+                                continue
+
+                            data = doc.to_dict() or {}
+                            last_success = data.get("lastSuccessAt")
+                            if not last_success:
+                                continue
+
+                            # Parse ISO timestamp
+                            if isinstance(last_success, str):
+                                last_success = datetime.fromisoformat(
+                                    last_success.replace("Z", "+00:00")
+                                )
+
+                            age_seconds = (now - last_success).total_seconds()
+                            if age_seconds > threshold_seconds:
+                                stale_scanners.append(scanner_name)
+                                _watchdog_logger.warning(
+                                    "STALE: %s last succeeded %.1f hours ago "
+                                    "(threshold: %.1f hours)",
+                                    scanner_name,
+                                    age_seconds / 3600,
+                                    threshold_seconds / 3600,
+                                )
+                        except Exception:
+                            _watchdog_logger.exception(
+                                "Error checking health for %s", scanner_name
+                            )
+
+                    if not stale_scanners:
+                        _watchdog_logger.info("All daemons healthy")
+                    else:
+                        # Write a watchdog status doc so external monitors
+                        # (Render health checks, future alerting) can read it.
+                        try:
+                            db.collection("system").document("watchdog").set({
+                                "lastCheckAt": now.isoformat().replace("+00:00", "Z"),
+                                "staleScanners": stale_scanners,
+                                "healthy": len(stale_scanners) == 0,
+                            })
+                        except Exception:
+                            _watchdog_logger.exception("Failed to write watchdog status")
+
+            except Exception:
+                _watchdog_logger.exception("Watchdog loop error")
+
+            time.sleep(ONE_HOUR)
+
+    if os.getenv("WATCHDOG_ENABLED", "true").lower() == "true":
+        watchdog_thread = threading.Thread(target=_watchdog_loop, daemon=True)
+        watchdog_thread.start()
+        _watchdog_logger.info("Daemon watchdog registered (first check in ~10 minutes)")
+    else:
+        _watchdog_logger.info("Daemon watchdog disabled via WATCHDOG_ENABLED=false")
 
     return app
 

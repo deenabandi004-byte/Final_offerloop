@@ -457,6 +457,9 @@ def import_contacts():
                                 if person_data:
                                     pdl_contact = extract_contact_from_pdl_person_enhanced(person_data)
                                     if pdl_contact:
+                                        # Capture pdlId for queue dedup even if email resolution fails.
+                                        if pdl_contact.get('pdlId'):
+                                            contact_data['pdlId'] = pdl_contact.get('pdlId')
                                         email_result = resolve_email_for_linkedin_import(pdl_contact, person_data)
                                         resolved_email = (email_result.get('email') or '').strip()
                                         if resolved_email and '@' in resolved_email:
@@ -508,6 +511,8 @@ def import_contacts():
                 'importedAt': datetime.now().isoformat(),
                 'importSource': 'spreadsheet',
                 'emailSource': contact_data.get('emailSource', 'imported'),
+                # pdlId for agentic queue dedup (from PDL enrichment path above).
+                'pdlId': contact_data.get('pdlId', '') or '',
             }
 
             doc_ref = contacts_ref.add(contact)
@@ -627,6 +632,7 @@ def import_contacts():
                         'emailSubject': subject,
                         'emailBody': body,
                         'draftCreatedAt': datetime.now().isoformat(),
+                        'emailGeneratedAt': datetime.now().isoformat(),
                     }
 
                     contact_for_draft = {

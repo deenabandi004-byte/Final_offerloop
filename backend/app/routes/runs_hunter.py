@@ -3,6 +3,7 @@ Run routes - free and pro tier search endpoints
 """
 import json
 import csv
+from datetime import datetime
 from app.services.pdl_client import search_contacts_with_smart_location_strategy, get_contact_identity
 from app.services.hunter_enrichment import enrich_contacts_with_hunter
 from io import StringIO
@@ -267,6 +268,7 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
                                     if gmail_url:
                                         contact['gmailDraftUrl'] = gmail_url
                                     contact['pipelineStage'] = 'draft_created'
+                                    contact['emailGeneratedAt'] = datetime.utcnow().isoformat() + "Z"
                                     print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
                                 else:
                                     print(f"⚠️ [{i}] Draft creation returned mock/invalid ID for {contact.get('FirstName', 'Unknown')}")
@@ -547,6 +549,7 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
                                     if gmail_url:
                                         contact['gmailDraftUrl'] = gmail_url
                                     contact['pipelineStage'] = 'draft_created'
+                                    contact['emailGeneratedAt'] = datetime.utcnow().isoformat() + "Z"
                                     print(f"✅ [{i}] Created draft for {contact.get('FirstName', 'Unknown')}: {draft_id}")
                                 else:
                                     print(f"⚠️ [{i}] Draft creation returned mock/invalid ID for {contact.get('FirstName', 'Unknown')}")

@@ -1484,10 +1484,11 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None, pre_ve
                     experience_for_anchors.append(job_data)
         
         contact = {
+            'pdlId': person.get('id', '') or '',
             'FirstName': first_name,
             'LastName': last_name,
             'LinkedIn': linkedin_url,
-            'Email': best_email or "Not available", 
+            'Email': best_email or "Not available",
             'Title': job_title,
             'Company': company_name,
             'City': city,

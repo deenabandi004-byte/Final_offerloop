@@ -7,6 +7,7 @@ career relevance, and data richness signals. Pure functions, no API calls.
 
 from app.utils.coffee_chat_prep import detect_commonality
 from app.utils.contact_analysis import _detect_career_transition, _detect_tenure
+from app.utils.industry_classifier import INDUSTRY_KEYWORDS, normalize_career_track
 from app.utils.users import get_university_shorthand
 
 
@@ -19,25 +20,6 @@ SHARED_IDENTITY_CAP = 45
 TIER_THRESHOLDS = {
     "warm": 50,
     "neutral": 25,
-}
-
-# Industries keyed by common career-track labels
-INDUSTRY_KEYWORDS = {
-    "consulting": ["consultant", "consulting", "advisory", "strategy", "mckinsey",
-                    "bain", "bcg", "deloitte", "accenture", "kearney", "lek"],
-    "investment banking": ["investment bank", "banking", "ib", "m&a", "capital markets",
-                           "jpmorgan", "goldman", "morgan stanley", "barclays",
-                           "citi", "bofa", "ubs", "deutsche bank", "lazard",
-                           "evercore", "centerview", "moelis", "pjt"],
-    "private equity": ["private equity", "pe", "buyout", "lbo", "kkr", "blackstone",
-                       "carlyle", "apollo", "tpg", "warburg"],
-    "venture capital": ["venture capital", "vc", "seed", "series a", "a16z",
-                        "sequoia", "accel", "benchmark", "greylock"],
-    "tech": ["software", "engineer", "developer", "product manager", "data scientist",
-             "machine learning", "swe", "devops", "full stack", "frontend",
-             "backend", "google", "meta", "apple", "amazon", "microsoft"],
-    "finance": ["finance", "financial analyst", "fp&a", "treasury", "controller",
-                "cfo", "accounting"],
 }
 
 
@@ -255,7 +237,10 @@ def _role_matches_industry(contact, career_track):
     if not career_track:
         return False
 
-    keywords = INDUSTRY_KEYWORDS.get(career_track)
+    # Normalize user-facing career track (e.g. "investment banking") to
+    # canonical key (e.g. "investment_banking") for INDUSTRY_KEYWORDS lookup.
+    canonical = normalize_career_track(career_track)
+    keywords = INDUSTRY_KEYWORDS.get(canonical)
     if not keywords:
         # Treat the career track itself as a keyword
         keywords = [career_track]

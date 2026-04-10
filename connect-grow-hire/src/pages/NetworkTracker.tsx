@@ -8,11 +8,15 @@ import { AppHeader } from "@/components/AppHeader";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useNotifications } from "@/hooks/useNotifications";
-import { apiService, type OutboxThread, type OutboxStats } from "@/services/api";
+import { apiService, type OutboxThread, type OutboxStats, type Nudge } from "@/services/api";
 import { TrackerBuckets } from "@/components/tracker/TrackerBuckets";
 import { ConversationPanel } from "@/components/tracker/ConversationPanel";
+import { NudgePanel } from "@/components/tracker/NudgePanel";
+import { QueuePanel } from "@/components/tracker/queue/QueuePanel";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { DONE_STAGES } from "@/lib/outboxConstants";
 import { daysBetween } from "@/lib/formatters";
+import { trackContentViewed } from "@/lib/analytics";
 
 // --- bucket sorting helpers ---
 
@@ -44,6 +48,12 @@ export default function NetworkTracker() {
   const [searchQuery, setSearchQuery] = useState("");
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [mutatingIds, setMutatingIds] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState<"pipeline" | "queue" | "nudges">("pipeline");
+
+  // Track page view for flywheel baseline measurement
+  useEffect(() => {
+    trackContentViewed("network_tracker", "page_view");
+  }, []);
 
   // Pre-select contact from notification click
   useEffect(() => {
@@ -83,11 +93,24 @@ export default function NetworkTracker() {
     refetchInterval: 30_000,
   });
 
+  const { data: nudgesData } = useQuery({
+    queryKey: ["trackerNudges"],
+    queryFn: async () => {
+      const res = await apiService.getNudges({ status: "pending", limit: 10 });
+      if ("error" in res) throw new Error(res.error);
+      return res.nudges ?? [];
+    },
+    enabled: !!user,
+    refetchInterval: 60_000,
+    retry: 1,
+  });
+
   // --- mutations ---
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["trackerContacts"] });
     queryClient.invalidateQueries({ queryKey: ["trackerStats"] });
+    queryClient.invalidateQueries({ queryKey: ["trackerNudges"] });
   };
 
   const stageChangeMutation = useMutation({
@@ -162,6 +185,38 @@ export default function NetworkTracker() {
     onSettled: (_data, _err, contactId) => {
       setSyncingIds((prev) => { const next = new Set(prev); next.delete(contactId); return next; });
     },
+  });
+
+  const nudgeDismissMutation = useMutation({
+    mutationFn: (nudgeId: string) => apiService.updateNudge(nudgeId, "dismissed"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["trackerNudges"] });
+    },
+  });
+
+  const nudgeActMutation = useMutation({
+    mutationFn: async (nudge: Nudge) => {
+      if (nudge.followUpDraft) {
+        // Try to create a Gmail draft from the follow-up text
+        const res = await apiService.createNudgeDraft(nudge.id);
+        if ("error" in res) throw new Error(res.error);
+        return res;
+      }
+      // No draft text — just mark as acted_on
+      return apiService.updateNudge(nudge.id, "acted_on");
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["trackerNudges"] });
+      const result = data as { gmailUrl?: string; composeUrl?: string };
+      const url = result.gmailUrl || result.composeUrl;
+      if (url) {
+        window.open(url, "_blank");
+        toast({ title: "Gmail draft created" });
+      } else {
+        toast({ title: "Nudge marked as acted on" });
+      }
+    },
+    onError: () => toast({ title: "Failed to create draft", variant: "destructive" }),
   });
 
   // --- bucket computation ---
@@ -273,16 +328,6 @@ export default function NetworkTracker() {
                 <AlertCircle className="w-4 h-4 mr-2" />
                 Failed to load contacts. Please try again.
               </div>
-            ) : contacts.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-                <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-3">
-                  <Search className="w-5 h-5 text-gray-400" />
-                </div>
-                <p className="text-sm font-medium text-gray-700">No contacts in your tracker yet</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Generate emails for contacts from the search page to start tracking them here.
-                </p>
-              </div>
             ) : (
               <div className="flex-1 flex overflow-hidden">
                 {/* Left panel: bucket list */}
@@ -292,29 +337,84 @@ export default function NetworkTracker() {
                   }`}
                   style={{ width: selectedContact ? 380 : undefined, minWidth: selectedContact ? 320 : undefined }}
                 >
-                  {/* Search */}
-                  <div className="p-3 border-b border-gray-50">
-                    <div className="relative">
-                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                      <input
-                        type="text"
-                        placeholder="Search contacts..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-8 pr-3 py-1.5 text-sm bg-gray-50 border border-gray-100 rounded-[3px] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/20 focus:border-[#3B82F6]"
-                      />
+                  <Tabs
+                    value={activeTab}
+                    onValueChange={(v) => setActiveTab(v as "pipeline" | "queue" | "nudges")}
+                    className="flex flex-col h-full"
+                  >
+                    <div className="px-3 pt-3 border-b border-gray-50">
+                      <TabsList className="w-full grid grid-cols-3 h-8 bg-gray-50/80">
+                        <TabsTrigger value="pipeline" className="text-xs">Pipeline</TabsTrigger>
+                        <TabsTrigger value="queue" className="text-xs">Suggested</TabsTrigger>
+                        <TabsTrigger value="nudges" className="text-xs">
+                          Nudges
+                          {(nudgesData?.length ?? 0) > 0 && (
+                            <span className="ml-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-[#3B82F6] text-white">
+                              {nudgesData?.length}
+                            </span>
+                          )}
+                        </TabsTrigger>
+                      </TabsList>
                     </div>
-                  </div>
 
-                  <div className="p-2">
-                    <TrackerBuckets
-                      needsAttention={needsAttention}
-                      waiting={waiting}
-                      done={done}
-                      selectedContactId={selectedContactId}
-                      onSelectContact={setSelectedContactId}
-                    />
-                  </div>
+                    {/* Pipeline tab */}
+                    <TabsContent value="pipeline" className="flex-1 overflow-y-auto m-0">
+                      <div className="p-3 border-b border-gray-50">
+                        <div className="relative">
+                          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                          <input
+                            type="text"
+                            placeholder="Search contacts..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full pl-8 pr-3 py-1.5 text-sm bg-gray-50 border border-gray-100 rounded-[3px] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/20 focus:border-[#3B82F6]"
+                          />
+                        </div>
+                      </div>
+                      <div className="p-2">
+                        <TrackerBuckets
+                          needsAttention={needsAttention}
+                          waiting={waiting}
+                          done={done}
+                          selectedContactId={selectedContactId}
+                          onSelectContact={setSelectedContactId}
+                        />
+                      </div>
+                    </TabsContent>
+
+                    {/* Suggested For You tab — Agentic Queue */}
+                    <TabsContent value="queue" className="flex-1 overflow-y-auto m-0">
+                      <QueuePanel isActive={activeTab === "queue"} />
+                    </TabsContent>
+
+                    {/* Nudges tab */}
+                    <TabsContent value="nudges" className="flex-1 overflow-y-auto m-0">
+                      {(nudgesData?.length ?? 0) > 0 ? (
+                        <div className="px-2 pt-2">
+                          <NudgePanel
+                            nudges={nudgesData || []}
+                            onActOnNudge={(nudge: Nudge) => {
+                              nudgeActMutation.mutate(nudge);
+                              setSelectedContactId(nudge.contactId);
+                              setActiveTab("pipeline");
+                            }}
+                            onDismissNudge={(nudgeId: string) => nudgeDismissMutation.mutate(nudgeId)}
+                            onSelectContact={(id: string) => {
+                              setSelectedContactId(id);
+                              setActiveTab("pipeline");
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="p-6 text-center">
+                          <p className="text-sm font-medium text-gray-700">No nudges right now</p>
+                          <p className="text-xs text-gray-400 mt-1">
+                            We'll nudge you when a contact has gone quiet or needs a follow-up.
+                          </p>
+                        </div>
+                      )}
+                    </TabsContent>
+                  </Tabs>
                 </div>
 
                 {/* Right panel: detail */}
