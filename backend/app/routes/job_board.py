@@ -21,7 +21,8 @@ from flask import Blueprint, jsonify, request, current_app
 import requests
 from bs4 import BeautifulSoup
 
-from app.extensions import require_firebase_auth, get_db
+from app.extensions import require_firebase_auth, require_tier, get_db, get_limiter, get_rate_limit_key
+from app.config import _feature_find_humans_enabled
 from app.services.auth import deduct_credits_atomic, refund_credits_atomic, check_and_reset_credits
 from app.services.openai_client import get_async_openai_client, get_openai_client
 from app.services.ats_scorer import calculate_ats_score
@@ -7549,21 +7550,46 @@ Return ONLY a valid JSON object in this exact format with no markdown, no code b
         return None
 
 
+def _check_find_humans_hourly_cap(user_id: str) -> bool:
+    """
+    Per-user hourly cap for the Find the Humans flow (20/hour).
+
+    Uses the existing firestore-backed Flask-Limiter storage so the counter
+    is shared across gunicorn workers. Fail-open on storage errors so a
+    Firestore outage doesn't block users.
+    """
+    try:
+        lim = get_limiter()
+        if not lim or not getattr(lim, "_storage", None):
+            return True
+        from limits import parse
+        from limits.strategies import FixedWindowRateLimiter
+        item = parse("20 per hour")
+        strategy = FixedWindowRateLimiter(lim._storage)
+        return strategy.hit(item, "find-humans", user_id or "anon")
+    except Exception as e:
+        logger.error(f"[FindHumans] rate-limit check failed: {e}")
+        return True
+
+
 @job_board_bp.route("/find-recruiter", methods=["POST"])
 @require_firebase_auth
+@require_tier(['pro', 'elite'])
 def find_recruiter_endpoint():
     """
     Find recruiters at a company for a specific job.
-    
+
     Request:
         {
             "company": "Google",
             "jobTitle": "Software Engineer",
             "jobDescription": "...",  # Optional
             "jobType": "engineering",  # Optional, will be auto-detected
-            "location": "San Francisco, CA"  # Optional
+            "location": "San Francisco, CA",  # Optional
+            "no_parse": true,  # Optional: skip parse_job_url + OpenAI extraction
+            "source": "find_humans"  # Optional: marks request as Find the Humans flow
         }
-    
+
     Response:
         {
             "recruiters": [...],
@@ -7578,6 +7604,27 @@ def find_recruiter_endpoint():
         user_id = request.firebase_user.get('uid')
         data = request.get_json(force=True, silent=True) or {}
 
+        # ------------------------------------------------------------------
+        # Find the Humans gating: feature flag + per-user hourly cap.
+        # These ONLY apply when the request is explicitly tagged with
+        # source='find_humans'. Existing recruiter-search-tab callers (no
+        # source field) are unaffected.
+        # ------------------------------------------------------------------
+        is_find_humans = data.get('source') == 'find_humans'
+        if is_find_humans:
+            if not _feature_find_humans_enabled():
+                # Feature flag OFF: behave as if endpoint doesn't exist for
+                # the find_humans flow specifically. Existing callers still
+                # work because they don't set source='find_humans'.
+                return jsonify({"error": "Not found"}), 404
+            if not _check_find_humans_hourly_cap(user_id):
+                return jsonify({
+                    "error": "Hourly limit reached",
+                    "message": "You've used Find the Humans 20 times this hour. Try again later."
+                }), 429
+
+        no_parse = bool(data.get('no_parse'))
+
         # Get job information from various sources
         company = data.get('company')
         job_title = data.get('jobTitle', '')
@@ -7587,8 +7634,8 @@ def find_recruiter_endpoint():
         job_url = data.get('jobUrl')  # Optional - for external job links
 
         # Log initial values for debugging
-        logger.info(f"[FindRecruiter] Initial values - company: '{company}', job_title: '{job_title}', location: '{location}', has_description: {bool(job_description)}, has_url: {bool(job_url)}")
-        
+        logger.info(f"[FindRecruiter] Initial values - company: '{company}', job_title: '{job_title}', location: '{location}', has_description: {bool(job_description)}, has_url: {bool(job_url)}, no_parse: {no_parse}")
+
         # Reject obviously invalid company names from request
         invalid_company_names = {'job type', 'job details', 'job description', 'employer', 'company', 'organization', 'n/a', 'null', 'none', ''}
         if company and company.lower().strip() in invalid_company_names:
@@ -7597,9 +7644,10 @@ def find_recruiter_endpoint():
         elif company:
             # Normalize company name from user input
             company = normalize_company_name(company)
-        
+
         # Parse job URL to fill in missing fields (company, title, location, description)
-        if job_url:
+        # Skipped entirely when no_parse=true (Find the Humans path).
+        if job_url and not no_parse:
             try:
                 parsed_job = parse_job_url(job_url)
                 if parsed_job:
@@ -7617,9 +7665,11 @@ def find_recruiter_endpoint():
             except Exception as e:
                 logger.error(f"[FindRecruiter] Error parsing job URL: {e}")
 
-        # Use OpenAI to extract missing information from job description (primary extraction method)
-        # Always use OpenAI if we have a description - it's more reliable than URL parsing or user input
-        if job_description:
+        # Use OpenAI to extract missing information from job description.
+        # Skipped entirely when no_parse=true (Find the Humans path) — Job
+        # Board cards already carry structured fields and the call is the
+        # main parser-brittleness drop-off point we are bypassing.
+        if job_description and not no_parse:
             logger.info(f"[FindRecruiter] Using OpenAI to extract job details from description (length: {len(job_description)})...")
             try:
                 extracted = extract_job_details_with_openai(job_description)
@@ -7642,6 +7692,8 @@ def find_recruiter_endpoint():
                 logger.error(f"[FindRecruiter]  OpenAI extraction failed: {e}")
                 import traceback
                 traceback.print_exc()
+        elif no_parse:
+            logger.info(f"[FindRecruiter] no_parse=true, skipping OpenAI extraction")
         else:
             logger.info(f"[FindRecruiter]  No job description provided, skipping OpenAI extraction")
         
