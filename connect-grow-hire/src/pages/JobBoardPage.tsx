@@ -25,6 +25,7 @@ import {
   Mail,
   ArrowRight,
   X,
+  Loader2,
 } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -60,6 +61,7 @@ import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { apiService, type GenerateCoverLetterRequest, type Recruiter, type SuggestionsResult, type TemplateRebuildResult, type FeedJob, type JobFeedResponse } from "@/services/api";
 import { firebaseApi, type Recruiter as FirebaseRecruiter } from "../services/firebaseApi";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
+import { FindHumansModal, type FindHumansJob } from "@/components/jobs/FindHumansModal";
 import { JobBoardSkeleton } from "@/components/JobBoardSkeleton";
 import { cn } from "@/lib/utils";
 import { InlineLoadingBar } from "@/components/ui/LoadingBar";
@@ -338,7 +340,9 @@ const JobCard: React.FC<{
   onApply: () => void;
   onFindHiringManager: () => void;
   onCardClick?: () => void;
-}> = React.memo(({ job, isSelected, isSaved, onSelect, onSave, onApply, onFindHiringManager, onCardClick }) => (
+  findHumansEnabled?: boolean;
+  findHumansPending?: boolean;
+}> = React.memo(({ job, isSelected, isSaved, onSelect, onSave, onApply, onFindHiringManager, onCardClick, findHumansEnabled = false, findHumansPending = false }) => (
   <GlassCard
     className={cn(
       "p-5 cursor-pointer transition-all duration-300 hover:scale-[1.02]",
@@ -437,15 +441,22 @@ const JobCard: React.FC<{
         </Button>
       </div>
       
-      {/* Second row: Find Hiring Manager */}
+      {/* Second row: Find Hiring Manager / Find the Humans */}
       <Button
         variant="outline"
         size="sm"
         className="w-full"
+        disabled={findHumansEnabled && (findHumansPending || !job.company)}
         onClick={(e) => { e.stopPropagation(); onFindHiringManager(); }}
       >
-        <Users className="w-4 h-4 mr-2" />
-        Find Hiring Manager
+        {findHumansEnabled && findHumansPending ? (
+          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+        ) : (
+          <Users className="w-4 h-4 mr-2" />
+        )}
+        {findHumansEnabled
+          ? (findHumansPending ? "Finding humans…" : "Find the Humans • 5 credits")
+          : "Find Hiring Manager"}
       </Button>
     </div>
   </GlassCard>
@@ -568,6 +579,35 @@ const JobBoardPage: React.FC = () => {
   }, [effectiveUser?.tier]);
 
   const _isElite = userTier === "elite";
+
+  // Find the Humans (feature-flagged Pro/Elite gate; backend also enforces).
+  const FIND_HUMANS_ENABLED = import.meta.env.VITE_FEATURE_FIND_HUMANS === "true";
+  const [findHumansJob, setFindHumansJob] = useState<FindHumansJob | null>(null);
+  const [findHumansOpen, setFindHumansOpen] = useState(false);
+
+  const openFindHumans = useCallback(
+    (j: FindHumansJob) => {
+      if (userTier === "free") {
+        toast({
+          title: "Pro feature",
+          description: "Find the Humans is available on Pro and Elite plans.",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (!j.company) {
+        toast({
+          title: "Missing company",
+          description: "This job is missing a company name. Try a different listing.",
+          variant: "destructive",
+        });
+        return;
+      }
+      setFindHumansJob(j);
+      setFindHumansOpen(true);
+    },
+    [userTier],
+  );
 
   // Tab State
   const [activeTab, setActiveTab] = useState<string>(searchParams.get("tab") || "jobs");
@@ -1848,9 +1888,33 @@ const JobBoardPage: React.FC = () => {
                                     Apply
                                   </Button>
                                 </div>
-                                <Button variant="outline" size="sm" className="w-full h-6 text-[10px] mt-1.5 px-1" onClick={(e) => { e.stopPropagation(); navigate(`/find?tab=hiring-managers${job.apply_url ? `&jobUrl=${encodeURIComponent(job.apply_url)}` : ''}`); }}>
-                                  <Users className="w-2.5 h-2.5 mr-0.5" />
-                                  Find Hiring Manager
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="w-full h-6 text-[10px] mt-1.5 px-1"
+                                  disabled={FIND_HUMANS_ENABLED && findHumansOpen && findHumansJob?.id === job.job_id}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (FIND_HUMANS_ENABLED) {
+                                      openFindHumans({
+                                        id: job.job_id,
+                                        title: job.title,
+                                        company: job.company,
+                                        location: job.location,
+                                        description: legacyJob.description,
+                                        url: job.apply_url || legacyJob.url,
+                                      });
+                                    } else {
+                                      navigate(`/find?tab=hiring-managers${job.apply_url ? `&jobUrl=${encodeURIComponent(job.apply_url)}` : ''}`);
+                                    }
+                                  }}
+                                >
+                                  {FIND_HUMANS_ENABLED && findHumansOpen && findHumansJob?.id === job.job_id ? (
+                                    <Loader2 className="w-2.5 h-2.5 mr-0.5 animate-spin" />
+                                  ) : (
+                                    <Users className="w-2.5 h-2.5 mr-0.5" />
+                                  )}
+                                  {FIND_HUMANS_ENABLED ? "Find the Humans" : "Find Hiring Manager"}
                                 </Button>
                               </GlassCard>
                             </div>
@@ -1903,7 +1967,22 @@ const JobBoardPage: React.FC = () => {
                             }}
                             onSave={() => handleSaveJob(job.job_id)}
                             onApply={() => handleApplyToJob(legacyJob)}
-                            onFindHiringManager={() => navigate(`/find?tab=hiring-managers${legacyJob.url ? `&jobUrl=${encodeURIComponent(legacyJob.url)}` : ''}`)}
+                            onFindHiringManager={() => {
+                              if (FIND_HUMANS_ENABLED) {
+                                openFindHumans({
+                                  id: job.job_id,
+                                  title: legacyJob.title,
+                                  company: legacyJob.company,
+                                  location: legacyJob.location,
+                                  description: legacyJob.description,
+                                  url: legacyJob.url,
+                                });
+                              } else {
+                                navigate(`/find?tab=hiring-managers${legacyJob.url ? `&jobUrl=${encodeURIComponent(legacyJob.url)}` : ''}`);
+                              }
+                            }}
+                            findHumansEnabled={FIND_HUMANS_ENABLED}
+                            findHumansPending={findHumansOpen && findHumansJob?.id === job.job_id}
                           />
                         ))}
                       </div>
@@ -2436,6 +2515,16 @@ const JobBoardPage: React.FC = () => {
           />
         </React.Suspense>
       )}
+
+      {/* Find the Humans Modal — feature-flagged Phase 1 surface */}
+      {FIND_HUMANS_ENABLED && (
+        <FindHumansModal
+          open={findHumansOpen}
+          onOpenChange={setFindHumansOpen}
+          job={findHumansJob}
+        />
+      )}
+
       {/* Job Detail Modal — full-screen takeover */}
       {detailSheetOpen && detailSheetJob && (() => {
         const job = detailSheetJob;
@@ -2551,13 +2640,30 @@ const JobBoardPage: React.FC = () => {
                   variant="outline"
                   size="lg"
                   className="flex-1 h-11"
+                  disabled={FIND_HUMANS_ENABLED && findHumansOpen && findHumansJob?.id === job.job_id}
                   onClick={() => {
-                    setDetailSheetOpen(false);
-                    navigate(`/find?tab=hiring-managers${job.apply_url ? `&jobUrl=${encodeURIComponent(job.apply_url)}` : ''}`);
+                    if (FIND_HUMANS_ENABLED) {
+                      setDetailSheetOpen(false);
+                      openFindHumans({
+                        id: job.job_id,
+                        title: job.title,
+                        company: job.company,
+                        location: job.location,
+                        description: detailDescription || undefined,
+                        url: job.apply_url,
+                      });
+                    } else {
+                      setDetailSheetOpen(false);
+                      navigate(`/find?tab=hiring-managers${job.apply_url ? `&jobUrl=${encodeURIComponent(job.apply_url)}` : ''}`);
+                    }
                   }}
                 >
-                  <Users className="w-4 h-4 mr-2" />
-                  Find Hiring Manager
+                  {FIND_HUMANS_ENABLED && findHumansOpen && findHumansJob?.id === job.job_id ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Users className="w-4 h-4 mr-2" />
+                  )}
+                  {FIND_HUMANS_ENABLED ? "Find the Humans • 5 credits" : "Find Hiring Manager"}
                 </Button>
               </div>
 

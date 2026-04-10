@@ -142,6 +142,12 @@ export interface Contact {
 }
 
 // Recruiter interface (extends Contact but specific to recruiters)
+export interface FindHumansReceipt {
+  type: 'title_match' | 'location_match';
+  label: string;
+  strength: 'high' | 'medium' | 'low';
+}
+
 export interface Recruiter {
   FirstName: string;
   LastName: string;
@@ -154,6 +160,7 @@ export interface Recruiter {
   Phone?: string;
   WorkEmail?: string;
   PersonalEmail?: string;
+  findHumansReceipts?: FindHumansReceipt[];
 }
 
 export interface FindRecruiterRequest {
@@ -166,6 +173,9 @@ export interface FindRecruiterRequest {
   generateEmails?: boolean;  // Default true - generate personalized emails
   createDrafts?: boolean;  // Default true - create Gmail drafts
   maxResults?: number;  // Number of recruiters to find (1-10, default: 5)
+  // Find the Humans flow:
+  no_parse?: boolean;  // Skip parse_job_url AND extract_job_details_with_openai
+  source?: 'find_humans';  // Marks request as Find the Humans (gates by feature flag + hourly cap)
 }
 
 export interface RecruiterEmail {
