@@ -1,15 +1,14 @@
 /**
- * FindHumansModal — Phase 1 minimal viable Find the Humans surface.
+ * FindHumansModal — Find the Humans surface.
  *
- * Per locked scope (karthik-main-design-20260409-161647.md):
  *   - Skips JD parser via no_parse=true (uses job card's structured fields).
- *   - source='find_humans' opts the request into the Pro/Elite gate, the
- *     FEATURE_FIND_HUMANS feature flag, and the per-user hourly cap.
+ *   - source='find_humans' opts the request into the Pro/Elite gate and
+ *     the per-user hourly cap.
  *   - Backend already auto-creates Gmail drafts and saves recruiters; the
  *     modal renders the result with per-candidate evidence receipts.
  *
  * Composes ContactCardBase primitives (ContactAvatar / ContactIdentity /
- * CardAccentBorder / StatusLine) per locked scope item #3.
+ * CardAccentBorder / StatusLine).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, ExternalLink, Loader2, MailCheck, X } from "lucide-react";

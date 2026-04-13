@@ -1,7 +1,7 @@
 """
 Backend integration tests for the Find the Humans feature.
 
-Locked scope (per design doc karthik-main-design-20260409-161647.md):
+Locked scope:
   1. no_parse=true skips parse_job_url
   2. no_parse=true skips extract_job_details_with_openai
   3. no_parse=true + missing company returns 400
@@ -10,7 +10,6 @@ Locked scope (per design doc karthik-main-design-20260409-161647.md):
   6. derive_receipts() returns title_match + location_match for matching contact
   7. Hourly rate cap blocks 21st request in one hour (429)
   8. REGRESSION: existing recruiter-search-tab path works with no no_parse and no source
-  9. REGRESSION: FEATURE_FIND_HUMANS=false does NOT break existing callers (no source field)
 """
 import os
 import pytest
@@ -59,16 +58,6 @@ def _bypass_firebase_auth():
          patch("firebase_admin.auth.verify_id_token", return_value=FAKE_USER):
         yield
 
-
-@pytest.fixture(autouse=True)
-def _enable_find_humans_flag():
-    """Enable FEATURE_FIND_HUMANS=true for this test module by default.
-
-    Individual tests that need the flag OFF (e.g. the regression test) override
-    this via patch.dict(os.environ, ...) inside the test body.
-    """
-    with patch.dict(os.environ, {"FEATURE_FIND_HUMANS": "true"}, clear=False):
-        yield
 
 
 @pytest.fixture
@@ -385,52 +374,3 @@ class TestRegressionExistingRecruiterTab:
         # The hourly cap helper must NOT be invoked for non-find_humans callers.
         mock_cap.assert_not_called()
 
-
-# ===========================================================================
-# 9 — REGRESSION: FEATURE_FIND_HUMANS=false doesn't break existing callers
-# ===========================================================================
-
-class TestRegressionFeatureFlagOff:
-
-    @pytest.mark.unit
-    def test_flag_off_does_not_block_existing_callers(self, client, mock_find_recruiters, mock_credit_helpers):
-        """
-        With FEATURE_FIND_HUMANS=false, requests WITHOUT source='find_humans'
-        must continue to work — only source='find_humans' should 404.
-        """
-        mock_db = MagicMock()
-        _wire_user_db(mock_db, tier="pro")
-
-        env = {**os.environ, "FEATURE_FIND_HUMANS": "false"}
-        with patch.dict(os.environ, env, clear=False), \
-             patch("app.extensions.get_db", return_value=mock_db), \
-             patch("backend.app.routes.job_board.get_db", return_value=mock_db), \
-             patch("backend.app.routes.job_board.parse_job_url", return_value=None), \
-             patch("backend.app.routes.job_board.extract_job_details_with_openai", return_value=None):
-            # Existing caller — no source field — must proceed.
-            resp_existing = client.post(
-                ENDPOINT,
-                json={
-                    "company": "Stripe",
-                    "jobTitle": "Software Engineer",
-                    "createDrafts": False,
-                    "generateEmails": False,
-                },
-                headers={"Authorization": "Bearer fake-token"},
-            )
-            assert resp_existing.status_code == 200, resp_existing.get_json()
-
-            # find_humans caller — flag is off — must 404.
-            resp_find_humans = client.post(
-                ENDPOINT,
-                json={
-                    "company": "Stripe",
-                    "jobTitle": "Software Engineer",
-                    "no_parse": True,
-                    "source": "find_humans",
-                    "createDrafts": False,
-                    "generateEmails": False,
-                },
-                headers={"Authorization": "Bearer fake-token"},
-            )
-            assert resp_find_humans.status_code == 404

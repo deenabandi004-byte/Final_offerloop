@@ -342,7 +342,7 @@ const JobCard: React.FC<{
   onCardClick?: () => void;
   findHumansEnabled?: boolean;
   findHumansPending?: boolean;
-}> = React.memo(({ job, isSelected, isSaved, onSelect, onSave, onApply, onFindHiringManager, onCardClick, findHumansEnabled = false, findHumansPending = false }) => (
+}> = React.memo(({ job, isSelected, isSaved, onSelect, onSave, onApply, onFindHiringManager, onCardClick, findHumansEnabled = true, findHumansPending = false }) => (
   <GlassCard
     className={cn(
       "p-5 cursor-pointer transition-all duration-300 hover:scale-[1.02]",
@@ -580,8 +580,7 @@ const JobBoardPage: React.FC = () => {
 
   const _isElite = userTier === "elite";
 
-  // Find the Humans (feature-flagged Pro/Elite gate; backend also enforces).
-  const FIND_HUMANS_ENABLED = import.meta.env.VITE_FEATURE_FIND_HUMANS === "true";
+  // Find the Humans (always enabled; backend enforces Pro/Elite gate).
   const [findHumansJob, setFindHumansJob] = useState<FindHumansJob | null>(null);
   const [findHumansOpen, setFindHumansOpen] = useState(false);
 
@@ -1892,29 +1891,25 @@ const JobBoardPage: React.FC = () => {
                                   variant="outline"
                                   size="sm"
                                   className="w-full h-6 text-[10px] mt-1.5 px-1"
-                                  disabled={FIND_HUMANS_ENABLED && findHumansOpen && findHumansJob?.id === job.job_id}
+                                  disabled={findHumansOpen && findHumansJob?.id === job.job_id}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    if (FIND_HUMANS_ENABLED) {
-                                      openFindHumans({
-                                        id: job.job_id,
-                                        title: job.title,
-                                        company: job.company,
-                                        location: job.location,
-                                        description: legacyJob.description,
-                                        url: job.apply_url || legacyJob.url,
-                                      });
-                                    } else {
-                                      navigate(`/find?tab=hiring-managers${job.apply_url ? `&jobUrl=${encodeURIComponent(job.apply_url)}` : ''}`);
-                                    }
+                                    openFindHumans({
+                                      id: job.job_id,
+                                      title: job.title,
+                                      company: job.company,
+                                      location: job.location,
+                                      description: legacyJob.description,
+                                      url: job.apply_url || legacyJob.url,
+                                    });
                                   }}
                                 >
-                                  {FIND_HUMANS_ENABLED && findHumansOpen && findHumansJob?.id === job.job_id ? (
+                                  {findHumansOpen && findHumansJob?.id === job.job_id ? (
                                     <Loader2 className="w-2.5 h-2.5 mr-0.5 animate-spin" />
                                   ) : (
                                     <Users className="w-2.5 h-2.5 mr-0.5" />
                                   )}
-                                  {FIND_HUMANS_ENABLED ? "Find the Humans" : "Find Hiring Manager"}
+                                  Find the Humans
                                 </Button>
                               </GlassCard>
                             </div>
@@ -1968,20 +1963,16 @@ const JobBoardPage: React.FC = () => {
                             onSave={() => handleSaveJob(job.job_id)}
                             onApply={() => handleApplyToJob(legacyJob)}
                             onFindHiringManager={() => {
-                              if (FIND_HUMANS_ENABLED) {
-                                openFindHumans({
-                                  id: job.job_id,
-                                  title: legacyJob.title,
-                                  company: legacyJob.company,
-                                  location: legacyJob.location,
-                                  description: legacyJob.description,
-                                  url: legacyJob.url,
-                                });
-                              } else {
-                                navigate(`/find?tab=hiring-managers${legacyJob.url ? `&jobUrl=${encodeURIComponent(legacyJob.url)}` : ''}`);
-                              }
+                              openFindHumans({
+                                id: job.job_id,
+                                title: legacyJob.title,
+                                company: legacyJob.company,
+                                location: legacyJob.location,
+                                description: legacyJob.description,
+                                url: legacyJob.url,
+                              });
                             }}
-                            findHumansEnabled={FIND_HUMANS_ENABLED}
+                            findHumansEnabled
                             findHumansPending={findHumansOpen && findHumansJob?.id === job.job_id}
                           />
                         ))}
@@ -2516,14 +2507,12 @@ const JobBoardPage: React.FC = () => {
         </React.Suspense>
       )}
 
-      {/* Find the Humans Modal — feature-flagged Phase 1 surface */}
-      {FIND_HUMANS_ENABLED && (
-        <FindHumansModal
-          open={findHumansOpen}
-          onOpenChange={setFindHumansOpen}
-          job={findHumansJob}
-        />
-      )}
+      {/* Find the Humans Modal */}
+      <FindHumansModal
+        open={findHumansOpen}
+        onOpenChange={setFindHumansOpen}
+        job={findHumansJob}
+      />
 
       {/* Job Detail Modal — full-screen takeover */}
       {detailSheetOpen && detailSheetJob && (() => {
@@ -2640,30 +2629,25 @@ const JobBoardPage: React.FC = () => {
                   variant="outline"
                   size="lg"
                   className="flex-1 h-11"
-                  disabled={FIND_HUMANS_ENABLED && findHumansOpen && findHumansJob?.id === job.job_id}
+                  disabled={findHumansOpen && findHumansJob?.id === job.job_id}
                   onClick={() => {
-                    if (FIND_HUMANS_ENABLED) {
-                      setDetailSheetOpen(false);
-                      openFindHumans({
-                        id: job.job_id,
-                        title: job.title,
-                        company: job.company,
-                        location: job.location,
-                        description: detailDescription || undefined,
-                        url: job.apply_url,
-                      });
-                    } else {
-                      setDetailSheetOpen(false);
-                      navigate(`/find?tab=hiring-managers${job.apply_url ? `&jobUrl=${encodeURIComponent(job.apply_url)}` : ''}`);
-                    }
+                    setDetailSheetOpen(false);
+                    openFindHumans({
+                      id: job.job_id,
+                      title: job.title,
+                      company: job.company,
+                      location: job.location,
+                      description: detailDescription || undefined,
+                      url: job.apply_url,
+                    });
                   }}
                 >
-                  {FIND_HUMANS_ENABLED && findHumansOpen && findHumansJob?.id === job.job_id ? (
+                  {findHumansOpen && findHumansJob?.id === job.job_id ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
                     <Users className="w-4 h-4 mr-2" />
                   )}
-                  {FIND_HUMANS_ENABLED ? "Find the Humans • 5 credits" : "Find Hiring Manager"}
+                  Find the Humans • 5 credits
                 </Button>
               </div>
 

@@ -22,7 +22,6 @@ import requests
 from bs4 import BeautifulSoup
 
 from app.extensions import require_firebase_auth, require_tier, get_db, get_limiter, get_rate_limit_key
-from app.config import _feature_find_humans_enabled
 from app.services.auth import deduct_credits_atomic, refund_credits_atomic, check_and_reset_credits
 from app.services.openai_client import get_async_openai_client, get_openai_client
 from app.services.ats_scorer import calculate_ats_score
@@ -7605,18 +7604,11 @@ def find_recruiter_endpoint():
         data = request.get_json(force=True, silent=True) or {}
 
         # ------------------------------------------------------------------
-        # Find the Humans gating: feature flag + per-user hourly cap.
-        # These ONLY apply when the request is explicitly tagged with
-        # source='find_humans'. Existing recruiter-search-tab callers (no
-        # source field) are unaffected.
+        # Find the Humans: per-user hourly cap.
+        # Applies when the request is tagged with source='find_humans'.
         # ------------------------------------------------------------------
         is_find_humans = data.get('source') == 'find_humans'
         if is_find_humans:
-            if not _feature_find_humans_enabled():
-                # Feature flag OFF: behave as if endpoint doesn't exist for
-                # the find_humans flow specifically. Existing callers still
-                # work because they don't set source='find_humans'.
-                return jsonify({"error": "Not found"}), 404
             if not _check_find_humans_hourly_cap(user_id):
                 return jsonify({
                     "error": "Hourly limit reached",
