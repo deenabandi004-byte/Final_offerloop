@@ -37,14 +37,7 @@ import FirmSearchResults from "@/components/FirmSearchResults";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { StickyCTA } from "@/components/StickyCTA";
-
-// Example prompts to show users
-const EXAMPLE_SEARCHES = [
-  { id: 1, label: 'Tech startups in SF', query: 'Early-stage tech startups in San Francisco focused on AI/ML' },
-  { id: 2, label: 'Healthcare M&A banks', query: 'Mid-sized investment banks in New York focused on healthcare M&A' },
-  { id: 3, label: 'Consulting in Chicago', query: 'Management consulting firms in Chicago with 100-500 employees' },
-  { id: 4, label: 'Fintech in London', query: 'Series B+ fintech companies in London focused on payments' },
-];
+import SuggestionChips from "@/components/find/SuggestionChips";
 
 // Session storage key for Scout auto-populate
 const SCOUT_AUTO_POPULATE_KEY = 'scout_auto_populate';
@@ -78,7 +71,6 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
 
   // Search state
   const [query, setQuery] = useState('');
-  const [hoveredChipQuery, setHoveredChipQuery] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [results, setResults] = useState<Firm[]>([]);
   const [parsedFilters, setParsedFilters] = useState<any>(null);
@@ -120,7 +112,7 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
   const [creditsPerFirm] = useState<number>(5);
 
   // UI polish state
-  const [selectedExampleId, setSelectedExampleId] = useState<number | null>(null);
+  const [suggestionsCollapsed, setSuggestionsCollapsed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Validation
@@ -669,19 +661,6 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
     // Don't auto-fire search — let user review the query and click "Find Companies" manually
   };
 
-  // Handle example prompt click
-  const handleExampleClick = (searchQuery: string, exampleId: number) => {
-    setQuery(searchQuery);
-    setSelectedExampleId(exampleId);
-    // Briefly emphasize the textarea and auto-focus
-    if (textareaRef.current) {
-      textareaRef.current.focus();
-      setTimeout(() => {
-        setSelectedExampleId(null);
-      }, 150);
-    }
-  };
-
   // Handle Enter key
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -793,10 +772,9 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
                           <Search style={{ width: 16, height: 16, flexShrink: 0, color: '#3B82F6', marginTop: 1 }} />
                           <input
                             ref={textareaRef as any}
-                            value={hoveredChipQuery && !query ? hoveredChipQuery : query}
-                            onChange={(e) => { if (!hoveredChipQuery) setQuery(e.target.value); }}
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
                             onKeyDown={handleKeyDown}
-                            onFocus={() => setSelectedExampleId(null)}
                             placeholder="Fintech startups in NYC, consulting firms in Chicago..."
                             disabled={isSearching || !user}
                             style={{
@@ -804,7 +782,7 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
                               border: 'none',
                               background: 'none',
                               fontSize: 14,
-                              color: hoveredChipQuery && !query ? '#94A3B8' : '#0F172A',
+                              color: '#0F172A',
                               outline: 'none',
                               fontFamily: 'inherit',
                               lineHeight: 1.5,
@@ -813,50 +791,20 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
                         </div>
                       </div>
 
-                      {/* Example chips — hidden when user has typed */}
+                      {/* Personalized suggestion cards — hidden when user has typed */}
                       {!query.trim() && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
-                          {EXAMPLE_SEARCHES.map((example) => (
-                            <button
-                              key={example.id}
-                              type="button"
-                              onClick={() => handleExampleClick(example.query, example.id)}
-                              disabled={isSearching}
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 6,
-                                padding: '7px 14px',
-                                fontSize: 13,
-                                border: `1px solid ${selectedExampleId === example.id ? '#3B82F6' : '#E2E8F0'}`,
-                                borderRadius: 100,
-                                background: selectedExampleId === example.id ? 'rgba(59,130,246,0.05)' : '#fff',
-                                color: selectedExampleId === example.id ? '#3B82F6' : '#6B7280',
-                                cursor: 'pointer',
-                                transition: 'all .12s',
-                                fontFamily: 'inherit',
-                              }}
-                              onMouseEnter={(e) => {
-                                setHoveredChipQuery(example.query);
-                                if (selectedExampleId !== example.id) {
-                                  (e.currentTarget as HTMLButtonElement).style.borderColor = '#3B82F6';
-                                  (e.currentTarget as HTMLButtonElement).style.background = 'rgba(59,130,246,0.05)';
-                                  (e.currentTarget as HTMLButtonElement).style.color = '#3B82F6';
-                                }
-                              }}
-                              onMouseLeave={(e) => {
-                                setHoveredChipQuery(null);
-                                if (selectedExampleId !== example.id) {
-                                  (e.currentTarget as HTMLButtonElement).style.borderColor = '#E2E8F0';
-                                  (e.currentTarget as HTMLButtonElement).style.background = '#fff';
-                                  (e.currentTarget as HTMLButtonElement).style.color = '#6B7280';
-                                }
-                              }}
-                            >
-                              {example.label}
-                            </button>
-                          ))}
-                        </div>
+                        <SuggestionChips
+                          type="companies"
+                          uid={user?.uid}
+                          onSelect={(prompt) => {
+                            setQuery(prompt);
+                            handleSearch(prompt);
+                          }}
+                          collapsed={suggestionsCollapsed}
+                          onCollapse={setSuggestionsCollapsed}
+                          hasSearched={hasSearched}
+                          disabled={isSearching}
+                        />
                       )}
 
                       {/* Error Message */}

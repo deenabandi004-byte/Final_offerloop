@@ -27,6 +27,7 @@ import { trackFeatureActionCompleted, trackError } from "../lib/analytics";
 import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileTypes";
 import { StickyCTA } from "@/components/StickyCTA";
 import ContactImport from "@/components/ContactImport";
+import SuggestionChips from "@/components/find/SuggestionChips";
 
 // Session storage key for Scout auto-populate
 const SCOUT_AUTO_POPULATE_KEY = 'scout_auto_populate';
@@ -59,13 +60,6 @@ function normalizeLinkedInUrl(input: string): string {
   return url;
 }
 
-// Example prompt chips for discoverability
-const examplePromptChips = [
-  { id: 1, label: 'Software engineers at FAANG in SF', prompt: 'Software engineers at FAANG in SF', isLinkedIn: false },
-  { id: 2, label: 'USC alumni in investment banking', prompt: 'USC alumni in investment banking', isLinkedIn: false },
-  { id: 3, label: 'Marketing managers at startups in LA', prompt: 'Marketing managers at startups in LA', isLinkedIn: false },
-  { id: 4, label: 'linkedin.com/in/johndoe', prompt: 'https://www.linkedin.com/in/johndoe', isLinkedIn: true },
-];
 
 // Helper function for contact count guidance
 const getContactCountHelper = (count: number): string => {
@@ -168,7 +162,6 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
   // Form state (prompt-based search)
   const pendingAutoSearch = useRef(false);
   const [searchPrompt, setSearchPrompt] = useState("");
-  const [hoveredChipPrompt, setHoveredChipPrompt] = useState<string | null>(null);
   const [showTemplateTooltip, setShowTemplateTooltip] = useState(false);
   const templateTooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showCsvTooltip, setShowCsvTooltip] = useState(false);
@@ -202,7 +195,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
   const [batchSize, setBatchSize] = useState<number>(1);
 
   // UI polish state
-  const [selectedExampleId, setSelectedExampleId] = useState<number | null>(null);
+  const [suggestionsCollapsed, setSuggestionsCollapsed] = useState(false);
 
   const maxBatchSize = useMemo(() => {
     // Get tier-specific max contacts: free=3, pro=8, elite=15
@@ -1207,8 +1200,8 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
           >
             <Search style={{ width: 16, height: 16, flexShrink: 0, color: '#3B82F6', marginTop: 1 }} />
             <input
-              value={hoveredChipPrompt && !searchPrompt ? hoveredChipPrompt : searchPrompt}
-              onChange={(e) => { if (!hoveredChipPrompt) { setSearchPrompt(e.target.value); setLinkedInError(null); setLinkedInSuccess(null); } }}
+              value={searchPrompt}
+              onChange={(e) => { setSearchPrompt(e.target.value); setLinkedInError(null); setLinkedInSuccess(null); }}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
               placeholder="Paste a LinkedIn URL, or try 'USC alumni at Goldman Sachs'..."
               disabled={isSearching || linkedInLoading}
@@ -1217,7 +1210,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 border: 'none',
                 background: 'none',
                 fontSize: 14,
-                color: hoveredChipPrompt && !searchPrompt ? '#94A3B8' : '#0F172A',
+                color: '#0F172A',
                 outline: 'none',
                 fontFamily: 'inherit',
                 lineHeight: 1.5,
@@ -1353,55 +1346,20 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
           </div>
         </div>
 
-        {/* Example chips — hidden after user types */}
+        {/* Personalized suggestion cards — hidden after user types */}
         {!searchPrompt.trim() && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
-            {examplePromptChips.map((chip) => (
-              <button
-                key={chip.id}
-                type="button"
-                onClick={() => {
-                  setSearchPrompt(chip.prompt);
-                  setSelectedExampleId(chip.id);
-                  setTimeout(() => setSelectedExampleId(null), 200);
-                }}
-                disabled={isSearching || linkedInLoading}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  padding: '5px 11px',
-                  fontSize: 11.5,
-                  border: `1px solid ${selectedExampleId === chip.id ? '#3B82F6' : '#E2E8F0'}`,
-                  borderRadius: 100,
-                  background: selectedExampleId === chip.id ? 'rgba(59,130,246,0.05)' : '#fff',
-                  color: selectedExampleId === chip.id ? '#3B82F6' : '#6B7280',
-                  cursor: 'pointer',
-                  transition: 'all .12s',
-                  fontFamily: 'inherit',
-                }}
-                onMouseEnter={(e) => {
-                  setHoveredChipPrompt(chip.prompt);
-                  if (selectedExampleId !== chip.id) {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = '#3B82F6';
-                    (e.currentTarget as HTMLButtonElement).style.background = 'rgba(59,130,246,0.05)';
-                    (e.currentTarget as HTMLButtonElement).style.color = '#3B82F6';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  setHoveredChipPrompt(null);
-                  if (selectedExampleId !== chip.id) {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = '#E2E8F0';
-                    (e.currentTarget as HTMLButtonElement).style.background = '#fff';
-                    (e.currentTarget as HTMLButtonElement).style.color = '#6B7280';
-                  }
-                }}
-              >
-                {chip.isLinkedIn && <Linkedin className="h-3 w-3" />}
-                {chip.label}
-              </button>
-            ))}
-          </div>
+          <SuggestionChips
+            type="people"
+            uid={user?.uid}
+            onSelect={(prompt) => {
+              setSearchPrompt(prompt);
+              setTimeout(() => { pendingAutoSearch.current = true; }, 0);
+            }}
+            collapsed={suggestionsCollapsed}
+            onCollapse={setSuggestionsCollapsed}
+            hasSearched={hasResults}
+            disabled={isSearching || linkedInLoading}
+          />
         )}
 
         {linkedInError && (
