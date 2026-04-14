@@ -165,9 +165,26 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
   const originalButtonRef = useRef<HTMLButtonElement>(null);
   const searchSuccessRef = useRef<HTMLDivElement>(null);
 
-  // Form state (prompt-based search)
+  // Form state (prompt-based search).
+  // Initial value may come from the landing-page hero: HeroSearchCTA stashes
+  // the visitor's query in localStorage under `offerloop_pending_query` before
+  // redirecting them into the sign-up flow. We consume it once on mount so
+  // their first in-app experience is the exact search they asked for.
   const pendingAutoSearch = useRef(false);
-  const [searchPrompt, setSearchPrompt] = useState("");
+  const [searchPrompt, setSearchPrompt] = useState(() => {
+    try {
+      const pending = typeof window !== 'undefined'
+        ? window.localStorage.getItem('offerloop_pending_query')
+        : null;
+      if (pending) {
+        window.localStorage.removeItem('offerloop_pending_query');
+        return pending;
+      }
+    } catch {
+      // Private mode / disabled storage — just fall through to empty
+    }
+    return "";
+  });
   const [hoveredChipPrompt, setHoveredChipPrompt] = useState<string | null>(null);
   const [showTemplateTooltip, setShowTemplateTooltip] = useState(false);
   const templateTooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
