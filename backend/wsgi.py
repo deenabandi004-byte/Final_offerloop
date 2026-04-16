@@ -228,7 +228,7 @@ def create_app() -> Flask:
     @app.route('/')
     def index():
         response = make_response(send_from_directory(app.static_folder, 'index.html'))
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Cache-Control'] = 'public, max-age=0, s-maxage=3600, must-revalidate'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
         return response
@@ -258,7 +258,7 @@ def create_app() -> Flask:
         if os.path.exists(index_path):
             app.logger.info(f"404 handler serving index.html for path: {request.path}")
             response = make_response(send_from_directory(app.static_folder, 'index.html'))
-            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Cache-Control'] = 'public, max-age=0, s-maxage=3600, must-revalidate'
             response.headers['Pragma'] = 'no-cache'
             response.headers['Expires'] = '0'
             return response
