@@ -102,6 +102,9 @@ def create_app() -> Flask:
                 },
                 timeout=10
             )
+            if resp.status_code >= 500:
+                app.logger.warning(f"Prerender returned {resp.status_code} for {request.url}, falling through to SPA")
+                return None
             from flask import Response
             return Response(
                 resp.content,
