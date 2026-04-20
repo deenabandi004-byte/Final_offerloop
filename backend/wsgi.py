@@ -61,6 +61,8 @@ def create_app() -> Flask:
     PRERENDER_TOKEN = os.environ.get("PRERENDER_TOKEN")
     if not PRERENDER_TOKEN:
         app.logger.warning("PRERENDER_TOKEN not set — bot SSR via Prerender.io is disabled")
+    else:
+        app.logger.info(f"PRERENDER_TOKEN loaded: {PRERENDER_TOKEN[:6]}... ({len(PRERENDER_TOKEN)} chars)")
     BOT_AGENTS = [
         'googlebot', 'bingbot', 'yandex', 'duckduckbot', 'slurp',
         'baiduspider', 'facebookexternalhit', 'twitterbot', 'linkedinbot',
