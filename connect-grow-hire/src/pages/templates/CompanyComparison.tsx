@@ -231,13 +231,16 @@ const CompanyComparison = ({ companyA, companyB }: Props) => {
   return (
     <div className="min-h-screen w-full" style={{ fontFamily: "'DM Sans', system-ui, sans-serif", background: '#FFFFFF' }}>
       <Helmet>
-        <title>{`${a.name} vs ${b.name}: Which Should You Target for Recruiting? (2026)`}</title>
+        <title>{`${a.name} vs ${b.name}: Which Should You Target for Recruiting? (${new Date().getFullYear()})`}</title>
         <meta name="description" content={`Compare ${a.name} and ${b.name} for college recruiting — culture, target schools, interview process, and which fits your background best.`} />
-        <link rel="canonical" href={`https://offerloop.ai/compare/${a.slug}-vs-${b.slug}`} />
-        <meta property="og:title" content={`${a.name} vs ${b.name}: Which Should You Target for Recruiting? (2026)`} />
+        <link rel="canonical" href={`https://www.offerloop.ai/compare/${a.slug}-vs-${b.slug}`} />
+        <meta property="og:title" content={`${a.name} vs ${b.name}: Which Should You Target for Recruiting? (${new Date().getFullYear()})`} />
         <meta property="og:description" content={`Compare ${a.name} and ${b.name} for college recruiting — culture, target schools, interview process, and which fits your background best.`} />
-        <meta property="og:url" content={`https://offerloop.ai/compare/${a.slug}-vs-${b.slug}`} />
+        <meta property="og:url" content={`https://www.offerloop.ai/compare/${a.slug}-vs-${b.slug}`} />
         <meta property="og:type" content="article" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={`${a.name} vs ${b.name}: Which Should You Target for Recruiting? (${new Date().getFullYear()})`} />
+        <meta name="twitter:description" content={`Compare ${a.name} and ${b.name} for college recruiting — culture, target schools, interview process, and which fits your background best.`} />
         <script type="application/ld+json">{JSON.stringify({
           "@context": "https://schema.org",
           "@type": "FAQPage",

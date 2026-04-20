@@ -120,11 +120,14 @@ const CoffeeChatGuide = ({ company }: Props) => {
       <Helmet>
         <title>Coffee Chat Guide for {company.name} | Questions, Prep &amp; Email | Offerloop</title>
         <meta name="description" content={`Ace your ${company.name} coffee chat. Get the best questions to ask, prep tips, email templates, and AI-powered coffee chat prep from Offerloop.`} />
-        <link rel="canonical" href={`https://offerloop.ai/coffee-chat/${company.slug}`} />
+        <link rel="canonical" href={`https://www.offerloop.ai/coffee-chat/${company.slug}`} />
         <meta property="og:title" content={`Coffee Chat Guide for ${company.name} | Offerloop`} />
         <meta property="og:description" content={`Coffee chat prep guide for ${company.name}. Questions to ask, request templates, and follow-up tips.`} />
-        <meta property="og:url" content={`https://offerloop.ai/coffee-chat/${company.slug}`} />
+        <meta property="og:url" content={`https://www.offerloop.ai/coffee-chat/${company.slug}`} />
         <meta property="og:type" content="article" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={`Coffee Chat Guide for ${company.name} | Offerloop`} />
+        <meta name="twitter:description" content={`Coffee chat prep guide for ${company.name}. Questions to ask, request templates, and follow-up tips.`} />
         <script type="application/ld+json">{JSON.stringify({
           "@context": "https://schema.org",
           "@type": "FAQPage",
