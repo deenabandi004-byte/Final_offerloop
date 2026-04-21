@@ -99,11 +99,14 @@ const ColdEmailGuide = ({ industry }: Props) => {
       <Helmet>
         <title>Cold Email Templates for {industry.name} | Student Networking Guide | Offerloop</title>
         <meta name="description" content={`Proven cold email templates for ${industry.name.toLowerCase()} networking. Get responses from professionals at ${industry.top_companies.slice(0, 3).join(', ')}, and more with AI-personalized outreach. Free templates + Offerloop AI.`} />
-        <link rel="canonical" href={`https://offerloop.ai/cold-email/${industry.slug}`} />
+        <link rel="canonical" href={`https://www.offerloop.ai/cold-email/${industry.slug}`} />
         <meta property="og:title" content={`Cold Email Templates for ${industry.name} | Offerloop`} />
         <meta property="og:description" content={`Proven cold email templates for ${industry.name.toLowerCase()} networking. Free templates for college students.`} />
-        <meta property="og:url" content={`https://offerloop.ai/cold-email/${industry.slug}`} />
+        <meta property="og:url" content={`https://www.offerloop.ai/cold-email/${industry.slug}`} />
         <meta property="og:type" content="article" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={`Cold Email Templates for ${industry.name} | Offerloop`} />
+        <meta name="twitter:description" content={`Proven cold email templates for ${industry.name.toLowerCase()} networking. Free templates for college students.`} />
         <script type="application/ld+json">{JSON.stringify({
           "@context": "https://schema.org",
           "@type": "FAQPage",
@@ -353,7 +356,7 @@ const ColdEmailGuide = ({ industry }: Props) => {
       {/* Footer */}
       <footer className="py-10 px-6" style={{ borderTop: '1px solid #E2E8F0' }}>
         <div className="flex flex-col md:flex-row justify-between items-center gap-4" style={{ maxWidth: '1100px', margin: '0 auto' }}>
-          <p className="text-sm" style={{ color: '#94A3B8' }}>&copy; 2026 Offerloop. All rights reserved.</p>
+          <p className="text-sm" style={{ color: '#94A3B8' }}>&copy; {new Date().getFullYear()} Offerloop. All rights reserved.</p>
           <div className="flex gap-6">
             {[
               { label: 'About', path: '/about' },

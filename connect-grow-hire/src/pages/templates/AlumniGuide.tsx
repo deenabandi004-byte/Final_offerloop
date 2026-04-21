@@ -43,11 +43,14 @@ const AlumniGuide = ({ university: uni }: Props) => {
       <Helmet>
         <title>How to Network with {uni.name} Alumni | Offerloop</title>
         <meta name="description" content={`A complete guide to leveraging ${uni.full_name} alumni for recruiting. Find ${uni.name} alumni at top firms, write effective outreach emails, and build relationships that lead to referrals.`} />
-        <link rel="canonical" href={`https://offerloop.ai/alumni/${uni.slug}`} />
+        <link rel="canonical" href={`https://www.offerloop.ai/alumni/${uni.slug}`} />
         <meta property="og:title" content={`How to Network with ${uni.name} Alumni | Offerloop`} />
         <meta property="og:description" content={`${uni.name} alumni networking guide. Email templates, outreach strategy, and tips for college students.`} />
-        <meta property="og:url" content={`https://offerloop.ai/alumni/${uni.slug}`} />
+        <meta property="og:url" content={`https://www.offerloop.ai/alumni/${uni.slug}`} />
         <meta property="og:type" content="article" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={`How to Network with ${uni.name} Alumni | Offerloop`} />
+        <meta name="twitter:description" content={`${uni.name} alumni networking guide. Email templates, outreach strategy, and tips for college students.`} />
         <script type="application/ld+json">{JSON.stringify({
           "@context": "https://schema.org",
           "@type": "FAQPage",
@@ -261,7 +264,7 @@ const AlumniGuide = ({ university: uni }: Props) => {
       {/* Footer */}
       <footer className="py-10 px-6" style={{ borderTop: '1px solid #E2E8F0' }}>
         <div className="flex flex-col md:flex-row justify-between items-center gap-4" style={{ maxWidth: '1100px', margin: '0 auto' }}>
-          <p className="text-sm" style={{ color: '#94A3B8' }}>&copy; 2026 Offerloop. All rights reserved.</p>
+          <p className="text-sm" style={{ color: '#94A3B8' }}>&copy; {new Date().getFullYear()} Offerloop. All rights reserved.</p>
           <div className="flex gap-6">
             {[
               { label: 'About', path: '/about' },

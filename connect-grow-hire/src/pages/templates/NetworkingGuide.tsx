@@ -75,11 +75,14 @@ const NetworkingGuide = ({ company }: Props) => {
       <Helmet>
         <title>How to Network at {company.name} as a College Student | Offerloop</title>
         <meta name="description" content={`A complete guide to networking at ${company.name} for college students. Learn who to email, what to say, and how to prepare for coffee chats with ${company.name} employees.`} />
-        <link rel="canonical" href={`https://offerloop.ai/networking/${company.slug}`} />
+        <link rel="canonical" href={`https://www.offerloop.ai/networking/${company.slug}`} />
         <meta property="og:title" content={`How to Network at ${company.name} as a College Student | Offerloop`} />
         <meta property="og:description" content={`Networking guide for ${company.name}. Cold email templates, coffee chat prep, and step-by-step strategy for college students.`} />
-        <meta property="og:url" content={`https://offerloop.ai/networking/${company.slug}`} />
+        <meta property="og:url" content={`https://www.offerloop.ai/networking/${company.slug}`} />
         <meta property="og:type" content="article" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={`How to Network at ${company.name} as a College Student | Offerloop`} />
+        <meta name="twitter:description" content={`Networking guide for ${company.name}. Cold email templates, coffee chat prep, and step-by-step strategy for college students.`} />
         <script type="application/ld+json">{JSON.stringify({
           "@context": "https://schema.org",
           "@type": "FAQPage",
@@ -305,7 +308,7 @@ const NetworkingGuide = ({ company }: Props) => {
       {/* Footer */}
       <footer className="py-10 px-6" style={{ borderTop: '1px solid #E2E8F0' }}>
         <div className="flex flex-col md:flex-row justify-between items-center gap-4" style={{ maxWidth: '1100px', margin: '0 auto' }}>
-          <p className="text-sm" style={{ color: '#94A3B8' }}>&copy; 2026 Offerloop. All rights reserved.</p>
+          <p className="text-sm" style={{ color: '#94A3B8' }}>&copy; {new Date().getFullYear()} Offerloop. All rights reserved.</p>
           <div className="flex gap-6">
             {[
               { label: 'About', path: '/about' },
