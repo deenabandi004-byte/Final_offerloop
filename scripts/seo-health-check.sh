@@ -74,7 +74,7 @@ for path in "${URLS[@]}"; do
 
   http_code=$(curl -s -o "$tmpfile" -w "%{http_code}" -A "$UA" --max-time 30 "$url" 2>/dev/null || echo "000")
   body_size=$(wc -c < "$tmpfile" | tr -d ' ')
-  has_canonical=$(grep -ci "canonical" "$tmpfile" 2>/dev/null || echo "0")
+  has_canonical=$(grep -c "canonical" "$tmpfile" 2>/dev/null | head -1 || echo "0")
 
   rm -f "$tmpfile"
 
